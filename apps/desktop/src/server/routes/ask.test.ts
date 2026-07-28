@@ -182,7 +182,7 @@ describe("createAskRoutes", () => {
       ok: false,
       error: {
         code: "invalid_field",
-        message: "provide either to or projectPath, not both",
+        message: "to cannot be combined with projectPath or profile",
         field: "projectPath",
       },
     });
@@ -205,7 +205,7 @@ describe("createAskRoutes", () => {
       ok: false,
       error: {
         code: "missing_field",
-        message: "to or projectPath is required",
+        message: "to, projectPath, profile, runtime, or harness is required",
         field: "to",
       },
     });
@@ -214,6 +214,31 @@ describe("createAskRoutes", () => {
 });
 
 describe("ask route contract", () => {
+  test("allows a profile launch narrowed to a project", () => {
+    const parsed = parseAskApiBody({
+      projectPath: "/tmp/talkie",
+      profile: "fable",
+      body: "Review this",
+    });
+    expect(parsed).toEqual(expect.objectContaining({
+      ok: true,
+      value: expect.objectContaining({
+        projectPath: "/tmp/talkie",
+        profile: "fable",
+      }),
+    }));
+    if (parsed.ok) {
+      expect(buildScoutAskCommand({
+        payload: parsed.value,
+        senderId: "operator.main",
+        currentDirectory: "/tmp/openscout",
+      })).toEqual(expect.objectContaining({
+        projectPath: "/tmp/talkie",
+        runtimeProfile: "fable",
+      }));
+    }
+  });
+
   test("normalizes ask input without Hono state", () => {
     const payload = parseAskApiBody({
       senderId: " operator.main ",
@@ -256,6 +281,9 @@ describe("ask route contract", () => {
       to: "talkie",
       body: "Review this",
       harness: undefined,
+      model: undefined,
+      reasoningEffort: undefined,
+      runtimeLiteral: undefined,
       workspace: "new_worktree",
       session: undefined,
       channel: undefined,
@@ -268,5 +296,44 @@ describe("ask route contract", () => {
       currentDirectory: "/tmp/openscout-test",
       source: "scout-control-plane-ask",
     });
+  });
+
+  test("desugars RuntimeSpec and rejects conflicting dimensions", () => {
+    const payload = parseAskApiBody({
+      runtime: "codex/gpt-5.6-sol/xhigh",
+      body: "Review this",
+    });
+    expect(payload).toEqual({
+      ok: true,
+      value: {
+        runtime: "codex/gpt-5.6-sol/xhigh",
+        body: "Review this",
+        harness: "codex",
+        model: "gpt-5.6-sol",
+        reasoningEffort: "xhigh",
+        executionSource: {
+          harness: "literal",
+          model: "literal",
+          reasoningEffort: "literal",
+        },
+      },
+    });
+    if (!payload.ok) throw new Error("expected RuntimeSpec payload to parse");
+    expect(buildScoutAskCommand({
+      payload: payload.value,
+      senderId: "operator",
+      currentDirectory: "/tmp/openscout-test",
+    })).toEqual(expect.objectContaining({
+      harness: "codex",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "xhigh",
+      runtimeLiteral: "codex/gpt-5.6-sol/xhigh",
+    }));
+
+    expect(parseAskApiBody({
+      runtime: "codex/gpt-5.6-sol/xhigh",
+      model: "gpt-5.6-terra",
+      body: "Review this",
+    })).toEqual(expect.objectContaining({ ok: false }));
   });
 });

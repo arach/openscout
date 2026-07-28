@@ -1,5 +1,8 @@
 import {
   SCOUT_DISPATCHER_AGENT_ID,
+  createScoutExecutionResolution,
+  normalizeScoutRuntimeModel,
+  validateScoutRuntimeTuple,
   type AgentDefinition,
   type AgentEndpoint,
   type ConversationDefinition,
@@ -338,7 +341,40 @@ export class BrokerDeliveryAcceptanceService {
     await this.options.syncRegisteredLocalAgentsIfChanged("delivery");
     throwIfAborted(options.signal);
     const askedLabel = askedLabelForRouteTarget(payload);
-    const execution = executionWithRouteParams(payload);
+    const routeExecution = executionWithRouteParams(payload);
+    const normalizedModel = routeExecution?.harness && routeExecution.model
+      ? normalizeScoutRuntimeModel(routeExecution.harness, routeExecution.model)
+      : null;
+    if (normalizedModel && !normalizedModel.ok) {
+      throw new Error(`invalid_model: ${normalizedModel.error}`);
+    }
+    const execution = routeExecution
+      ? {
+          ...routeExecution,
+          ...(normalizedModel?.ok ? { model: normalizedModel.resolved } : {}),
+        }
+      : undefined;
+    const runtimeIssues = validateScoutRuntimeTuple(execution ?? {});
+    if (runtimeIssues.length > 0) {
+      const issue = runtimeIssues[0]!;
+      throw new Error(`${issue.code}: ${issue.message}`);
+    }
+    const isProfileExecution = payload.target?.kind === "runtime_profile";
+    const executionSourceFor = (dimension: "harness" | "model" | "reasoningEffort"): "profile" | "flag" => (
+      payload.executionSource?.[dimension] === "literal"
+        ? "flag"
+        : isProfileExecution && !payload.execution?.[dimension] ? "profile" : "flag"
+    );
+    const executionResolution = createScoutExecutionResolution({
+      requested: payload.execution,
+      resolved: execution,
+      source: {
+        ...(execution?.harness ? { harness: payload.executionSource?.harness ?? executionSourceFor("harness") } : {}),
+        ...(execution?.model ? { model: payload.executionSource?.model ?? executionSourceFor("model") } : {}),
+        ...(execution?.reasoningEffort ? { reasoningEffort: payload.executionSource?.reasoningEffort ?? executionSourceFor("reasoningEffort") } : {}),
+      },
+      resolvedAt: createdAt,
+    });
     const deliveryChannel = routeChannelForTarget(payload) ?? payload.channel?.trim();
     const attachments = normalizeDeliveryAttachments(payload.attachments, this.options.createId);
     const requestedTargetSessionId =
@@ -920,6 +956,7 @@ export class BrokerDeliveryAcceptanceService {
         aliasResolution,
         conversationId: conversation.id,
         messageId,
+        executionResolution,
       });
       return {
         kind: "delivery",
@@ -973,6 +1010,7 @@ export class BrokerDeliveryAcceptanceService {
       conversationId: conversation.id,
       messageId,
       ...(Object.keys(invocationExecution).length > 0 ? { execution: invocationExecution } : {}),
+      executionResolution,
       ensureAwake: payload.ensureAwake ?? true,
       stream: false,
       createdAt,
@@ -1019,6 +1057,7 @@ export class BrokerDeliveryAcceptanceService {
         messageId,
         flightId: flight.id,
         aliasResolution,
+        executionResolution,
       }),
       conversation,
       message,

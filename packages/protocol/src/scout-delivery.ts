@@ -14,6 +14,10 @@ import type {
   ScoutRouteTarget,
 } from "./scout-dispatch.js";
 import type { RouteAliasResolutionProof } from "./route-aliases.js";
+import type {
+  ScoutExecutionResolution,
+  ScoutRuntimeResolutionSource,
+} from "./runtime-execution.js";
 
 export type ScoutDeliverIntent = "tell" | "consult";
 
@@ -82,6 +86,7 @@ export interface ScoutDeliverRequest {
   speechText?: string;
   ensureAwake?: boolean;
   execution?: InvocationExecutionPreference;
+  executionSource?: Partial<Record<"harness" | "model" | "reasoningEffort", ScoutRuntimeResolutionSource>>;
   projectAgent?: ScoutProjectAgentSpec;
   labels?: string[];
   createdAt?: number;
@@ -115,6 +120,8 @@ export interface ScoutDeliveryReceipt {
   conversationId: ScoutId;
   messageId: ScoutId;
   flightId?: ScoutId;
+  /** Per-dimension requested/resolved launch truth available at acceptance. */
+  executionResolution?: ScoutExecutionResolution;
   acceptedAt: number;
   aliasResolution?: RouteAliasResolutionProof;
 }

@@ -107,6 +107,20 @@ durable agent can be backed by different sessions over time. Commands that start
 or attach a harness use "session" as their public noun and fail loudly when a
 requested harness cannot be backed by a compatible session.
 
+**RuntimeSpec.** A RuntimeSpec is an exact launch selector with fixed-position
+grammar `<harness>[/<model>[/<effort>]]`, such as
+`codex/gpt-5.6-sol/xhigh`. It is not an agent identity, alias, or session id.
+Profiles provide base values and explicit dimensions override them when the
+resulting tuple is legal. Exact runtime selection implies a fresh isolated
+session; exact continuation of `session:<id>` requires matching observed
+runtime evidence.
+
+**Execution Resolution.** An execution resolution is the durable truth record
+for one requested runtime. For harness, model, and effort it keeps the caller's
+requested value, the launch ladder's resolved value and source, and the value
+later observed from the harness. Drift is match, mismatch, or unknown. A launch
+argument is resolved intent, not evidence that the harness accepted it.
+
 **Route Alias.** A route alias is broker-owned mutable routing state pointing
 to one canonical durable agent id or one exact broker-known session. It is not
 an identity, card, actor, endpoint, or session. The scope key is owner realm +

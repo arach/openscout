@@ -77,6 +77,7 @@ function createResolver(input: {
     externalSessionId?: string | null;
     metadata?: Record<string, unknown>;
   };
+  isolatedEndpoint?: AgentEndpoint | null;
   now?: number;
 } = {}) {
   const runtime = createInMemoryControlRuntime({}, { localNodeId: "node-1" });
@@ -85,6 +86,7 @@ function createResolver(input: {
   const upsertedAgents: AgentDefinition[] = [];
   const ensuredBindings: Array<{ agentId: string; harness?: string }> = [];
   const ensuredSessionEndpoints: AgentEndpoint[] = [];
+  const isolatedInvocations: InvocationRequest[] = [];
   const resolver = new BrokerLocalEndpointResolver({
     nodeId: "node-1",
     runtime,
@@ -96,6 +98,10 @@ function createResolver(input: {
     async ensureLocalAgentBindingOnline(agentId, _nodeId, options) {
       ensuredBindings.push({ agentId, harness: options.harness });
       return input.bindings?.[agentId] ?? null;
+    },
+    async createIsolatedAgentEndpoint(invocation) {
+      isolatedInvocations.push(invocation);
+      return input.isolatedEndpoint ?? null;
     },
     async upsertActor(actor) {
       upsertedActors.push(actor);
@@ -120,6 +126,7 @@ function createResolver(input: {
     upsertedAgents,
     ensuredBindings,
     ensuredSessionEndpoints,
+    isolatedInvocations,
   };
 }
 
@@ -352,5 +359,78 @@ describe("BrokerLocalEndpointResolver", () => {
     expect(harness.upsertedActors).toEqual([actor]);
     expect(harness.upsertedAgents).toEqual([agent]);
     expect(harness.persistedEndpoints).toEqual([endpoint]);
+  });
+
+  test("spawns an isolated endpoint for an exact runtime instead of reusing a live durable endpoint", async () => {
+    const isolatedEndpoint = testEndpoint({
+      id: "isolated-endpoint",
+      sessionId: "isolated-session",
+      metadata: { isolatedExecution: true },
+    });
+    const harness = createResolver({ isolatedEndpoint });
+    await harness.runtime.upsertEndpoint(testEndpoint({
+      id: "durable-endpoint",
+      metadata: { alive: true },
+    }));
+
+    await expect(harness.resolver.resolveLocalEndpointForInvocation(testInvocation({
+      ensureAwake: true,
+      execution: { harness: "codex", model: "gpt-5.6-sol", reasoningEffort: "xhigh" },
+    }))).resolves.toEqual(isolatedEndpoint);
+    expect(harness.isolatedInvocations).toHaveLength(1);
+    expect(harness.persistedEndpoints).toEqual([isolatedEndpoint]);
+    expect(harness.ensuredBindings).toEqual([]);
+  });
+
+  test("allows an exact existing session only when every requested dimension was observed to match", async () => {
+    const harness = createResolver();
+    const endpoint = testEndpoint({
+      id: "observed-endpoint",
+      sessionId: "observed-session",
+      metadata: {
+        alive: true,
+        observedRuntime: {
+          harness: "codex",
+          model: "gpt-5.6-sol",
+          reasoningEffort: "xhigh",
+        },
+      },
+    });
+    await harness.runtime.upsertEndpoint(endpoint);
+
+    await expect(harness.resolver.resolveLocalEndpointForInvocation(testInvocation({
+      ensureAwake: true,
+      execution: {
+        harness: "codex",
+        model: "gpt-5.6-sol",
+        reasoningEffort: "xhigh",
+        targetSessionId: "observed-session",
+      },
+    }))).resolves.toEqual(endpoint);
+    expect(harness.isolatedInvocations).toEqual([]);
+  });
+
+  test("fails closed when an exact existing session is unobserved or mismatched", async () => {
+    const harness = createResolver();
+    await harness.runtime.upsertEndpoint(testEndpoint({
+      id: "unobserved-endpoint",
+      sessionId: "unobserved-session",
+      metadata: { alive: true },
+    }));
+    await harness.runtime.upsertEndpoint(testEndpoint({
+      id: "mismatched-endpoint",
+      sessionId: "mismatched-session",
+      metadata: {
+        alive: true,
+        observedRuntime: { harness: "codex", model: "gpt-5.6-terra" },
+      },
+    }));
+
+    await expect(harness.resolver.resolveLocalEndpointForInvocation(testInvocation({
+      execution: { harness: "codex", model: "gpt-5.6-sol", targetSessionId: "unobserved-session" },
+    }))).rejects.toThrow("session_runtime_unobserved");
+    await expect(harness.resolver.resolveLocalEndpointForInvocation(testInvocation({
+      execution: { harness: "codex", model: "gpt-5.6-sol", targetSessionId: "mismatched-session" },
+    }))).rejects.toThrow("session_runtime_mismatch");
   });
 });

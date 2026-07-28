@@ -75,6 +75,7 @@ struct NewSessionSurface: View {
     @State private var harnessId: String = ComposerModelHarness.catalog[0].id
     @State private var familyId: String = ComposerModelHarness.catalog[0].defaultFamily.id
     @State private var effortId: String = ComposerEffortOption.defaultId
+    @State private var runtimeCatalog: RuntimeCapabilityCatalog? = ComposerRuntimeCatalogCache.load()
     /// A seed carried an explicit runtime pick — so the machine's workspace
     /// recommendation must not quietly overwrite it. Held until that seeded ask
     /// is actually submitted.
@@ -180,6 +181,15 @@ struct NewSessionSurface: View {
         ComposerEffortOption.catalog.first { $0.id == effortId } ?? ComposerEffortOption.catalog[0]
     }
 
+    private var catalogHarnesses: [ComposerModelHarness] {
+        let fetched = runtimeCatalog?.composerHarnesses ?? []
+        return fetched.isEmpty ? ComposerModelHarness.catalog : fetched
+    }
+
+    private var catalogEfforts: [ComposerEffortOption] {
+        runtimeCatalog?.composerEfforts ?? ComposerEffortOption.catalog
+    }
+
     /// One selectable harness in the picker — sourced from the connected machine
     /// when known, else the curated fallback.
     private struct HarnessChoice: Identifiable, Hashable {
@@ -207,7 +217,7 @@ struct NewSessionSurface: View {
                 .map { HarnessChoice(id: $0.harness, label: harnessLabel($0.harness), readiness: $0.readiness) }
                 .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
         }
-        return ComposerModelHarness.catalog.map { HarnessChoice(id: $0.id, label: $0.label, readiness: nil) }
+        return catalogHarnesses.map { HarnessChoice(id: $0.id, label: $0.label, readiness: nil) }
     }
 
     /// Friendly label for a harness id — the curated label when we have one, else
@@ -227,13 +237,13 @@ struct NewSessionSurface: View {
     /// stays startable). Offline, `harnessChoices` IS the curated catalog.
     private var pickerHarnesses: [ComposerModelHarness] {
         let choices = harnessChoices
-        var plates = ComposerModelHarness.catalog.filter { entry in
+        var plates = catalogHarnesses.filter { entry in
             choices.contains { $0.id == entry.id }
         }
         for choice in choices where !plates.contains(where: { $0.id == choice.id }) {
             plates.append(.fallback(id: choice.id, label: choice.label))
         }
-        return plates.isEmpty ? ComposerModelHarness.catalog : plates
+        return plates.isEmpty ? catalogHarnesses : plates
     }
 
     /// The picked model family — resolves through the same tolerant path the
@@ -292,6 +302,7 @@ struct NewSessionSurface: View {
         .scoutRuntimePicker(
             isPresented: $showModelPicker,
             harnesses: pickerHarnesses,
+            efforts: catalogEfforts,
             harnessId: $harnessId,
             familyId: $familyId,
             effortId: $effortId
@@ -337,7 +348,9 @@ struct NewSessionSurface: View {
             .task(id: "\(reloadToken)|\(isActive)") {
                 guard isActive else { return }
                 await entrance.reveal(when: isActive, animated: !reduceMotion)
+                async let catalogRefresh: Void = refreshRuntimeCatalog()
                 await loadWorkspaces()
+                await catalogRefresh
             }
         #if DEBUG
         // Sibling of Home's `SCOUT_OPEN_RUNTIME`: the open picker is a
@@ -355,17 +368,37 @@ struct NewSessionSurface: View {
         }
         #endif
         // When the project changes, adopt that machine workspace's harnesses.
-        .onChange(of: projectPath) { _, _ in applyWorkspaceDefault() }
+        .onChange(of: projectPath) { _, _ in
+            applyWorkspaceDefault()
+            if isActive {
+                Task { await refreshRuntimeCatalog() }
+            }
+        }
         // Picking a different Mac re-reads its workspaces (the project list + the
         // machine-backed harnesses are per-Mac); drop the old project so the load
         // re-picks a valid default on that host.
         .onChange(of: selectedMachineId) { _, _ in
             projectPath = ""
-            if isActive { Task { await loadWorkspaces() } }
+            if isActive {
+                Task {
+                    async let catalogRefresh: Void = refreshRuntimeCatalog()
+                    await loadWorkspaces()
+                    await catalogRefresh
+                }
+            }
         }
     }
 
     // MARK: - Machine-backed harnesses
+
+    private func refreshRuntimeCatalog() async {
+        let project = trimmedProjectPath.isEmpty ? nil : trimmedProjectPath
+        guard let fetched = try? await activeClient.runtimeCapabilities(projectRoot: project),
+              fetched.schemaVersion == "openscout.runtime-capabilities.v1"
+        else { return }
+        runtimeCatalog = fetched
+        ComposerRuntimeCatalogCache.save(fetched)
+    }
 
     private func loadWorkspaces() async {
         isLoadingWorkspaces = workspaces.isEmpty

@@ -18,6 +18,7 @@ import type {
   ScoutCallerContext,
   ScoutRouteTarget,
 } from "@openscout/protocol";
+import { SCOUT_RESERVED_AGENT_NAMES } from "@openscout/protocol";
 
 import {
   endpointMatchesTargetSession,
@@ -35,10 +36,7 @@ import {
 } from "./scout-dispatcher.js";
 
 export const ROUTE_ALIAS_NAME_PATTERN = /^[a-z][a-z0-9-]{0,62}$/;
-export const RESERVED_ROUTE_ALIASES = new Set([
-  "scout", "openscout", "scoutbot", "operator", "shared", "broadcast",
-  "agent", "alias", "target", "session", "ref", "id", "project", "channel",
-]);
+export const RESERVED_ROUTE_ALIASES = new Set(SCOUT_RESERVED_AGENT_NAMES);
 
 export class BrokerRouteAliasError extends Error {
   constructor(
@@ -52,8 +50,12 @@ export class BrokerRouteAliasError extends Error {
 }
 
 export function normalizeRouteAlias(value: string): string {
-  const alias = value.trim().toLowerCase();
-  if (!ROUTE_ALIAS_NAME_PATTERN.test(alias) || RESERVED_ROUTE_ALIASES.has(alias)) {
+  const alias = value.trim();
+  if (
+    alias !== alias.toLowerCase()
+    || !ROUTE_ALIAS_NAME_PATTERN.test(alias)
+    || RESERVED_ROUTE_ALIASES.has(alias)
+  ) {
     throw new BrokerRouteAliasError(
       "invalid_alias",
       `invalid route alias "${value}"; use ^[a-z][a-z0-9-]{0,62}$ and avoid reserved route words`,

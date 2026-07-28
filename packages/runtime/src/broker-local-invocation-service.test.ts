@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
-import type {
-  ActorIdentity,
-  AgentDefinition,
-  AgentEndpoint,
-  ConversationDefinition,
-  FlightRecord,
-  InvocationRequest,
-  MessageRecord,
+import {
+  createScoutExecutionResolution,
+  type ActorIdentity,
+  type AgentDefinition,
+  type AgentEndpoint,
+  type ConversationDefinition,
+  type FlightRecord,
+  type InvocationRequest,
+  type MessageRecord,
 } from "@openscout/protocol";
 
 import { applyInvocationStatusPatch } from "./broker-local-invocation-helpers.js";
@@ -369,6 +370,47 @@ describe("BrokerLocalInvocationService", () => {
         flightId: "flight-1",
         provenance: "test",
         responderTransport: "pairing_bridge",
+      }),
+    }));
+  });
+
+  test("promotes harness-observed runtime into the durable dispatch trace", async () => {
+    const endpoint = testEndpoint({
+      harness: "codex",
+      transport: "codex_app_server",
+    });
+    const harness = createHarness({
+      endpoint,
+      invokeResult: {
+        output: "done",
+        metadata: {
+          observedRuntime: {
+            harness: "codex",
+            model: "gpt-5.6-sol",
+            reasoningEffort: "high",
+          },
+          observedRuntimeAt: 19_500,
+        },
+      },
+      now: 20_000,
+    });
+    const executionResolution = createScoutExecutionResolution({
+      requested: { harness: "codex", model: "5.6", reasoningEffort: "xhigh" },
+      resolved: { harness: "codex", model: "gpt-5.6-sol", reasoningEffort: "xhigh" },
+      source: { harness: "flag", model: "flag", reasoningEffort: "flag" },
+      resolvedAt: 10_000,
+    });
+
+    harness.seedFlight(testFlight());
+    await harness.service.execute(testInvocation({ executionResolution }));
+
+    const completed = harness.persistedFlights.at(-1);
+    expect(completed?.metadata?.dispatchAck).toEqual(expect.objectContaining({
+      executionResolution: expect.objectContaining({
+        observedAt: 19_500,
+        harness: expect.objectContaining({ observed: "codex", drift: "match" }),
+        model: expect.objectContaining({ observed: "gpt-5.6-sol", drift: "match" }),
+        reasoningEffort: expect.objectContaining({ observed: "high", drift: "mismatch" }),
       }),
     }));
   });

@@ -1,5 +1,6 @@
 import {
   buildScoutReturnAddress,
+  runtimeDimensionResolution,
   type ActorIdentity,
   type AgentDefinition,
   type AgentEndpoint,
@@ -7,6 +8,7 @@ import {
   type FlightRecord,
   type InvocationRequest,
   type MessageRecord,
+  type ScoutExecutionResolution,
 } from "@openscout/protocol";
 
 import {
@@ -15,6 +17,7 @@ import {
   type A2AHttpInvocationResult,
 } from "./a2a-http-endpoint.js";
 import { latestEndpointForAgent } from "./broker-endpoint-selection.js";
+import { observedRuntimeForEndpoint } from "./broker-local-endpoint-resolver.js";
 import {
   clearedTransientStatusMetadata,
   dispatchAckStrategyForEndpoint,
@@ -70,6 +73,37 @@ type InvocationExecutorResult =
   | PairingInvocationResult
   | A2AHttpInvocationResult
   | LocalAgentInvocationResult;
+
+function executionResolutionWithObservedEndpoint(
+  resolution: ScoutExecutionResolution | null | undefined,
+  endpoint: AgentEndpoint,
+  fallbackObservedAt: number,
+): ScoutExecutionResolution | null {
+  if (!resolution) {
+    return null;
+  }
+  const observed = observedRuntimeForEndpoint(endpoint);
+  const hasObserved = Boolean(observed.harness || observed.model || observed.reasoningEffort);
+  const metadataObservedAt = endpoint.metadata?.observedRuntimeAt;
+  const observedAt = typeof metadataObservedAt === "number" && Number.isFinite(metadataObservedAt)
+    ? metadataObservedAt
+    : fallbackObservedAt;
+  const dimension = (key: "harness" | "model" | "reasoningEffort") => runtimeDimensionResolution({
+    requested: resolution[key].requested,
+    resolved: resolution[key].resolved,
+    source: resolution[key].source,
+    observed: observed[key] ?? resolution[key].observed,
+    observedAt: observed[key] ? observedAt : resolution[key].observedAt,
+  });
+  return {
+    ...resolution,
+    harness: dimension("harness"),
+    model: dimension("model"),
+    reasoningEffort: dimension("reasoningEffort"),
+    ...(endpoint.sessionId ? { sessionId: endpoint.sessionId } : {}),
+    ...(hasObserved ? { observedAt } : {}),
+  };
+}
 
 function invocationWithOriginatingMessageAttachments(
   invocation: InvocationRequest,
@@ -283,6 +317,11 @@ export class BrokerLocalInvocationService {
       harness: runningEndpoint.harness,
       sessionId: runningEndpoint.sessionId ?? null,
       nodeId: runningEndpoint.nodeId,
+      executionResolution: executionResolutionWithObservedEndpoint(
+        invocation.executionResolution,
+        runningEndpoint,
+        this.now(),
+      ),
       acknowledgedAt: this.now(),
     };
     const aliasSummary = sessionAliasAckSummary({
@@ -308,6 +347,14 @@ export class BrokerLocalInvocationService {
         invocationWithOriginatingMessageAttachments(invocation, this.options.runtime),
       );
       const completedEndpoint = this.completedEndpoint(runningEndpoint, result);
+      const completedDispatchAck = {
+        ...dispatchAck,
+        executionResolution: executionResolutionWithObservedEndpoint(
+          invocation.executionResolution,
+          completedEndpoint,
+          this.now(),
+        ),
+      };
 
       if (invocation.action === "wake") {
         await this.options.transitionInvocation(invocation.id, {
@@ -315,6 +362,7 @@ export class BrokerLocalInvocationService {
           summary: `${target.displayName} received the message.`,
           output: result.output,
           completedAt: this.now(),
+          metadata: { dispatchAck: completedDispatchAck },
         });
 
         await this.options.persistEndpoint({
@@ -347,6 +395,7 @@ export class BrokerLocalInvocationService {
           completedAt: this.now(),
           metadata: {
             failureStage: "empty_reply",
+            dispatchAck: completedDispatchAck,
           },
         });
 
@@ -369,6 +418,7 @@ export class BrokerLocalInvocationService {
         summary: `${target.displayName} replied.`,
         output,
         completedAt: this.now(),
+        metadata: { dispatchAck: completedDispatchAck },
       });
 
       await this.options.persistEndpoint({

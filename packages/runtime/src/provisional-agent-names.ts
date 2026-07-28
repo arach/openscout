@@ -1,9 +1,11 @@
 import {
   allocateProvisionalAgentName,
+  assertScoutAgentNameForWrite,
   collectOccupiedDefinitionIds,
   definitionIdFromOccupancyKey,
   normalizeAgentSelectorSegment,
   provisionalAgentNameStartIndexForSeed,
+  SCOUT_RESERVED_AGENT_NAMES,
   type ProvisionalAgentNameSeedPart,
 } from "@openscout/protocol";
 
@@ -43,16 +45,14 @@ export function resolveProvisionalAgentName(input: {
 }): string {
   const explicit = input.explicitName?.trim();
   if (explicit) {
-    const normalized = normalizeAgentSelectorSegment(explicit);
-    if (!normalized) {
-      throw new Error(`Invalid agent name "${explicit}".`);
-    }
-    return normalized;
+    return assertScoutAgentNameForWrite(explicit);
   }
   const pool = loadProvisionalAgentNamePool();
+  const occupied = new Set(input.occupied);
+  for (const reserved of SCOUT_RESERVED_AGENT_NAMES) occupied.add(reserved);
   const startIndex = input.startIndex
     ?? (input.seedParts ? provisionalAgentNameStartIndexForSeed(input.seedParts, pool) : undefined);
-  return allocateProvisionalAgentName(input.occupied, {
+  return allocateProvisionalAgentName(occupied, {
     startIndex,
     pool,
   });
@@ -84,6 +84,7 @@ export function resolvePrefixedProvisionalAgentName(input: {
   const occupied = input.occupied instanceof Set
     ? new Set(input.occupied)
     : collectOccupiedDefinitionIds(input.occupied);
+  for (const reserved of SCOUT_RESERVED_AGENT_NAMES) occupied.add(reserved);
   const prefixed = `${prefix}-`;
   for (const name of Array.from(occupied)) {
     if (name.startsWith(prefixed)) {

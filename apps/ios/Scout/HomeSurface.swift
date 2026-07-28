@@ -101,6 +101,7 @@ struct HomeSurface: View {
     @State private var entryHarnessId = ComposerModelHarness.catalog[0].id
     @State private var entryFamilyId = ComposerModelHarness.catalog[0].defaultFamily.id
     @State private var entryEffortId = ComposerEffortOption.defaultId
+    @State private var entryRuntimeCatalog: RuntimeCapabilityCatalog? = ComposerRuntimeCatalogCache.load()
     @State private var showEntryModelPicker = false
     /// Entry only: attachments staged on the front door, handed to New with the
     /// prompt (the paperclip is real — see `NewSessionSeed`).
@@ -296,7 +297,8 @@ struct HomeSurface: View {
         // that container is the coordinate space the chip's anchor is read in.
         .scoutRuntimePicker(
             isPresented: $showEntryModelPicker,
-            harnesses: ComposerModelHarness.catalog,
+            harnesses: entryRuntimeHarnesses,
+            efforts: entryRuntimeEfforts,
             harnessId: $entryHarnessId,
             familyId: $entryFamilyId,
             effortId: $entryEffortId
@@ -563,8 +565,17 @@ struct HomeSurface: View {
 
     // MARK: Entry runtime
 
+    private var entryRuntimeHarnesses: [ComposerModelHarness] {
+        let fetched = entryRuntimeCatalog?.composerHarnesses ?? []
+        return fetched.isEmpty ? ComposerModelHarness.catalog : fetched
+    }
+
+    private var entryRuntimeEfforts: [ComposerEffortOption] {
+        entryRuntimeCatalog?.composerEfforts ?? ComposerEffortOption.catalog
+    }
+
     private var entryHarness: ComposerModelHarness {
-        ComposerModelHarness.catalog.first { $0.id == entryHarnessId } ?? ComposerModelHarness.catalog[0]
+        entryRuntimeHarnesses.first { $0.id == entryHarnessId } ?? entryRuntimeHarnesses[0]
     }
 
     private var entryFamily: ComposerModelFamily {
@@ -1204,6 +1215,7 @@ struct HomeSurface: View {
         var sawAgentRead = false
         var sawActivityRead = false
         var sawConversationRead = false
+        var freshRuntimeCatalog: RuntimeCapabilityCatalog?
         // The whisper lane is Entry's only extra read; the dashboard never
         // pays for it.
         let readsConversations = homeStyle == .entry
@@ -1228,9 +1240,28 @@ struct HomeSurface: View {
                     HomeConversation(id: "\(machine.id)::\(conversation.id)", client: client, conversation: conversation)
                 })
             }
+            if readsConversations, freshRuntimeCatalog == nil,
+               let catalog = try? await client.runtimeCapabilities(projectRoot: nil),
+               catalog.schemaVersion == "openscout.runtime-capabilities.v1" {
+                freshRuntimeCatalog = catalog
+            }
         }
 
         guard !Task.isCancelled, loadKey == reloadKey else { return }
+
+        if let freshRuntimeCatalog {
+            entryRuntimeCatalog = freshRuntimeCatalog
+            ComposerRuntimeCatalogCache.save(freshRuntimeCatalog)
+            let harnesses = freshRuntimeCatalog.composerHarnesses
+            if let selectedHarness = harnesses.first(where: { $0.id == entryHarnessId }) {
+                if !selectedHarness.families.contains(where: { $0.id == entryFamilyId }) {
+                    entryFamilyId = selectedHarness.defaultFamily.id
+                }
+            } else if let firstHarness = harnesses.first {
+                entryHarnessId = firstHarness.id
+                entryFamilyId = firstHarness.defaultFamily.id
+            }
+        }
 
         if sawAgentRead {
             agents = freshAgents

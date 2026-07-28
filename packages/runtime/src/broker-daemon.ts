@@ -137,6 +137,7 @@ import { BrokerManagedSessionHttpService } from "./broker-managed-session-http-s
 import { BrokerLocalEndpointResolver } from "./broker-local-endpoint-resolver.js";
 import { BrokerLocalInvocationService } from "./broker-local-invocation-service.js";
 import {
+  buildCardlessSessionEndpoint,
   cardlessSessionDisplayName,
   registerCardlessSession,
   resolveCardlessSessionSpawnTarget,
@@ -977,6 +978,7 @@ const localEndpointResolver = new BrokerLocalEndpointResolver({
   isLocalAgentEndpointAliveAsync,
   ensureLocalSessionEndpointOnline,
   ensureLocalAgentBindingOnline,
+  createIsolatedAgentEndpoint: createIsolatedAgentEndpointForInvocation,
   upsertActor: upsertActorDurably,
   upsertAgent: upsertAgentDurably,
   persistEndpoint,
@@ -1159,6 +1161,72 @@ function launchArgsForCardlessSession(
     ];
   }
   return [];
+}
+
+async function createIsolatedAgentEndpointForInvocation(
+  invocation: InvocationRequest,
+): Promise<AgentEndpoint | null> {
+  const agent = runtime.agent(invocation.targetAgentId);
+  // Session-kind targets have no AgentDefinition. They already own an
+  // isolated endpoint, so the resolver may continue with that endpoint.
+  if (!agent) return null;
+
+  const requestedHarness = invocation.execution?.harness;
+  const candidateEndpoints = runtime.endpointsForAgent(agent.id, {
+    nodeId,
+    ...(requestedHarness ? { harness: requestedHarness } : {}),
+  });
+  const baseEndpoint = candidateEndpoints[0]
+    ?? runtime.endpointsForAgent(agent.id, { nodeId })[0]
+    ?? null;
+  const projectRoot = brokerTargetProjectRoot(agent, baseEndpoint);
+  if (!projectRoot) {
+    throw new Error(
+      `isolated_runtime_unavailable: ${brokerTargetLabel(agent)} has no project root from which to spawn an isolated session`,
+    );
+  }
+
+  const { harness, transport } = resolveCardlessSessionSpawnTarget(
+    requestedHarness ?? baseEndpoint?.harness,
+    { claudeTransport: process.env.OPENSCOUT_CLAUDE_CARDLESS_TRANSPORT },
+  );
+  const sessionId = createRuntimeId("session");
+  const launchArgs = launchArgsForCardlessSession(harness, invocation.execution);
+  const definitionId = agent.definitionId || agent.id;
+  const isolatedAgentName = `${definitionId}-isolated-${sessionId.slice(-8)}`;
+  const sessionEndpoint = buildCardlessSessionEndpoint({
+    sessionId,
+    handle: isolatedAgentName,
+    displayName: `${agent.displayName} (isolated)`,
+    transport,
+    harness,
+    cwd: projectRoot,
+    projectRoot,
+    nodeId,
+    ...(invocation.execution?.model?.trim() ? { model: invocation.execution.model.trim() } : {}),
+    ...(invocation.execution?.reasoningEffort?.trim()
+      ? { reasoningEffort: invocation.execution.reasoningEffort.trim() }
+      : {}),
+    ...(launchArgs.length > 0 ? { launchArgs } : {}),
+    viaCard: definitionId,
+  });
+  return {
+    ...sessionEndpoint,
+    id: `endpoint.${agent.id}.${sessionId}.${nodeId}.${transport}`,
+    agentId: agent.id,
+    metadata: {
+      ...(sessionEndpoint.metadata ?? {}),
+      source: "scout-isolated-agent-session",
+      cardless: false,
+      isolatedExecution: true,
+      definitionId,
+      agentName: isolatedAgentName,
+      runtimeInstanceId: sessionId,
+      ...(invocation.executionResolution
+        ? { executionResolution: invocation.executionResolution }
+        : {}),
+    },
+  };
 }
 
 async function ensureBrokerActorForDelivery(actorId: string): Promise<void> {

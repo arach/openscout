@@ -2,8 +2,14 @@ import type {
   ScoutAskCommand,
   ScoutAskReceipt,
 } from "../../core/broker/ask-types.ts";
+import {
+  parseScoutRuntimeSpec,
+  SCOUT_LAUNCHABLE_HARNESSES,
+  SCOUT_REASONING_EFFORTS,
+  SCOUT_RESERVED_RUNTIME_PROFILE_IDS,
+} from "@openscout/protocol";
 
-const ASK_HARNESS_VALUES = ["claude", "codex", "pi"] as const;
+const ASK_HARNESS_VALUES = SCOUT_LAUNCHABLE_HARNESSES;
 const ASK_WORKSPACE_VALUES = ["same", "new_worktree"] as const;
 const ASK_SESSION_VALUES = ["reuse", "new"] as const;
 const ASK_WORK_ITEM_PRIORITY_VALUES = [
@@ -27,8 +33,13 @@ export type AskApiBody = {
   senderId?: string;
   to?: string;
   projectPath?: string;
+  runtime?: string;
+  profile?: string;
   body: string;
   harness?: ScoutAskCommand["harness"];
+  model?: string;
+  reasoningEffort?: string;
+  executionSource?: ScoutAskCommand["executionSource"];
   workspace?: ScoutAskCommand["workspace"];
   session?: ScoutAskCommand["session"];
   channel?: string;
@@ -263,17 +274,21 @@ export function parseAskApiBody(
   if (!to.ok) return to;
   const projectPath = optionalString(value, "projectPath");
   if (!projectPath.ok) return projectPath;
-  if (!to.value && !projectPath.value) {
+  const runtime = optionalString(value, "runtime");
+  if (!runtime.ok) return runtime;
+  const profile = optionalEnum(value, "profile", SCOUT_RESERVED_RUNTIME_PROFILE_IDS);
+  if (!profile.ok) return profile;
+  if (!to.value && !projectPath.value && !profile.value && !runtime.value && value.harness === undefined) {
     return askApiFailure(
       "missing_field",
-      "to or projectPath is required",
+      "to, projectPath, profile, runtime, or harness is required",
       "to",
     );
   }
-  if (to.value && projectPath.value) {
+  if (to.value && (projectPath.value || profile.value)) {
     return askApiFailure(
       "invalid_field",
-      "provide either to or projectPath, not both",
+      "to cannot be combined with projectPath or profile",
       "projectPath",
     );
   }
@@ -283,6 +298,28 @@ export function parseAskApiBody(
 
   const harness = optionalEnum(value, "harness", ASK_HARNESS_VALUES);
   if (!harness.ok) return harness;
+  const model = optionalString(value, "model");
+  if (!model.ok) return model;
+  const reasoningEffort = optionalEnum(value, "reasoningEffort", SCOUT_REASONING_EFFORTS);
+  if (!reasoningEffort.ok) return reasoningEffort;
+  const parsedRuntime = runtime.value ? parseScoutRuntimeSpec(runtime.value) : null;
+  if (parsedRuntime && !parsedRuntime.ok) {
+    return askApiFailure("unsupported_value", `runtime_spec_invalid: ${parsedRuntime.error}`, "runtime");
+  }
+  const runtimeValue = parsedRuntime?.ok ? parsedRuntime.value : undefined;
+  for (const [field, explicit, literal] of [
+    ["harness", harness.value, runtimeValue?.harness],
+    ["model", model.value, runtimeValue?.model],
+    ["reasoningEffort", reasoningEffort.value, runtimeValue?.reasoningEffort],
+  ] as const) {
+    if (explicit && literal && explicit.toLowerCase() !== literal.toLowerCase()) {
+      return askApiFailure(
+        "unsupported_value",
+        `runtime_conflict: conflicting runtime ${field}: explicit ${explicit} and literal ${literal}`,
+        field,
+      );
+    }
+  }
 
   const workspace = optionalEnum(
     value,
@@ -307,8 +344,27 @@ export function parseAskApiBody(
     ...(senderId.value ? { senderId: senderId.value } : {}),
     ...(to.value ? { to: to.value } : {}),
     ...(projectPath.value ? { projectPath: projectPath.value } : {}),
+    ...(runtime.value ? { runtime: runtime.value } : {}),
+    ...(profile.value ? { profile: profile.value } : {}),
     body: body.value,
-    ...(harness.value ? { harness: harness.value } : {}),
+    ...(harness.value ?? runtimeValue?.harness ? { harness: harness.value ?? runtimeValue!.harness } : {}),
+    ...(model.value ?? runtimeValue?.model ? { model: model.value ?? runtimeValue!.model } : {}),
+    ...(reasoningEffort.value ?? runtimeValue?.reasoningEffort
+      ? { reasoningEffort: reasoningEffort.value ?? runtimeValue!.reasoningEffort }
+      : {}),
+    ...((runtimeValue || harness.value || model.value || reasoningEffort.value) ? {
+      executionSource: {
+        ...(harness.value ?? runtimeValue?.harness
+          ? { harness: harness.value ? "flag" as const : "literal" as const }
+          : {}),
+        ...(model.value ?? runtimeValue?.model
+          ? { model: model.value ? "flag" as const : "literal" as const }
+          : {}),
+        ...(reasoningEffort.value ?? runtimeValue?.reasoningEffort
+          ? { reasoningEffort: reasoningEffort.value ? "flag" as const : "literal" as const }
+          : {}),
+      },
+    } : {}),
     ...(workspace.value ? { workspace: workspace.value } : {}),
     ...(session.value ? { session: session.value } : {}),
     ...(channel.value ? { channel: channel.value } : {}),
@@ -324,6 +380,11 @@ export function buildScoutAskCommand({
 }: BuildScoutAskCommandParams): ScoutAskCommand {
   const target = payload.to
     ? { to: payload.to }
+    : payload.profile
+      ? {
+          runtimeProfile: payload.profile,
+          ...(payload.projectPath ? { projectPath: payload.projectPath } : {}),
+        }
     : payload.projectPath
       ? { projectPath: payload.projectPath }
       : {};
@@ -332,6 +393,10 @@ export function buildScoutAskCommand({
     ...target,
     body: payload.body,
     harness: payload.harness,
+    model: payload.model,
+    reasoningEffort: payload.reasoningEffort,
+    runtimeLiteral: payload.runtime,
+    executionSource: payload.executionSource,
     workspace: payload.workspace,
     session: payload.session,
     channel: payload.channel,

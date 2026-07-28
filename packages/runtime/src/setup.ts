@@ -10,6 +10,7 @@ import { parse as parseToml } from "smol-toml";
 import {
   BUILT_IN_AGENT_DEFINITION_IDS,
   formatAgentSelector,
+  isScoutReservedAgentName,
   parseAgentSelector,
   normalizeAgentSelectorSegment,
   normalizeScoutPermissionProfile,
@@ -595,6 +596,22 @@ function uniquePaths(values: Iterable<string>): string[] {
 
 function normalizeAgentId(value: string): string {
   return normalizeAgentSelectorSegment(value);
+}
+
+function inferredAgentId(value: string): string {
+  const normalized = normalizeAgentId(value);
+  return isScoutReservedAgentName(normalized) ? `${normalized}-agent` : normalized;
+}
+
+function existingAgentId(value: string, source: string): string {
+  const normalized = normalizeAgentId(value);
+  if (isScoutReservedAgentName(normalized)) {
+    throw new Error(
+      `reserved_name_existing: ${source} defines reserved agent name "${normalized}"; `
+        + `rename it to a non-runtime name such as "${normalized}-agent" before starting Scout`,
+    );
+  }
+  return normalized;
 }
 
 function normalizeManagedHarness(
@@ -2340,7 +2357,7 @@ export async function findNearestProjectRoot(startDirectory: string): Promise<st
 
 function defaultProjectConfig(projectRoot: string, settings: OpenScoutSettings, preferredHarness: AgentHarness): OpenScoutProjectConfig {
   const projectName = basename(projectRoot);
-  const definitionId = normalizeAgentId(projectName);
+  const definitionId = inferredAgentId(projectName);
   const relativeRoot = relative(projectRoot, projectRoot) || ".";
 
   return {
@@ -2812,12 +2829,11 @@ async function resolveManifestBackedAgent(
 ): Promise<ResolvedRelayAgentConfig> {
   const resolvedProjectRoot = resolveProjectRootFromConfig(projectRoot, config);
   const projectName = config.project.name?.trim() || titleCase(config.project.id || basename(resolvedProjectRoot));
-  const fallbackDefinitionId = normalizeAgentId(config.project.id || basename(resolvedProjectRoot));
-  const definitionId = normalizeAgentId(
-    config.agent?.id
-      || override?.definitionId
-      || fallbackDefinitionId,
-  );
+  const fallbackDefinitionId = inferredAgentId(config.project.id || basename(resolvedProjectRoot));
+  const explicitDefinitionId = config.agent?.id || override?.definitionId;
+  const definitionId = explicitDefinitionId
+    ? existingAgentId(explicitDefinitionId, projectConfigPath(projectRoot))
+    : fallbackDefinitionId;
   const detectedHarness = await detectPreferredHarness(resolvedProjectRoot, settings.agents.defaultHarness);
   const runtimeDefaults = config.agent?.runtime?.defaults;
   const defaultHarness = normalizeManagedHarness(
@@ -2866,7 +2882,9 @@ async function resolveInferredAgent(
   override: RelayAgentOverride | undefined,
 ): Promise<ResolvedRelayAgentConfig> {
   const projectName = basename(projectRoot);
-  const definitionId = normalizeAgentId(override?.definitionId?.trim() || projectName);
+  const definitionId = override?.definitionId?.trim()
+    ? existingAgentId(override.definitionId, "relay agent registry")
+    : inferredAgentId(projectName);
   const detectedHarness = await detectPreferredHarness(projectRoot, settings.agents.defaultHarness);
   const defaultHarness = normalizeManagedHarness(
     override?.defaultHarness ?? override?.runtime?.harness,

@@ -107,7 +107,7 @@ describe("BrokerRouteAliasService", () => {
     const { snapshot, service } = setup();
     const beforeAgents = Object.keys(snapshot.agents);
     const binding = service.set({
-      alias: " Review ",
+      alias: "review",
       target: { kind: "agent_id", agentId: "agent-alpha" },
       scope: { projectRoot: PROJECT_A },
       caller: { actorId: "operator", currentDirectory: PROJECT_A },
@@ -124,6 +124,8 @@ describe("BrokerRouteAliasService", () => {
     const { service } = setup();
     expect(() => service.set({ alias: "session", target: { kind: "agent_id", agentId: "agent-alpha" }, scope: { projectRoot: PROJECT_A } }))
       .toThrow(BrokerRouteAliasError);
+    expect(() => service.set({ alias: "Review", target: { kind: "agent_id", agentId: "agent-alpha" }, scope: { projectRoot: PROJECT_A } }))
+      .toThrow(/invalid route alias/i);
     expect(() => service.set({ alias: "alpha", target: { kind: "agent_id", agentId: "agent-alpha" }, scope: { projectRoot: PROJECT_A } }))
       .toThrow(/collides with native agent/i);
     expect(() => service.set({ alias: "review", target: { kind: "route_alias", alias: "other" }, scope: { projectRoot: PROJECT_A } }))

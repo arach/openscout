@@ -1,4 +1,9 @@
 import { normalizeAgentSelectorSegment } from "./agent-identity.js";
+import {
+  normalizeScoutReasoningEffort,
+  SCOUT_REASONING_EFFORTS,
+  type ScoutReasoningEffort,
+} from "./runtime-execution.js";
 
 /**
  * Reserved natural-language profile names. Their execution definitions stay
@@ -14,19 +19,9 @@ export const SCOUT_RESERVED_RUNTIME_PROFILE_IDS = [
 export type ScoutReservedRuntimeProfileId =
   (typeof SCOUT_RESERVED_RUNTIME_PROFILE_IDS)[number];
 
-export const SCOUT_RUNTIME_PROFILE_REASONING_EFFORTS = [
-  "none",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-  "ultra",
-] as const;
+export const SCOUT_RUNTIME_PROFILE_REASONING_EFFORTS = SCOUT_REASONING_EFFORTS;
 
-export type ScoutRuntimeProfileReasoningEffort =
-  (typeof SCOUT_RUNTIME_PROFILE_REASONING_EFFORTS)[number];
+export type ScoutRuntimeProfileReasoningEffort = ScoutReasoningEffort;
 
 export function normalizeReservedRuntimeProfileId(
   value: string,
@@ -38,6 +33,5 @@ export function normalizeReservedRuntimeProfileId(
 export function normalizeRuntimeProfileReasoningEffort(
   value: string,
 ): ScoutRuntimeProfileReasoningEffort | null {
-  const normalized = normalizeAgentSelectorSegment(value);
-  return SCOUT_RUNTIME_PROFILE_REASONING_EFFORTS.find((effort) => effort === normalized) ?? null;
+  return normalizeScoutReasoningEffort(normalizeAgentSelectorSegment(value));
 }

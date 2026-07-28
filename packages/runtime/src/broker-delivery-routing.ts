@@ -80,10 +80,29 @@ export function supportedRouteModel(value: string | undefined): string | undefin
 
 export function executionWithRouteParams(payload: ScoutDeliverRequest): InvocationRequest["execution"] | undefined {
   if (payload.target?.kind === "runtime_profile") {
-    return executionForBrokerRuntimeProfile({
+    const profileExecution = executionForBrokerRuntimeProfile({
       profileId: payload.target.profile,
       reasoningEffort: payload.target.reasoningEffort,
-    }) ?? payload.execution;
+    });
+    if (!profileExecution) {
+      return payload.execution;
+    }
+    if (
+      payload.execution?.harness
+      && profileExecution.harness
+      && payload.execution.harness !== profileExecution.harness
+    ) {
+      throw new Error(
+        `runtime_conflict: runtime profile "${payload.target.profile}" requires harness "${profileExecution.harness}"; `
+          + `explicit harness "${payload.execution.harness}" conflicts`,
+      );
+    }
+    return {
+      ...profileExecution,
+      ...(payload.execution ?? {}),
+      harness: profileExecution.harness,
+      session: "new",
+    };
   }
   const label = agentLabelForRouteParams(payload);
   const identity = label
@@ -175,6 +194,7 @@ export function buildDeliveryReceipt(input: {
   conversationId: string;
   messageId: string;
   flightId?: string;
+  executionResolution?: ScoutDeliveryReceipt["executionResolution"];
   aliasResolution?: RouteAliasResolutionProof;
 }): ScoutDeliveryReceipt {
   return {
@@ -190,6 +210,7 @@ export function buildDeliveryReceipt(input: {
     conversationId: input.conversationId,
     messageId: input.messageId,
     ...(input.flightId ? { flightId: input.flightId } : {}),
+    ...(input.executionResolution ? { executionResolution: input.executionResolution } : {}),
     ...(input.aliasResolution ? { aliasResolution: input.aliasResolution } : {}),
     acceptedAt: Date.now(),
   };

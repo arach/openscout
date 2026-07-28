@@ -2044,6 +2044,8 @@ export async function sendScoutMessage(input: {
   clientMessageId?: string | null;
   createdAtMs?: number;
   executionHarness?: AgentHarness;
+  executionModel?: string;
+  executionReasoningEffort?: string;
   currentDirectory?: string;
 }): Promise<ScoutMessagePostResult> {
   const broker = await loadScoutBrokerContext();
@@ -2246,6 +2248,10 @@ export async function sendScoutMessage(input: {
       messageId,
       execution: {
         ...(input.executionHarness ? { harness: input.executionHarness } : {}),
+        ...(input.executionModel?.trim() ? { model: input.executionModel.trim() } : {}),
+        ...(input.executionReasoningEffort?.trim()
+          ? { reasoningEffort: input.executionReasoningEffort.trim() }
+          : {}),
         session: "new",
       },
       ensureAwake: true,
@@ -2745,6 +2751,8 @@ export async function sendScoutDirectMessage(input: {
   replyToMessageId?: string | null;
   referenceMessageIds?: string[];
   executionHarness?: AgentHarness;
+  executionModel?: string;
+  executionReasoningEffort?: string;
   source?: string;
   deviceId?: string;
 }): Promise<ScoutDirectMessageResult> {
@@ -2777,6 +2785,10 @@ export async function sendScoutDirectMessage(input: {
     replyToMessageId: input.replyToMessageId ?? undefined,
     execution: {
       ...(input.executionHarness ? { harness: input.executionHarness } : {}),
+      ...(input.executionModel?.trim() ? { model: input.executionModel.trim() } : {}),
+      ...(input.executionReasoningEffort?.trim()
+        ? { reasoningEffort: input.executionReasoningEffort.trim() }
+        : {}),
       session: "new",
     },
     ensureAwake: true,

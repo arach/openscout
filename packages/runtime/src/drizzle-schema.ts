@@ -304,6 +304,7 @@ export const invocationsTable = sqliteTable("invocations", {
   messageId: text("message_id").references(() => messagesTable.id, { onDelete: "set null" }),
   contextJson: text("context_json"),
   executionJson: text("execution_json"),
+  executionResolutionJson: text("execution_resolution_json"),
   ensureAwake: integer("ensure_awake").notNull().default(1),
   stream: integer("stream").notNull().default(1),
   timeoutMs: integer("timeout_ms"),

@@ -2,6 +2,7 @@ import { ArrowDown, ArrowRight, AtSign, Bot, Check, ChevronDown, Copy, ExternalL
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DictationMic } from "../../components/DictationMic.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
+import { RuntimePicker } from "../../components/MessageComposer/index.ts";
 import { api } from "../../lib/api.ts";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
 import { isRoutableMediaFile, uploadMediaFiles } from "../../lib/media-blobs.ts";
@@ -11,6 +12,12 @@ import { fullTimestamp, normalizeTimestampMs, timeAgo } from "../../lib/time.ts"
 import type { Agent, BrokerDiagnostics, BrokerHistoryKey, BrokerRouteAttempt, DispatchFilter, Route } from "../../lib/types.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { openContent } from "../../scout/slots/openContent.ts";
+import {
+  RUNTIME_CAPABILITY_SEED,
+  runtimeEffortsForSelection,
+  runtimeModelsForHarness,
+  type RuntimeCapabilityCatalog,
+} from "../../lib/runtime-capabilities.ts";
 
 import {
   brokerAttemptDetailLimit,
@@ -215,7 +222,10 @@ function dispatchEndpointFields(
         { label: "Handle", value: agent.handle ? `@${agent.handle.replace(/^@/, "")}` : null },
         { label: "Project", value: agent.project },
         { label: "Branch", value: agent.branch },
-        { label: "Harness", value: [agent.harness, agent.model].filter(Boolean).join(" · ") || null },
+        {
+          label: "Runtime",
+          value: [agent.harness, agent.model, agent.reasoningEffort].filter(Boolean).join(" · ") || null,
+        },
         { label: "Machine", value: machine },
         { label: "Working dir", value: agent.cwd ?? agent.projectRoot },
         { label: "Session", value: agent.harnessSessionId },
@@ -862,11 +872,16 @@ export function BrokerAttemptInspector({
   const [redispatchMessage, setRedispatchMessage] = useState<string | null>(null);
   const [forwardAgentId, setForwardAgentId] = useState("");
   const [forwardProjectPath, setForwardProjectPath] = useState("");
+  const [forwardHarness, setForwardHarness] = useState("");
   const [forwardModel, setForwardModel] = useState("");
   const [forwardEffort, setForwardEffort] = useState("medium");
+  const [runtimeCapabilities, setRuntimeCapabilities] = useState<RuntimeCapabilityCatalog | null>(null);
   const [forwardFiles, setForwardFiles] = useState<File[]>([]);
   const [forwardStatus, setForwardStatus] = useState<DispatchActionStatus>("idle");
   const [forwardMessage, setForwardMessage] = useState<string | null>(null);
+  const retryHarness = metadataText(attempt, "harness");
+  const retryModel = metadataText(attempt, "model");
+  const retryEffort = metadataText(attempt, "reasoningEffort", "effort");
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const forwardFileInputRef = useRef<HTMLInputElement>(null);
   const contextText = useMemo(() => brokerAttemptContextText(attempt), [attempt]);
@@ -941,6 +956,7 @@ export function BrokerAttemptInspector({
     setForwardProjectPath(
       defaults.defaultForwardAgent?.projectRoot?.trim() || defaults.defaultForwardAgent?.cwd?.trim() || "",
     );
+    setForwardHarness(defaults.defaultForwardAgent?.harness?.trim() || "");
     setForwardModel(defaults.defaultForwardAgent?.model?.trim() || "");
     setForwardEffort(defaults.effort);
     setForwardFiles([]);
@@ -961,8 +977,25 @@ export function BrokerAttemptInspector({
       || defaultForwardAgent?.projectRoot?.trim()
       || defaultForwardAgent?.cwd?.trim()
       || "");
+    setForwardHarness((current) => current || defaultForwardAgent?.harness?.trim() || "");
     setForwardModel((current) => current || defaultForwardAgent?.model?.trim() || "");
   }, [defaultForwardAgent, defaultForwardAgentId, firstRoutableAgentId, originalTargetAgentId]);
+
+  useEffect(() => {
+    const query = new URLSearchParams({ scope: "global+project" });
+    if (forwardProjectPath) query.set("projectRoot", forwardProjectPath);
+    let cancelled = false;
+    void api<RuntimeCapabilityCatalog>(`/api/runner/options?${query.toString()}`)
+      .then((options) => {
+        if (!cancelled && options.schemaVersion === "openscout.runtime-capabilities.v1") {
+          setRuntimeCapabilities(options);
+        }
+      })
+      .catch(() => {
+        // The built-in seed remains available while the server is unreachable.
+      });
+    return () => { cancelled = true; };
+  }, [forwardProjectPath]);
 
   const copyEverything = useCallback(async () => {
     const copied = await copyTextToClipboard(contextText);
@@ -987,6 +1020,14 @@ export function BrokerAttemptInspector({
           body: attempt.detail,
           targetAgentId: target.id,
           targetLabel: target.name,
+          ...((retryHarness || retryModel || retryEffort) ? {
+            execution: {
+              ...(retryHarness ? { harness: retryHarness } : {}),
+              ...(retryModel ? { model: retryModel } : {}),
+              ...(retryEffort ? { reasoningEffort: retryEffort } : {}),
+              session: "new",
+            },
+          } : {}),
           metadata: {
             source: "scout-dispatch-redispatch",
             originalDispatchId: attempt.id,
@@ -1002,7 +1043,7 @@ export function BrokerAttemptInspector({
       setRedispatchStatus("failed");
       setRedispatchMessage(`Retry failed. ${error instanceof Error ? error.message : String(error)}`);
     }
-  }, [attempt, redispatchAgentId, redispatchStatus, routableAgents]);
+  }, [attempt, redispatchAgentId, redispatchStatus, retryEffort, retryHarness, retryModel, routableAgents]);
 
   const forwardDispatch = useCallback(async () => {
     const note = messageDraft.trim();
@@ -1020,7 +1061,7 @@ export function BrokerAttemptInspector({
           targetLabel: target.name,
           ...(attachments.length > 0 ? { attachments } : {}),
           execution: {
-            ...(target.harness?.trim() ? { harness: target.harness.trim() } : {}),
+            ...(forwardHarness ? { harness: forwardHarness } : {}),
             ...(forwardModel ? { model: forwardModel } : {}),
             ...(forwardEffort ? { reasoningEffort: forwardEffort } : {}),
           },
@@ -1042,7 +1083,7 @@ export function BrokerAttemptInspector({
       setForwardStatus("failed");
       setForwardMessage(`Request wasn't sent. ${error instanceof Error ? error.message : String(error)}`);
     }
-  }, [attempt, contextText, forwardAgentId, forwardEffort, forwardFiles, forwardModel, forwardProjectPath, forwardStatus, messageDraft, routableAgents]);
+  }, [attempt, contextText, forwardAgentId, forwardEffort, forwardFiles, forwardHarness, forwardModel, forwardProjectPath, forwardStatus, messageDraft, routableAgents]);
 
   const addForwardFiles = useCallback((files: File[]) => {
     const accepted = files.filter(isRoutableMediaFile);
@@ -1067,11 +1108,31 @@ export function BrokerAttemptInspector({
     if (!forwardProjectPath) return true;
     return (agent.projectRoot?.trim() || agent.cwd?.trim()) === forwardProjectPath;
   });
+  const effectiveCapabilities = runtimeCapabilities ?? RUNTIME_CAPABILITY_SEED;
+  const forwardHarnessOptions = effectiveCapabilities.harnesses.map((candidate) => candidate.id);
   const forwardModelOptions = [...new Set(
-    [forwardModel, forwardAgent?.model, ...forwardProjectAgents.map((agent) => agent.model)]
+    [
+      forwardModel,
+      ...runtimeModelsForHarness(effectiveCapabilities, forwardHarness),
+      forwardAgent?.harness === forwardHarness ? forwardAgent.model : null,
+      ...forwardProjectAgents
+        .filter((agent) => agent.harness === forwardHarness)
+        .map((agent) => agent.model),
+    ]
       .map((model) => model?.trim())
       .filter((model): model is string => Boolean(model)),
   )];
+  const forwardEffortOptions = useMemo(
+    () => runtimeEffortsForSelection(effectiveCapabilities, forwardHarness, forwardModel),
+    [effectiveCapabilities, forwardHarness, forwardModel],
+  );
+
+  useEffect(() => {
+    if (forwardEffortOptions.some((candidate) => candidate.value === forwardEffort)) return;
+    setForwardEffort(forwardEffortOptions.find((candidate) => candidate.value === "medium")?.value
+      ?? forwardEffortOptions[0]?.value
+      ?? "");
+  }, [forwardEffort, forwardEffortOptions]);
 
   const invokeCodex = useCallback(async () => {
     setReviewStatus("running");
@@ -1417,6 +1478,7 @@ export function BrokerAttemptInspector({
                     setForwardProjectPath(projectPath);
                     if (nextAgent) {
                       setForwardAgentId(nextAgent.id);
+                      setForwardHarness(nextAgent.harness?.trim() || "");
                       setForwardModel(nextAgent.model?.trim() || "");
                     }
                   }}
@@ -1439,6 +1501,7 @@ export function BrokerAttemptInspector({
                     setForwardAgentId(event.target.value);
                     if (nextAgent) {
                       setForwardProjectPath(nextAgent.projectRoot?.trim() || nextAgent.cwd?.trim() || "");
+                      setForwardHarness(nextAgent.harness?.trim() || "");
                       setForwardModel(nextAgent.model?.trim() || "");
                     }
                     setForwardStatus("idle");
@@ -1452,34 +1515,26 @@ export function BrokerAttemptInspector({
                   ))}
                 </select>
               </label>
-              <label title="Model target">
-                <span>Model</span>
-                <select
-                  aria-label="Model target"
-                  value={forwardModel}
-                  disabled={forwardStatus === "sending"}
-                  onChange={(event) => {
-                    routingTouchedRef.current = true;
-                    setForwardModel(event.target.value);
-                  }}
-                >
-                  {forwardModelOptions.length === 0 && <option value="">Default model</option>}
-                  {forwardModelOptions.map((model) => <option key={model} value={model}>{model}</option>)}
-                </select>
-              </label>
-              <label title="Reasoning effort">
-                <span>Effort</span>
-                <select
-                  aria-label="Reasoning effort"
-                  value={forwardEffort}
-                  disabled={forwardStatus === "sending"}
-                  onChange={(event) => setForwardEffort(event.target.value)}
-                >
-                  {['low', 'medium', 'high', 'xhigh'].map((effort) => (
-                    <option key={effort} value={effort}>{effort === 'xhigh' ? 'XHigh' : effort[0]!.toUpperCase() + effort.slice(1)}</option>
-                  ))}
-                </select>
-              </label>
+              <RuntimePicker
+                harness={forwardHarness}
+                model={forwardModel}
+                effort={forwardEffort}
+                onHarnessChange={(nextHarness) => {
+                  routingTouchedRef.current = true;
+                  setForwardHarness(nextHarness);
+                  setForwardModel(runtimeModelsForHarness(effectiveCapabilities, nextHarness)[0] ?? "");
+                }}
+                onModelChange={(nextModel) => {
+                  routingTouchedRef.current = true;
+                  setForwardModel(nextModel);
+                }}
+                onEffortChange={setForwardEffort}
+                harnessOptions={forwardHarnessOptions}
+                modelOptions={forwardModelOptions}
+                effortOptions={forwardEffortOptions}
+                showEffort
+                disabled={forwardStatus === "sending"}
+              />
               <DictationMic
                 className="sys-broker-composer-mic"
                 disabled={forwardStatus === "sending"}

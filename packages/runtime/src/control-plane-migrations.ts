@@ -60,6 +60,15 @@ export const CONTROL_PLANE_SCHEMA_MIGRATIONS: ControlPlaneSchemaMigration[] = [
     },
   },
   {
+    id: "invocation-execution-resolution",
+    description: "Persists requested, resolved, and observed runtime execution truth on invocations.",
+    apply(database) {
+      if (!hasColumn(database, "invocations", "execution_resolution_json")) {
+        database.exec("ALTER TABLE invocations ADD COLUMN execution_resolution_json TEXT");
+      }
+    },
+  },
+  {
     id: "terminal-session-registry",
     description: "Creates the Scout-owned terminal session registry (harness session + surfaces).",
     apply(database) {

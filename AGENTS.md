@@ -51,8 +51,22 @@ OpenScout is currently for high-trust local developer pilots, not enterprise-rea
 - Use `invocations_get` / `invocations_wait` only to observe flights created by asks.
 - Use `replyMode: "notify"` for longer-running agent work that should return quickly and report back later.
 - Capability requests start with project + harness/capability, not a guessed generic agent name: `scout ask --project /path/to/repo --harness claude "..."`.
+- When exact execution matters, select all dimensions explicitly (`--harness`,
+  `--model`, `--effort`) or use the fixed-position RuntimeSpec
+  `<harness>[/<model>[/<effort>]]`, for example
+  `scout ask --project /path/to/repo --runtime codex/gpt-5.6-sol/xhigh "..."`.
+  Inspect `scout runtimes --json` for legal tuples.
+- An exact runtime request creates an isolated session. An exact
+  `session:<id>` continuation is accepted only when that session's observed
+  harness, model, and effort match the request.
+- Verify exact asks through the invocation's `executionResolution`: compare
+  requested, resolved, source, observed, and drift per dimension. Launch
+  arguments prove resolution, not harness acceptance; only observed values do.
 - Continuity requests use the returned handle (`ref`, `flightId`, `conversationId`, `workId`, or `session:<id>`), not a fresh short-name guess.
 - In natural-language CLI asks, bare reserved profile names (`Fable`, `Kimi`, `Grok`, `Opus`) mean a fresh current-project launch through the broker runtime profile. They never mean `ask --to`.
+- Bare-token priority is profile id, then harness id as a RuntimeSpec. Model
+  family words are never bare targets, and runtime/profile/effort grammar words
+  cannot be newly assigned as agent names.
 - Natural-language existing-target asks use `agent <name> to <request>`; Scout slugifies `<name>` and requires one exact live agent/session handle match. Zero or multiple matches fail closed.
 - Explicit `scout ask --to ...` remains existing-target routing. Use `scout ask --profile <name> ...` for an explicit fresh profile launch.
 - Named long-lived siblings are deliberate promotions after routing is known good; prefer broker-suggested handles over inventing names like `claude.main`.

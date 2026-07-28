@@ -80,6 +80,10 @@ Start at [`INDEX.agent.md`](./INDEX.agent.md) for subsystem specs written for ag
 | `role_assignment` | explicit duty granted to an agent at mission, agent, or project scope |
 | `mission_log_entry` | cheap structured mission situation entry; not chat or a transcript |
 
+For routing and surface nouns not listed above—situated target, capability
+request, runtime profile, terminal backend, pairing versus mesh, operator
+attention, and scoutd—see [`docs/concepts.md`](../concepts.md).
+
 ## First-Run Ladder
 
 | Step | Command | Not Ready Means |
@@ -89,7 +93,8 @@ Start at [`INDEX.agent.md`](./INDEX.agent.md) for subsystem specs written for ag
 | broker health | `scout doctor` | broker/service is not ready for routing |
 | sender identity | `scout whoami` | wrong cwd or project metadata; rerun setup from target project |
 | target discovery | `scout who` | use only when you need a specific existing target |
-| first project ask | `scout ask --project /path/to/repo --harness claude "review this"` | broker should route/create a compatible worker and return handles |
+| runtime discovery | `scout runtimes --json` | inspect legal harness/model/effort tuples before requiring exact execution |
+| first project ask | `scout ask --project /path/to/repo --runtime codex/gpt-5.6-sol/xhigh "review this"` | broker should create an isolated exact-runtime worker and return handles plus execution resolution |
 | first specific message | `scout send --to <agent-from-scout-who> "hello"` | use a fuller selector if the short name is ambiguous |
 
 Do not use placeholder names like `agent` or generic guesses like `claude.main`
@@ -115,6 +120,16 @@ known target.
 - One target means DM; group coordination means explicit channel; shared
   broadcast is opt-in.
 - Harness/session mismatches must fail with actionable diagnostics, not silent hangs.
+- Exact runtime grammar is `<harness>[/<model>[/<effort>]]`; sparse tuples use
+  `--harness`, `--model`, and `--effort`. Profiles are base presets and legal
+  explicit values override them.
+- Exact runtime asks create isolated sessions. Exact `session:<id>` asks fail
+  unless observed harness/model/effort match every requested dimension.
+- Verify `executionResolution` on the invocation: requested and resolved show
+  launch intent and provenance; observed and drift show harness-owned truth.
+- Runtime/profile/route/effort grammar words are reserved agent names. Stored
+  historical offenders fail startup with `reserved_name_existing`; rename the
+  project or registry identity explicitly before retrying.
 - If blocked, record who or what owns the next move.
 - Mesh means reachability, not distributed consistency guarantees.
 - Do not claim enterprise readiness.

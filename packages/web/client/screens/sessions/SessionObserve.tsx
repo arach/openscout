@@ -2584,7 +2584,7 @@ export function SessionObserveContextRail({
         <div className="s-observe-stats">
           <StatCard
             label="Turns"
-            value={fmtCompactNumber(sessionMeta?.turnCount ?? 0)}
+            value={fmtCompactNumber(sessionMeta?.turnCount)}
           />
           <StatCard label="Tools" value={fmtCompactNumber(toolCount)} />
           <StatCard label="Thinks" value={fmtCompactNumber(thinkCount)} />

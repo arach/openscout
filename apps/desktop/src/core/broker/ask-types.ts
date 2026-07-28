@@ -1,4 +1,4 @@
-import type { AgentHarness, RouteAliasScope } from "@openscout/protocol";
+import type { AgentHarness, RouteAliasScope, ScoutExecutionResolution } from "@openscout/protocol";
 
 export type ScoutAskWorkspace = "same" | "new_worktree";
 export type ScoutAskSession = "reuse" | "new";
@@ -16,7 +16,10 @@ type ScoutAskCommandBase = {
   senderId: string;
   body: string;
   harness?: AgentHarness;
+  model?: string;
   reasoningEffort?: string;
+  runtimeLiteral?: string;
+  executionSource?: Partial<Record<"harness" | "model" | "reasoningEffort", "flag" | "literal">>;
   workspace?: ScoutAskWorkspace;
   session?: ScoutAskSession;
   senderContext?: ScoutAskSenderContext;
@@ -42,7 +45,7 @@ type ScoutAskCommandBase = {
 type ScoutAskTargetInput =
   | { to: string; projectPath?: never; runtimeProfile?: never; existingHandle?: never }
   | { to?: never; projectPath: string; runtimeProfile?: never; existingHandle?: never }
-  | { to?: never; projectPath?: never; runtimeProfile: string; existingHandle?: never }
+  | { to?: never; projectPath?: string; runtimeProfile: string; existingHandle?: never }
   | { to?: never; projectPath?: never; runtimeProfile?: never; existingHandle: string }
   | { to?: undefined; projectPath?: undefined; runtimeProfile?: undefined; existingHandle?: undefined };
 
@@ -79,6 +82,7 @@ export type ScoutAskReceipt = {
     sessionAlias?: string;
   };
   delivery?: "none" | "inline" | "mcp_notification";
+  executionResolution?: ScoutExecutionResolution;
   notification?: {
     method: "notifications/scout/reply";
     status: "scheduled" | "not_scheduled";

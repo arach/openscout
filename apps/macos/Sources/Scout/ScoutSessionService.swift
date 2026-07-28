@@ -81,6 +81,7 @@ struct ScoutSessionComposer: View {
     let onComplete: (ScoutSessionStartResult, ScoutSessionDraft) -> Void
 
     @State private var draft: ScoutSessionDraft
+    @State private var runtimeOptions: HudRunnerOptions?
     @State private var isSubmitting = false
     @State private var errorText: String?
     @State private var openDropdown: String?
@@ -137,6 +138,11 @@ struct ScoutSessionComposer: View {
         .onExitCommand { if !isSubmitting { onClose() } }
         .onReceive(voice.$lastFinalText) { spliceDictatedFinal($0) }
         .onAppear { instructionsFocused = true }
+        .task {
+            guard runtimeOptions == nil else { return }
+            runtimeOptions = try? await HudRunnerService.fetchOptions()
+            clearModelIfNeeded()
+        }
         .background(
             ScoutSessionSubmitShortcutMonitor(
                 isActive: openDropdown == nil && !isSubmitting && !isProjectPanelPresented
@@ -228,7 +234,11 @@ struct ScoutSessionComposer: View {
 
         append(draft.harness)
         append(draft.agent?.harness)
-        for catalog in ScoutSessionHarnessCatalog.all { append(catalog.id) }
+        if let runtimeOptions {
+            for harness in runtimeOptions.harnesses { append(harness.id) }
+        } else {
+            for catalog in ScoutSessionHarnessCatalog.all { append(catalog.id) }
+        }
         for agent in agents { append(agent.harness) }
         return choices
     }
@@ -434,7 +444,7 @@ struct ScoutSessionComposer: View {
             }
         case "effort":
             ScoutDropdownPanel {
-                ForEach(ScoutSessionEffortChoice.all) { effort in
+                ForEach(effortChoices) { effort in
                     ScoutDropdownRow(
                         label: effort.label,
                         detail: effort.detail,
@@ -1102,6 +1112,7 @@ struct ScoutSessionComposer: View {
     private var effectiveHarnessValue: String {
         draft.harness?.nilIfEmpty
             ?? draft.agent?.harness?.nilIfEmpty
+            ?? runtimeOptions?.harnesses.first?.id
             ?? ScoutSessionHarnessCatalog.all.first?.id
             ?? "claude"
     }
@@ -1109,8 +1120,28 @@ struct ScoutSessionComposer: View {
     private func effortDisplayName(_ value: String) -> String {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "Medium" }
-        return ScoutSessionEffortChoice.all.first { $0.value == trimmed }?.label
+        return effortChoices.first { $0.value == trimmed }?.label
             ?? trimmed.prefix(1).uppercased() + String(trimmed.dropFirst())
+    }
+
+    private var effortChoices: [ScoutSessionEffortChoice] {
+        let harness = effectiveHarnessValue.lowercased()
+        let model = draft.model?.nilIfEmpty
+        let live = (runtimeOptions?.efforts ?? []).filter { effort in
+            guard effort.harnesses.contains(where: { $0.lowercased() == harness }) else {
+                return false
+            }
+            guard let constrainedModels = effort.models, !constrainedModels.isEmpty,
+                  let selectedModel = model else {
+                return true
+            }
+            return constrainedModels.contains(selectedModel)
+        }.map {
+            ScoutSessionEffortChoice(value: $0.id, label: $0.label, detail: $0.description)
+        }
+        return live.isEmpty ? ScoutSessionEffortChoice.all.filter { effort in
+            harness == "codex" || !["none", "minimal", "ultra"].contains(effort.value)
+        } : live
     }
 
     // Curated current model names, plus any models observed in the local roster.
@@ -1125,7 +1156,19 @@ struct ScoutSessionComposer: View {
             choices.append(choice)
         }
 
-        if let catalog = ScoutSessionHarnessCatalog.all.first(where: { $0.id == canonicalHarness }) {
+        let liveModels = (runtimeOptions?.models ?? []).filter { model in
+            model.harnesses.contains { $0.lowercased() == canonicalHarness }
+        }
+        if !liveModels.isEmpty {
+            for model in liveModels {
+                append(.init(
+                    harness: harness,
+                    value: model.id,
+                    label: model.label,
+                    detail: model.source
+                ))
+            }
+        } else if let catalog = ScoutSessionHarnessCatalog.all.first(where: { $0.id == canonicalHarness }) {
             for model in catalog.models { append(model) }
         }
 
@@ -1167,6 +1210,9 @@ struct ScoutSessionComposer: View {
     private func harnessDisplayName(_ harness: String) -> String {
         let trimmed = harness.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "Default" }
+        if let option = runtimeOptions?.harnesses.first(where: { $0.id.lowercased() == trimmed.lowercased() }) {
+            return option.label
+        }
         if let catalog = ScoutSessionHarnessCatalog.all.first(where: { $0.id == trimmed.lowercased() }) {
             return catalog.label
         }
@@ -1189,6 +1235,9 @@ struct ScoutSessionComposer: View {
         let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "Default" }
 
+        if let option = runtimeOptions?.models.first(where: { $0.id.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            return option.label
+        }
         for catalog in ScoutSessionHarnessCatalog.all {
             if let choice = catalog.models.first(where: { $0.value.caseInsensitiveCompare(trimmed) == .orderedSame }) {
                 return choice.label

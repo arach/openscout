@@ -324,6 +324,7 @@ CREATE TABLE IF NOT EXISTS invocations (
   message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
   context_json TEXT,
   execution_json TEXT,
+  execution_resolution_json TEXT,
   ensure_awake INTEGER NOT NULL DEFAULT 1,
   stream INTEGER NOT NULL DEFAULT 1,
   timeout_ms INTEGER,
