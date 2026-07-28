@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "assetRevision": "6c473c4e23df055d",
+  "assetRevision": "cfdb4ed0b525e8e1",
   "protocol": {
     "minimum": 1,
     "maximum": 1
@@ -84,8 +84,8 @@
     },
     {
       "path": "deck/app.js",
-      "sha256": "9d48a0b662ad0ed32f2c1aba822a5f232b8e7f1404a1b66ced90bb4e28c4997c",
-      "bytes": 276671
+      "sha256": "039d204a922af3be355a981c18c3a38b2fd6212c6853d9ca025187a3acc5bbef",
+      "bytes": 290552
     },
     {
       "path": "deck/index.html",
@@ -114,8 +114,8 @@
     },
     {
       "path": "lanes/app.js",
-      "sha256": "61eb457b919a4feb33b4130ad0bd3473efa739d27f12dcd9a0758c6efde44d9c",
-      "bytes": 556463
+      "sha256": "7f1849f84589ea5aad4ecb36d1c3ff4020e28d211fa116b1c8c0f10d4d0a27c5",
+      "bytes": 556494
     },
     {
       "path": "lanes/index.html",

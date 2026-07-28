@@ -23,43 +23,16 @@ import {
   type SurfacePreferences,
 } from "./scout-surface-contract.ts";
 import { NativeScoutSurfaceClient } from "./native-scout-surface-client.ts";
+import {
+  engageScoutVoiceDictation,
+  formatScoutVoiceIssue,
+  getSharedScoutVoiceClient,
+  type ScoutVoiceLiveHandle,
+  type ScoutVoiceSessionState,
+} from "../lib/scout-voice.ts";
 
 const DECK_SURFACE_PATH = "/api/surfaces/deck";
 const PREFERENCES_STORAGE_KEY = "scout.surface.preferences.v1";
-
-type BrowserSpeechRecognitionResult = {
-  isFinal: boolean;
-  0: { transcript: string };
-};
-
-type BrowserSpeechRecognitionEvent = Event & {
-  resultIndex: number;
-  results: ArrayLike<BrowserSpeechRecognitionResult>;
-};
-
-type BrowserSpeechRecognitionErrorEvent = Event & { error?: string; message?: string };
-
-type BrowserSpeechRecognition = EventTarget & {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onstart: ((event: Event) => void) | null;
-  onresult: ((event: BrowserSpeechRecognitionEvent) => void) | null;
-  onerror: ((event: BrowserSpeechRecognitionErrorEvent) => void) | null;
-  onend: ((event: Event) => void) | null;
-  start(): void;
-  stop(): void;
-  abort(): void;
-};
-
-type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
-
-declare global {
-  interface Window {
-    SpeechRecognition?: BrowserSpeechRecognitionConstructor;
-    webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
-  }
-}
 
 export function createScoutSurfaceClient(
   surface: ScoutSurfaceId,
@@ -235,25 +208,23 @@ export class WebScoutSurfaceClient implements ScoutSurfaceClient {
 }
 
 class BrowserVoiceController {
-  private readonly Recognition = window.SpeechRecognition ?? window.webkitSpeechRecognition;
-  private recognition: BrowserSpeechRecognition | null = null;
-  private finalBuffer = "";
-  private endingWithError: string | null = null;
+  private live: ScoutVoiceLiveHandle | null = null;
+  private inputRun = 0;
   private state: NativeVoiceSnapshot = {
     input: {
-      state: this.Recognition ? "idle" : "unavailable",
+      state: "idle",
       partialText: "",
       finalText: "",
       finalCount: 0,
-      engine: "apple",
-      modelReady: Boolean(this.Recognition),
-      unavailableReason: this.Recognition ? null : "Browser dictation is unavailable on this device.",
+      engine: "parakeet",
+      modelReady: true,
+      unavailableReason: null,
     },
     output: { speaking: false },
   };
 
   get inputAvailable(): boolean {
-    return Boolean(this.Recognition);
+    return typeof fetch === "function";
   }
 
   get outputAvailable(): boolean {
@@ -268,60 +239,32 @@ class BrowserVoiceController {
   }
 
   async toggleInput(): Promise<NativeVoiceSnapshot> {
-    if (!this.Recognition) return this.snapshot();
     if (this.state.input.state === "listening") {
+      const live = this.live;
       this.state = { ...this.state, input: { ...this.state.input, state: "transcribing" } };
-      this.recognition?.stop();
+      if (live) {
+        try {
+          await live.stop();
+        } catch (cause) {
+          this.failInput(cause, this.inputRun);
+        }
+      }
       return this.snapshot();
     }
-    if (this.state.input.state === "transcribing") {
-      this.recognition?.abort();
-      this.finishRecognition();
+    if (this.state.input.state === "preparing" || this.state.input.state === "transcribing") {
+      const live = this.live;
+      this.inputRun += 1;
+      this.live = null;
+      await live?.cancel().catch(() => undefined);
+      this.state = {
+        ...this.state,
+        input: { ...this.state.input, state: "idle", partialText: "", unavailableReason: null },
+      };
       return this.snapshot();
     }
 
     this.stopOutput();
-    this.finalBuffer = "";
-    this.endingWithError = null;
-    const recognition = new this.Recognition();
-    this.recognition = recognition;
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = document.documentElement.lang || navigator.language || "en-US";
-    recognition.onstart = () => {
-      this.state = {
-        ...this.state,
-        input: { ...this.state.input, state: "listening", partialText: "", unavailableReason: null },
-      };
-    };
-    recognition.onresult = (event) => {
-      let interim = "";
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
-        const result = event.results[index];
-        const transcript = result?.[0]?.transcript?.trim() ?? "";
-        if (!transcript) continue;
-        if (result.isFinal) this.finalBuffer = appendText(this.finalBuffer, transcript);
-        else interim = appendText(interim, transcript);
-      }
-      this.state = {
-        ...this.state,
-        input: { ...this.state.input, partialText: appendText(this.finalBuffer, interim) },
-      };
-    };
-    recognition.onerror = (event) => {
-      const reason = browserSpeechError(event.error, event.message);
-      if (event.error === "aborted") return;
-      this.endingWithError = reason;
-    };
-    recognition.onend = () => this.finishRecognition();
-
-    this.state = { ...this.state, input: { ...this.state.input, state: "preparing" } };
-    try {
-      recognition.start();
-    } catch (cause) {
-      this.endingWithError = cause instanceof Error ? cause.message : String(cause);
-      this.finishRecognition();
-    }
+    void this.startInput();
     return this.snapshot();
   }
 
@@ -347,22 +290,130 @@ class BrowserVoiceController {
     return this.snapshot();
   }
 
-  private finishRecognition(): void {
-    const finalText = (this.finalBuffer.trim() || this.state.input.partialText.trim());
-    const error = this.endingWithError;
-    this.recognition = null;
-    this.finalBuffer = "";
-    this.endingWithError = null;
+  private async startInput(): Promise<void> {
+    const run = ++this.inputRun;
     this.state = {
       ...this.state,
       input: {
         ...this.state.input,
-        state: error ? "unavailable" : "idle",
+        state: "preparing",
         partialText: "",
-        finalText: error ? this.state.input.finalText : finalText,
-        finalCount: error || !finalText ? this.state.input.finalCount : this.state.input.finalCount + 1,
-        modelReady: !error,
-        unavailableReason: error,
+        unavailableReason: null,
+      },
+    };
+
+    try {
+      let engagement = await engageScoutVoiceDictation({
+        surface: "scout-deck",
+        requestPermissions: true,
+      });
+      if (run !== this.inputRun) return;
+
+      if (!engagement.ready && engagement.issue?.code === "microphone_not_requested") {
+        await wait(1_800);
+        if (run !== this.inputRun) return;
+        engagement = await engageScoutVoiceDictation({ surface: "scout-deck" });
+      }
+
+      const canAttemptCapture = engagement.ready
+        || engagement.issue?.code === "microphone_not_requested";
+      if (!canAttemptCapture) {
+        this.state = {
+          ...this.state,
+          input: {
+            ...this.state.input,
+            state: "unavailable",
+            engine: engagement.settings.preference === "apple" ? "apple" : "parakeet",
+            modelReady: Boolean(engagement.settings.modelReady),
+            unavailableReason: formatScoutVoiceIssue(engagement.issue),
+          },
+        };
+        return;
+      }
+
+      const client = getSharedScoutVoiceClient();
+      await client.probe({ force: true }).catch(() => false);
+      if (run !== this.inputRun) return;
+
+      const live = await client.startLive(
+        {
+          onState: (next) => this.applyInputState(next, run),
+          onPartial: (partialText) => {
+            if (run !== this.inputRun) return;
+            this.state = {
+              ...this.state,
+              input: { ...this.state.input, partialText },
+            };
+          },
+        },
+        { surface: "scout-deck" },
+      );
+      if (run !== this.inputRun) {
+        await live.cancel().catch(() => undefined);
+        return;
+      }
+      this.live = live;
+      this.state = {
+        ...this.state,
+        input: {
+          ...this.state.input,
+          state: "listening",
+          engine: engagement.settings.preference === "apple" ? "apple" : "parakeet",
+          modelReady: Boolean(engagement.settings.modelReady),
+          unavailableReason: null,
+        },
+      };
+      void live.result
+        .then((final) => this.finishInput(final.text, run))
+        .catch((cause) => this.failInput(cause, run));
+    } catch (cause) {
+      this.failInput(cause, run);
+    }
+  }
+
+  private applyInputState(next: ScoutVoiceSessionState, run: number): void {
+    if (run !== this.inputRun) return;
+    const state = next === "recording"
+      ? "listening"
+      : next === "processing" || next === "done"
+        ? "transcribing"
+        : next === "cancelled"
+          ? "idle"
+          : next === "error"
+            ? "unavailable"
+            : "preparing";
+    this.state = { ...this.state, input: { ...this.state.input, state } };
+  }
+
+  private finishInput(text: string, run: number): void {
+    if (run !== this.inputRun) return;
+    this.live = null;
+    const finalText = text.trim();
+    this.state = {
+      ...this.state,
+      input: {
+        ...this.state.input,
+        state: finalText ? "idle" : "unavailable",
+        partialText: "",
+        finalText: finalText || this.state.input.finalText,
+        finalCount: finalText ? this.state.input.finalCount + 1 : this.state.input.finalCount,
+        unavailableReason: finalText ? null : "No speech was detected. Tap to try again.",
+      },
+    };
+  }
+
+  private failInput(cause: unknown, run: number): void {
+    if (run !== this.inputRun) return;
+    this.live = null;
+    const message = cause instanceof Error ? cause.message : String(cause);
+    const cancelled = cause instanceof Error && cause.name === "AbortError";
+    this.state = {
+      ...this.state,
+      input: {
+        ...this.state.input,
+        state: cancelled ? "idle" : "unavailable",
+        partialText: "",
+        unavailableReason: cancelled ? null : message,
       },
     };
   }
@@ -384,17 +435,8 @@ function browserFormFactor(): SurfaceBootstrap["device"]["formFactor"] {
   return width < 1_100 ? "tablet" : "desktop";
 }
 
-function browserSpeechError(error?: string, message?: string): string {
-  if (error === "not-allowed" || error === "service-not-allowed") {
-    return "Microphone permission was denied for this Deck URL.";
-  }
-  if (error === "audio-capture") return "No microphone is available to the browser.";
-  if (error === "network") return "Browser dictation could not reach its speech service.";
-  return message?.trim() || (error ? `Browser dictation failed (${error}).` : "Browser dictation stopped unexpectedly.");
-}
-
-function appendText(left: string, right: string): string {
-  return [left.trim(), right.trim()].filter(Boolean).join(" ");
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function requestId(): string {

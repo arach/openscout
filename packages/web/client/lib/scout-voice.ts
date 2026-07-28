@@ -34,6 +34,10 @@ export type ScoutVoiceLiveCallbacks = {
   onLevel?: (level: number) => void;
 };
 
+export type ScoutVoiceLiveOptions = {
+  surface?: string;
+};
+
 export type ScoutSpeechResult = {
   contentType: string;
   audioBase64: string;
@@ -678,9 +682,12 @@ export class ScoutVoiceClient {
     window.location.href = "scout://hud/show";
   }
 
-  async startLive(callbacks: ScoutVoiceLiveCallbacks = {}): Promise<ScoutVoiceLiveHandle> {
+  async startLive(
+    callbacks: ScoutVoiceLiveCallbacks = {},
+    options: ScoutVoiceLiveOptions = {},
+  ): Promise<ScoutVoiceLiveHandle> {
     if (this.captureMode !== "browser") {
-      return await startNativeScoutVoiceLive(callbacks);
+      return await startNativeScoutVoiceLive(callbacks, options);
     }
     return await startBrowserScoutVoiceLive(callbacks);
   }
@@ -688,6 +695,7 @@ export class ScoutVoiceClient {
 
 async function startNativeScoutVoiceLive(
   callbacks: ScoutVoiceLiveCallbacks = {},
+  options: ScoutVoiceLiveOptions = {},
 ): Promise<ScoutVoiceLiveHandle> {
   callbacks.onState?.("starting");
 
@@ -696,7 +704,7 @@ async function startNativeScoutVoiceLive(
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       clientId: "openscout-web",
-      surface: "chat-composer",
+      surface: options.surface?.trim() || "chat-composer",
     }),
   });
   if (!startResponse.ok) {
