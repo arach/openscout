@@ -243,6 +243,36 @@ export function deriveWorkingDurationStage(
   return "brief";
 }
 
+/// Whether the feed should jump to the bottom on this commit.
+///
+/// Autoscroll is a claim on the reader's viewport, so it has to be spent only
+/// on genuine growth at the bottom: a newer message, or a typing row appearing.
+/// A typing row *settling* removes a row — reacting to it would yank a reader
+/// who had scrolled up into history. And while an earlier page is being
+/// prepended, the layout effect owns `scrollTop` (it re-anchors the reader on
+/// the row they were looking at); autoscrolling in the same commit would
+/// silently undo that restoration.
+export type ConversationAutoscrollDecision = "none" | "instant" | "smooth";
+
+export function resolveConversationAutoscroll(input: {
+  newestMessageId: string | null;
+  previousNewestMessageId: string | null;
+  showTyping: boolean;
+  previousShowTyping: boolean;
+  historyRestorePending: boolean;
+  initialScrollDone: boolean;
+}): ConversationAutoscrollDecision {
+  if (input.historyRestorePending) return "none";
+  const hasVisibleRow = Boolean(input.newestMessageId) || input.showTyping;
+  if (!hasVisibleRow) return "none";
+  if (!input.initialScrollDone) return "instant";
+  if (input.newestMessageId && input.newestMessageId !== input.previousNewestMessageId) {
+    return "smooth";
+  }
+  if (input.showTyping && !input.previousShowTyping) return "smooth";
+  return "none";
+}
+
 export type RailWorkspaceGroup = {
   workspace: string;
   sessions: SessionEntry[];

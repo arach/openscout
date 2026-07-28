@@ -8,6 +8,13 @@ mock.module("../broker/service.ts", () => ({
 
 const { getScoutConversationMessages, getScoutConversations } = await import("./service.ts");
 
+const {
+  MAX_MESSAGE_PAGE_LIMIT,
+  MessageCursorError,
+  compareMessagesAsc,
+  encodeMessageHistoryCursor,
+} = await import("../../../shared/message-pagination.ts");
+
 mock.restore();
 
 afterAll(() => {
@@ -91,6 +98,29 @@ function baseSnapshot(overrides: Record<string, unknown> = {}) {
     flights: {},
     ...overrides,
   };
+}
+
+function brokerContext(snapshot: ReturnType<typeof baseSnapshot>) {
+  return { baseUrl: "http://broker.test", node: { id: "node-1" }, snapshot };
+}
+
+function seedBrokerMessages(
+  snapshot: ReturnType<typeof baseSnapshot>,
+  indexes: number[],
+): void {
+  for (const index of indexes) {
+    snapshot.messages[`msg-${index}`] = {
+      id: `msg-${index}`,
+      conversationId: "chat_hudson-main",
+      actorId: "hudson.main.mini",
+      originNodeId: "node-1",
+      class: "agent",
+      body: `message ${index}`,
+      visibility: "private",
+      policy: "durable",
+      createdAt: 1_779_461_700_000 + index,
+    };
+  }
 }
 
 describe("getScoutConversations", () => {
@@ -351,6 +381,122 @@ describe("getScoutConversations", () => {
         },
       }),
     ]);
+  });
+
+  test("pages to messages before a stable message id", async () => {
+    const snapshot = baseSnapshot();
+    for (const index of [2, 3, 4]) {
+      snapshot.messages[`msg-${index}`] = {
+        id: `msg-${index}`,
+        conversationId: "chat_hudson-main",
+        actorId: "hudson.main.mini",
+        originNodeId: "node-1",
+        class: "agent",
+        body: `message ${index}`,
+        visibility: "private",
+        policy: "durable",
+        createdAt: 1_779_461_700_000 + index,
+      };
+    }
+    brokerContextResult = {
+      baseUrl: "http://broker.test",
+      node: { id: "node-1" },
+      snapshot,
+    };
+
+    const messages = await getScoutConversationMessages(
+      "chat_hudson-main",
+      2,
+      "msg-4",
+    );
+
+    expect(messages?.map((message) => message.id)).toEqual(["msg-2", "msg-3"]);
+  });
+
+  test("keeps paging when the cursor message is gone from the snapshot", async () => {
+    const snapshot = baseSnapshot();
+    seedBrokerMessages(snapshot, [2, 3, 4, 5]);
+    brokerContextResult = brokerContext(snapshot);
+
+    const cursor = encodeMessageHistoryCursor({
+      createdAt: 1_779_461_700_000 + 4,
+      id: "msg-4",
+    });
+    delete snapshot.messages["msg-4"];
+
+    // Position, not identity: the deleted anchor used to make this read as
+    // end-of-history and strand msg-1..msg-3 behind it.
+    const messages = await getScoutConversationMessages("chat_hudson-main", 3, cursor);
+
+    expect(messages?.map((message) => message.id)).toEqual(["msg-1", "msg-2", "msg-3"]);
+  });
+
+  test("reports an unresolvable legacy cursor instead of an empty page", async () => {
+    const snapshot = baseSnapshot();
+    seedBrokerMessages(snapshot, [2, 3]);
+    brokerContextResult = brokerContext(snapshot);
+
+    await expect(
+      getScoutConversationMessages("chat_hudson-main", 3, "msg-deleted"),
+    ).rejects.toBeInstanceOf(MessageCursorError);
+    await expect(
+      getScoutConversationMessages("chat_hudson-main", 3, "not-a-cursor|"),
+    ).rejects.toBeInstanceOf(MessageCursorError);
+  });
+
+  test("breaks tied timestamps by binary id so a broker page never repeats itself", async () => {
+    const snapshot = baseSnapshot({ messages: {} });
+    for (const suffix of ["!000", "0000", "_000"]) {
+      snapshot.messages[`msg-${suffix}`] = {
+        id: `msg-${suffix}`,
+        conversationId: "chat_hudson-main",
+        actorId: "operator",
+        originNodeId: "node-1",
+        class: "operator",
+        body: suffix,
+        visibility: "private",
+        policy: "durable",
+        createdAt: 1_779_461_700_000,
+      };
+    }
+    brokerContextResult = brokerContext(snapshot);
+
+    const firstPage = await getScoutConversationMessages("chat_hudson-main", 2);
+    expect(firstPage?.map((message) => message.id)).toEqual(["msg-0000", "msg-_000"]);
+
+    // Locale order nominates "msg-_000" as the oldest row on screen; read in the
+    // shared order that cursor answers with "msg-0000", already on screen.
+    const localeOldest = [...firstPage!].sort((left, right) =>
+      left.id.localeCompare(right.id)
+    )[0]!;
+    const duplicatePage = await getScoutConversationMessages(
+      "chat_hudson-main",
+      1,
+      encodeMessageHistoryCursor(localeOldest),
+    );
+    expect(duplicatePage?.map((message) => message.id)).toEqual(["msg-0000"]);
+
+    const sharedOldest = [...firstPage!].sort(compareMessagesAsc)[0]!;
+    expect(sharedOldest.id).toBe("msg-0000");
+    const earlier = await getScoutConversationMessages(
+      "chat_hudson-main",
+      1,
+      encodeMessageHistoryCursor(sharedOldest),
+    );
+    expect(earlier?.map((message) => message.id)).toEqual(["msg-!000"]);
+  });
+
+  test("clamps an oversized broker page to the shared maximum", async () => {
+    const snapshot = baseSnapshot({ messages: {} });
+    seedBrokerMessages(
+      snapshot,
+      Array.from({ length: MAX_MESSAGE_PAGE_LIMIT + 100 }, (_, index) => index + 1),
+    );
+    brokerContextResult = brokerContext(snapshot);
+
+    const messages = await getScoutConversationMessages("chat_hudson-main", 1_000);
+
+    expect(messages).toHaveLength(MAX_MESSAGE_PAGE_LIMIT);
   });
 
   test("adds scoped labels for same-project agent-agent participants", async () => {

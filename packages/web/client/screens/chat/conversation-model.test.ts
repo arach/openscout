@@ -5,6 +5,7 @@ import {
   deriveWorkingDurationStage,
   hasOutstandingConversationReply,
   resolveComposeAction,
+  resolveConversationAutoscroll,
   resolveThreadEmbedProps,
 } from "./conversation-model.ts";
 
@@ -76,5 +77,82 @@ describe("conversation composer product model", () => {
       showBackNav: false,
       treatment: "ledger",
     });
+  });
+});
+
+describe("conversation feed autoscroll", () => {
+  const settled = {
+    newestMessageId: "msg-0450",
+    previousNewestMessageId: "msg-0450",
+    showTyping: false,
+    previousShowTyping: false,
+    historyRestorePending: false,
+    initialScrollDone: true,
+  };
+
+  /// The pre-fix trigger: a string key that folded typing state into identity
+  /// and scrolled whenever it changed, in either direction.
+  const visualRowKey = (newestMessageId: string, showTyping: boolean) =>
+    `${newestMessageId}:${showTyping ? "typing" : "settled"}`;
+
+  test("stays put when a typing row settles", () => {
+    // The reviewer's probe caught the key going "msg-0450:typing" ->
+    // "msg-0450:settled" with an unchanged newest message, which scrolled and
+    // yanked a reader who was up in history.
+    expect(visualRowKey("msg-0450", true)).not.toBe(visualRowKey("msg-0450", false));
+    expect(resolveConversationAutoscroll({
+      ...settled,
+      previousShowTyping: true,
+    })).toBe("none");
+  });
+
+  test("follows genuine growth at the bottom", () => {
+    expect(resolveConversationAutoscroll({
+      ...settled,
+      newestMessageId: "msg-0451",
+    })).toBe("smooth");
+    expect(resolveConversationAutoscroll({
+      ...settled,
+      showTyping: true,
+    })).toBe("smooth");
+  });
+
+  test("stands down while an earlier page is being restored", () => {
+    // The layout effect owns scrollTop on this commit; scrolling would undo it.
+    expect(resolveConversationAutoscroll({
+      ...settled,
+      newestMessageId: "msg-0451",
+      historyRestorePending: true,
+    })).toBe("none");
+    expect(resolveConversationAutoscroll({
+      ...settled,
+      showTyping: true,
+      historyRestorePending: true,
+    })).toBe("none");
+  });
+
+  test("ignores commits that change nothing at the bottom", () => {
+    expect(resolveConversationAutoscroll(settled)).toBe("none");
+    expect(resolveConversationAutoscroll({
+      ...settled,
+      showTyping: true,
+      previousShowTyping: true,
+    })).toBe("none");
+  });
+
+  test("lands the first paint at the bottom without animating", () => {
+    expect(resolveConversationAutoscroll({
+      ...settled,
+      previousNewestMessageId: null,
+      initialScrollDone: false,
+    })).toBe("instant");
+    expect(resolveConversationAutoscroll({
+      newestMessageId: null,
+      previousNewestMessageId: null,
+      showTyping: false,
+      previousShowTyping: false,
+      historyRestorePending: false,
+      initialScrollDone: false,
+    })).toBe("none");
   });
 });

@@ -15,6 +15,13 @@ import {
   loadScoutBrokerContext,
   type ScoutBrokerSnapshot,
 } from "../broker/service.ts";
+import {
+  MessageCursorError,
+  clampMessagePageLimit,
+  compareMessagesAsc,
+  parseMessageHistoryCursor,
+  type MessageOrderKey,
+} from "../../../shared/message-pagination.ts";
 
 export type ScoutConversationListFilters = {
   query?: string;
@@ -996,6 +1003,7 @@ export async function getScoutConversations(
 export async function getScoutConversationMessages(
   conversationId: string,
   limit = 80,
+  beforeMessageId?: string,
 ): Promise<ScoutConversationMessage[] | null> {
   const normalizedId = conversationId.trim();
   if (!normalizedId || !isOpaqueChannelId(normalizedId)) {
@@ -1008,19 +1016,26 @@ export async function getScoutConversationMessages(
   const snapshot = broker.snapshot;
   const messagesByConversation = latestMessageByConversation(snapshot);
   const equivalentIds = equivalentNamedConversationIds(snapshot, normalizedId);
-  const messages = [...equivalentIds]
+  // Order and page under the one shared total order so a cursor minted from a
+  // SQLite page (or from the client cache) names the same position here.
+  const ordered = [...equivalentIds]
     .flatMap((id) => messagesByConversation.get(id) ?? [])
-    .filter((message) => !isTransientBrokerWaitStatusMessage(message));
-  messages.sort((left, right) =>
-    (normalizeTimestampMs(left.createdAt) ?? 0) - (normalizeTimestampMs(right.createdAt) ?? 0)
-    || left.id.localeCompare(right.id)
-  );
-  const resolvedLimit = Number.isFinite(limit) && limit > 0
-    ? Math.min(500, Math.floor(limit))
-    : 80;
-  const visibleMessages = messages.length > resolvedLimit
-    ? messages.slice(messages.length - resolvedLimit)
-    : messages;
+    .filter((message) => !isTransientBrokerWaitStatusMessage(message))
+    .map((message) => ({
+      message,
+      key: { createdAt: normalizeTimestampMs(message.createdAt) ?? 0, id: message.id },
+    }))
+    .sort((left, right) => compareMessagesAsc(left.key, right.key));
+  const resolvedLimit = clampMessagePageLimit(limit);
+  const before = resolveBrokerPageCursor(beforeMessageId, ordered);
+  // Page by position, not by anchor identity: a deleted cursor still lands
+  // between the same two messages instead of reading as end-of-history.
+  const pageEndIndex = before
+    ? ordered.findIndex((entry) => compareMessagesAsc(entry.key, before) >= 0)
+    : ordered.length;
+  const pageEnd = pageEndIndex < 0 ? ordered.length : pageEndIndex;
+  const pageStart = Math.max(0, pageEnd - resolvedLimit);
+  const visibleMessages = ordered.slice(pageStart, pageEnd).map((entry) => entry.message);
 
   return visibleMessages.map((message) => {
     const threadSummary = threadSummaryForMessage(snapshot, messagesByConversation, message);
@@ -1039,6 +1054,25 @@ export async function getScoutConversationMessages(
       ...(threadSummary ? { threadSummary } : {}),
     };
   });
+}
+
+/// Resolve `beforeMessageId` against an already-ordered transcript. A composite
+/// cursor carries its own position; a legacy bare id is looked up, and a lookup
+/// that misses is reported so the caller cannot read it as end-of-history.
+function resolveBrokerPageCursor(
+  beforeMessageId: string | undefined,
+  ordered: ReadonlyArray<{ key: MessageOrderKey }>,
+): MessageOrderKey | null {
+  const cursor = parseMessageHistoryCursor(beforeMessageId);
+  if (!cursor) return null;
+  if (cursor.kind === "position") {
+    return { createdAt: cursor.createdAt, id: cursor.id };
+  }
+  const anchor = ordered.find((entry) => entry.key.id === cursor.id);
+  if (!anchor) {
+    throw new MessageCursorError("unknown", cursor.id);
+  }
+  return anchor.key;
 }
 
 export async function getScoutConversationById(

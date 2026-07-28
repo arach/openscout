@@ -307,6 +307,12 @@ import {
   resolveOpenScoutWebRoutes,
   serializeOpenScoutWebBootstrap,
 } from "../shared/runtime-config.js";
+import {
+  DEFAULT_MESSAGE_PAGE_LIMIT,
+  MessageCursorError,
+  clampMessagePageLimit,
+  parseMessageHistoryCursor,
+} from "../shared/message-pagination.ts";
 
 function parseConversationKinds(value: string | undefined): ConversationKind[] | undefined {
   const trimmed = value?.trim();
@@ -5965,14 +5971,34 @@ export async function createOpenScoutWebServer(
     if (cId && !isOpaqueChannelId(cId)) {
       return c.json({ error: "chatId must be an opaque chat id" }, 400);
     }
-    const limit = parseOptionalPositiveInt(c.req.query("limit"), 80) ?? 80;
-    const brokerMessages = cId
-      ? await getScoutConversationMessages(cId, limit)
-      : null;
-    const messages = brokerMessages ?? queryRecentMessages(
-      limit,
-      { conversationId: cId },
+    // Clamp once, before choosing a source: the broker projection and the
+    // SQLite fallback must never disagree about how big a page is.
+    const limit = clampMessagePageLimit(
+      parseOptionalPositiveInt(c.req.query("limit"), DEFAULT_MESSAGE_PAGE_LIMIT),
+      DEFAULT_MESSAGE_PAGE_LIMIT,
     );
+    const beforeMessageId = c.req.query("beforeMessageId")?.trim() || undefined;
+    let messages;
+    try {
+      // Cursor shape is the route's business — a malformed cursor is a 400
+      // whichever source would have answered. Whether the cursor still resolves
+      // is the source's business, and the source throws the same error type.
+      parseMessageHistoryCursor(beforeMessageId);
+      const brokerMessages = cId
+        ? await getScoutConversationMessages(cId, limit, beforeMessageId)
+        : null;
+      messages = brokerMessages ?? queryRecentMessages(
+        limit,
+        { conversationId: cId, beforeMessageId },
+      );
+    } catch (cause) {
+      // An unreadable cursor is a client error, not the end of the transcript.
+      // Answering [] here is what strands history behind a deleted anchor.
+      if (cause instanceof MessageCursorError) {
+        return c.json({ error: cause.message, reason: cause.reason }, 400);
+      }
+      throw cause;
+    }
     return c.json(messages.map((message) => ({
       ...message,
       chatId: message.conversationId,

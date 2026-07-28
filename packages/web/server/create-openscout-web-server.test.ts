@@ -50,6 +50,8 @@ let brokerDiagnosticsResult: Record<string, unknown> = makeBrokerDiagnostics();
 let pairingStateResult: Record<string, unknown> = makePairingState();
 let pairingSessionSnapshotsResult: SessionState[] = [];
 let queryFleetResult: Record<string, unknown> | null = null;
+const queryRecentMessagesCalls: Array<Record<string, unknown>> = [];
+let queryRecentMessagesResult: Array<Record<string, unknown>> = [];
 
 let querySessionByIdImpl: (conversationId: string) => {
   id?: string;
@@ -143,7 +145,10 @@ mock.module("./db-queries.ts", () => ({
     return queryRunsResult;
   },
   queryTerminalSessions: () => queryTerminalSessionsResult,
-  queryRecentMessages: () => [],
+  queryRecentMessages: (limit?: number, opts?: Record<string, unknown>) => {
+    queryRecentMessagesCalls.push({ limit, ...opts });
+    return queryRecentMessagesResult;
+  },
   querySessions: () => [],
   querySessionById: (conversationId: string) =>
     querySessionByIdImpl(conversationId),
@@ -700,6 +705,8 @@ beforeEach(() => {
   queryConversationDefinitionByIdImpl = () => null;
   scoutBrokerContextResult = null;
   loadScoutBrokerContextCalls = 0;
+  queryRecentMessagesCalls.length = 0;
+  queryRecentMessagesResult = [];
   scoutBrokerMessagesResult = null;
   scoutBrokerHomeResult = null;
   scoutBrokerSnapshotResult = null;
@@ -1454,6 +1461,106 @@ describe("createOpenScoutWebServer", () => {
         metadata: { flightId: "flt-vox" },
       }),
     ]);
+  });
+
+  test("clamps an oversized message page to the same size for either source", async () => {
+    const chatId = "chn-0600eb9f39144007919e969bc3c13e12";
+    const messages: Record<string, unknown> = {};
+    for (let index = 1; index <= 600; index += 1) {
+      messages[`msg-${index}`] = {
+        id: `msg-${index}`,
+        conversationId: chatId,
+        actorId: "session-vox-zeno",
+        body: `message ${index}`,
+        class: "agent",
+        createdAt: 1_783_915_198_000 + index,
+      };
+    }
+    scoutBrokerContextResult = {
+      snapshot: {
+        conversations: {
+          [chatId]: { id: chatId, kind: "direct", title: "Vox", participantIds: ["operator"] },
+        },
+        messages,
+        agents: {},
+        actors: { "session-vox-zeno": { id: "session-vox-zeno", displayName: "vox-zeno-2" } },
+        endpoints: {},
+      },
+    };
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const brokerResponse = await server.app.request(
+      `http://localhost/api/messages?conversationId=${chatId}&limit=1000`,
+    );
+    expect(brokerResponse.status).toBe(200);
+    await expect(brokerResponse.json()).resolves.toHaveLength(500);
+
+    // Same request, SQLite fallback: the route must have clamped before it
+    // picked a source, not after.
+    scoutBrokerContextResult = null;
+    const sqliteResponse = await server.app.request(
+      `http://localhost/api/messages?conversationId=${chatId}&limit=1000`,
+    );
+    expect(sqliteResponse.status).toBe(200);
+    expect(queryRecentMessagesCalls.at(-1)?.limit).toBe(500);
+  });
+
+  test("answers 400 for a history cursor it cannot read", async () => {
+    const chatId = "chn-0600eb9f39144007919e969bc3c13e13";
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request(
+      `http://localhost/api/messages?conversationId=${chatId}&beforeMessageId=${encodeURIComponent("not-a-timestamp|msg-1")}`,
+    );
+
+    // A cursor the server cannot honour must never read as "no older messages".
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ reason: "malformed" });
+  });
+
+  test("answers 400 when a legacy cursor no longer names a message", async () => {
+    const chatId = "chn-0600eb9f39144007919e969bc3c13e14";
+    scoutBrokerContextResult = {
+      snapshot: {
+        conversations: {
+          [chatId]: { id: chatId, kind: "direct", title: "Vox", participantIds: ["operator"] },
+        },
+        messages: {
+          "msg-vox-1": {
+            id: "msg-vox-1",
+            conversationId: chatId,
+            actorId: "session-vox-zeno",
+            body: "still here",
+            class: "agent",
+            createdAt: 1_783_915_198_766,
+          },
+        },
+        agents: {},
+        actors: { "session-vox-zeno": { id: "session-vox-zeno", displayName: "vox-zeno-2" } },
+        endpoints: {},
+      },
+    };
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request(
+      `http://localhost/api/messages?conversationId=${chatId}&beforeMessageId=msg-vox-deleted`,
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ reason: "unknown" });
   });
 
   test("includes broker-registered agent cards in the agents API", async () => {
