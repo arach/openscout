@@ -81,7 +81,7 @@ export type MessageComposerProps = {
    * owns `value` / `onChange` for Send enablement; this only swaps the field.
    */
   input?: ReactNode;
-  /** Absolute overlay inside the shell (slash / mention menus). */
+  /** Absolute overlay anchored to the shell (slash / mention menus). */
   overlay?: ReactNode;
   /** Send receipt or other feedback rendered below the toolbar. */
   status?: ReactNode;
@@ -353,14 +353,12 @@ export function MessageComposer({
       ? "Finalizing transcript…"
       : partialText;
 
-  const content = (
+  const shell = (
     <div
       className={shellClass}
       data-drag-active={dragActive ? "true" : undefined}
       {...dropHandlers}
     >
-      {overlay}
-
       {header ? <div className="s-msg-compose-header">{header}</div> : null}
 
       <div className="s-msg-compose-body">
@@ -478,6 +476,16 @@ export function MessageComposer({
       </div>
 
       {status}
+    </div>
+  );
+
+  // Menus must be siblings of the clipped shell. Keeping them inside the shell
+  // makes an overlay positioned above the composer fully invisible because the
+  // rounded composer clips its contents.
+  const content = (
+    <div className="s-msg-compose-frame">
+      {overlay}
+      {shell}
     </div>
   );
 

@@ -4,6 +4,8 @@ import {
   WORKING_DURATION_THRESHOLDS_MS,
   deriveWorkingDurationStage,
   hasOutstandingConversationReply,
+  matchMentionTrigger,
+  matchSlashTrigger,
   resolveComposeAction,
   resolveThreadEmbedProps,
 } from "./conversation-model.ts";
@@ -34,6 +36,19 @@ describe("conversation working duration", () => {
 });
 
 describe("conversation composer product model", () => {
+  test("opens suggestions for bare slash and mention triggers", () => {
+    expect(matchSlashTrigger("/", 1)).toEqual({ start: 0, query: "" });
+    expect(matchMentionTrigger("@", 1)).toEqual({ start: 0, query: "" });
+    expect(matchSlashTrigger("message /rou", 12)).toEqual({
+      start: 8,
+      query: "rou",
+    });
+    expect(matchMentionTrigger("message @ara", 12)).toEqual({
+      start: 8,
+      query: "ara",
+    });
+  });
+
   test("presents one Send path instead of Ask, Tell, or Steer commands", () => {
     expect(SLASH_COMMANDS.map((command) => command.command)).not.toContain("/ask");
     expect(SLASH_COMMANDS.map((command) => command.command)).not.toContain("/tell");

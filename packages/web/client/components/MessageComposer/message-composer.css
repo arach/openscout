@@ -45,6 +45,12 @@
   padding: 0;
 }
 
+.s-msg-compose-frame {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
 .s-msg-compose-shell {
   position: relative;
   box-sizing: border-box;
