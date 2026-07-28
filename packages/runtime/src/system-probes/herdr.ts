@@ -21,9 +21,11 @@ export type HerdrSessionInfo = {
  * herdr server is running; a stopped session simply reports no agents.
  */
 export type HerdrAgentInfo = {
+  /** Pane id, which `herdr agent <verb> <target>` accepts. */
   target: string;
   name: string | null;
   status: "idle" | "working" | "blocked" | "unknown";
+  cwd: string | null;
 };
 
 function herdrBin(env: RuntimeEnv = process.env): string {
@@ -93,36 +95,81 @@ export function buildHerdrCreateAttachCommand(sessionName: string): string[] {
 }
 
 /**
- * `herdr agent list` prints a table, not JSON. Parse defensively: a status
- * column we do not recognize becomes "unknown" rather than a guess.
+ * Argv that brings a named Herdr session into existence with NO terminal
+ * attached: the session's own headless server. `herdr --session <name>` needs a
+ * TTY because it launches the client too; this is the half Scout wants, and the
+ * session then shows up in `herdr session list` for anyone to attach to.
  */
-export function parseHerdrAgentList(output: string): HerdrAgentInfo[] {
-  const agents: HerdrAgentInfo[] = [];
-  for (const rawLine of output.split(/\r?\n/u)) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    const columns = line.split(/\s{2,}|\t/u).map((column) => column.trim()).filter(Boolean);
-    const target = columns[0];
-    if (!target || /^(target|id|agent)$/iu.test(target)) continue;
-    const status = columns.map(normalizeHerdrAgentStatus).find(Boolean) ?? "unknown";
-    agents.push({
-      target,
-      name: columns[1] && columns[1] !== status ? columns[1] : null,
-      status,
-    });
-  }
-  return agents;
+export function buildHerdrStartServerCommand(sessionName: string): string[] {
+  const name = sessionName.trim();
+  if (!name || name === "default") return ["herdr", "server"];
+  return ["herdr", "--session", name, "server"];
 }
 
-function normalizeHerdrAgentStatus(value: string): HerdrAgentInfo["status"] | null {
-  switch (value.toLowerCase()) {
+/** Argv for the first workspace inside a Scout-created Herdr session. */
+export function buildHerdrWorkspaceCreateCommand(
+  sessionName: string,
+  input: { cwd?: string | null; label?: string | null } = {},
+): string[] {
+  const args = ["herdr", "--session", sessionName.trim(), "workspace", "create"];
+  if (input.cwd?.trim()) args.push("--cwd", input.cwd.trim());
+  if (input.label?.trim()) args.push("--label", input.label.trim());
+  args.push("--no-focus");
+  return args;
+}
+
+/**
+ * `herdr agent list` answers over the socket API in JSON, wrapped as
+ * `{ id, result: { agents: [...] } }`. Parse defensively: a status the schema
+ * grows later reads as "unknown" rather than being guessed at, and an empty
+ * result is an ordinary state (the session's server is not running).
+ */
+export function parseHerdrAgentList(output: string): HerdrAgentInfo[] {
+  const trimmed = output.trim();
+  if (!trimmed) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed) as unknown;
+  } catch {
+    return [];
+  }
+  const result = parsed && typeof parsed === "object" && "result" in parsed
+    ? (parsed as { result?: unknown }).result
+    : parsed;
+  const agents = result && typeof result === "object" && Array.isArray((result as { agents?: unknown }).agents)
+    ? (result as { agents: unknown[] }).agents
+    : [];
+
+  const out: HerdrAgentInfo[] = [];
+  for (const entry of agents) {
+    if (!entry || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    const target = typeof record.pane_id === "string" && record.pane_id.trim()
+      ? record.pane_id.trim()
+      : typeof record.terminal_id === "string" && record.terminal_id.trim()
+        ? record.terminal_id.trim()
+        : null;
+    if (!target) continue;
+    out.push({
+      target,
+      name: typeof record.name === "string" && record.name.trim() ? record.name.trim() : null,
+      status: normalizeHerdrAgentStatus(record.agent_status),
+      cwd: typeof record.cwd === "string" && record.cwd.trim() ? record.cwd.trim() : null,
+    });
+  }
+  return out;
+}
+
+function normalizeHerdrAgentStatus(value: unknown): HerdrAgentInfo["status"] {
+  switch (typeof value === "string" ? value.toLowerCase() : "") {
     case "idle":
+      return "idle";
     case "working":
+      return "working";
     case "blocked":
-    case "unknown":
-      return value.toLowerCase() as HerdrAgentInfo["status"];
+      return "blocked";
     default:
-      return null;
+      return "unknown";
   }
 }
 
