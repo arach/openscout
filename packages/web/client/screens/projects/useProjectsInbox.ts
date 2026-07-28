@@ -19,6 +19,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../../lib/api.ts";
 import { routeMachineId } from "../../lib/router.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
+import { isScoutSurfaceActive, onScoutSurfaceActivated } from "../../lib/surface-activity.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { keepPreviousIfJsonEqual } from "../chat/conversation-model.ts";
 import type { FleetState, Route, SessionEntry, TailDiscoverySnapshot } from "../../lib/types.ts";
@@ -58,6 +59,7 @@ let requestId = 0;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let nowTimer: ReturnType<typeof setInterval> | null = null;
+let surfaceActivationCleanup: (() => void) | null = null;
 
 /** Bumped on every real fetch — read via window.__projectsInboxLoads to prove one loop. */
 let loadRuns = 0;
@@ -153,6 +155,7 @@ async function load(mode: "initial" | "background"): Promise<void> {
 }
 
 function scheduleRefresh(): void {
+  if (!isScoutSurfaceActive()) return;
   if (refreshTimer) return;
   refreshTimer = setTimeout(() => {
     refreshTimer = null;
@@ -160,20 +163,17 @@ function scheduleRefresh(): void {
   }, SSE_DEBOUNCE_MS);
 }
 
-function onForeground(): void {
-  if (document.visibilityState === "visible") void load("background");
-}
-
 function startLoop(): void {
   void load("initial");
   pollTimer = setInterval(() => {
-    if (document.visibilityState === "visible") void load("background");
+    if (isScoutSurfaceActive()) void load("background");
   }, REFRESH_INTERVAL_MS);
   // A calm shared clock — the inbox shows relative times, so 30s is plenty and
   // 1s ticks (the old bug) never enter a memo dependency.
-  nowTimer = setInterval(() => set({ nowMs: Date.now() }), NOW_TICK_MS);
-  window.addEventListener("focus", onForeground);
-  document.addEventListener("visibilitychange", onForeground);
+  nowTimer = setInterval(() => {
+    if (isScoutSurfaceActive()) set({ nowMs: Date.now() });
+  }, NOW_TICK_MS);
+  surfaceActivationCleanup = onScoutSurfaceActivated(() => void load("background"));
 }
 
 function stopLoop(): void {
@@ -189,8 +189,8 @@ function stopLoop(): void {
     clearInterval(nowTimer);
     nowTimer = null;
   }
-  window.removeEventListener("focus", onForeground);
-  document.removeEventListener("visibilitychange", onForeground);
+  surfaceActivationCleanup?.();
+  surfaceActivationCleanup = null;
 }
 
 /** Force a refresh — e.g. after creating an agent from the inbox header. */

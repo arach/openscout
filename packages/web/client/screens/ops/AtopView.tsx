@@ -38,6 +38,7 @@ import { DataTable, type DataTableColumn } from "../../components/DataTable/Data
 import { HarnessMark, harnessLabel } from "../../components/HarnessMark.tsx";
 import { ObservedTopologyPanel } from "../../components/ObservedTopologyPanel.tsx";
 import { api } from "../../lib/api.ts";
+import { isScoutSurfaceActive, onScoutSurfaceActivated } from "../../lib/surface-activity.ts";
 import { formatClockTimestamp, timeAgoWithSuffix } from "../../lib/time.ts";
 import { useTailEvents } from "../../lib/tail-events.ts";
 import type {
@@ -617,23 +618,32 @@ export function AtopView() {
   /* initial replay */
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
+    let loaded = false;
+    const loadRecent = async () => {
+      if (loaded || !isScoutSurfaceActive()) return;
       try {
         const result = await api<{ events: TailEvent[] }>(
           `/api/tail/recent?limit=${RECENT_REPLAY_LIMIT}`,
         );
-        if (!cancelled) setEvents(result.events ?? []);
+        if (!cancelled) {
+          loaded = true;
+          setEvents(result.events ?? []);
+        }
       } catch {
         /* swallow */
       }
-    })();
+    };
+    void loadRecent();
+    const stopActivationListener = onScoutSurfaceActivated(() => void loadRecent());
     return () => {
       cancelled = true;
+      stopActivationListener();
     };
   }, []);
 
   /* polled discovery */
   const loadDiscovery = useCallback(async () => {
+    if (!isScoutSurfaceActive()) return;
     try {
       const snap = await api<TailDiscoverySnapshot>("/api/tail/discover");
       setDiscovery(snap);
@@ -644,12 +654,18 @@ export function AtopView() {
   useEffect(() => {
     void loadDiscovery();
     const id = setInterval(() => void loadDiscovery(), DISCOVERY_INTERVAL_MS);
-    return () => clearInterval(id);
+    const stopActivationListener = onScoutSurfaceActivated(() => void loadDiscovery());
+    return () => {
+      clearInterval(id);
+      stopActivationListener();
+    };
   }, [loadDiscovery]);
 
   /* clock ticker so "12s ago" stays fresh */
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1_000);
+    const id = setInterval(() => {
+      if (isScoutSurfaceActive()) setNow(Date.now());
+    }, 1_000);
     return () => clearInterval(id);
   }, []);
 
