@@ -134,4 +134,30 @@ describe("terminalSurfaceIdForSurface", () => {
     // A legacy key names no pane, so it still reaches a pane-scoped surface.
     expect(terminalSurfaceMatchesId({ ...surface, paneId: "%3" }, "tmux:relay-openscout-main-arts-mac-mini-local-claude")).toBe(true);
   });
+
+  test("a node-scoped handle does not match a surface on another node", () => {
+    // Two machines can hold identically named sessions. Ignoring the node meant
+    // one node's handle matched the other's session — one name pointing at two
+    // different machines — and node-scoped ids stopped being node-scoped for
+    // every caller that matched rather than compared.
+    const here = { ...surface, surfaceId: formatTerminalSurfaceId({
+      backend: "tmux",
+      hostSession: surface.sessionName,
+      nodeId: "node-a",
+    }) };
+    const there = formatTerminalSurfaceId({
+      backend: "tmux",
+      hostSession: surface.sessionName,
+      nodeId: "node-b",
+    });
+
+    expect(terminalSurfaceMatchesId(here, here.surfaceId)).toBe(true);
+    expect(terminalSurfaceMatchesId(here, there)).toBe(false);
+
+    // Silent when either side does not carry a node: a legacy key names none,
+    // and a surface written before node ids existed carries none, and both must
+    // keep matching.
+    expect(terminalSurfaceMatchesId(here, `tmux:${surface.sessionName}`)).toBe(true);
+    expect(terminalSurfaceMatchesId(surface, there)).toBe(true);
+  });
 });

@@ -130,5 +130,14 @@ export function terminalSurfaceMatchesId(
   if (address.backend !== surface.backend || address.hostSession !== surface.sessionName) return false;
   // A legacy key carries no pane, so it matches any pane on the session; an
   // opaque id that names a pane must match it exactly.
-  return address.paneId === null || address.paneId === (surface.paneId ?? null);
+  if (address.paneId !== null && address.paneId !== (surface.paneId ?? null)) return false;
+  // Node scoping, when BOTH sides carry it. A surface's node lives inside its
+  // own opaque id, so this compares two node-scoped handles and stays silent
+  // otherwise: a legacy key names no node and must keep matching, and neither
+  // must a node-scoped handle stop matching a surface that predates node ids.
+  // Without this a handle for one node matched an identically named session on
+  // another, which is the same session name pointing at two different machines.
+  const surfaceNodeId = parseTerminalSurfaceId(surface.surfaceId)?.nodeId ?? null;
+  if (address.nodeId !== null && surfaceNodeId !== null && address.nodeId !== surfaceNodeId) return false;
+  return true;
 }

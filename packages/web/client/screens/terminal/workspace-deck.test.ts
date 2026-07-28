@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
+import { formatTerminalSurfaceId } from "@openscout/protocol";
+
 import {
   createFreshTerminalCell,
   isTerminalWorkspaceCell,
@@ -14,21 +16,48 @@ const RELAY_SESSION_NAME = /^[A-Za-z0-9_][A-Za-z0-9_-]*$/u;
 
 describe("terminalCellSessionName", () => {
   test("is stable for a cell id and safe for the relay validator", () => {
-    const name = terminalCellSessionName("tmux", "cell-mabc123-1a2b3c4d");
-    expect(name).toBe("scout-tmux-cell-mabc123-1a2b3c4d");
-    expect(name).toBe(terminalCellSessionName("tmux", "cell-mabc123-1a2b3c4d"));
+    const name = terminalCellSessionName("tmux", "cell-mabc123-1a2b3c4d", "tw.1");
+    expect(name).toBe(terminalCellSessionName("tmux", "cell-mabc123-1a2b3c4d", "tw.1"));
     expect(name).toMatch(RELAY_SESSION_NAME);
+    expect(name.startsWith("scout-tmux-cell-mabc123-1a2b3c4d")).toBe(true);
   });
 
   test("separates backends so replacing a tile does not squat the old name", () => {
-    expect(terminalCellSessionName("zellij", "cell-1")).not.toBe(terminalCellSessionName("tmux", "cell-1"));
+    expect(terminalCellSessionName("zellij", "cell-1", "tw.1"))
+      .not.toBe(terminalCellSessionName("tmux", "cell-1", "tw.1"));
+  });
+
+  test("separates workspaces, because a cell id is only unique inside one", () => {
+    // Two workspaces each holding a cell called `slot-1` both used to claim
+    // `scout-tmux-slot-1`, so two tiles attached to — and sent control verbs
+    // to — the same host session.
+    const first = terminalCellSessionName("tmux", "slot-1", "tw.first");
+    const second = terminalCellSessionName("tmux", "slot-1", "tw.second");
+    expect(first).not.toBe(second);
+    expect(first).toMatch(RELAY_SESSION_NAME);
+    expect(second).toMatch(RELAY_SESSION_NAME);
+  });
+
+  test("distinct ids that sanitize alike still get distinct names", () => {
+    // `a:b` and `a b` both scrub to `a-b`. Collapsing them onto one host
+    // session is the same collision by another route, so the digest is taken
+    // over the raw id, before scrubbing.
+    const colon = terminalCellSessionName("tmux", "a:b", "tw.1");
+    const space = terminalCellSessionName("tmux", "a b", "tw.1");
+    expect(colon).not.toBe(space);
+    expect(colon).toMatch(RELAY_SESSION_NAME);
+    expect(space).toMatch(RELAY_SESSION_NAME);
   });
 
   test("scrubs characters a multiplexer target cannot carry", () => {
-    expect(terminalCellSessionName("tmux", "weird:id with spaces")).toBe("scout-tmux-weird-id-with-spaces");
-    expect(terminalCellSessionName("tmux", "weird:id with spaces")).toMatch(RELAY_SESSION_NAME);
-    expect(terminalCellSessionName("tmux", "-leading")).toBe("scout-tmux-leading");
-    expect(terminalCellSessionName("tmux", "::::")).toBe("scout-tmux-cell");
+    for (const cellId of ["weird:id with spaces", "-leading", "::::", "a.b", ""]) {
+      const name = terminalCellSessionName("tmux", cellId, "tw.1");
+      expect(name).toMatch(RELAY_SESSION_NAME);
+      // tmux reads `.` and `:` as target syntax; neither may survive.
+      expect(name).not.toContain(":");
+      expect(name).not.toContain(".");
+    }
+    expect(terminalCellSessionName("tmux", "::::", "tw.1").startsWith("scout-tmux-cell-")).toBe(true);
   });
 });
 
@@ -89,7 +118,9 @@ describe("restoreTerminalWorkspaceDeck", () => {
     const legacy = [{ id: "w", name: "W", columns: 2, cells: [{ kind: "fresh", backend: "tmux", agent: "shell" }] }];
     const once = restoreTerminalWorkspaceDeck(legacy);
     expect(restoreTerminalWorkspaceDeck(once)).toEqual(once);
-    expect(terminalCellSessionName("tmux", once.workspaces[0]!.tiles[0]!.id)).toBe("scout-tmux-w-0");
+    const workspace = once.workspaces[0]!;
+    expect(terminalCellSessionName("tmux", workspace.tiles[0]!.id, workspace.id))
+      .toBe(terminalCellSessionName("tmux", "w-0", "w"));
   });
 
   test("keeps a fresh install empty instead of inventing a workspace", () => {
@@ -114,7 +145,10 @@ describe("server workspace projections", () => {
     };
 
     const input = terminalWorkspaceRecordInputFromLayout(layout);
-    expect(input.cells?.[0]?.intent).toEqual({ hostId: "tmux", sessionName: "scout-tmux-cell-1" });
+    expect(input.cells?.[0]?.intent).toEqual({
+      hostId: "tmux",
+      sessionName: terminalCellSessionName("tmux", "cell-1", "tw.1"),
+    });
     // A disposable shell has nothing to reattach to; promising a revive would
     // be a lie.
     expect(input.cells?.[1]?.intent).toEqual({ hostId: "pty", sessionName: null });
@@ -132,6 +166,7 @@ describe("server workspace projections", () => {
   });
 
   test("a registered cell keeps its surface handle across the round trip", () => {
+    const surfaceId = formatTerminalSurfaceId({ backend: "tmux", hostSession: "relay-main" });
     const layout = {
       id: "tw.2",
       name: "Desk",
@@ -141,15 +176,18 @@ describe("server workspace projections", () => {
         id: "cell-1",
         kind: "registered" as const,
         terminalSessionId: "ts.1",
-        terminalSurfaceKey: "srf1.abc",
+        terminalSurfaceKey: surfaceId,
       }],
     };
     const input = terminalWorkspaceRecordInputFromLayout(layout);
     expect(input.cells?.[0]).toEqual({
       id: "cell-1",
-      surfaceId: "srf1.abc",
+      surfaceId,
       terminalSessionId: "ts.1",
-      intent: {},
+      // Not `{}`. The handle itself names a host and a session, so a registered
+      // tile whose host restarted is revivable rather than "saved without
+      // enough detail to reopen it".
+      intent: { hostId: "tmux", sessionName: "relay-main" },
     });
     expect(terminalWorkspaceLayoutFromRecord({
       id: input.id,
@@ -160,6 +198,41 @@ describe("server workspace projections", () => {
       createdAt: 1,
       updatedAt: 3,
     })).toEqual(layout);
+  });
+
+  test("a registered cell saves the directory and resume command its record knows", () => {
+    const surfaceId = formatTerminalSurfaceId({ backend: "tmux", hostSession: "relay-main" });
+    const input = terminalWorkspaceRecordInputFromLayout({
+      id: "tw.6",
+      name: "Desk",
+      columns: 2,
+      updatedAt: 3,
+      tiles: [{
+        id: "cell-1",
+        kind: "registered" as const,
+        terminalSessionId: "ts.1",
+        terminalSurfaceKey: surfaceId,
+      }],
+    }, {
+      sessions: [{
+        id: "ts.1",
+        harness: "claude",
+        sourceSessionId: "abc",
+        cwd: "/Users/art/dev/openscout",
+        resumeCommand: "claude --resume abc",
+        surfaces: [],
+        createdAt: 1,
+        updatedAt: 2,
+      }],
+    });
+
+    expect(input.cells?.[0]?.intent).toEqual({
+      hostId: "tmux",
+      sessionName: "relay-main",
+      cwd: "/Users/art/dev/openscout",
+      harness: "claude",
+      resumeCommand: "claude --resume abc",
+    });
   });
 
   test("keeps a host the browser cannot render, rather than silently downgrading it", () => {

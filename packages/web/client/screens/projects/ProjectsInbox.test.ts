@@ -148,8 +148,22 @@ describe("ProjectsInbox ThreadRow", () => {
       terminalSurfaceKey: formatTerminalSurfaceId({ backend: "tmux", hostSession: "session-ms0hf3f7-3ngln1" }),
       sessionName: "session-ms0hf3f7-3ngln1",
     });
+    // The deep link carries the LEGACY key, not the opaque handle. macOS's
+    // handler accepts only `tmux:`/`zellij:` prefixes and returns nil for
+    // anything else, so an opaque handle here is a link that silently does
+    // nothing — and macOS cannot be updated in step with a web release.
     expect(nativeTerminalDeepLink(target!, "takeover")).toBe(
-      `scout://terminal?session=discovered.tmux.pomo&surface=${formatTerminalSurfaceId({ backend: "tmux", hostSession: "session-ms0hf3f7-3ngln1" })}&mode=takeover`,
+      "scout://terminal?session=discovered.tmux.pomo&surface=tmux%3Asession-ms0hf3f7-3ngln1&mode=takeover",
     );
+    expect(decodeURIComponent(nativeTerminalDeepLink(target!, "takeover")!))
+      .toContain("surface=tmux:session-ms0hf3f7-3ngln1");
+  });
+
+  test("no native link at all when the surface handle will not parse", () => {
+    expect(nativeTerminalDeepLink({
+      terminalSessionId: "ts.1",
+      terminalSurfaceKey: "not-a-handle",
+      sessionName: "whatever",
+    }, "takeover")).toBeNull();
   });
 });

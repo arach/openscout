@@ -60,6 +60,7 @@ import {
   terminalSurfaceDescriptorFromRegisteredSurface,
   isRelayCapableTerminalBackend,
   terminalSurfaceIdsEqual,
+  terminalSurfaceMatchesId,
   type RegisteredTerminalTarget,
 } from "../../lib/terminal-sessions.ts";
 import {
@@ -1068,6 +1069,7 @@ function registeredTerminalTargetKey(target: RegisteredTerminalTarget): string {
 function terminalTileFromCell(
   cell: TerminalWorkspaceCellDefinition,
   sessions: TerminalSessionRecord[],
+  workspaceId: string,
 ): TerminalWorkspaceTileModel {
   if (cell.kind === "fresh") {
     return {
@@ -1075,7 +1077,12 @@ function terminalTileFromCell(
       kind: "fresh",
       backend: cell.backend,
       agent: cell.agent,
-      ...(cell.backend === "pty" ? {} : { sessionName: terminalCellSessionName(cell.backend, cell.id) }),
+      // The workspace is part of the host session's identity: a cell id is only
+      // unique inside its workspace, so without it two workspaces holding the
+      // same slot id attach to one host session.
+      ...(cell.backend === "pty"
+        ? {}
+        : { sessionName: terminalCellSessionName(cell.backend, cell.id, workspaceId) }),
     };
   }
   const target = resolveRegisteredTerminalTarget(sessions, cell.terminalSessionId, cell.terminalSurfaceKey);
@@ -1149,6 +1156,11 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
     TERMINAL_WORKSPACE_VIEW_STORAGE_KEY,
     "library",
   );
+  // Workspaces Scout stores, and the exact record last written for each. Both
+  // halves matter: the presence of an id says a workspace is server-backed at
+  // all, and the signature is what keeps the write-through effect below from
+  // echoing the server's own answer straight back at it.
+  const syncedWorkspacesRef = useRef(new Map<string, string>());
   const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
   const [workspaceDraftName, setWorkspaceDraftName] = useState("");
   const [workspaceDraftPurpose, setWorkspaceDraftPurpose] = useState("");
@@ -1230,6 +1242,15 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
       .then((payload) => {
         if (cancelled) return;
         setWorkspaceResolutions(payload.resolutions);
+        for (const record of payload.workspaces) {
+          syncedWorkspacesRef.current.set(
+            record.id,
+            JSON.stringify(terminalWorkspaceRecordInputFromLayout(
+              terminalWorkspaceLayoutFromRecord(record),
+              { sessions: state.sessions },
+            )),
+          );
+        }
         if (payload.workspaces.length === 0) return;
         setDeck((current) => {
           let next = current;
@@ -1245,6 +1266,9 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
     return () => {
       cancelled = true;
     };
+    // Deliberately mount-only: this seeds the deck from the server, and
+    // re-running it on every session refresh would fight the operator's edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setDeck]);
 
   const terminalItems = useMemo(() => terminalListItems(state.sessions), [state.sessions]);
@@ -1264,10 +1288,29 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
   // The deck is the truth; tiles are a projection of the active workspace's
   // cells over the live session list. Nothing has to be copied back.
   const tiles = useMemo(
-    () => (activeWorkspace?.tiles ?? []).map((cell) => terminalTileFromCell(cell, state.sessions)),
-    [activeWorkspace?.tiles, state.sessions],
+    () => (activeWorkspace?.tiles ?? []).map((cell) =>
+      terminalTileFromCell(cell, state.sessions, activeWorkspace?.id ?? "")
+    ),
+    [activeWorkspace?.id, activeWorkspace?.tiles, state.sessions],
   );
   const gridColumns = resolveTerminalWorkspaceColumns(workspaceLayout, { tileCount: tiles.length });
+
+  // Changing the layout or the tiles of a workspace that Scout already stores
+  // writes through. Only the builder's Save used to, so every change made after
+  // authoring — reflowing to lanes, adding a tile, reordering — lived in one
+  // browser's localStorage and was gone on the next device. A workspace that
+  // has never been saved stays local, so the "not saved to Scout" banner keeps
+  // meaning what it says.
+  useEffect(() => {
+    if (!activeWorkspace) return;
+    if (!syncedWorkspacesRef.current.has(activeWorkspace.id)) return;
+    const input = terminalWorkspaceRecordInputFromLayout(activeWorkspace, { sessions: state.sessions });
+    const signature = JSON.stringify(input);
+    if (syncedWorkspacesRef.current.get(activeWorkspace.id) === signature) return;
+    syncedWorkspacesRef.current.set(activeWorkspace.id, signature);
+    void saveTerminalWorkspace(input)
+      .catch((error) => setWorkspaceSyncError(error instanceof Error ? error.message : String(error)));
+  }, [activeWorkspace, state.sessions]);
   const workspaceView: TerminalWorkspaceView = storedWorkspaceView === "workspace" && !activeWorkspace
     ? "library"
     : storedWorkspaceView;
@@ -1375,11 +1418,17 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
     // Write through to the server record. Local state is not rolled back on
     // failure — the deck keeps working offline — but the failure is not
     // swallowed silently either.
-    void saveTerminalWorkspace(terminalWorkspaceRecordInputFromLayout(definition))
+    // The live session list rides along so registered cells can save the
+    // directory and resume command their registry record knows. That detail is
+    // what makes such a cell revivable after the host restarts instead of
+    // "saved without enough detail to reopen it".
+    const input = terminalWorkspaceRecordInputFromLayout(definition, { sessions: state.sessions });
+    syncedWorkspacesRef.current.set(definition.id, JSON.stringify(input));
+    void saveTerminalWorkspace(input)
       .catch((error) => setWorkspaceSyncError(error instanceof Error ? error.message : String(error)));
     setPickerVisible(false);
     setWorkspaceView("workspace");
-  }, [editingWorkspaceId, setDeck, setWorkspaceView, workspaceDraftCells, workspaceDraftLayout, workspaceDraftName, workspaceDraftPurpose]);
+  }, [editingWorkspaceId, setDeck, setWorkspaceView, state.sessions, workspaceDraftCells, workspaceDraftLayout, workspaceDraftName, workspaceDraftPurpose]);
 
   const deleteWorkspace = useCallback((workspaceId: string) => {
     setDeck((current) => closeTerminalWorkspace(current, workspaceId, { allowEmpty: true }));
@@ -3042,8 +3091,12 @@ function sortTerminalAgents(agents: Agent[]): Agent[] {
 function findTerminalItemAgent(item: TerminalHomeListItem, agents: Agent[]): Agent | null {
   const itemSurfaceKey = surfaceKey(item.surface);
   const bySurface = agents.find((agent) => {
+    // One matcher, not a hand-rolled `backend:name` string. `surfaceKey` now
+    // returns the opaque handle, so the interpolated comparison this replaces
+    // could never be true and the primary agent-to-surface binding silently
+    // fell through to the name aliases below.
     const surface = resolveAgentTerminalSurface(agent);
-    return surface ? `${surface.backend}:${surface.sessionName}` === itemSurfaceKey : false;
+    return surface ? terminalSurfaceMatchesId(surface, itemSurfaceKey) : false;
   });
   if (bySurface) return bySurface;
 

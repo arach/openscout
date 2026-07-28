@@ -4,11 +4,15 @@ import {
   type TerminalWorkspaceDeckEntry,
 } from "../../lib/terminal-workspace.ts";
 import {
+  parseTerminalSurfaceId,
   resolveTerminalWorkspaceColumns,
+  terminalSurfaceMatchesId,
   terminalWorkspaceLayoutOf,
 } from "@openscout/protocol";
 import type {
+  TerminalSessionRecord,
   TerminalWorkspaceCell,
+  TerminalWorkspaceCellIntent,
   TerminalWorkspaceRecord,
   TerminalWorkspaceRecordInput,
 } from "@openscout/protocol";
@@ -50,18 +54,61 @@ export function createTerminalDeckId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${random}`;
 }
 
+/** Longest readable slice of a cell id kept in a host session name. */
+const CELL_NAME_SLICE = 24;
+
 /**
  * Multiplexer session name for a cell. Derived from the cell's persisted id, so
  * re-entering a workspace reattaches to the session that cell opened last time.
  * Minting a name at entry (as this screen used to) abandons a live session on
  * every reload, which is why web tiles were not durable at all.
  *
+ * The name is an ADDRESS on a host that all of Scout shares, so it has to be
+ * unique across the whole library, and the readable part cannot carry that on
+ * its own. Two ways it collided before: a cell id is only unique within its
+ * workspace, so two workspaces each holding `slot-1` both claimed
+ * `scout-tmux-slot-1`; and sanitizing collapsed distinct ids onto one name,
+ * with `a:b` and `a b` both becoming `scout-tmux-a-b`. Either way two tiles
+ * attach to, and send control verbs to, the same host session.
+ *
+ * So the readable slice stays readable and a short digest of the exact
+ * (workspace, cell, backend) triple carries the identity. The digest is taken
+ * over the raw ids, before sanitizing, which is what makes inputs that sanitize
+ * alike still land on different names.
+ *
  * The result must satisfy the relay's session-name validator
- * (`/^[A-Za-z0-9_][A-Za-z0-9_-]*$/`) before it reaches a CLI.
+ * (`/^[A-Za-z0-9_][A-Za-z0-9_-]*$/`) before it reaches a CLI, and stay clear of
+ * tmux's `.`/`:` targeting syntax — the sanitizer's allowed set already does.
  */
-export function terminalCellSessionName(backend: TerminalCellBackend, cellId: string): string {
-  const suffix = cellId.replace(/[^A-Za-z0-9_-]+/gu, "-").replace(/^[^A-Za-z0-9_]+/u, "");
-  return `scout-${backend}-${suffix || "cell"}`;
+export function terminalCellSessionName(
+  backend: TerminalCellBackend,
+  cellId: string,
+  workspaceId: string,
+): string {
+  const slice = cellId
+    .replace(/[^A-Za-z0-9_-]+/gu, "-")
+    .replace(/^[^A-Za-z0-9_]+/u, "")
+    .slice(0, CELL_NAME_SLICE)
+    .replace(/-+$/u, "");
+  const digest = shortDigest(JSON.stringify([workspaceId, cellId, backend]));
+  return `scout-${backend}-${slice || "cell"}-${digest}`;
+}
+
+/**
+ * FNV-1a, 32 bits, as eight lowercase hex characters.
+ *
+ * Hand-rolled and synchronous on purpose: this runs in a browser bundle where
+ * `crypto.subtle` is async and `node:crypto` does not exist, and the name it
+ * feeds must be derivable in one expression at render time. Thirty-two bits is
+ * ample for distinguishing the cells of one operator's workspace library.
+ */
+function shortDigest(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
 }
 
 export function createFreshTerminalCell(
@@ -126,12 +173,21 @@ export function terminalWorkspaceLayoutFromRecord(
 }
 
 /**
- * The reverse projection. Fresh cells carry the intent needed to rebuild them
- * after a reboot — the host and the durable session name — because a cell that
- * remembers only a surface handle is worth nothing once the host is empty.
+ * The reverse projection. Every cell carries the intent needed to rebuild it
+ * after a reboot — the host, the durable session name, and where known the
+ * working directory and harness resume command — because a cell that remembers
+ * only a surface handle is worth nothing once the host is empty.
+ *
+ * Registered cells used to be written with `intent: {}`, which threw that away
+ * for exactly the tiles that had the most to say: a cell bound to a registry
+ * record knows its host and session name from its own surface handle, and the
+ * record knows the directory and the resume command. Saved as an empty intent,
+ * such a tile reconciled to "saved without enough detail to reopen it" the
+ * moment its host restarted — with the detail sitting right there, unread.
  */
 export function terminalWorkspaceRecordInputFromLayout(
   layout: TerminalWorkspaceDefinition,
+  options: { sessions?: readonly TerminalSessionRecord[] } = {},
 ): TerminalWorkspaceRecordInput & { id: string } {
   return {
     id: layout.id,
@@ -152,7 +208,7 @@ export function terminalWorkspaceRecordInputFromLayout(
           id: cell.id,
           surfaceId: cell.terminalSurfaceKey,
           terminalSessionId: cell.terminalSessionId,
-          intent: {},
+          intent: registeredCellIntent(cell, options.sessions ?? []),
         };
       }
       return {
@@ -161,10 +217,39 @@ export function terminalWorkspaceRecordInputFromLayout(
           hostId: cell.backend,
           // A disposable shell has no session to reattach to, and saying it
           // does would promise a revive that cannot happen.
-          sessionName: cell.backend === "pty" ? null : terminalCellSessionName(cell.backend, cell.id),
+          sessionName: cell.backend === "pty"
+            ? null
+            : terminalCellSessionName(cell.backend, cell.id, layout.id),
         },
       };
     }),
+  };
+}
+
+/**
+ * What a registered cell can honestly say about rebuilding itself.
+ *
+ * The surface handle already names a host and a session — that is what a
+ * surface id IS — so those come from parsing it rather than from a lookup that
+ * may miss. Directory and resume command come from the registry record when
+ * one is still around; when it is not, the cell says what it knows and stays
+ * quiet about the rest, which is what makes reconciliation's refusal to invent
+ * a rebuild meaningful.
+ */
+function registeredCellIntent(
+  cell: Extract<TerminalWorkspaceCellDefinition, { kind: "registered" }>,
+  sessions: readonly TerminalSessionRecord[],
+): TerminalWorkspaceCellIntent {
+  const address = parseTerminalSurfaceId(cell.terminalSurfaceKey);
+  const record = sessions.find((candidate) =>
+    candidate.id === cell.terminalSessionId
+    || candidate.surfaces.some((surface) => terminalSurfaceMatchesId(surface, cell.terminalSurfaceKey))
+  );
+  return {
+    ...(address ? { hostId: address.backend, sessionName: address.hostSession } : {}),
+    ...(record?.cwd ? { cwd: record.cwd } : {}),
+    ...(record?.harness ? { harness: record.harness } : {}),
+    ...(record?.resumeCommand ? { resumeCommand: record.resumeCommand } : {}),
   };
 }
 
