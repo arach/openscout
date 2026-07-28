@@ -2144,7 +2144,12 @@ export function buildAgentLanes(input: {
       lastActiveAt,
       current,
     };
-    const present = providerPresenceAt > 0 || brokerActivityAt > 0;
+    // Provider registration proves that the card is bound, not that it is
+    // active forever. Only let presence bypass trace-based admission while the
+    // registration itself is inside the selected lane horizon. Broker activity
+    // is already horizon-filtered by recentBrokerActivity above.
+    const providerPresent = providerPresenceAt > 0 && now - providerPresenceAt <= windowMs;
+    const present = providerPresent || brokerActivityAt > 0;
     if (workingOnly && !present && !isAgentLaneWorking(lane, now, windowMs, sessionSubstantiveAt)) {
       continue;
     }
