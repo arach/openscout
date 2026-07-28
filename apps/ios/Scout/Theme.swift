@@ -2,6 +2,39 @@ import SwiftUI
 import Foundation
 import HudsonUI
 
+// MARK: - Motion vocabulary
+
+/// Scout's four motions, so the app moves in one language rather than in as
+/// many languages as it has animated views. Every one of them has to answer
+/// "where did this come from / where did it go" — motion that only decorates
+/// isn't in the vocabulary.
+///
+/// The springs are short and snappy (~0.3s, barely-there settle). A rubbery
+/// spring reads as a toy; a spring that never settles reads as a glitch.
+enum ScoutMotion {
+    /// Something GROWS out of the thing you touched — the runtime panel from
+    /// its chip. The overshoot is nearly gone (0.86) so the panel arrives, it
+    /// doesn't wobble.
+    static let grow = Animation.spring(response: 0.30, dampingFraction: 0.86)
+
+    /// Something TRAVELS between two seats it already had — the tab bar's
+    /// machined seat sliding from tab to tab, the harness rail's marker. A hair
+    /// more life than `grow` (0.82), because travel is the pleasure here.
+    static let travel = Animation.spring(response: 0.30, dampingFraction: 0.82)
+
+    /// Something just CHANGES: a scrim, a tint, a crossfade. No spring — there
+    /// is no distance being covered.
+    static let fade = Animation.easeOut(duration: 0.16)
+
+    /// The Reduce Motion form of all of the above: the same event, no travel.
+    static let plain = Animation.easeOut(duration: 0.12)
+
+    /// Pick the honest animation for the current accessibility setting.
+    static func honoring(_ reduceMotion: Bool, _ animation: Animation) -> Animation {
+        reduceMotion ? plain : animation
+    }
+}
+
 // MARK: - Shared surface entrance
 
 /// One launch-lifetime entrance latch owned by a top-level surface. Keeping the
