@@ -464,11 +464,24 @@ export function BrokerScreen({
       ?? null;
   }, [broker, feedRows, route]);
 
+  // Every background refresh rebuilds the feed from JSON, so the selected row
+  // is a fresh object each poll even when nothing about it changed. Comparing
+  // by identity re-cached it into context on every poll and re-rendered the
+  // whole surface — including the inspector the operator is typing into. Only
+  // a real change (a different row, or new state/timing on the same row) is
+  // worth pushing through.
+  const selectedAttemptSignature = selectedAttempt
+    ? `${selectedAttempt.id} ${selectedAttempt.status} ${selectedAttempt.ts}`
+    : null;
+  const cachedAttemptSignature = selectedBrokerAttempt
+    ? `${selectedBrokerAttempt.id} ${selectedBrokerAttempt.status} ${selectedBrokerAttempt.ts}`
+    : null;
+
   useEffect(() => {
-    if (selectedAttempt && selectedAttempt !== selectedBrokerAttempt) {
+    if (selectedAttempt && selectedAttemptSignature !== cachedAttemptSignature) {
       inspectBrokerAttempt(selectedAttempt);
     }
-  }, [inspectBrokerAttempt, selectedAttempt, selectedBrokerAttempt]);
+  }, [cachedAttemptSignature, inspectBrokerAttempt, selectedAttempt, selectedAttemptSignature]);
 
   const activateLedgerRow = useCallback((index: number) => {
     const attempt = activeRows[index];
@@ -888,23 +901,68 @@ export function BrokerAttemptInspector({
     return [...options.entries()].map(([path, label]) => ({ path, label }));
   }, [routableAgents]);
 
+  // Everything the composer is seeded from is derived from the fleet snapshot,
+  // and that snapshot churns constantly: `routableAgents` is re-sorted by
+  // `updatedAt` on every agents poll, so `firstRoutableAgentId` and friends
+  // change identity whenever any agent does anything. Those values are read
+  // through a ref so a *reset* can be driven by one thing only — the operator
+  // selecting a different dispatch. Depending on them directly meant a busy
+  // fleet wiped the half-typed request and re-pointed the recipient mid-compose.
+  const composerDefaultsRef = useRef({
+    originalTargetAgentId,
+    firstRoutableAgentId,
+    defaultForwardAgentId,
+    defaultForwardAgent,
+    effort: "medium",
+  });
+  composerDefaultsRef.current = {
+    originalTargetAgentId,
+    firstRoutableAgentId,
+    defaultForwardAgentId,
+    defaultForwardAgent,
+    effort: metadataText(attempt, "reasoningEffort", "effort") || "medium",
+  };
+  // Set as soon as the operator picks a route themselves, so later seeding can
+  // never re-fill a field they deliberately changed (including back to "any").
+  const routingTouchedRef = useRef(false);
+
   useEffect(() => {
+    const defaults = composerDefaultsRef.current;
+    routingTouchedRef.current = false;
     setCopyStatus("idle");
     setReviewStatus("idle");
     setReviewMessage(null);
     setReviewConversationId(null);
     setMessageDraft("");
-    setRedispatchAgentId(originalTargetAgentId || firstRoutableAgentId);
+    setRedispatchAgentId(defaults.originalTargetAgentId || defaults.firstRoutableAgentId);
     setRedispatchStatus("idle");
     setRedispatchMessage(null);
-    setForwardAgentId(defaultForwardAgentId);
-    setForwardProjectPath(defaultForwardAgent?.projectRoot?.trim() || defaultForwardAgent?.cwd?.trim() || "");
-    setForwardModel(defaultForwardAgent?.model?.trim() || "");
-    setForwardEffort(metadataText(attempt, "reasoningEffort", "effort") || "medium");
+    setForwardAgentId(defaults.defaultForwardAgentId);
+    setForwardProjectPath(
+      defaults.defaultForwardAgent?.projectRoot?.trim() || defaults.defaultForwardAgent?.cwd?.trim() || "",
+    );
+    setForwardModel(defaults.defaultForwardAgent?.model?.trim() || "");
+    setForwardEffort(defaults.effort);
     setForwardFiles([]);
     setForwardStatus("idle");
     setForwardMessage(null);
-  }, [attempt.id, defaultForwardAgent?.cwd, defaultForwardAgent?.model, defaultForwardAgent?.projectRoot, defaultForwardAgentId, firstRoutableAgentId, originalTargetAgentId]);
+    // Deliberately keyed on the selected dispatch alone — see the note above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attempt.id]);
+
+  // The fleet snapshot can land (or repopulate) after this panel mounts, so
+  // routing fields that are still empty get filled in. Values that are already
+  // set are left alone: seeding must never overwrite an operator's choice.
+  useEffect(() => {
+    if (routingTouchedRef.current) return;
+    setRedispatchAgentId((current) => current || originalTargetAgentId || firstRoutableAgentId);
+    setForwardAgentId((current) => current || defaultForwardAgentId);
+    setForwardProjectPath((current) => current
+      || defaultForwardAgent?.projectRoot?.trim()
+      || defaultForwardAgent?.cwd?.trim()
+      || "");
+    setForwardModel((current) => current || defaultForwardAgent?.model?.trim() || "");
+  }, [defaultForwardAgent, defaultForwardAgentId, firstRoutableAgentId, originalTargetAgentId]);
 
   const copyEverything = useCallback(async () => {
     const copied = await copyTextToClipboard(contextText);
@@ -1355,6 +1413,7 @@ export function BrokerAttemptInspector({
                     const nextAgent = routableAgents.find((agent) => (
                       !projectPath || (agent.projectRoot?.trim() || agent.cwd?.trim()) === projectPath
                     )) ?? null;
+                    routingTouchedRef.current = true;
                     setForwardProjectPath(projectPath);
                     if (nextAgent) {
                       setForwardAgentId(nextAgent.id);
@@ -1376,6 +1435,7 @@ export function BrokerAttemptInspector({
                   disabled={forwardStatus === "sending" || forwardProjectAgents.length === 0}
                   onChange={(event) => {
                     const nextAgent = routableAgents.find((agent) => agent.id === event.target.value) ?? null;
+                    routingTouchedRef.current = true;
                     setForwardAgentId(event.target.value);
                     if (nextAgent) {
                       setForwardProjectPath(nextAgent.projectRoot?.trim() || nextAgent.cwd?.trim() || "");
@@ -1398,7 +1458,10 @@ export function BrokerAttemptInspector({
                   aria-label="Model target"
                   value={forwardModel}
                   disabled={forwardStatus === "sending"}
-                  onChange={(event) => setForwardModel(event.target.value)}
+                  onChange={(event) => {
+                    routingTouchedRef.current = true;
+                    setForwardModel(event.target.value);
+                  }}
                 >
                   {forwardModelOptions.length === 0 && <option value="">Default model</option>}
                   {forwardModelOptions.map((model) => <option key={model} value={model}>{model}</option>)}
