@@ -19,6 +19,33 @@ final class ScoutCommsModelsTests: XCTestCase {
         XCTAssertEqual(channel.unreadCount, 0)
     }
 
+    func testChannelDecodesCanonicalTurnProjection() throws {
+        let json = """
+        {
+          "id": "c.thread",
+          "kind": "direct",
+          "title": "Agent",
+          "turn": {
+            "messageId": "msg-1",
+            "invocationId": "inv-1",
+            "flightId": "flt-1",
+            "from": "Operator",
+            "text": "Please review this",
+            "state": "working",
+            "nextMoveOwner": "agent",
+            "updatedAt": 1710000000000
+          }
+        }
+        """
+
+        let channel = try JSONDecoder().decode(ScoutChannel.self, from: Data(json.utf8))
+
+        XCTAssertEqual(channel.turn?.messageId, "msg-1")
+        XCTAssertEqual(channel.turn?.state, .working)
+        XCTAssertEqual(channel.turn?.nextMoveOwner, .agent)
+        XCTAssertEqual(channel.turn?.updatedAt, 1710000000000)
+    }
+
     func testMessageDecodesAttachments() throws {
         let json = """
         {

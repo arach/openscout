@@ -24,6 +24,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { DeviceShell } from "@/components/DeviceShell";
 
 type Kind = "channel" | "dm";
 
@@ -99,33 +100,28 @@ export default function CommsMobileStudy() {
   );
 }
 
-/* ───────────────────────── Phone shell ───────────────────────── */
+/* ───────────────────────── Phone shell ─────────────────────────
+   The frame is the shared <DeviceShell>: bezel, Dynamic Island and the
+   iOS status bar (11:34) come from there; TitleBar / SearchField / list /
+   TabBar below are the study's own screen content. Canvas 390×673pt
+   (content height), presented at the study's original ~290px footprint. */
 
 function Phone({ children }: { children: React.ReactNode }) {
   return (
-    <div className="relative w-[290px] overflow-hidden rounded-[34px] border border-studio-edge-strong bg-black p-[6px] shadow-[0_24px_60px_-24px_rgba(0,0,0,0.7)]">
-      <div className="relative overflow-hidden rounded-[28px] bg-[#0a0a0a]">
-        <StatusBar />
-        <TitleBar />
-        <SearchField />
-        <div className="h-[470px] overflow-hidden">{children}</div>
-        <TabBar />
-      </div>
-    </div>
-  );
-}
-
-function StatusBar() {
-  return (
-    <div className="flex items-center justify-between px-6 pt-2.5 pb-1 text-white">
-      <span className="font-sans text-[13px] font-semibold tracking-tight">11:34</span>
-      <span className="h-[18px] w-[78px] rounded-full bg-black" />
-      <span className="flex items-center gap-1 opacity-90">
-        <span className="text-[10px]">···</span>
-        <span className="text-[11px]">📶</span>
-        <span className="text-[11px]">🔋</span>
-      </span>
-    </div>
+    <DeviceShell
+      device="iphone"
+      scale={0.6954}
+      tone="dark"
+      time="11:34"
+      homeIndicator={false}
+      screenHeight={673}
+      screenProps={{ style: { background: "#0a0a0a" } }}
+    >
+      <TitleBar />
+      <SearchField />
+      <div className="h-[470px] overflow-hidden">{children}</div>
+      <TabBar />
+    </DeviceShell>
   );
 }
 

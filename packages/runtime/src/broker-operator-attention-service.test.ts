@@ -55,6 +55,7 @@ function issue(input: Partial<OperatorDeliveryIssueInput> = {}): OperatorDeliver
 function createHarness(input: {
   broadcastResult?: MobilePushBroadcastResult;
   conversation?: ConversationDefinition;
+  originConversation?: ConversationDefinition;
 } = {}) {
   const ensuredActors: string[] = [];
   const conversationRequests: Array<{ requesterId: string; targetAgentId?: string; channel?: string }> = [];
@@ -73,6 +74,10 @@ function createHarness(input: {
       conversationRequests.push(request);
       return input.conversation ?? testConversation();
     },
+    conversationById: (conversationId) =>
+      input.originConversation?.id === conversationId
+        ? input.originConversation
+        : undefined,
     messageVisibilityForConversation: (conversation) => conversation?.visibility ?? "workspace",
     async postConversationMessage(message) {
       messages.push(message);
@@ -164,6 +169,58 @@ describe("BrokerOperatorAttentionService", () => {
     expect(harness.messages).toEqual([]);
     expect(harness.alerts).toEqual([]);
     expect(harness.warnings).toEqual([]);
+  });
+
+  test("mirrors a delivery failure into its originating conversation", async () => {
+    const originConversation = testConversation({
+      id: "chat-origin",
+      kind: "direct",
+      visibility: "private",
+      participantIds: ["operator", "scout.dispatcher"],
+    });
+    const harness = createHarness({ originConversation });
+
+    await harness.service.recordDeliveryIssue(issue({
+      originConversationId: originConversation.id,
+      originMessageId: "msg-origin",
+    }));
+
+    expect(harness.messages[0]).toEqual(expect.objectContaining({
+      conversationId: "chat-origin",
+      class: "status",
+      replyToMessageId: "msg-origin",
+      visibility: "private",
+      metadata: expect.objectContaining({
+        routingState: "failed",
+        deliveryIssueKind: "rejected",
+      }),
+    }));
+    expect(harness.messages[1]).toEqual(expect.objectContaining({
+      conversationId: "channel.system",
+      class: "system",
+    }));
+  });
+
+  test("records an operator's own failure at the origin without a system-lane duplicate", async () => {
+    const originConversation = testConversation({
+      id: "chat-origin",
+      kind: "direct",
+      visibility: "private",
+    });
+    const harness = createHarness({ originConversation });
+
+    await harness.service.recordDeliveryIssue(issue({
+      requesterId: "operator",
+      originConversationId: originConversation.id,
+      originMessageId: "msg-origin",
+    }));
+
+    expect(harness.messages).toHaveLength(1);
+    expect(harness.messages[0]).toEqual(expect.objectContaining({
+      conversationId: "chat-origin",
+      replyToMessageId: "msg-origin",
+    }));
+    expect(harness.alerts).toEqual([]);
   });
 
   test("pushes a generic non-blocking alert for an agent-authored operator signal", async () => {

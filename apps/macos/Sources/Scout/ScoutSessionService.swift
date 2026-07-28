@@ -88,6 +88,7 @@ struct ScoutSessionComposer: View {
     @State private var agentHighlight: Int = 0
     @State private var agentFieldHovering = false
     @State private var messageBoxHovering = false
+    @State private var isProjectPanelPresented = false
     @FocusState private var instructionsFocused: Bool
     @FocusState private var agentFieldFocused: Bool
     @ObservedObject private var voice = ScoutRemoteVoiceService.shared
@@ -137,7 +138,9 @@ struct ScoutSessionComposer: View {
         .onReceive(voice.$lastFinalText) { spliceDictatedFinal($0) }
         .onAppear { instructionsFocused = true }
         .background(
-            ScoutSessionSubmitShortcutMonitor(isActive: true) {
+            ScoutSessionSubmitShortcutMonitor(
+                isActive: openDropdown == nil && !isSubmitting && !isProjectPanelPresented
+            ) {
                 submit()
             }
             .frame(width: 0, height: 0)
@@ -149,6 +152,17 @@ struct ScoutSessionComposer: View {
     }
 
     private var isDictating: Bool { voice.state.isCaptureActive }
+
+    private var editorHasMarkedText: Bool {
+#if os(macOS)
+        guard let textView = NSApp.keyWindow?.firstResponder as? NSTextView else {
+            return false
+        }
+        return textView.hasMarkedText()
+#else
+        return false
+#endif
+    }
 
     private var voiceUnavailableReason: String? {
         if case .unavailable(let reason) = voice.state { return reason }
@@ -888,7 +902,8 @@ struct ScoutSessionComposer: View {
 
     // A vertical TextField (not a TextEditor) so the placeholder is native and
     // the caret sits on the text baseline — mirrors the conversation composer's
-    // `composerFieldRow`. Grows to ~10 lines; ⌘↵ submits via the send button.
+    // `composerFieldRow`. Grows to ~10 lines; Return submits and Shift-Return
+    // or Option-Return inserts a line break.
     private var messageInputZone: some View {
         ZStack(alignment: .topLeading) {
             TextField(showDictationPreview ? "" : messagePlaceholder, text: $draft.instructions, axis: .vertical)
@@ -899,8 +914,16 @@ struct ScoutSessionComposer: View {
                 .lineLimit(1...10)
                 .focused($instructionsFocused)
                 .onKeyPress(phases: .down) { press in
-                    guard press.key == .return else { return .ignored }
-                    guard press.modifiers.contains(.command) || press.modifiers.contains(.control) else { return .ignored }
+                    guard openDropdown == nil, !isSubmitting else { return .ignored }
+                    guard !editorHasMarkedText else { return .ignored }
+                    guard ScoutSessionSubmitPolicy.shouldSubmit(
+                        isReturn: press.key == .return,
+                        shift: press.modifiers.contains(.shift),
+                        option: press.modifiers.contains(.option),
+                        composerOwnsReturn: openDropdown == nil
+                            && !isSubmitting
+                            && !isProjectPanelPresented
+                    ) else { return .ignored }
                     submit()
                     return .handled
                 }
@@ -918,7 +941,7 @@ struct ScoutSessionComposer: View {
 
     // The internal toolbar plane sits a step below the field — the canvas bg, so
     // the bar reads as a recessed footer (studio `.boxBar`): Cancel left, the
-    // ⌘↵ guide + mic + send clustered right, under a hairline.
+    // Return guide + mic + send clustered right, under a hairline.
     private var messageToolbarBar: some View {
         HStack(spacing: HudSpacing.sm) {
             Button { if !isSubmitting { onClose() } } label: {
@@ -935,7 +958,7 @@ struct ScoutSessionComposer: View {
 
             Spacer(minLength: HudSpacing.sm)
 
-            Text("⌘↵")
+            Text("↵ send · ⇧↵ newline")
                 .font(HudFont.mono(HudTextSize.xs, weight: .medium))
                 .foregroundColor(ScoutPalette.muted)
                 .lineLimit(1)
@@ -975,7 +998,7 @@ struct ScoutSessionComposer: View {
     }
 
     // Send glyph — accent square + ↑ (studio `.barSend`), mirroring the
-    // conversation composer's ScoutSendButton. Drives `submit()` + ⌘↵.
+    // conversation composer's ScoutSendButton. Drives `submit()` + Return.
     private var messageSendButton: some View {
         let ready = canSubmit && !isSubmitting
         return Button { submit() } label: {
@@ -1255,6 +1278,9 @@ struct ScoutSessionComposer: View {
 
     private func chooseProjectDirectory() {
         #if os(macOS)
+        isProjectPanelPresented = true
+        defer { isProjectPanelPresented = false }
+
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -1333,11 +1359,13 @@ private struct ScoutSessionSubmitShortcutMonitor: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
+        context.coordinator.hostView = view
         context.coordinator.install()
         return view
     }
 
     func updateNSView(_ view: NSView, context: Context) {
+        context.coordinator.hostView = view
         context.coordinator.isActive = isActive
         context.coordinator.onSubmit = onSubmit
         context.coordinator.install()
@@ -1347,9 +1375,11 @@ private struct ScoutSessionSubmitShortcutMonitor: NSViewRepresentable {
         coordinator.uninstall()
     }
 
+    @MainActor
     final class Coordinator {
         var isActive: Bool
         var onSubmit: () -> Void
+        weak var hostView: NSView?
         private var monitor: Any?
 
         init(isActive: Bool, onSubmit: @escaping () -> Void) {
@@ -1357,14 +1387,12 @@ private struct ScoutSessionSubmitShortcutMonitor: NSViewRepresentable {
             self.onSubmit = onSubmit
         }
 
-        deinit {
-            uninstall()
-        }
-
         func install() {
             guard monitor == nil else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self, self.isActive else { return event }
+                guard self.hostView?.window === event.window else { return event }
+                guard !Self.isComposingText else { return event }
                 guard Self.isSubmitShortcut(event) else { return event }
                 self.onSubmit()
                 return nil
@@ -1380,9 +1408,19 @@ private struct ScoutSessionSubmitShortcutMonitor: NSViewRepresentable {
 
         private static func isSubmitShortcut(_ event: NSEvent) -> Bool {
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard flags.contains(.command) || flags.contains(.control) else { return false }
-            guard !flags.contains(.option) else { return false }
-            return event.keyCode == 36 || event.keyCode == 76
+            return ScoutSessionSubmitPolicy.shouldSubmit(
+                isReturn: event.keyCode == 36 || event.keyCode == 76,
+                shift: flags.contains(.shift),
+                option: flags.contains(.option)
+            )
+        }
+
+        @MainActor
+        private static var isComposingText: Bool {
+            guard let textView = NSApp.keyWindow?.firstResponder as? NSTextView else {
+                return false
+            }
+            return textView.hasMarkedText()
         }
     }
 }

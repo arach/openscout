@@ -1,10 +1,10 @@
 /**
  * Scout primary navigation chrome (SCO-084 / SCO-085) — shadcn Sidebar composition.
  *
- * PURE NAVIGATION only (Requirement 7 revised 2026-07-20 / SCO-086):
- * destinations, scope items, broker status. Per-area context content lives in
- * the left HudsonKit SidePanel (side rail), not here — do not re-introduce a
- * Context group.
+ * Stable app chrome only (Requirement 7 revised 2026-07-20 / SCO-086):
+ * destinations, scope items, and the global New task launcher. Per-area context
+ * content lives in the left HudsonKit SidePanel (side rail), not here — do not
+ * re-introduce a Context group.
  *
  * SCO-085 full-height: brand strip at window top (titleBarInset padding),
  * drag region on the brand strip. Settings is a primary area.
@@ -26,6 +26,7 @@
  */
 import type { CSSProperties, HTMLAttributes } from "react";
 import { usePlatform } from "@hudsonkit";
+import { Plus } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -35,6 +36,7 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
@@ -42,6 +44,11 @@ import {
   SidebarMenuSubItem,
   useSidebar,
 } from "../../components/ui/sidebar.tsx";
+import {
+  NEW_CHAT_SHORTCUT_LABEL,
+  NEW_TASK_ACTION_LABEL,
+} from "../../lib/new-chat-shortcut.ts";
+import { resolveCaptureRouteContext } from "../../lib/media-route.ts";
 import { cn } from "../../lib/utils.ts";
 import type { Route } from "../../lib/types.ts";
 import { useScout } from "../Provider.tsx";
@@ -54,8 +61,8 @@ import {
   type PrimaryAreaId,
 } from "../primary-areas.ts";
 import {
-  areaSubNavForRoute,
-  type AreaSubNavAreaId,
+  sidebarSubNavForRoute,
+  type SidebarSubNavAreaId,
 } from "../nav-destinations.ts";
 import { useOptionalFlag } from "hudsonkit/flags";
 import { useSidebarModel } from "./useSidebarModel.ts";
@@ -96,16 +103,18 @@ function AreaMenuItems({
   onNavigateArea,
   route,
   navigate,
+  opsControlEnabled,
 }: {
   areas: readonly PrimaryArea[];
   activeAreaId: PrimaryAreaId;
   onNavigateArea: (id: PrimaryAreaId) => void;
   route: Route;
   navigate: (route: Route) => void;
+  opsControlEnabled: boolean;
 }) {
   const { state } = useSidebar();
   const expanded = state === "expanded";
-  const subNav = areaSubNavForRoute(route);
+  const subNav = sidebarSubNavForRoute(route, { opsControlEnabled });
 
   return (
     <SidebarMenu>
@@ -173,7 +182,7 @@ export function ScoutSidebar({
    */
   brandLabel?: string;
 }) {
-  const { route, navigate, openSettings } = useScout();
+  const { route, navigate, openSettings, openContextCapture, agents } = useScout();
   const { titleBarInset, dragRegionProps, onInteractiveMouseDown } = usePlatform();
   const opsControlEnabled = useOptionalFlag("ops.control", true);
   const model = useSidebarModel(route);
@@ -189,6 +198,10 @@ export function ScoutSidebar({
   const settingsActive = activeAreaId === "settings";
 
   const goHome = () => navigate({ view: "inbox" });
+  const startNewTask = () => {
+    const context = resolveCaptureRouteContext(route, agents);
+    openContextCapture({ agentId: context.agentId ?? undefined });
+  };
   const goArea = (id: PrimaryAreaId) => {
     // Stay put if already in the area (preserve deep links).
     if (primaryAreaForRoute(route) === id) return;
@@ -295,6 +308,7 @@ export function ScoutSidebar({
                   onNavigateArea={goArea}
                   route={route}
                   navigate={navigate}
+                  opsControlEnabled={opsControlEnabled}
                 />
               </SidebarGroupContent>
             </SidebarGroup>
@@ -309,6 +323,7 @@ export function ScoutSidebar({
                   onNavigateArea={goArea}
                   route={route}
                   navigate={navigate}
+                  opsControlEnabled={opsControlEnabled}
                 />
               </SidebarGroupContent>
             </SidebarGroup>
@@ -317,12 +332,26 @@ export function ScoutSidebar({
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border">
-        {/* SCO-088c §2: Settings is pinned at the sidebar bottom (where the Broker
-            block used to sit — broker status lives only in the 28px status bar now).
-            Same destination as the retired top-right gear (/settings); nav-item
-            styling, left-accent when the settings route is active. Collapsed → a
-            centered gear (label hidden, hover tooltip kept). */}
-        <SidebarMenu>
+        {/* Global action + destination stay pinned here across every route. In the
+            icon rail they remain deterministic targets with hover tooltips. */}
+        <SidebarMenu className="gap-1">
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              type="button"
+              tooltip={`${NEW_TASK_ACTION_LABEL} (${NEW_CHAT_SHORTCUT_LABEL})`}
+              aria-label={NEW_TASK_ACTION_LABEL}
+              aria-keyshortcuts={NEW_CHAT_SHORTCUT_LABEL}
+              data-action="new-task"
+              className="font-mono text-[11px] font-semibold tracking-[0.02em] [&_svg]:text-[var(--hud-accent)]"
+              onClick={startNewTask}
+            >
+              <Plus size={16} strokeWidth={1.8} aria-hidden />
+              <span>{NEW_TASK_ACTION_LABEL}</span>
+            </SidebarMenuButton>
+            <SidebarMenuBadge className="font-mono text-[9px] text-sidebar-foreground/55">
+              {NEW_CHAT_SHORTCUT_LABEL}
+            </SidebarMenuBadge>
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
               type="button"
@@ -352,4 +381,4 @@ export function sidebarActiveAreaId(route: Route): PrimaryAreaId {
 }
 
 /** Area sub-nav area ids used by the sidebar projection (tests). */
-export type { AreaSubNavAreaId };
+export type { SidebarSubNavAreaId };

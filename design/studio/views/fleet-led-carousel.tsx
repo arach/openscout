@@ -19,10 +19,11 @@
  *      indicator band), coexisting with the corner labels via wide side
  *      insets. It never shows at rest — the resting hex owns the bottom.
  *
- * Every candidate renders at TRUE 1:1 scale inside real device shells —
- * iPhone 16 (393×852pt, Dynamic Island) and iPad 11" LANDSCAPE (1180×820pt) —
- * with mock content mirroring the operator's actual fleet. Tap the bottom hex
- * in any shell (or the SUMMON ALL button) to play rest → summoned.
+ * Every candidate renders at TRUE 1:1 scale inside the shared studio device
+ * shells — iPhone (390×844pt, Dynamic Island) and iPad 11" LANDSCAPE
+ * (1180×820pt) — with mock content mirroring the operator's actual fleet.
+ * Tap the bottom hex in any shell (or the SUMMON ALL button) to play
+ * rest → summoned.
  *
  *   A · SHIPPED CONTENT — today's three-fact well, in the new placement.
  *   B · CAROUSEL — one bigger well, auto-rotating pages (Hosts / Working /
@@ -36,6 +37,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { DeviceShell } from "@/components/DeviceShell";
 
 /* ── scoped CSS (prefixed .fl-) ─────────────────────────────────────── */
 
@@ -59,24 +61,12 @@ const FL_CSS = `
   background:none;border:1px solid var(--sig-edge);border-radius:6px;padding:7px 14px;cursor:pointer}
 .fl-summonall:hover{border-color:var(--accent)}
 
-/* ── device shells (1:1 pt = px) ── */
-.fl-iphone{width:393px;height:852px;border-radius:56px;position:relative;flex:none;
-  background:#000;padding:11px;cursor:pointer;
-  box-shadow:0 0 0 2px #2b2e2c,0 0 0 5px #101211,0 30px 60px rgba(0,0,0,.55)}
-.fl-iphone-screen{width:100%;height:100%;border-radius:46px;overflow:hidden;position:relative;
-  background:linear-gradient(180deg,#0C0D0C 0%,#070908 30%,#060706 100%)}
-.fl-ipad{width:1180px;height:820px;border-radius:26px;position:relative;flex:none;
-  background:#000;padding:13px;cursor:pointer;
-  box-shadow:0 0 0 2px #2b2e2c,0 0 0 5px #101211,0 30px 60px rgba(0,0,0,.55)}
-.fl-ipad-screen{width:100%;height:100%;border-radius:14px;overflow:hidden;position:relative;
-  background:linear-gradient(180deg,#0C0D0C 0%,#070908 34%,#060706 100%)}
-.fl-island{position:absolute;top:12px;left:50%;transform:translateX(-50%);
-  width:112px;height:32px;border-radius:16px;background:#000;z-index:5;
-  box-shadow:inset 0 0 0 1px #101210}
-.fl-homebar{position:absolute;bottom:9px;left:50%;transform:translateX(-50%);
-  width:124px;height:4.5px;border-radius:3px;background:rgba(242,244,239,.32);z-index:5}
-.fl-ipad-homebar{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);
-  width:220px;height:4.5px;border-radius:3px;background:rgba(242,244,239,.28);z-index:5}
+/* ── device shells: the shared <DeviceShell> (components/DeviceShell) draws
+     bezel, island and home bar at 1:1 pt = px; only the screen wallpaper and
+     the summon state hooks stay local ── */
+.fl-click{cursor:pointer}
+.fl-screen-iphone{background:linear-gradient(180deg,#0C0D0C 0%,#070908 30%,#060706 100%)}
+.fl-screen-ipad{background:linear-gradient(180deg,#0C0D0C 0%,#070908 34%,#060706 100%)}
 
 /* backdrop hints — abstract content so the display reads in context */
 .fl-backdrop{position:absolute;inset:0;padding:142px 24px 0;opacity:.5}
@@ -109,14 +99,14 @@ const FL_CSS = `
    VERY TOP so the island punches through it — a strip that starts below the
    notch leaves an ugly dead band. Content anchors to the strip's bottom,
    clearing the island. */
-.fl-iphone-screen .fl-rail{top:0;height:122px;align-items:flex-end;padding-bottom:10px;
+.fl-screen-iphone .fl-rail{top:0;height:122px;align-items:flex-end;padding-bottom:10px;
   background:none;border-bottom-color:transparent;box-shadow:none}
-.fl-iphone-screen.summon .fl-rail{
+.fl-screen-iphone.summon .fl-rail{
   background:linear-gradient(180deg,#131516 0%,#0B0D0E 100%);
   border-bottom-color:rgba(58,62,63,.5);
   box-shadow:0 6px 12px rgba(0,0,0,.5)}
-.fl-iphone-screen .fl-tcorner{top:auto;bottom:10px;margin-top:0}
-.fl-ipad-screen .fl-rail{top:0;height:64px;padding:0 160px}
+.fl-screen-iphone .fl-tcorner{top:auto;bottom:10px;margin-top:0}
+.fl-screen-ipad .fl-rail{top:0;height:64px;padding:0 160px}
 /* iPhone: round dials land inside the strip ends on summon (no recessed
    dock slot — at phone size the anti-circle reads as a hole, not a seat).
    The inset matches the bottom corners' exactly: one vertical line per
@@ -132,12 +122,12 @@ const FL_CSS = `
    side by side) that match the strip's own nature and leave the display's
    rows uncovered. Same 28pt inset as the bottom corners — one vertical
    line per side. */
-.fl-ipad-screen .fl-tcorner{width:104px;height:40px;border-radius:20px;margin-top:-20px;
+.fl-screen-ipad .fl-tcorner{width:104px;height:40px;border-radius:20px;margin-top:-20px;
   display:flex;align-items:center;justify-content:center;gap:7px}
-.fl-ipad-screen .fl-tcorner--l{left:28px;transform:translateX(140px) scale(.4)}
-.fl-ipad-screen .fl-tcorner--r{right:28px;transform:translateX(-140px) scale(.4)}
-.fl-ipad-screen .fl-tcorner svg{position:static;margin:0}
-.fl-ipad-screen .fl-tcorner small{position:static;transform:none;font-size:8px;
+.fl-screen-ipad .fl-tcorner--l{left:28px;transform:translateX(140px) scale(.4)}
+.fl-screen-ipad .fl-tcorner--r{right:28px;transform:translateX(-140px) scale(.4)}
+.fl-screen-ipad .fl-tcorner svg{position:static;margin:0}
+.fl-screen-ipad .fl-tcorner small{position:static;transform:none;font-size:8px;
   letter-spacing:.1em;color:var(--muted)}
 .summon .fl-tcorner{opacity:1;transform:translateX(0) scale(1);pointer-events:auto}
 .summon .fl-tcorner--l{transition-delay:.02s}
@@ -157,9 +147,9 @@ const FL_CSS = `
   display:flex;align-items:center;justify-content:space-between;padding:0 20px}
 /* iPad: the button row is a compact centered ISLAND (the iPhone treatment),
    not a full-width extrusion — the bar spans only the knobs. */
-.fl-ipad-screen .fl-bottom{bottom:22px;left:50%;right:auto;transform:translateX(-50%);
+.fl-screen-ipad .fl-bottom{bottom:22px;left:50%;right:auto;transform:translateX(-50%);
   width:620px;padding:0}
-.fl-ipad-screen .fl-bbar{left:0;right:0}
+.fl-screen-ipad .fl-bbar{left:0;right:0}
 .fl-bbar{position:absolute;left:20px;right:20px;height:46px;border-radius:23px;
   background:linear-gradient(180deg,var(--sig-top),var(--sig-bottom));
   box-shadow:inset 0 0 0 1px var(--sig-edge),0 6px 12px rgba(0,0,0,.5);
@@ -213,11 +203,11 @@ const FL_CSS = `
 .fl-status-run{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
 .fl-status-sep{color:#3a4038}
 .fl-status-active{color:var(--accent);font-weight:600}
-.fl-ipad-screen .fl-status{padding-left:28px;padding-right:28px}
+.fl-screen-ipad .fl-status{padding-left:28px;padding-right:28px}
 /* Phone width discipline: the LED already carries the host count, so the
    phone's line drops it and keeps what the top display can't show — route,
    host name, agents. The iPad has the room and keeps the fuller run. */
-.fl-iphone-screen .fl-status-wide{display:none}
+.fl-screen-iphone .fl-status-wide{display:none}
 
 /* ── the wells ── */
 .fl-well{display:inline-flex;align-items:center;gap:11px;background:var(--well);
@@ -274,26 +264,26 @@ const FL_CSS = `
    free. Phone sizing is untouched. The two-row instrument stretches to fill
    the strip between the docks (the operator's markup); carousel/baseline
    stay centered but roomier. */
-.fl-ipad-screen .fl-display{flex:1;display:flex;justify-content:center;position:relative;height:100%}
+.fl-screen-ipad .fl-display{flex:1;display:flex;justify-content:center;position:relative;height:100%}
 /* iPad two-mode display: the minimized well at rest MORPHS into the full
    instrument on summon (see MorphLED — shared elements persist, extras
    flow in around them). A/B keep the simpler scale/fade swap. The phone
    keeps its single face in both states. */
 .fl-display-full{display:inline-flex}
 .fl-display-min{display:none}
-.fl-ipad-screen .fl-well{padding:12px 22px;gap:14px}
-.fl-ipad-screen .fl-car-view{min-width:300px;padding-left:18px}
-.fl-ipad-screen .fl-car-side{padding-right:16px}
-.fl-ipad-screen .fl-two{min-width:0;width:100%;padding:11px 18px 12px}
-.fl-ipad-screen .fl-qbar{width:52px}
+.fl-screen-ipad .fl-well{padding:12px 22px;gap:14px}
+.fl-screen-ipad .fl-car-view{min-width:300px;padding-left:18px}
+.fl-screen-ipad .fl-car-side{padding-right:16px}
+.fl-screen-ipad .fl-two{min-width:0;width:100%;padding:11px 18px 12px}
+.fl-screen-ipad .fl-qbar{width:52px}
 /* iPhone: the summoned corners claim their 74pt dock lines, so the two-row
    face compresses — quota bars drop to bare percentages, worker chips drop
    the project (harness only), gaps tighten. No overlap in either state. */
-.fl-iphone-screen .fl-two{min-width:0}
-.fl-iphone-screen .fl-two-bot{gap:6px}
-.fl-iphone-screen .fl-qbar{display:none}
-.fl-iphone-screen .fl-worker{font-size:8px}
-.fl-iphone-screen .fl-proj{display:none}
+.fl-screen-iphone .fl-two{min-width:0}
+.fl-screen-iphone .fl-two-bot{gap:6px}
+.fl-screen-iphone .fl-qbar{display:none}
+.fl-screen-iphone .fl-worker{font-size:8px}
+.fl-screen-iphone .fl-proj{display:none}
 
 /* ── MorphLED (iPad C): ONE well, two sizes. The shared core (hosts · pips ·
    active) never unmounts and never moves — summon widens the well (explicit
@@ -655,7 +645,7 @@ function IPadBackdrop() {
   );
 }
 
-function DeviceShell({
+function Shell({
   kind,
   summoned,
   onToggle,
@@ -674,48 +664,46 @@ function DeviceShell({
   twoMode?: boolean;
   children: React.ReactNode;
 }) {
-  const screen = (
-    <>
-      {kind === "iphone" ? <div className="fl-island" /> : null}
-      {kind === "iphone" ? <IPhoneBackdrop /> : <IPadBackdrop />}
-      {/* The rail is PERMANENT decoration; the display docks into its center
-          and never unmounts. The corner complications only exist when
-          summoned, lodging into the rail's end slots — the rail is what makes
-          them read as placed, not floating, on both devices. */}
-      <div className="fl-rail">
-        <div className="fl-tcorner fl-tcorner--l">
-          <CornerGlyph kind="signal" />
-          <small>CONNECT</small>
-        </div>
-        {twoMode ? (
-          <div className="fl-display">
-            <span className="fl-display-min">{minimized ?? children}</span>
-            <span className="fl-display-full">{children}</span>
-          </div>
-        ) : (
-          <div className="fl-display">{children}</div>
-        )}
-        <div className="fl-tcorner fl-tcorner--r">
-          <CornerGlyph kind="gear" />
-          <small>SETTINGS</small>
-        </div>
-      </div>
-      <StatusLine />
-      <BottomCluster />
-      <div className={kind === "iphone" ? "fl-homebar" : "fl-ipad-homebar"} />
-    </>
-  );
   return (
     <div
-      className={kind === "iphone" ? "fl-iphone" : "fl-ipad"}
+      className="fl-click"
       onClick={onToggle}
       role="button"
       aria-label={summoned ? "Dismiss crown" : "Summon crown"}
       aria-pressed={summoned}
     >
-      <div className={`${kind === "iphone" ? "fl-iphone-screen" : "fl-ipad-screen"}${summoned ? " summon" : ""}`}>
-        {screen}
-      </div>
+      <DeviceShell
+        device={kind}
+        tone="dark"
+        statusBar={false}
+        screenClassName={`fl-screen-${kind}${summoned ? " summon" : ""}`}
+      >
+        {kind === "iphone" ? <IPhoneBackdrop /> : <IPadBackdrop />}
+        {/* The rail is PERMANENT decoration; the display docks into its center
+            and never unmounts. The corner complications only exist when
+            summoned, lodging into the rail's end slots — the rail is what makes
+            them read as placed, not floating, on both devices. */}
+        <div className="fl-rail">
+          <div className="fl-tcorner fl-tcorner--l">
+            <CornerGlyph kind="signal" />
+            <small>CONNECT</small>
+          </div>
+          {twoMode ? (
+            <div className="fl-display">
+              <span className="fl-display-min">{minimized ?? children}</span>
+              <span className="fl-display-full">{children}</span>
+            </div>
+          ) : (
+            <div className="fl-display">{children}</div>
+          )}
+          <div className="fl-tcorner fl-tcorner--r">
+            <CornerGlyph kind="gear" />
+            <small>SETTINGS</small>
+          </div>
+        </div>
+        <StatusLine />
+        <BottomCluster />
+      </DeviceShell>
     </div>
   );
 }
@@ -766,7 +754,7 @@ export default function FleetLedCarouselStudy() {
         unmounts; the crown summon (bottom hex) lodges the corner complications into the
         rail&rsquo;s end slots, so the layout reads intentional with AND without complications.
         The rail starts below the island on phones — the notch never disrupts anything. iPhone
-        16 (393×852pt) and iPad 11&Prime; landscape (1180×820pt), both at 100% — the page
+        (390×844pt) and iPad 11&Prime; landscape (1180×820pt), both at 100% — the page
         scrolls horizontally before it lies about size. Mock content mirrors the real fleet:
         2/3 Macs on LAN (air offline 2h), claude opus-4.7 · openscout + codex gpt-5.2 · arc
         working, Claude 88% / Codex 31% weekly quota.
@@ -786,14 +774,14 @@ export default function FleetLedCarouselStudy() {
             <p className="fl-note">{s.note}</p>
             <div className="fl-row">
               <div>
-                <p className="fl-colcap">iPhone 16 · 393pt · 1:1 · tap to summon</p>
-                <DeviceShell kind="iphone" summoned={summoned} onToggle={() => setSummoned((v) => !v)}>
+                <p className="fl-colcap">iPhone · 390pt · 1:1 · tap to summon</p>
+                <Shell kind="iphone" summoned={summoned} onToggle={() => setSummoned((v) => !v)}>
                   {s.display}
-                </DeviceShell>
+                </Shell>
               </div>
               <div>
                 <p className="fl-colcap">iPad 11&Prime; landscape · 1180pt · 1:1 · tap to summon</p>
-                <DeviceShell
+                <Shell
                   kind="ipad"
                   summoned={summoned}
                   onToggle={() => setSummoned((v) => !v)}
@@ -801,7 +789,7 @@ export default function FleetLedCarouselStudy() {
                   twoMode={!s.ipadDisplay}
                 >
                   {s.ipadDisplay ?? s.display}
-                </DeviceShell>
+                </Shell>
               </div>
             </div>
           </section>

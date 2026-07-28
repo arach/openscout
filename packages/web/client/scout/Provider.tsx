@@ -353,14 +353,21 @@ export function ScoutProvider({
     setBrokerAttemptCache(attempt);
     if (route.view === "broker" && route.attemptId === attempt.id) return;
     navigate(
-      { view: "broker", attemptId: attempt.id },
+      {
+        view: "broker",
+        attemptId: attempt.id,
+        ...(route.view === "broker" && route.filter ? { filter: route.filter } : {}),
+      },
       { replace: route.view === "broker" },
     );
   }, [navigate, route]);
   const clearBrokerAttempt = useCallback(() => {
     setBrokerAttemptCache(null);
     if (route.view === "broker" && route.attemptId) {
-      navigate({ view: "broker" }, { replace: true });
+      navigate(
+        { view: "broker", ...(route.filter ? { filter: route.filter } : {}) },
+        { replace: true },
+      );
     }
   }, [navigate, route]);
   const inspectKnowledgeHit = useCallback((hit: KnowledgeHit, query?: string) => {

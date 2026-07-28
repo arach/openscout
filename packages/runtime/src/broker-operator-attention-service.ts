@@ -18,6 +18,8 @@ export type OperatorDeliveryIssueInput = {
   requesterNodeId: string;
   targetLabel: string;
   detail: string;
+  originConversationId?: string;
+  originMessageId?: string;
 };
 
 export type OperatorSignalInput = {
@@ -39,6 +41,7 @@ export type BrokerOperatorAttentionServiceOptions = {
     targetAgentId?: string;
     channel?: string;
   }) => Promise<ConversationDefinition>;
+  conversationById?: (conversationId: string) => ConversationDefinition | undefined;
   messageVisibilityForConversation: (conversation?: ConversationDefinition) => MessageRecord["visibility"];
   postConversationMessage: (message: MessageRecord) => Promise<unknown>;
   broadcastApnsAlertToActiveMobileDevices: (
@@ -54,10 +57,6 @@ export class BrokerOperatorAttentionService {
   constructor(private readonly options: BrokerOperatorAttentionServiceOptions) {}
 
   queueDeliveryIssue(input: OperatorDeliveryIssueInput): void {
-    if (input.requesterId === this.options.operatorActorId) {
-      return;
-    }
-
     void this.recordDeliveryIssue(input).catch((error) => {
       this.options.warn?.(
         `[openscout-runtime] failed to notify operator about delivery issue: ${
@@ -105,6 +104,15 @@ export class BrokerOperatorAttentionService {
   }
 
   async recordDeliveryIssue(input: OperatorDeliveryIssueInput): Promise<void> {
+    await this.recordOriginDeliveryIssue(input);
+
+    // The originating conversation already tells the operator the truth. The
+    // system lane exists to draw operator attention to failures reported by
+    // other actors; duplicating the operator's own failure there is noise.
+    if (input.requesterId === this.options.operatorActorId) {
+      return;
+    }
+
     await this.options.ensureBrokerActorForDelivery(this.options.operatorActorId);
     const conversation = await this.options.ensureBrokerDeliveryConversation({
       requesterId: this.options.systemActorId,
@@ -162,6 +170,41 @@ export class BrokerOperatorAttentionService {
     });
 
     this.warnForBroadcastResult(result);
+  }
+
+  private async recordOriginDeliveryIssue(input: OperatorDeliveryIssueInput): Promise<void> {
+    const conversationId = input.originConversationId?.trim();
+    const replyToMessageId = input.originMessageId?.trim();
+    if (!conversationId || !replyToMessageId) return;
+
+    const conversation = this.options.conversationById?.(conversationId);
+    if (!conversation) return;
+
+    await this.options.postConversationMessage({
+      id: this.options.createId("msg"),
+      conversationId,
+      actorId: this.options.systemActorId,
+      originNodeId: this.options.nodeId,
+      class: "status",
+      body: input.detail.trim(),
+      replyToMessageId,
+      audience: {
+        notify: [input.requesterId],
+        reason: "mention",
+      },
+      visibility: this.options.messageVisibilityForConversation(conversation),
+      policy: "durable",
+      createdAt: this.now(),
+      metadata: {
+        source: "broker",
+        routingState: "failed",
+        deliveryIssueKind: input.kind,
+        requestId: input.requestId,
+        requesterId: input.requesterId,
+        requesterNodeId: input.requesterNodeId,
+        targetLabel: input.targetLabel.trim() || "Scout",
+      },
+    });
   }
 
   private warnForBroadcastResult(result: MobilePushBroadcastResult): void {

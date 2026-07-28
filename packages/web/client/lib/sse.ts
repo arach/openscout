@@ -55,6 +55,15 @@ function ensureSubscribed(): void {
       scheduleReconnect();
     },
   });
+
+  // The control stream is an invalidation hint, not a source of truth. A
+  // subscription can be recreated after a broker/web restart with a gap that
+  // is no longer present in the in-memory backlog, so consumers must reconcile
+  // their canonical snapshots whenever a subscription starts.
+  dispatchBrokerEvent({
+    kind: "unknown",
+    payload: { reason: "control_subscription_started" },
+  });
 }
 
 function teardown(): void {

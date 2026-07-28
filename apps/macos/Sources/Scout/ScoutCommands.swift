@@ -8,7 +8,7 @@ import Termini
 #endif
 
 enum ScoutAppCommand: String {
-    case newConversation
+    case newItem
     case moveDown
     case moveUp
     case focusSearch
@@ -104,8 +104,8 @@ struct ScoutCommands: Commands {
         }
 
         CommandGroup(after: .newItem) {
-            Button("New Conversation") {
-                ScoutAppCommand.newConversation.post()
+            Button("New") {
+                ScoutAppCommand.newItem.post()
             }
             .keyboardShortcut("n", modifiers: .command)
         }

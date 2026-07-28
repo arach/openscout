@@ -1,7 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { isNewChatShortcut } from "./new-chat-shortcut.ts";
+import {
+  NEW_CHAT_SHORTCUT_LABEL,
+  NEW_TASK_ACTION_LABEL,
+  isNewChatShortcut,
+} from "./new-chat-shortcut.ts";
 
 describe("new chat shortcuts", () => {
+  test("exposes the product label and primary shortcut for launchers", () => {
+    expect(NEW_TASK_ACTION_LABEL).toBe("New task");
+    expect(NEW_CHAT_SHORTCUT_LABEL).toBe("C");
+  });
+
   test("uses C as the primary web shortcut", () => {
     expect(isNewChatShortcut({ key: "c" })).toBe(true);
     expect(isNewChatShortcut({ key: "C", shiftKey: true })).toBe(false);

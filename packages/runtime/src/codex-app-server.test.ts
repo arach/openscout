@@ -132,8 +132,6 @@ import { writeFileSync } from "node:fs";
 writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(process.argv.slice(2)), "utf8");
 writeFileSync(${JSON.stringify(envPath)}, JSON.stringify({
   CODEX_HOME: process.env.CODEX_HOME ?? null,
-  OPENSCOUT_CODEX_HOME_SOURCE: process.env.OPENSCOUT_CODEX_HOME_SOURCE ?? null,
-  OPENSCOUT_CODEX_MANAGED_HOME: process.env.OPENSCOUT_CODEX_MANAGED_HOME ?? null,
 }), "utf8");
 
 const rl = readline.createInterface({
@@ -1284,7 +1282,8 @@ describe("ensureCodexAppServerAgentOnline", () => {
     tempPaths.add(tempRoot);
     const runtimeDirectory = join(tempRoot, "runtime");
     const logsDirectory = join(tempRoot, "logs");
-    const { executablePath, argsPath } = writeArgCaptureFakeCodexExecutable(tempRoot);
+    const operatorCodexHome = join(tempRoot, "operator-codex-home");
+    const { executablePath, argsPath, envPath } = writeArgCaptureFakeCodexExecutable(tempRoot);
     process.env.OPENSCOUT_CODEX_BIN = executablePath;
 
     const options = {
@@ -1297,6 +1296,9 @@ describe("ensureCodexAppServerAgentOnline", () => {
       threadId: "thread-launch-args-1",
       requireExistingThread: true,
       launchArgs: ["--model", "gpt-5.4-mini", "--reasoning-effort", "high", "--config", "sandbox_workspace_write.enabled=true"],
+      env: {
+        CODEX_HOME: operatorCodexHome,
+      },
     } as const;
 
     await ensureCodexAppServerAgentOnline(options);
@@ -1309,70 +1311,8 @@ describe("ensureCodexAppServerAgentOnline", () => {
     expect(argv).toContain("sandbox_workspace_write.enabled=true");
     expect(argv).not.toContain("--model");
     expect(argv).not.toContain("--reasoning-effort");
-
-    await shutdownCodexAppServerAgent(options);
-  });
-
-  test("uses an isolated Codex home when managed-home mode is requested", async () => {
-    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-codex-managed-home-test-"));
-    tempPaths.add(tempRoot);
-    const sourceHome = join(tempRoot, "source-codex-home");
-    const runtimeDirectory = join(tempRoot, "runtime");
-    const logsDirectory = join(tempRoot, "logs");
-    mkdirSync(sourceHome, { recursive: true });
-    writeFileSync(join(sourceHome, "auth.json"), "{\"token\":\"test\"}\n", "utf8");
-    writeFileSync(join(sourceHome, "installation_id"), "install-test\n", "utf8");
-    writeFileSync(join(sourceHome, "AGENTS.md"), "Global Codex instructions.\n", "utf8");
-    writeFileSync(join(sourceHome, "config.toml"), [
-      "model = \"gpt-5.5\"",
-      "model_reasoning_effort = \"xhigh\"",
-      "service_tier = \"default\"",
-      "notify = [\"/should/not/copy\"]",
-      "",
-      "[mcp_servers.node_repl]",
-      "command = \"node_repl\"",
-      "",
-    ].join("\n"), "utf8");
-    const { executablePath, envPath } = writeArgCaptureFakeCodexExecutable(tempRoot);
-    process.env.OPENSCOUT_CODEX_BIN = executablePath;
-
-    const options = {
-      agentName: "codex-managed-home",
-      sessionId: "attached-codex-managed-home",
-      cwd: process.cwd(),
-      systemPrompt: "Resume the existing session without changing its identity or prior context.",
-      runtimeDirectory,
-      logsDirectory,
-      threadId: "thread-managed-home-1",
-      requireExistingThread: true,
-      launchArgs: [],
-      env: {
-        OPENSCOUT_CODEX_MANAGED_HOME: "1",
-        CODEX_HOME: sourceHome,
-      },
-    } as const;
-
-    await ensureCodexAppServerAgentOnline(options);
-
-    const managedHome = join(runtimeDirectory, "codex-home");
-    const env = JSON.parse(readFileSync(envPath, "utf8")) as {
-      CODEX_HOME?: string | null;
-      OPENSCOUT_CODEX_HOME_SOURCE?: string | null;
-      OPENSCOUT_CODEX_MANAGED_HOME?: string | null;
-    };
-    expect(env.CODEX_HOME).toBe(managedHome);
-    expect(env.OPENSCOUT_CODEX_HOME_SOURCE).toBe(sourceHome);
-    expect(env.OPENSCOUT_CODEX_MANAGED_HOME).toBe("1");
-
-    const config = readFileSync(join(managedHome, "config.toml"), "utf8");
-    expect(config).toContain("model = \"gpt-5.5\"");
-    expect(config).toContain("model_reasoning_effort = \"xhigh\"");
-    expect(config).toContain("service_tier = \"default\"");
-    expect(config).not.toContain("notify");
-    expect(config).not.toContain("mcp_servers");
-    expect(readFileSync(join(managedHome, "auth.json"), "utf8")).toBe("{\"token\":\"test\"}\n");
-    expect(readFileSync(join(managedHome, "installation_id"), "utf8")).toBe("install-test\n");
-    expect(readFileSync(join(managedHome, "AGENTS.md"), "utf8")).toBe("Global Codex instructions.\n");
+    const env = JSON.parse(readFileSync(envPath, "utf8")) as { CODEX_HOME?: string | null };
+    expect(env.CODEX_HOME).toBe(operatorCodexHome);
 
     await shutdownCodexAppServerAgent(options);
   });

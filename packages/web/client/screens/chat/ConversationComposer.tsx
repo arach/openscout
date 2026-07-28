@@ -5,7 +5,11 @@ import {
   type SetStateAction,
 } from "react";
 import { actorColor } from "../../lib/colors.ts";
-import { MessageComposer } from "../../components/MessageComposer/index.ts";
+import {
+  ComposerAttachmentStrip,
+  MessageComposer,
+  type ComposerAttachmentsState,
+} from "../../components/MessageComposer/index.ts";
 import type {
   ComposeAction,
   MentionCandidate,
@@ -36,6 +40,10 @@ export function ConversationComposer({
   onSend,
   onInterrupt,
   sendReceipt,
+  attachments,
+  isAgentBusy,
+  onSteer,
+  queueNote,
 }: {
   composeRef: RefObject<HTMLTextAreaElement | null>;
   draft: string;
@@ -57,6 +65,11 @@ export function ConversationComposer({
   onSend: () => void;
   onInterrupt: () => void;
   sendReceipt: SendReceipt | null;
+  attachments: ComposerAttachmentsState;
+  isAgentBusy: boolean;
+  /** Interrupt the running turn and deliver the draft now. */
+  onSteer: () => void;
+  queueNote: string | null;
 }) {
   const overlay = (
     <>
@@ -135,6 +148,12 @@ export function ConversationComposer({
     </>
   );
 
+  // While the agent is mid-turn a draft is ambiguous: hold it for the next turn
+  // (Send/Queue) or cut in now (Steer). Queue is primary because interrupting
+  // is the destructive read of the two.
+  const hasDraft = draft.trim().length > 0;
+  const queueMode = isAgentBusy && (hasDraft || attachments.hasFiles);
+
   return (
     <MessageComposer
       density="thread"
@@ -148,22 +167,53 @@ export function ConversationComposer({
       sending={sending}
       stopMode={isStopMode}
       onStop={onInterrupt}
+      canSend={hasDraft || attachments.hasFiles}
+      sendTitle={queueMode ? "Queue for the next turn (Cmd+Enter)" : "Send (Cmd+Enter)"}
       sendAriaLabel={
-        composeAction === "steer"
-          ? "Send follow-up (Cmd+Enter)"
-          : "Send message (Cmd+Enter)"
+        queueMode
+          ? "Queue message for the next turn (Cmd+Enter)"
+          : composeAction === "steer"
+            ? "Send follow-up (Cmd+Enter)"
+            : "Send message (Cmd+Enter)"
       }
+      showAttach
+      onAttach={attachments.openPicker}
+      onPaste={attachments.onPaste}
+      dropHandlers={attachments.dropHandlers}
+      dragActive={attachments.dragActive}
       textareaRef={composeRef}
       overlay={overlay}
-      status={sendReceipt ? (
-        <div
-          className="s-thread-compose-receipt"
-          data-tone={sendReceipt.tone}
-          role="status"
+      header={<ComposerAttachmentStrip attachments={attachments} />}
+      secondaryAction={queueMode ? (
+        <button
+          type="button"
+          className="s-msg-compose-steer"
+          title="Interrupt this turn and send now"
+          aria-label="Steer — interrupt this turn and send now"
+          disabled={sending}
+          onClick={onSteer}
         >
-          {sendReceipt.text}
-        </div>
+          Steer
+        </button>
       ) : null}
+      status={(
+        <>
+          {sendReceipt ? (
+            <div
+              className="s-thread-compose-receipt"
+              data-tone={sendReceipt.tone}
+              role="status"
+            >
+              {sendReceipt.text}
+            </div>
+          ) : null}
+          {queueNote ? (
+            <div className="s-thread-compose-queue-note" role="status">
+              {queueNote}
+            </div>
+          ) : null}
+        </>
+      )}
       tools={(
         <span className="s-thread-compose-hint s-msg-compose-tools-hint">
           <kbd className="s-kbd">/</kbd> commands

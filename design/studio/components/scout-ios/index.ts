@@ -13,4 +13,4 @@ export * from "./fleet-log-surface";
 export * from "./entry-surface";
 export * from "./PhoneShell";
 export * from "./detail-surfaces";
-export * from "./notifications-surface";
+export * from "./notification-surfaces";

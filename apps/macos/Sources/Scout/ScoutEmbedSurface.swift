@@ -75,12 +75,10 @@ enum ScoutEmbedSurfaceRegistry {
             systemImage: "chevron.left.forwardslash.chevron.right",
             section: .code
         ),
-        // The conversation transcript, shared with web and iOS so the reading
-        // layout is decided once instead of three times (this app's
-        // ScoutSharedUI/MessageMarkupParser + iOS MessageMarkupView are the
-        // other two). `section` is nil on purpose: unlike the surfaces above
-        // this is not a nav destination, it renders inside Comms beside the
-        // native composer.
+        // The complete conversation body and composer, shared with the web app
+        // so reading, drafting, attachments, and dictation follow one product
+        // path. `section` is nil on purpose: unlike the surfaces above this is
+        // not a nav destination; it renders inside the native Comms shell.
         ScoutEmbedSurface(
             id: .thread,
             label: "Thread",

@@ -20,7 +20,7 @@ export interface TreatmentMods { density?: "compact"; layout?: "hairline"; tone?
 /** Surfaces where the persistent compose "+" appears (always the same masthead
  *  spot, but only where starting a new conversation/session is meaningful). Ops,
  *  Settings, Connect, etc. are omitted — "new" means nothing there. */
-const COMPOSE_SURFACES: Surface[] = ["home", "comms", "agents"];
+const COMPOSE_SURFACES: Surface[] = ["home", "comms", "agents", "notification"];
 
 /** One treatment on a surface — a labelled variant of the body + its rationale. */
 export interface Treatment {
@@ -35,11 +35,12 @@ export interface Treatment {
   /** Responsive exhibit: the same surface rendered in a wide (iPad) frame
    *  below the phone stage, so a container-query treatment shows both formats. */
   wide?: ReactNode;
-  /** Per-treatment masthead override (else the lab-level `header`, else the
-   *  default "Scout" masthead). */
+  /** Per-treatment chrome overrides. A lab that pairs a TAB surface with a
+   *  PUSHED one (e.g. Home → notification detail) needs the masthead + tab bar
+   *  on one treatment and a detail header with no tab bar on the next; a
+   *  treatment that draws its own bottom chrome (the Entry compose dock)
+   *  passes `showChrome: false`. Both fall back to the lab-level props. */
   header?: ReactNode;
-  /** Per-treatment chrome override — false when the treatment draws its own
-   *  bottom chrome (e.g. the Entry compose dock + retired-cockpit tabs). */
   showChrome?: boolean;
   /** Palette this treatment is designed against — selecting the treatment
    *  flips the lab's palette to it (the toggle stays live for comparison). */
@@ -182,7 +183,7 @@ export function TabletShell({ variant, mods, children }: { variant: Variant; mod
 const SURFACE_NAV: { surface: Surface | "theme"; label: string; href: string }[] = [
   { surface: "theme", label: "Theme", href: "/studies/scout-ios" },
   { surface: "home", label: "Home", href: "/studies/scout-ios-home" },
-  { surface: "notifications", label: "Notifications", href: "/studies/scout-ios-notifications" },
+  { surface: "notification", label: "Notifications", href: "/studies/scout-ios-notifications" },
   { surface: "agents", label: "Agents", href: "/studies/scout-ios-agents" },
   { surface: "comms", label: "Comms", href: "/studies/scout-ios-comms" },
   { surface: "conversation", label: "Conversation", href: "/studies/scout-ios-conversation" },
@@ -310,8 +311,15 @@ export function SurfaceLab({
 
       {/* stage */}
       <div style={{ maxWidth: 980, margin: "0 auto", display: "grid", gridTemplateColumns: "418px 1fr", gap: 40, alignItems: "start" }}>
-        <PhoneShell surface={surface} variant={variant} mods={current?.mods} header={current?.header ?? header}
-          showChrome={current?.showChrome ?? showChrome} tabBadges={tabBadges} bellCount={bellCount}>
+        <PhoneShell
+          surface={surface}
+          variant={variant}
+          mods={current?.mods}
+          header={current?.header ?? header}
+          showChrome={current?.showChrome ?? showChrome}
+          tabBadges={tabBadges}
+          bellCount={bellCount}
+        >
           {current?.body}
         </PhoneShell>
 

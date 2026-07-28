@@ -494,6 +494,13 @@ describe("agents route parsing", () => {
     expect(routeFromUrl("http://127.0.0.1:43120/dispatch")).toEqual({ view: "broker" });
     expect(routeFromUrl("http://127.0.0.1:43120/broker")).toEqual({ view: "broker" });
     expect(routePath({ view: "broker" })).toBe("/dispatch");
+    expect(routeFromUrl("http://127.0.0.1:43120/dispatch?filter=delivered")).toEqual({
+      view: "broker",
+      filter: "delivered",
+    });
+    expect(routePath({ view: "broker", filter: "failed" })).toBe(
+      "/dispatch?filter=failed",
+    );
     expect(routeFromUrl("http://127.0.0.1:43120/channels/chan-1")).toEqual({
       view: "channels",
       channelId: "chan-1",

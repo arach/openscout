@@ -60,6 +60,7 @@ struct ScoutKeyboardCheatsheet: View {
             }
 
             keyGroup("Terminals", active: section == .terminals) {
+                kbd("⌘N", "new shell")
                 kbd("web controls", "search sessions, Enter, or Observe")
             }
 

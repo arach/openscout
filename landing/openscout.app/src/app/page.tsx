@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
-import { Check, Copy, ExternalLink } from "lucide-react";
+import { Check, Copy, ExternalLink, SquareTerminal, X } from "lucide-react";
 import { TerminalSession } from "@/components/terminal-session";
 import { ExpandableImage } from "@/components/expandable-image";
 import { LogoMark } from "@/components/logo-mark";
@@ -146,6 +147,14 @@ const hostIntegrations: IntegrationCard[] = [
   },
 ];
 
+const supportedHarnesses = [
+  { id: "claude", name: "Claude Code", logoSrc: "/harnesses/claude.svg" },
+  { id: "codex", name: "Codex", logoSrc: "/harnesses/codex.svg" },
+  { id: "cursor", name: "Cursor", logoSrc: "/harnesses/cursor.svg" },
+  { id: "grok", name: "Grok", logoSrc: "/harnesses/grok.svg" },
+  { id: "pi", name: "Pi", logoSrc: "/harnesses/pi.svg" },
+] as const;
+
 type FaqEntry = {
   question: string;
   answer: string;
@@ -170,7 +179,7 @@ const faqEntries: FaqEntry[] = [
   {
     question: "Which harnesses work today?",
     answer:
-      "Thin host packages connect Claude Code, Codex, Cursor, pi, and Hermes to the same broker. Each is installed on its own and talks to the local broker over the published CLI and protocol, so adding one joins that agent to the mesh without forking the runtime.",
+      "Scout currently detects and launches Claude Code, Codex, Cursor, Grok, and pi. Thin host packages add richer Scout commands inside supported agents, while every harness talks to the same local broker without forking its runtime.",
   },
   {
     question: "Do I need the Mac app?",
@@ -500,6 +509,205 @@ function InstallCommand({ command }: { command: string }) {
   );
 }
 
+const AGENT_INSTALL_PROMPT = `Install OpenScout and connect it to this agent environment.
+
+OpenScout is a local-first broker for discovering, addressing, observing, and coordinating AI agents. It adds a shared coordination layer while agents stay in the harnesses where they already work.
+
+Use the current instructions in these canonical sources:
+- Install guide: https://openscout.app/install.md
+- Agent discovery: https://openscout.app/.well-known/agent.md
+
+Please:
+1. Check this machine's prerequisites and choose the correct install path for this environment.
+2. Install the Scout CLI, then run \`scout setup\`.
+3. Run \`scout doctor\` and resolve any prerequisite or service issue it reports before continuing.
+4. After the core install is healthy, install the companion integration for the current agent host if the guide lists one.
+5. Run \`scout whoami\` from the intended project to verify its sender identity.
+6. Summarize what changed, the verification results, and anything that still needs human approval.
+
+Do not claim the install is complete unless \`scout doctor\` reports the broker as reachable.`;
+
+async function writeToClipboard(text: string) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.setAttribute("readonly", "");
+  textArea.style.position = "fixed";
+  textArea.style.opacity = "0";
+  document.body.appendChild(textArea);
+  textArea.select();
+  const copied = document.execCommand("copy");
+  textArea.remove();
+
+  if (!copied) throw new Error("Clipboard write failed");
+}
+
+function AgentInstallHandoff() {
+  const [open, setOpen] = useState(false);
+  const [copiedPrompt, setCopiedPrompt] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const wasOpenRef = useRef(false);
+  const copied = copiedPrompt === AGENT_INSTALL_PROMPT;
+
+  useEffect(() => {
+    if (!open) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    closeButtonRef.current?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(
+        dialogRef.current?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), a[href]',
+        ) ?? [],
+      );
+      if (!focusable.length) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (wasOpenRef.current && !open) triggerRef.current?.focus();
+    wasOpenRef.current = open;
+  }, [open]);
+
+  const openDialog = () => {
+    setCopyError(null);
+    setCopiedPrompt(null);
+    setOpen(true);
+  };
+
+  const copyPrompt = async () => {
+    setCopyError(null);
+    try {
+      await writeToClipboard(AGENT_INSTALL_PROMPT);
+      setCopiedPrompt(AGENT_INSTALL_PROMPT);
+      trackCommandCopy({
+        command: "agent_install_handoff_prompt",
+        location: "hero_agent_install",
+      });
+    } catch {
+      setCopyError("Could not access the clipboard. Try again from a secure browser window.");
+    }
+  };
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={openDialog}
+        className="agent-install-trigger"
+        aria-haspopup="dialog"
+      >
+        <span className="agent-install-trigger__label">
+          <SquareTerminal className="h-3.5 w-3.5" aria-hidden="true" />
+          Install with your agent
+        </span>
+        <span className="agent-install-trigger__action">open</span>
+      </button>
+
+      {open
+        ? createPortal(
+            <div
+              className="agent-handoff__overlay"
+              role="presentation"
+              onMouseDown={(event) => {
+                if (event.target === event.currentTarget) setOpen(false);
+              }}
+            >
+              <div
+                ref={dialogRef}
+                className="agent-handoff"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="agent-handoff-title"
+                aria-describedby="agent-handoff-description"
+              >
+                <header className="agent-handoff__header">
+                  <h2 id="agent-handoff-title">Install Scout with your agent</h2>
+                  <button
+                    ref={closeButtonRef}
+                    type="button"
+                    onClick={() => setOpen(false)}
+                    className="agent-handoff__close"
+                    aria-label="Close agent install"
+                  >
+                    <X className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                </header>
+
+                <div className="agent-handoff__body">
+                  <p id="agent-handoff-description" className="agent-handoff__description">
+                    Paste this into a new chat with your coding agent to install Scout and verify the broker.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={copyPrompt}
+                    className="agent-handoff__copy"
+                  >
+                    {copied ? (
+                      <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                    )}
+                    {copied ? "Copied" : "Copy install prompt"}
+                  </button>
+                </div>
+
+                {copyError ? (
+                  <p className="agent-handoff__error" role="alert">
+                    {copyError}
+                  </p>
+                ) : null}
+
+                {copiedPrompt ? (
+                  <section className="agent-handoff__copied" aria-live="polite">
+                    <div className="agent-handoff__copied-label">
+                      <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                      Copied — paste it into a new agent chat
+                    </div>
+                    <pre><code>{copiedPrompt}</code></pre>
+                  </section>
+                ) : null}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
+  );
+}
+
 /* Splits a shell line into styled tokens: command word, -flags, the URL (the
    one accent), and pipe operators. */
 function tokenizeCommand(command: string) {
@@ -674,15 +882,7 @@ const heroHeadlines: Record<Viewer, { top: string; bottom: string; sub: string }
   },
 };
 
-const heroInstall: Record<Viewer, { command: string; footnote?: string }> = {
-  human: {
-    command: "curl -fsSL https://openscout.app/install | sh",
-  },
-  agent: {
-    command: "bun add @openscout/runtime",
-    footnote: "Local-first. Typed records. Durable across restarts.",
-  },
-};
+const AGENT_INSTALL_FOOTNOTE = "Local-first. Typed records. Durable across restarts.";
 
 export default function Home() {
   const scrollRef = useScrollReveal<HTMLElement>("general");
@@ -692,7 +892,6 @@ export default function Home() {
   const surfaceGallery = surfaceGalleryByAudience["general"];
   const getStartedCommands = getStartedCommandsByAudience["general"];
   const headline = heroHeadlines[viewer];
-  const install = heroInstall[viewer];
   const onNavigationClick = (label: string, destination: string, location: string) => () => {
     trackNavigationClick({
       destination,
@@ -815,8 +1014,8 @@ export default function Home() {
 
                     {viewer === "agent" ? (
                       <div className="hero-install-block">
-                        <InstallCommand command={install.command} />
-                        <p className="hero-install-foot">{install.footnote}</p>
+                        <AgentInstallHandoff />
+                        <p className="hero-install-foot">{AGENT_INSTALL_FOOTNOTE}</p>
                         <p className="hero-links">
                           Tool manifest at{" "}
                           <a href="/scout/manifest">
@@ -1055,6 +1254,32 @@ export default function Home() {
 
             {/* ── Works with ── */}
             <section id="integrations" className="section-band" data-mission="04">
+              <section className="harness-roster" aria-labelledby="harness-roster-title">
+                <div className="harness-roster__heading">
+                  <div className="section-eyebrow">Supported harnesses</div>
+                  <h2 id="harness-roster-title">Run Scout where you already work.</h2>
+                </div>
+                <ul className="harness-roster__list">
+                  {supportedHarnesses.map((harness) => (
+                    <li key={harness.id} className="harness-roster__item">
+                      <span
+                        className={`harness-roster__mark harness-roster__mark--${harness.id}`}
+                        aria-hidden="true"
+                      >
+                        <img
+                          className={`harness-roster__logo harness-roster__logo--${harness.id}`}
+                          src={harness.logoSrc}
+                          alt=""
+                          width="24"
+                          height="24"
+                        />
+                      </span>
+                      <span className="harness-roster__name">{harness.name}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+
               <div className="mx-auto grid max-w-7xl gap-x-12 gap-y-10 px-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
                 <div className="reveal max-w-sm">
                   <div className="section-eyebrow">Works with</div>

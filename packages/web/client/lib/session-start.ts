@@ -171,11 +171,15 @@ export async function startAgentSession(
 export async function startProjectSession(input: {
   projectPath: string;
   harness?: string;
+  model?: string;
+  reasoningEffort?: string;
   instructions?: string;
   attachments?: OutgoingAttachment[];
 }): Promise<SessionInitiationResult> {
   const projectPath = input.projectPath.trim();
   const harness = input.harness?.trim();
+  const model = input.model?.trim();
+  const reasoningEffort = input.reasoningEffort?.trim();
   const instructions = input.instructions?.trim();
   const attachments = input.attachments?.filter(Boolean) ?? [];
   return api<SessionInitiationResult>("/api/sessions", {
@@ -185,6 +189,8 @@ export async function startProjectSession(input: {
       execution: {
         session: "new",
         ...(harness ? { harness } : {}),
+        ...(model ? { model } : {}),
+        ...(reasoningEffort ? { reasoningEffort } : {}),
       },
       agent: { persistence: "one_time" },
       ...(instructions || attachments.length > 0

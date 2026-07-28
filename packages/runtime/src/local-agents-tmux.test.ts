@@ -172,9 +172,15 @@ describe("tmux prompt delivery", () => {
       "  Opus 5 │ ⎇ main │ ~/dev/openscout",
     ]);
 
-    expect(tmuxVerifyDeadlineMs(busyTail)).toBeGreaterThan(tmuxVerifyDeadlineMs(idleTail));
-    // An idle pane still reports a genuinely swallowed Enter promptly.
-    expect(tmuxVerifyDeadlineMs(idleTail)).toBeLessThanOrEqual(5_000);
+    // Explicit deadlines keep this deterministic under the env escape hatch
+    // (OPENSCOUT_TMUX_VERIFY_*_DEADLINE_MS), which callers may set to 0 to
+    // restore the original budget. What matters is the selection, not the numbers.
+    const budget = { idleMs: 4_000, busyMs: 15_000 };
+    expect(tmuxVerifyDeadlineMs(busyTail, budget)).toBe(15_000);
+    expect(tmuxVerifyDeadlineMs(idleTail, budget)).toBe(4_000);
+
+    // Zeroed deadlines collapse to the pre-fix behaviour: no extra sampling.
+    expect(tmuxVerifyDeadlineMs(busyTail, { idleMs: 0, busyMs: 0 })).toBe(0);
   });
 
   test("verifier accepts harness activity emitted after the submitted prompt", () => {

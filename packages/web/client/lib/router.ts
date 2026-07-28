@@ -9,6 +9,7 @@ import { normalizeRoute } from "./synthetic-agent-routing.ts";
 import { surfaceKeyFromParts, surfacePartsFromKey } from "./terminal-sessions.ts";
 import type {
   AgentTab,
+  DispatchFilter,
   FollowPreferredView,
   MessagesFilter,
   MessagesSort,
@@ -85,6 +86,10 @@ function parseOpsMode(value: string | undefined): OpsMode | undefined {
 
 function parseMessagesFilter(value: string | null): MessagesFilter | undefined {
   return value === "dm" || value === "channel" || value === "all" ? value : undefined;
+}
+
+function parseDispatchFilter(value: string | null): DispatchFilter | undefined {
+  return value === "delivered" || value === "failed" || value === "all" ? value : undefined;
 }
 
 function parseMessagesSort(value: string | null): MessagesSort | undefined {
@@ -550,7 +555,12 @@ export function routeFromUrl(urlLike: string | URL): Route {
   if (parts[0] === "mesh") return scoped({ view: "mesh" });
   if (parts[0] === "dispatch" || parts[0] === "broker") {
     const attemptId = url.searchParams.get("attempt")?.trim() || undefined;
-    return { view: "broker", ...(attemptId ? { attemptId } : {}) };
+    const filter = parseDispatchFilter(url.searchParams.get("filter"));
+    return {
+      view: "broker",
+      ...(attemptId ? { attemptId } : {}),
+      ...(filter && filter !== "all" ? { filter } : {}),
+    };
   }
   if (parts[0] === "code") {
     const wt = url.searchParams.get("wt")?.trim() || undefined;
@@ -812,6 +822,7 @@ export function routePath(r: Route, pathname?: string): string {
     case "broker": {
       const params = new URLSearchParams();
       if (r.attemptId) params.set("attempt", r.attemptId);
+      if (r.filter && r.filter !== "all") params.set("filter", r.filter);
       return `/dispatch${searchSuffix(params)}`;
     }
     case "code": {
