@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 
 import { and, asc, eq } from "drizzle-orm";
 
-import { epochMs, nowMs } from "@openscout/protocol";
+import { epochMs, normalizeTerminalWorkspaceColumns, nowMs } from "@openscout/protocol";
 import type {
   ActorIdentity,
   AgentDefinition,
@@ -42,6 +42,9 @@ import type {
   TerminalSessionRecord,
   TerminalSessionRecordInput,
   TerminalSurface,
+  TerminalWorkspaceCell,
+  TerminalWorkspaceRecord,
+  TerminalWorkspaceRecordInput,
   ThreadCollaborationEventSummary,
   ThreadCollaborationSummary,
   ThreadEventEnvelope,
@@ -382,6 +385,17 @@ interface TerminalSessionRow {
   updated_at: number;
 }
 
+interface TerminalWorkspaceRow {
+  id: string;
+  name: string;
+  purpose: string;
+  columns_count: number;
+  cells_json: string | null;
+  metadata_json: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
 interface BudgetUsageRow {
   id: string;
   scope: BudgetUsageRecord["scope"];
@@ -560,6 +574,19 @@ function runtimeSessionFromRow(row: RuntimeSessionRow): RuntimeSessionIndexRecor
 /** Deterministic registry id so re-intaking the same harness session updates one record. */
 function terminalSessionRegistryId(harness: string, sourceSessionId: string): string {
   return `ts.${stableHash(`${harness}${sourceSessionId}`)}`;
+}
+
+function terminalWorkspaceFromRow(row: TerminalWorkspaceRow): TerminalWorkspaceRecord {
+  return {
+    id: row.id,
+    name: row.name,
+    purpose: row.purpose,
+    columns: normalizeTerminalWorkspaceColumns(row.columns_count),
+    cells: parseJson<TerminalWorkspaceCell[]>(row.cells_json, []),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
+  };
 }
 
 function terminalSessionFromRow(row: TerminalSessionRow): TerminalSessionRecord {
@@ -1302,6 +1329,70 @@ export class SQLiteControlPlaneStore {
     return records.filter((record) =>
       record.surfaces.some((surface) => surface.backend === options.backend),
     );
+  }
+
+  // Durable terminal workspaces.
+  // A named arrangement of agent-CLI tiles. Cells carry the intent needed to
+  // re-materialize them, so a workspace can be rebuilt after a reboot rather
+  // than reopening onto a grid of dead session names.
+
+  upsertTerminalWorkspace(input: TerminalWorkspaceRecordInput): TerminalWorkspaceRecord {
+    const id = input.id?.trim() || `tw.${stableHash(`${input.name}${currentTimestampMs()}`)}`;
+    const now = currentTimestampMs();
+    this.db.query(
+      `INSERT INTO terminal_workspaces (
+         id, name, purpose, columns_count, cells_json, metadata_json, created_at, updated_at
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         purpose = excluded.purpose,
+         columns_count = excluded.columns_count,
+         cells_json = excluded.cells_json,
+         metadata_json = excluded.metadata_json,
+         updated_at = excluded.updated_at`,
+    ).run(
+      id,
+      input.name,
+      input.purpose ?? "",
+      normalizeTerminalWorkspaceColumns(input.columns),
+      JSON.stringify(input.cells ?? []),
+      stringify(input.metadata),
+      now,
+      now,
+    );
+    const record = this.getTerminalWorkspace(id);
+    if (!record) {
+      throw new Error(`failed to persist terminal workspace ${id}`);
+    }
+    return record;
+  }
+
+  getTerminalWorkspace(id: string): TerminalWorkspaceRecord | null {
+    const row = queryGet<TerminalWorkspaceRow, [string]>(
+      this.readDb,
+      "SELECT * FROM terminal_workspaces WHERE id = ?1",
+      id,
+    );
+    return row ? terminalWorkspaceFromRow(row) : null;
+  }
+
+  listTerminalWorkspaces(options: { limit?: number } = {}): TerminalWorkspaceRecord[] {
+    const limit = normalizedListLimit(options.limit, 100, 1000);
+    return queryAllDynamic<TerminalWorkspaceRow>(
+      this.readDb,
+      `SELECT *
+       FROM terminal_workspaces
+       ORDER BY updated_at DESC, id ASC
+       LIMIT ?`,
+      [limit],
+    ).map(terminalWorkspaceFromRow);
+  }
+
+  deleteTerminalWorkspace(id: string): boolean {
+    const result = this.db.query("DELETE FROM terminal_workspaces WHERE id = ?1").run(id) as {
+      changes?: number;
+    };
+    return (result.changes ?? 0) > 0;
   }
 
   pruneExpiredRuntimeSessions(now = currentTimestampMs()): { aliasesDeleted: number; sessionsDeleted: number } {

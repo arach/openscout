@@ -1983,3 +1983,100 @@ describe("terminal session registry", () => {
     }
   });
 });
+
+describe("terminal workspaces", () => {
+  const cells = [
+    {
+      id: "cell-1",
+      surfaceId: "srf1.abc",
+      terminalSessionId: "ts.1",
+      intent: {
+        hostId: "tmux",
+        sessionName: "scout-tmux-cell-1",
+        cwd: "/home/u/project",
+        harness: "claude",
+        resumeCommand: "claude --resume abc-123",
+      },
+    },
+    { id: "cell-2", intent: { hostId: "zellij", sessionName: "scout-zellij-cell-2" } },
+  ];
+
+  test("round-trips a named workspace and the intent each cell needs to be rebuilt", () => {
+    const store = createStore();
+    try {
+      const record = store.upsertTerminalWorkspace({
+        name: "Release desk",
+        purpose: "Cross-project release monitoring",
+        columns: 3,
+        cells,
+      });
+
+      expect(record.id).toMatch(/^tw\./);
+      expect(record.columns).toBe(3);
+      expect(record.cells).toEqual(cells);
+      // The point of the record: the revive plan survives the write.
+      expect(record.cells[0]?.intent.resumeCommand).toBe("claude --resume abc-123");
+
+      expect(store.getTerminalWorkspace(record.id)).toEqual(record);
+      expect(store.listTerminalWorkspaces()).toEqual([record]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("updating a workspace keeps its identity and creation time", () => {
+    const store = createStore();
+    try {
+      const first = store.upsertTerminalWorkspace({ name: "Desk", cells });
+      const second = store.upsertTerminalWorkspace({
+        id: first.id,
+        name: "Desk renamed",
+        columns: 1,
+        cells: [cells[0]!],
+      });
+
+      expect(second.id).toBe(first.id);
+      expect(second.createdAt).toBe(first.createdAt);
+      expect(second.name).toBe("Desk renamed");
+      expect(second.cells).toHaveLength(1);
+      expect(store.listTerminalWorkspaces()).toHaveLength(1);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("clamps an out-of-range column count instead of storing it", () => {
+    const store = createStore();
+    try {
+      expect(store.upsertTerminalWorkspace({ name: "Wide", columns: 99 }).columns).toBe(6);
+      expect(store.upsertTerminalWorkspace({ name: "Thin", columns: 0 }).columns).toBe(1);
+      expect(store.upsertTerminalWorkspace({ name: "Default" }).columns).toBe(2);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("deletes a workspace and reports whether anything was removed", () => {
+    const store = createStore();
+    try {
+      const record = store.upsertTerminalWorkspace({ name: "Desk", cells });
+      expect(store.deleteTerminalWorkspace(record.id)).toBe(true);
+      expect(store.deleteTerminalWorkspace(record.id)).toBe(false);
+      expect(store.getTerminalWorkspace(record.id)).toBeNull();
+      expect(store.listTerminalWorkspaces()).toEqual([]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("a workspace with no cells is a real workspace, not a missing one", () => {
+    const store = createStore();
+    try {
+      const record = store.upsertTerminalWorkspace({ name: "Empty" });
+      expect(record.cells).toEqual([]);
+      expect(store.getTerminalWorkspace(record.id)?.cells).toEqual([]);
+    } finally {
+      store.close();
+    }
+  });
+});

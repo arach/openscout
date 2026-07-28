@@ -3,6 +3,11 @@ import {
   type TerminalWorkspaceDeck,
   type TerminalWorkspaceLayout,
 } from "../../lib/terminal-workspace.ts";
+import type {
+  TerminalWorkspaceCell,
+  TerminalWorkspaceRecord,
+  TerminalWorkspaceRecordInput,
+} from "@openscout/protocol";
 import type { Route } from "../../lib/types.ts";
 
 type TerminalRoute = Extract<Route, { view: "terminal" }>;
@@ -73,6 +78,81 @@ export function isTerminalWorkspaceCell(value: unknown): value is TerminalWorksp
  * workspace + slot, which is the identity macOS already gives its tiles, so an
  * upgraded workspace keeps reattaching to the sessions its slots opened.
  */
+/**
+ * Project a server-owned workspace record onto the local deck shape.
+ *
+ * The server record is the truth; the deck is a cache of it, so a workspace
+ * authored on one device opens on another. A cell that names a live host
+ * session becomes a fresh tile bound to that session name; a cell that carries
+ * a surface handle becomes a registered tile.
+ */
+export function terminalWorkspaceLayoutFromRecord(
+  record: TerminalWorkspaceRecord,
+): TerminalWorkspaceDefinition {
+  return {
+    id: record.id,
+    name: record.name,
+    ...(record.purpose ? { purpose: record.purpose } : {}),
+    columns: record.columns,
+    updatedAt: record.updatedAt,
+    tiles: record.cells.map((cell): TerminalWorkspaceCellDefinition => {
+      if (cell.surfaceId && cell.terminalSessionId) {
+        return {
+          id: cell.id,
+          kind: "registered",
+          terminalSessionId: cell.terminalSessionId,
+          terminalSurfaceKey: cell.surfaceId,
+        };
+      }
+      return {
+        id: cell.id,
+        kind: "fresh",
+        backend: isTerminalCellBackend(cell.intent.hostId) ? cell.intent.hostId : "pty",
+        agent: "shell",
+      };
+    }),
+  };
+}
+
+/**
+ * The reverse projection. Fresh cells carry the intent needed to rebuild them
+ * after a reboot — the host and the durable session name — because a cell that
+ * remembers only a surface handle is worth nothing once the host is empty.
+ */
+export function terminalWorkspaceRecordInputFromLayout(
+  layout: TerminalWorkspaceDefinition,
+): TerminalWorkspaceRecordInput & { id: string } {
+  return {
+    id: layout.id,
+    name: layout.name,
+    purpose: layout.purpose ?? "",
+    columns: layout.columns ?? TERMINAL_DEFAULT_GRID_COLUMNS,
+    cells: layout.tiles.map((cell): TerminalWorkspaceCell => {
+      if (cell.kind === "registered") {
+        return {
+          id: cell.id,
+          surfaceId: cell.terminalSurfaceKey,
+          terminalSessionId: cell.terminalSessionId,
+          intent: {},
+        };
+      }
+      return {
+        id: cell.id,
+        intent: {
+          hostId: cell.backend,
+          // A disposable shell has no session to reattach to, and saying it
+          // does would promise a revive that cannot happen.
+          sessionName: cell.backend === "pty" ? null : terminalCellSessionName(cell.backend, cell.id),
+        },
+      };
+    }),
+  };
+}
+
+function isTerminalCellBackend(value: unknown): value is TerminalCellBackend {
+  return value === "pty" || value === "tmux" || value === "zellij";
+}
+
 export function restoreTerminalWorkspaceDeck(stored: unknown): TerminalWorkspaceDeckState {
   if (!Array.isArray(stored)) {
     return normalizeTerminalWorkspaceDeck(stored, isTerminalWorkspaceCell, { allowEmpty: true });

@@ -14,6 +14,7 @@ import {
   extractAgentSelectors,
   flightSessionTrace,
   isOpaqueChannelId,
+  reconcileTerminalWorkspace,
   resolveAgentIdentity,
   SCOUT_ROLE_CATALOG,
   type AgentEndpoint,
@@ -22,6 +23,9 @@ import {
   type CollaborationKind,
   type ConversationDefinition,
   type ConversationKind,
+  type TerminalWorkspaceRecord,
+  type TerminalWorkspaceRecordInput,
+  type TerminalWorkspaceResolution,
 } from "@openscout/protocol";
 import {
   collectOccupiedDefinitionIdsFromBrokerSnapshot,
@@ -65,6 +69,12 @@ import {
   queryDiscoveredTerminalSessions,
   terminalSurfaceKey,
 } from "./terminal-session-discovery.ts";
+import {
+  deleteTerminalWorkspace,
+  queryTerminalWorkspace,
+  queryTerminalWorkspaces,
+  upsertTerminalWorkspace,
+} from "./db/terminal-workspaces.ts";
 import {
   describeTerminalHosts,
   isKnownTerminalHost,
@@ -1181,6 +1191,35 @@ function firstMetadataString(...values: Array<unknown>): string | null {
     }
   }
   return null;
+}
+
+/**
+ * Reconcile saved workspaces against the live host inventory.
+ *
+ * Both inputs are gathered once and shared across every workspace: probing the
+ * hosts per workspace would multiply shell-outs by the size of the library for
+ * an answer that is identical each time.
+ */
+async function resolveTerminalWorkspaces(
+  workspaces: readonly TerminalWorkspaceRecord[],
+): Promise<TerminalWorkspaceResolution[]> {
+  if (workspaces.length === 0) return [];
+  const [sessions, hosts, preferred] = await Promise.all([
+    queryDiscoveredTerminalSessions({ limit: 500 }),
+    describeTerminalHosts(),
+    resolvePreferredTerminalHost(),
+  ]);
+  const registered = queryTerminalSessions({ limit: 500 });
+  const hostStates = hosts.map((host) => ({
+    id: host.id,
+    installed: host.availability.installed,
+    canCreate: host.capabilities.create,
+  }));
+  return workspaces.map((workspace) => reconcileTerminalWorkspace(workspace, {
+    sessions: [...registered, ...sessions],
+    hosts: hostStates,
+    defaultHostId: preferred?.id ?? null,
+  }));
 }
 
 /** Any host with a registered adapter, not a hardcoded pair. */
@@ -5075,6 +5114,78 @@ export async function createOpenScoutWebServer(
       preferredHostId: preferred?.id ?? null,
       hosts,
     });
+  });
+
+  // Durable workspaces. The server record is the truth; the three clients
+  // become views over it instead of each keeping a private store that cannot
+  // follow an operator to another device or be reasoned about by the broker.
+  app.get("/api/terminal-workspaces", async (c) => {
+    const workspaces = queryTerminalWorkspaces({ limit: parseTerminalSessionLimit(c.req.query("limit")) });
+    const resolutions = await resolveTerminalWorkspaces(workspaces);
+    return c.json({ ok: true, count: workspaces.length, workspaces, resolutions });
+  });
+
+  app.get("/api/terminal-workspaces/:workspaceId", async (c) => {
+    const workspace = queryTerminalWorkspace(c.req.param("workspaceId"));
+    if (!workspace) return c.json({ error: "workspace not found" }, 404);
+    const [resolution] = await resolveTerminalWorkspaces([workspace]);
+    return c.json({ ok: true, workspace, resolution });
+  });
+
+  app.put("/api/terminal-workspaces/:workspaceId", async (c) => {
+    const body = await c.req.json<TerminalWorkspaceRecordInput>().catch(() => null);
+    const name = body?.name?.trim();
+    if (!body || !name) return c.json({ error: "name is required" }, 400);
+    const workspace = upsertTerminalWorkspace({
+      ...body,
+      id: c.req.param("workspaceId"),
+      name,
+    });
+    return c.json({ ok: true, workspace });
+  });
+
+  app.post("/api/terminal-workspaces", async (c) => {
+    const body = await c.req.json<TerminalWorkspaceRecordInput>().catch(() => null);
+    const name = body?.name?.trim();
+    if (!body || !name) return c.json({ error: "name is required" }, 400);
+    return c.json({ ok: true, workspace: upsertTerminalWorkspace({ ...body, name }) }, 201);
+  });
+
+  // Re-materialize one saved cell. The only path that creates a host session
+  // from stored intent, and it refuses unless reconciliation says the cell is
+  // actually revivable — an operator is never told a tile came back when the
+  // host was never asked.
+  app.post("/api/terminal-workspaces/:workspaceId/cells/:cellId/revive", async (c) => {
+    const workspace = queryTerminalWorkspace(c.req.param("workspaceId"));
+    if (!workspace) return c.json({ error: "workspace not found" }, 404);
+    const [resolution] = await resolveTerminalWorkspaces([workspace]);
+    const cell = resolution?.cells.find((candidate) => candidate.cellId === c.req.param("cellId"));
+    if (!cell) return c.json({ error: "cell not found" }, 404);
+    if (cell.status === "live") return c.json({ ok: true, revived: false, status: cell.status, detail: cell.detail });
+    if (cell.status !== "revivable" || !cell.revive) {
+      return c.json({ error: cell.detail, status: cell.status, capability: "create" }, 409);
+    }
+
+    const adapter = terminalHostAdapter(cell.revive.hostId);
+    if (!adapter?.create) {
+      return c.json({ error: `${cell.revive.hostId} cannot be started by Scout`, capability: "create" }, 501);
+    }
+    const created = await adapter.create({
+      sessionName: cell.revive.sessionName,
+      cwd: cell.revive.cwd,
+    });
+    return c.json({
+      ok: created.created,
+      revived: created.created,
+      status: created.created ? "live" : cell.status,
+      sessionName: cell.revive.sessionName,
+      ...(created.reason ? { detail: created.reason } : {}),
+    }, created.created ? 200 : 502);
+  });
+
+  app.delete("/api/terminal-workspaces/:workspaceId", (c) => {
+    const deleted = deleteTerminalWorkspace(c.req.param("workspaceId"));
+    return c.json({ ok: true, deleted });
   });
 
   app.get("/api/terminal-sessions", async (c) => {

@@ -76,6 +76,8 @@ import {
   createTerminalDeckId,
   restoreTerminalWorkspaceDeck,
   terminalCellSessionName,
+  terminalWorkspaceLayoutFromRecord,
+  terminalWorkspaceRecordInputFromLayout,
   TERMINAL_DEFAULT_GRID_COLUMNS,
   TERMINAL_WORKSPACES_STORAGE_KEY,
   TERMINAL_WORKSPACES_STORAGE_VERSION,
@@ -85,6 +87,14 @@ import {
   type TerminalWorkspaceDefinition,
 } from "./workspace-deck.ts";
 import { terminalHostSupportsControl, useTerminalHosts } from "../../lib/terminal-hosts.ts";
+import {
+  fetchTerminalWorkspaces,
+  removeTerminalWorkspace,
+  reviveTerminalWorkspaceCell,
+  saveTerminalWorkspace,
+  terminalWorkspaceCellStatuses,
+  type TerminalWorkspaceResolution,
+} from "../../lib/terminal-workspaces.ts";
 import { useTerminalRelay, TerminalRelay } from "hudsonkit/terminal";
 import { usePersistentState } from "@hudsonkit";
 import { queueTakeover } from "../../lib/terminal-takeover.ts";
@@ -1095,6 +1105,8 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
   const [state, setState] = useState<TerminalSessionsState>({ state: "loading", sessions: [] });
   const [workspaceReload, setWorkspaceReload] = useState(0);
   const [pickerVisible, setPickerVisible] = useState(true);
+  const [workspaceResolutions, setWorkspaceResolutions] = useState<TerminalWorkspaceResolution[]>([]);
+  const [workspaceSyncError, setWorkspaceSyncError] = useState<string | null>(null);
   const [pickerDraggedTargetId, setPickerDraggedTargetId] = useState<string | null>(null);
   const [pickerDropTileId, setPickerDropTileId] = useState<string | null>(null);
   const [pickerDropNewSlot, setPickerDropNewSlot] = useState(false);
@@ -1146,6 +1158,32 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
       document.removeEventListener("visibilitychange", refreshIfVisible);
     };
   }, [loadSessions]);
+
+  // The server record is the truth; the persisted deck is a cache of it, so a
+  // workspace authored on one device opens on another. A server that has never
+  // been written to leaves the local deck alone rather than wiping it.
+  useEffect(() => {
+    let cancelled = false;
+    void fetchTerminalWorkspaces()
+      .then((payload) => {
+        if (cancelled) return;
+        setWorkspaceResolutions(payload.resolutions);
+        if (payload.workspaces.length === 0) return;
+        setDeck((current) => {
+          let next = current;
+          for (const record of payload.workspaces) {
+            next = upsertTerminalWorkspace(next, terminalWorkspaceLayoutFromRecord(record));
+          }
+          // upsert activates whatever it wrote last; keep the operator where
+          // they were.
+          return { ...next, activeWorkspaceId: current.activeWorkspaceId || next.activeWorkspaceId };
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [setDeck]);
 
   const terminalItems = useMemo(() => terminalListItems(state.sessions), [state.sessions]);
   const liveTerminalItems = useMemo(
@@ -1254,12 +1292,18 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
       updatedAt: Date.now(),
     };
     setDeck((current) => upsertTerminalWorkspace(current, definition));
+    // Write through to the server record. Local state is not rolled back on
+    // failure — the deck keeps working offline — but the failure is not
+    // swallowed silently either.
+    void saveTerminalWorkspace(terminalWorkspaceRecordInputFromLayout(definition))
+      .catch((error) => setWorkspaceSyncError(error instanceof Error ? error.message : String(error)));
     setPickerVisible(false);
     setWorkspaceView("workspace");
   }, [editingWorkspaceId, setDeck, setWorkspaceView, workspaceDraftCells, workspaceDraftColumns, workspaceDraftName, workspaceDraftPurpose]);
 
   const deleteWorkspace = useCallback((workspaceId: string) => {
     setDeck((current) => closeTerminalWorkspace(current, workspaceId, { allowEmpty: true }));
+    void removeTerminalWorkspace(workspaceId).catch(() => {});
   }, [setDeck]);
 
   const addFreshTile = useCallback((backend: TerminalBackend, agent: TerminalAgentKind = "shell") => {
@@ -1523,10 +1567,27 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
     setDropTargetTileId(null);
   }, [reorderTile]);
 
+  const activeCellStatuses = useMemo(
+    () => terminalWorkspaceCellStatuses(
+      workspaceResolutions.find((candidate) => candidate.workspaceId === activeWorkspace?.id),
+    ),
+    [activeWorkspace?.id, workspaceResolutions],
+  );
+
   const reloadWorkspace = useCallback(() => {
     loadSessions();
     setWorkspaceReload((current) => current + 1);
   }, [loadSessions]);
+
+  const reviveCell = useCallback((cellId: string) => {
+    if (!activeWorkspace) return;
+    void reviveTerminalWorkspaceCell(activeWorkspace.id, cellId)
+      .then(() => {
+        setWorkspaceSyncError(null);
+        loadSessions();
+      })
+      .catch((error) => setWorkspaceSyncError(error instanceof Error ? error.message : String(error)));
+  }, [activeWorkspace, loadSessions]);
 
   if (workspaceView === "library") {
     return (
@@ -1651,6 +1712,13 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
           </div>
         )}
 
+        {workspaceSyncError && (
+          <div className="s-term-home-error">
+            <span>This workspace is not saved to Scout — it will not follow you to another device</span>
+            <code>{workspaceSyncError}</code>
+          </div>
+        )}
+
         {(tiles.length > 0 || pickerVisible) && (
           <div
             className="s-term-workspace-grid"
@@ -1673,6 +1741,8 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
                   tile={tile}
                   navigate={navigate}
                   onClose={closeTile}
+                  resolution={activeCellStatuses.get(tile.id) ?? null}
+                  onRevive={reviveCell}
                 />
               </div>
             ))}
@@ -2085,10 +2155,14 @@ function TerminalWorkspaceTile({
   tile,
   navigate,
   onClose,
+  resolution,
+  onRevive,
 }: {
   tile: TerminalWorkspaceTileModel;
   navigate: TerminalNavigate;
   onClose: (tileId: string) => void;
+  resolution?: TerminalWorkspaceResolution["cells"][number] | null;
+  onRevive?: (cellId: string) => void;
 }) {
   if (tile.kind === "registered") {
     return (
@@ -2100,12 +2174,16 @@ function TerminalWorkspaceTile({
     );
   }
   if (tile.kind === "unavailable") {
+    // The server decides whether this cell can come back, because that answer
+    // depends on the host inventory. A revive button appears only when it said
+    // yes; otherwise the tile says plainly why not.
+    const revivable = resolution?.status === "revivable" && Boolean(onRevive);
     return (
       <section className="s-term-workspace-tile s-term-workspace-tile--unavailable" aria-label="Unavailable terminal session">
         <div className="s-term-bar">
           <div className="s-term-bar-left">
             <span className="s-term-workspace-tile-mark"><TerminalIcon size={14} strokeWidth={1.8} /></span>
-            <span className="s-term-workspace-tile-name">Session unavailable</span>
+            <span className="s-term-workspace-tile-name">Not running</span>
           </div>
           <div className="s-term-bar-actions">
             <button
@@ -2121,8 +2199,20 @@ function TerminalWorkspaceTile({
         </div>
         <div className="s-term-workspace-unavailable-body">
           <TerminalIcon size={22} strokeWidth={1.5} />
-          <strong>This saved session is not currently live.</strong>
-          <span>Show the terminal picker to replace it, or wait for the session to reconnect.</span>
+          <strong>{revivable ? "This tile is not running." : "This saved session is not currently live."}</strong>
+          <span>
+            {resolution?.detail
+              ?? "Show the terminal picker to replace it, or wait for the session to reconnect."}
+          </span>
+          {revivable && (
+            <button
+              type="button"
+              className="s-term-workspace-action s-term-workspace-action--primary"
+              onClick={() => onRevive?.(tile.id)}
+            >
+              Start it again
+            </button>
+          )}
         </div>
       </section>
     );

@@ -3398,6 +3398,101 @@ describe("createOpenScoutWebServer", () => {
     });
   });
 
+  test("stores a workspace on the server and reconciles its cells against live hosts", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const created = await server.app.request("http://localhost/api/terminal-workspaces", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Release desk",
+        purpose: "Watch the train",
+        columns: 3,
+        cells: [
+          { id: "cell-1", intent: { hostId: "tmux", sessionName: "scout-tmux-cell-1", cwd: "/repo" } },
+          { id: "cell-2", intent: {} },
+        ],
+      }),
+    });
+    expect(created.status).toBe(201);
+    const { workspace } = await created.json() as { workspace: { id: string; columns: number } };
+    expect(workspace.columns).toBe(3);
+
+    const listed = await server.app.request("http://localhost/api/terminal-workspaces");
+    expect(listed.status).toBe(200);
+    const payload = await listed.json() as {
+      count: number;
+      workspaces: Array<{ id: string }>;
+      resolutions: Array<{ workspaceId: string; cells: Array<{ cellId: string; status: string; revive: unknown }> }>;
+    };
+    expect(payload.workspaces.some((entry) => entry.id === workspace.id)).toBe(true);
+
+    const cells = payload.resolutions.find((entry) => entry.workspaceId === workspace.id)!.cells;
+    // Nothing is live in a test control home, so a cell with intent is
+    // revivable and a cell without one is honestly unavailable.
+    expect(cells.find((cell) => cell.cellId === "cell-1")?.status).toBe("revivable");
+    expect(cells.find((cell) => cell.cellId === "cell-2")).toMatchObject({
+      status: "unavailable",
+      revive: null,
+    });
+
+    const deleted = await server.app.request(
+      `http://localhost/api/terminal-workspaces/${workspace.id}`,
+      { method: "DELETE" },
+    );
+    expect(deleted.status).toBe(200);
+    await expect(deleted.json()).resolves.toEqual({ ok: true, deleted: true });
+  });
+
+  test("refuses to revive a cell that was never given anything to rebuild from", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const created = await server.app.request("http://localhost/api/terminal-workspaces", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Desk", cells: [{ id: "cell-1", intent: {} }] }),
+    });
+    const { workspace } = await created.json() as { workspace: { id: string } };
+
+    const revived = await server.app.request(
+      `http://localhost/api/terminal-workspaces/${workspace.id}/cells/cell-1/revive`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+    );
+    expect(revived.status).toBe(409);
+    await expect(revived.json()).resolves.toMatchObject({
+      status: "unavailable",
+      capability: "create",
+    });
+
+    const missing = await server.app.request(
+      `http://localhost/api/terminal-workspaces/${workspace.id}/cells/nope/revive`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+    );
+    expect(missing.status).toBe(404);
+  });
+
+  test("rejects a nameless workspace instead of storing a blank one", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/terminal-workspaces", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "   " }),
+    });
+    expect(response.status).toBe(400);
+  });
+
   test("publishes what each terminal host can do, so clients stop offering dead actions", async () => {
     const server = await createOpenScoutWebServer({
       currentDirectory: "/tmp/openscout",

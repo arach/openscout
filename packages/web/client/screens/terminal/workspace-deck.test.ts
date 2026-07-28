@@ -5,6 +5,8 @@ import {
   isTerminalWorkspaceCell,
   restoreTerminalWorkspaceDeck,
   terminalCellSessionName,
+  terminalWorkspaceLayoutFromRecord,
+  terminalWorkspaceRecordInputFromLayout,
 } from "./workspace-deck.ts";
 
 /** The relay rejects anything else before it reaches a multiplexer CLI. */
@@ -94,5 +96,82 @@ describe("restoreTerminalWorkspaceDeck", () => {
     expect(restoreTerminalWorkspaceDeck(undefined).workspaces).toEqual([]);
     expect(restoreTerminalWorkspaceDeck([]).workspaces).toEqual([]);
     expect(restoreTerminalWorkspaceDeck([{ name: "no id" }]).workspaces).toEqual([]);
+  });
+});
+
+describe("server workspace projections", () => {
+  test("a fresh cell round-trips through the record with the intent needed to rebuild it", () => {
+    const layout = {
+      id: "tw.1",
+      name: "Release desk",
+      purpose: "Watch the train",
+      columns: 3,
+      updatedAt: 7,
+      tiles: [
+        { id: "cell-1", kind: "fresh" as const, backend: "tmux" as const, agent: "shell" as const },
+        { id: "cell-2", kind: "fresh" as const, backend: "pty" as const, agent: "shell" as const },
+      ],
+    };
+
+    const input = terminalWorkspaceRecordInputFromLayout(layout);
+    expect(input.cells?.[0]?.intent).toEqual({ hostId: "tmux", sessionName: "scout-tmux-cell-1" });
+    // A disposable shell has nothing to reattach to; promising a revive would
+    // be a lie.
+    expect(input.cells?.[1]?.intent).toEqual({ hostId: "pty", sessionName: null });
+
+    const record = {
+      id: input.id,
+      name: input.name,
+      purpose: input.purpose ?? "",
+      columns: input.columns ?? 2,
+      cells: input.cells ?? [],
+      createdAt: 1,
+      updatedAt: 7,
+    };
+    expect(terminalWorkspaceLayoutFromRecord(record)).toEqual(layout);
+  });
+
+  test("a registered cell keeps its surface handle across the round trip", () => {
+    const layout = {
+      id: "tw.2",
+      name: "Desk",
+      columns: 2,
+      updatedAt: 3,
+      tiles: [{
+        id: "cell-1",
+        kind: "registered" as const,
+        terminalSessionId: "ts.1",
+        terminalSurfaceKey: "srf1.abc",
+      }],
+    };
+    const input = terminalWorkspaceRecordInputFromLayout(layout);
+    expect(input.cells?.[0]).toEqual({
+      id: "cell-1",
+      surfaceId: "srf1.abc",
+      terminalSessionId: "ts.1",
+      intent: {},
+    });
+    expect(terminalWorkspaceLayoutFromRecord({
+      id: input.id,
+      name: input.name,
+      purpose: "",
+      columns: 2,
+      cells: input.cells ?? [],
+      createdAt: 1,
+      updatedAt: 3,
+    })).toEqual(layout);
+  });
+
+  test("a record naming a host this client cannot render falls back to a shell tile", () => {
+    const layout = terminalWorkspaceLayoutFromRecord({
+      id: "tw.3",
+      name: "Desk",
+      purpose: "",
+      columns: 2,
+      cells: [{ id: "cell-1", intent: { hostId: "herdr", sessionName: "scout-local-1" } }],
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    expect(layout.tiles[0]).toEqual({ id: "cell-1", kind: "fresh", backend: "pty", agent: "shell" });
   });
 });

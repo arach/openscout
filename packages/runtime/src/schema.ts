@@ -143,6 +143,28 @@ CREATE INDEX IF NOT EXISTS idx_terminal_session_registry_updated
   ON terminal_session_registry (updated_at DESC);
 `;
 
+// Scout-owned durable terminal workspaces: named arrangements of agent-CLI
+// tiles. Each cell stores the INTENT needed to re-materialize it (host, session
+// name, cwd, resume command), not only the surface it last bound to — a cell
+// that remembers only a session name is worthless after a reboot. No foreign
+// keys: a workspace may reference surfaces on hosts this node cannot currently
+// reach, and losing a host must not delete the layout.
+export const CONTROL_PLANE_TERMINAL_WORKSPACE_SQLITE_SCHEMA = `
+CREATE TABLE IF NOT EXISTS terminal_workspaces (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  purpose TEXT NOT NULL DEFAULT '',
+  columns_count INTEGER NOT NULL DEFAULT 2,
+  cells_json TEXT NOT NULL DEFAULT '[]',
+  metadata_json TEXT,
+  created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_terminal_workspaces_updated
+  ON terminal_workspaces (updated_at DESC);
+`;
+
 // Do not AUTHOR schema changes here. The declarative model in
 // drizzle-schema.ts is the schema authority: edit it there, run `bun run
 // db:generate`, commit the generated migration, and then mirror the change

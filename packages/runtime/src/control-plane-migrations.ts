@@ -10,6 +10,7 @@ import {
   CONTROL_PLANE_SCHEMA_VERSION,
   CONTROL_PLANE_SQLITE_SCHEMA,
   CONTROL_PLANE_TERMINAL_SESSION_SQLITE_SCHEMA,
+  CONTROL_PLANE_TERMINAL_WORKSPACE_SQLITE_SCHEMA,
 } from "./schema.js";
 import { resolveOpenScoutSupportPaths } from "./support-paths.js";
 
@@ -63,6 +64,18 @@ export const CONTROL_PLANE_SCHEMA_MIGRATIONS: ControlPlaneSchemaMigration[] = [
     description: "Creates the Scout-owned terminal session registry (harness session + surfaces).",
     apply(database) {
       database.exec(CONTROL_PLANE_TERMINAL_SESSION_SQLITE_SCHEMA);
+    },
+  },
+  {
+    // Purely additive, and deliberately not accompanied by a
+    // CONTROL_PLANE_SCHEMA_VERSION bump: bumping would make every older build
+    // sharing this control home refuse to open the database
+    // (assertControlPlaneSchemaNotNewer), and a new table an older build never
+    // reads costs it nothing. Bump when an existing shape changes.
+    id: "terminal-workspaces",
+    description: "Creates the Scout-owned durable terminal workspace table (named tile arrangements + revive intent).",
+    apply(database) {
+      database.exec(CONTROL_PLANE_TERMINAL_WORKSPACE_SQLITE_SCHEMA);
     },
   },
   {
