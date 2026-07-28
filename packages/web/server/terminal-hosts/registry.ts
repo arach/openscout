@@ -64,6 +64,41 @@ export function terminalHostSupportsControl(
   return { supported: false, via: null };
 }
 
+/**
+ * Availability is cached briefly per host.
+ *
+ * A binary does not get uninstalled while an operator works, but a `--version`
+ * shell-out CAN time out on a loaded machine — and when it did, the host
+ * silently disappeared from "start something new". Holding the last successful
+ * answer for a short window means a busy box no longer looks like a machine
+ * without tmux. Failures are never cached, so a genuinely missing host is
+ * reported as soon as it is asked about.
+ */
+const HOST_AVAILABILITY_TTL_MS = 30_000;
+const availabilityCache = new Map<string, { at: number; value: TerminalHostAvailability }>();
+
+/** Test seam: drop cached availability. */
+export function resetTerminalHostAvailabilityCache(): void {
+  availabilityCache.clear();
+}
+
+async function probeTerminalHostAvailability(
+  adapter: TerminalHostAdapter,
+  context: TerminalHostContext,
+): Promise<TerminalHostAvailability> {
+  const cached = availabilityCache.get(adapter.id);
+  const fresh = cached && Date.now() - cached.at < HOST_AVAILABILITY_TTL_MS;
+  const availability = await adapter.probe(context).catch((error): TerminalHostAvailability => ({
+    installed: false,
+    reason: error instanceof Error ? error.message : String(error),
+  }));
+  if (availability.installed) {
+    availabilityCache.set(adapter.id, { at: Date.now(), value: availability });
+    return availability;
+  }
+  return fresh && cached ? cached.value : availability;
+}
+
 export type TerminalHostDescriptor = {
   id: string;
   label: string;
@@ -85,7 +120,7 @@ export async function describeTerminalHosts(
     label: adapter.label,
     description: adapter.description,
     capabilities: adapter.capabilities,
-    availability: await adapter.probe(context),
+    availability: await probeTerminalHostAvailability(adapter, context),
   })));
   return descriptors.sort((left, right) =>
     Number(right.availability.installed) - Number(left.availability.installed)

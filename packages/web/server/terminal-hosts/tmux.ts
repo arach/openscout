@@ -10,6 +10,9 @@ import type {
 } from "./types.ts";
 
 const TMUX_TIMEOUT_MS = 2_000;
+/** A `--version` shell-out can take seconds on a loaded machine; a host must
+ * not vanish from the UI because the box was briefly busy. */
+const HOST_PROBE_TIMEOUT_MS = 5_000;
 
 export const tmuxTerminalHost: TerminalHostAdapter = {
   id: "tmux",
@@ -122,7 +125,7 @@ export async function probeCommand(
 ): Promise<{ installed: boolean; version?: string | null; reason?: string | null }> {
   try {
     const { stdout } = await execSystemFile(file, args, {
-      timeoutMs: TMUX_TIMEOUT_MS,
+      timeoutMs: HOST_PROBE_TIMEOUT_MS,
       env: context.env,
     });
     return { installed: true, version: stdout.trim().split(/\r?\n/u)[0] ?? null };

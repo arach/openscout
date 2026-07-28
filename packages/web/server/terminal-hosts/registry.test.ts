@@ -4,6 +4,8 @@ import { parseTerminalSurfaceId } from "@openscout/protocol";
 
 import {
   DEFAULT_TERMINAL_HOST_ID,
+  describeTerminalHosts,
+  resetTerminalHostAvailabilityCache,
   isKnownTerminalHost,
   resolveTerminalHostAdapter,
   terminalHostAdapter,
@@ -149,6 +151,32 @@ describe("adapter surfaces", () => {
     expect(herdr.surface({ name: "default", state: "live" }).attachCommand).toEqual(["herdr"]);
     expect(herdr.surface({ name: "scout-local-1", state: "detached" }).attachCommand)
       .toEqual(["herdr", "session", "attach", "scout-local-1"]);
+  });
+});
+
+describe("host availability", () => {
+  test("a transient probe failure does not make an installed host disappear", async () => {
+    resetTerminalHostAvailabilityCache();
+    // A real probe first, so the cache holds a successful answer.
+    const first = await describeTerminalHosts();
+    const installed = first.filter((host) => host.availability.installed).map((host) => host.id);
+    expect(installed.length).toBeGreaterThan(0);
+
+    // Now make every host unreachable. Within the TTL the last good answer
+    // stands, because a busy machine is not a machine without tmux.
+    const second = await describeTerminalHosts({ env: { ...process.env, PATH: "/nonexistent-scout-probe" } });
+    expect(second.filter((host) => host.availability.installed).map((host) => host.id).sort())
+      .toEqual([...installed].sort());
+  });
+
+  test("a host that was never reachable is reported as missing", async () => {
+    resetTerminalHostAvailabilityCache();
+    const hosts = await describeTerminalHosts({ env: { ...process.env, PATH: "/nonexistent-scout-probe" } });
+    expect(hosts.every((host) => host.availability.installed)).toBe(false);
+    for (const host of hosts) {
+      expect(host.availability.reason).toBeTruthy();
+    }
+    resetTerminalHostAvailabilityCache();
   });
 });
 
