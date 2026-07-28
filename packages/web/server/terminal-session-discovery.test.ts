@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
+import { formatTerminalSurfaceId, parseTerminalSurfaceId } from "@openscout/protocol";
+
 import {
   parseTmuxSessionList,
   parseZellijSessionList,
@@ -31,7 +33,14 @@ describe("terminal session discovery", () => {
     }]);
   });
 
-  test("keys backend surfaces by backend and session name", () => {
-    expect(terminalSurfaceKey("tmux", "relay-claude")).toBe("tmux:relay-claude");
+  test("keys backend surfaces through the one surface-id constructor", () => {
+    const key = terminalSurfaceKey("tmux", "relay-claude");
+    expect(key).toBe(formatTerminalSurfaceId({ backend: "tmux", hostSession: "relay-claude" }));
+    expect(parseTerminalSurfaceId(key)).toEqual({
+      backend: "tmux",
+      hostSession: "relay-claude",
+      paneId: null,
+      nodeId: null,
+    });
   });
 });

@@ -8,6 +8,7 @@ const React = (await import("../../node_modules/react/index.js")) as typeof Reac
 
 mock.module("react", () => React);
 
+import { formatTerminalSurfaceId } from "@openscout/protocol";
 import type { Route } from "./types.ts";
 import type { BrowserLocationEnv, BrowserLocationState } from "./router.ts";
 
@@ -129,7 +130,7 @@ describe("route fixtures", () => {
     },
     {
       url: "/terminal/tmux/scout-zj",
-      route: { view: "terminal", terminalSurfaceKey: "tmux:scout-zj" },
+      route: { view: "terminal", terminalSurfaceKey: formatTerminalSurfaceId({ backend: "tmux", hostSession: "scout-zj" }) },
       canonical: "/terminal/tmux/scout-zj",
     },
   ];

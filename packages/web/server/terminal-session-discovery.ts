@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -6,10 +5,12 @@ import {
   zellijSessionsProbe,
 } from "@openscout/runtime/system-probes";
 
+import { formatTerminalSurfaceId } from "@openscout/protocol";
 import type {
   TerminalBackend,
   TerminalSessionRecord,
   TerminalSurface,
+  TerminalSurfaceId,
   TerminalSurfaceState,
 } from "@openscout/protocol";
 
@@ -158,8 +159,8 @@ export function parseZellijSessionList(output: string): ZellijSessionInfo[] {
     .filter((session): session is ZellijSessionInfo => Boolean(session));
 }
 
-export function terminalSurfaceKey(backend: TerminalBackend, sessionName: string): string {
-  return `${backend}:${sessionName}`;
+export function terminalSurfaceKey(backend: string, sessionName: string): TerminalSurfaceId {
+  return formatTerminalSurfaceId({ backend, hostSession: sessionName });
 }
 
 function discoveredRecordFromSurface(input: {
@@ -171,14 +172,21 @@ function discoveredRecordFromSurface(input: {
   metadata: Record<string, unknown>;
 }): DiscoveredTerminalSession {
   const now = Date.now();
-  const id = `discovered.${input.backend}.${createHash("sha1").update(input.name).digest("hex").slice(0, 16)}`;
+  const surfaceId = terminalSurfaceKey(input.backend, input.name);
   return {
-    id,
-    harness: input.backend,
+    id: `discovered.${surfaceId}`,
+    // A discovered surface is a live multiplexer session, not a known harness
+    // session: nothing here says which agent (if any) is running inside it, and
+    // there is no resume command for it. Both fields used to be stuffed with
+    // the backend and the attach argv, which made a discovered pane
+    // indistinguishable from a real registry record. Leave them empty and say
+    // so in `origin`; the attach argv lives on the surface where it belongs.
+    harness: "",
     sourceSessionId: input.name,
     cwd: input.cwd ?? "",
-    resumeCommand: input.surface.attachCommand.join(" "),
-    surfaces: [input.surface],
+    resumeCommand: "",
+    origin: "discovered",
+    surfaces: [{ ...input.surface, surfaceId }],
     createdAt: now,
     updatedAt: now,
     metadata: input.metadata,

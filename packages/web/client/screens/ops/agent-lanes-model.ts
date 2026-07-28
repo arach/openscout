@@ -950,7 +950,7 @@ function isRegisteredHarnessTerminalSession(session: TerminalSessionRecord): boo
   const harness = session.harness?.trim();
   if (!harness || TERMINAL_BACKEND_HARNESSES.has(harness.toLowerCase())) return false;
   if (!session.sourceSessionId?.trim()) return false;
-  if (session.metadata?.registryState === "discovered") return false;
+  if (session.origin === "discovered" || session.metadata?.registryState === "discovered") return false;
   return session.surfaces.length > 0;
 }
 

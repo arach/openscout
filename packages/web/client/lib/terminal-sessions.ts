@@ -1,6 +1,19 @@
-import type { TerminalSessionRecord, TerminalSurface } from "@openscout/protocol";
+import {
+  formatTerminalSurfaceId,
+  parseTerminalSurfaceId,
+  terminalSurfaceIdForSurface,
+  terminalSurfaceIdsEqual,
+  terminalSurfaceMatchesId,
+  type TerminalSessionRecord,
+  type TerminalSurface,
+  type TerminalSurfaceAddress,
+  type TerminalSurfaceId,
+} from "@openscout/protocol";
 import { api } from "./api.ts";
 import type { TerminalSurfaceDescriptor } from "./types.ts";
+
+export type { TerminalSurfaceAddress, TerminalSurfaceId };
+export { parseTerminalSurfaceId, terminalSurfaceIdsEqual, terminalSurfaceMatchesId };
 
 export type TerminalSessionsPayload = {
   ok: true;
@@ -38,38 +51,50 @@ export async function fetchTerminalSessions(options: { includeDiscovered?: boole
 }
 
 export function isDiscoveredTerminalSession(session: TerminalSessionRecord): boolean {
-  return session.metadata?.registryState === "discovered";
+  // `metadata.registryState` is the pre-`origin` signal; macOS and iOS still
+  // read it, so both are honoured until every client reads `origin`.
+  return session.origin === "discovered" || session.metadata?.registryState === "discovered";
 }
 
-export function surfaceKey(surface: Pick<TerminalSurface, "backend" | "sessionName">): string {
-  return `${surface.backend}:${surface.sessionName}`;
+/**
+ * The durable handle for a surface. Opaque: compare handles with
+ * {@link terminalSurfaceMatchesId} or {@link terminalSurfaceIdsEqual}, never by
+ * splitting the string.
+ */
+export function surfaceKey(
+  surface: Pick<TerminalSurface, "surfaceId" | "backend" | "sessionName" | "paneId">,
+): TerminalSurfaceId {
+  return terminalSurfaceIdForSurface(surface);
 }
 
 export function surfaceKeyFromParts(
   backend: string | undefined,
   sessionName: string | undefined,
-): string | null {
+): TerminalSurfaceId | null {
   const cleanBackend = backend?.trim();
   const cleanSessionName = sessionName?.trim();
-  if (
-    (cleanBackend !== "tmux" && cleanBackend !== "zellij")
-    || !cleanSessionName
-  ) {
-    return null;
-  }
-  return `${cleanBackend}:${cleanSessionName}`;
+  if (!cleanBackend || !cleanSessionName) return null;
+  return formatTerminalSurfaceId({ backend: cleanBackend, hostSession: cleanSessionName });
+}
+
+/**
+ * Normalize any surface handle — opaque or legacy — to the opaque form, so a
+ * route carries one shape no matter which link produced it. Null when the
+ * handle cannot be resolved; callers must drop it rather than route on a guess.
+ */
+export function canonicalTerminalSurfaceId(value: string | null | undefined): TerminalSurfaceId | null {
+  const address = parseTerminalSurfaceId(value);
+  return address ? formatTerminalSurfaceId(address) : null;
 }
 
 export function surfacePartsFromKey(
   key: string | undefined,
-): { backend: "tmux" | "zellij"; sessionName: string } | null {
-  if (!key) return null;
-  const separator = key.indexOf(":");
-  if (separator <= 0 || separator === key.length - 1) return null;
-  const backend = key.slice(0, separator);
-  const sessionName = key.slice(separator + 1);
-  if (backend !== "tmux" && backend !== "zellij") return null;
-  return { backend, sessionName };
+): { backend: string; sessionName: string } | null {
+  const address = parseTerminalSurfaceId(key);
+  // A pane- or node-scoped surface has no lossless two-segment form; callers
+  // that need one (path building) must fall back to the opaque handle.
+  if (!address || address.paneId || address.nodeId) return null;
+  return { backend: address.backend, sessionName: address.hostSession };
 }
 
 export function terminalSurfaceDescriptorFromRegisteredSurface(surface: TerminalSurface): TerminalSurfaceDescriptor {
@@ -94,16 +119,16 @@ export function resolveRegisteredTerminalTarget(
     return session && surface ? { session, surface } : null;
   }
 
-  const surfaceSession = terminalSurfaceKey
-    ? sessions.find((candidate) =>
-      candidate.surfaces.some((surface) => surfaceKey(surface) === terminalSurfaceKey)
-    )
-    : null;
-  const sessionHasSurface = session?.surfaces.some((surface) => surfaceKey(surface) === terminalSurfaceKey);
-  const targetSession = sessionHasSurface ? session : surfaceSession;
-  if (!targetSession) return null;
-  const surface = targetSession.surfaces.find((candidate) => surfaceKey(candidate) === terminalSurfaceKey);
-  if (!surface) return null;
+  // A saved cell may hold a handle in either form; matching resolves both, so a
+  // workspace authored before opaque ids keeps finding its surface.
+  const sessionHasSurface = session?.surfaces.some((surface) => terminalSurfaceMatchesId(surface, terminalSurfaceKey));
+  const targetSession = sessionHasSurface
+    ? session
+    : sessions.find((candidate) =>
+      candidate.surfaces.some((surface) => terminalSurfaceMatchesId(surface, terminalSurfaceKey))
+    );
+  const surface = targetSession?.surfaces.find((candidate) => terminalSurfaceMatchesId(candidate, terminalSurfaceKey));
+  if (!targetSession || !surface) return null;
   return { session: targetSession, surface };
 }
 
@@ -250,7 +275,7 @@ export function compactTerminalName(sessionName: string): string {
 }
 
 export function terminalSummaryDetailRows(target: RegisteredTerminalTarget): Array<[string, string]> {
-  const origin = target.session.metadata?.registryState === "discovered" ? "Backend" : "Scout";
+  const origin = isDiscoveredTerminalSession(target.session) ? "Backend" : "Scout";
   const backendState = typeof target.session.metadata?.backendState === "string"
     ? target.session.metadata.backendState
     : target.surface.state;

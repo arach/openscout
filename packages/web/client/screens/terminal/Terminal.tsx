@@ -58,6 +58,7 @@ import {
   terminalListItems,
   terminalSummaryDetailRows,
   terminalSurfaceDescriptorFromRegisteredSurface,
+  terminalSurfaceIdsEqual,
   type RegisteredTerminalTarget,
 } from "../../lib/terminal-sessions.ts";
 import {
@@ -1259,7 +1260,7 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
       const alreadyPlaced = cells.some((candidate) =>
         candidate.kind === "registered"
         && candidate.terminalSessionId === cell.terminalSessionId
-        && candidate.terminalSurfaceKey === cell.terminalSurfaceKey
+        && terminalSurfaceIdsEqual(candidate.terminalSurfaceKey, cell.terminalSurfaceKey)
       );
       if (!destinationTileId) {
         return alreadyPlaced ? cells : [...cells, { ...cell, id: createTerminalDeckId("cell") }];
@@ -1352,11 +1353,13 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
     const targets = liveTerminalItems.map(registeredTargetFromListItem);
     if (targets.length === 0) return;
     updateActiveCells((cells) => {
-      const placed = new Set(cells
-        .filter((cell) => cell.kind === "registered")
-        .map((cell) => `${cell.terminalSessionId}:${cell.terminalSurfaceKey}`));
+      const placed = cells.filter((cell) => cell.kind === "registered");
       const additions = targets
-        .filter((target) => !placed.has(registeredTerminalTargetKey(target)))
+        .filter((target) => !placed.some((cell) =>
+          cell.kind === "registered"
+          && cell.terminalSessionId === target.session.id
+          && terminalSurfaceIdsEqual(cell.terminalSurfaceKey, surfaceKey(target.surface))
+        ))
         .map((target) => ({
           id: createTerminalDeckId("cell"),
           kind: "registered" as const,
@@ -1948,7 +1951,7 @@ function TerminalWorkspaceBuilder({
             <div className="s-term-workspace-builder-grid" style={{ "--terminal-grid-columns": columns } as CSSProperties}>
               {cells.map((cell, index) => {
                 const registeredItem = cell.kind === "registered"
-                  ? terminalItems.find((item) => item.session.id === cell.terminalSessionId && surfaceKey(item.surface) === cell.terminalSurfaceKey)
+                  ? terminalItems.find((item) => item.session.id === cell.terminalSessionId && terminalSurfaceIdsEqual(surfaceKey(item.surface), cell.terminalSurfaceKey))
                   : null;
                 return (
                   <div

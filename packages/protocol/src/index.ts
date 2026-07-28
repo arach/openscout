@@ -40,6 +40,7 @@ export * from "./events.js";
 export * from "./thread-events.js";
 export * from "./permission-policy.js";
 export * from "./cursor-transport.js";
+export * from "./terminal-surface-id.js";
 export * from "./terminal-sessions.js";
 export * from "./broker-routes.js";
 export * from "./rendezvous.js";

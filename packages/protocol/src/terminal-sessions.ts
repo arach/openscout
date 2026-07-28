@@ -16,7 +16,8 @@
  * relay target, not a message source.
  */
 
-export type TerminalBackend = "tmux" | "zellij";
+import { formatTerminalSurfaceId, parseTerminalSurfaceId } from "./terminal-surface-id.js";
+import type { TerminalBackend, TerminalSurfaceId } from "./terminal-surface-id.js";
 
 /** Lifecycle of a single materialized surface. */
 export type TerminalSurfaceState = "live" | "detached" | "exited";
@@ -32,6 +33,11 @@ export type TerminalSurfaceRelay = {
 
 /** One disposable terminal surface a harness session has been materialized through. */
 export type TerminalSurface = {
+  /**
+   * Opaque durable handle for this surface. Absent on records written before
+   * surface ids existed; derive one with `terminalSurfaceIdForSurface`.
+   */
+  surfaceId?: TerminalSurfaceId;
   backend: TerminalBackend;
   /** Backend session name (e.g. tmux target, zellij session). Secondary metadata. */
   sessionName: string;
@@ -62,6 +68,14 @@ export type TerminalSessionRecord = {
   sourceSessionId: string;
   cwd: string;
   resumeCommand: string;
+  /**
+   * Where the record came from. `registry` records are Scout-owned harness
+   * sessions with a real harness and resume command; `discovered` records are
+   * live multiplexer sessions observed on the host, for which both are unknown
+   * and must be left empty rather than filled with the backend and attach argv.
+   * Absent means `registry`.
+   */
+  origin?: "registry" | "discovered";
   surfaces: TerminalSurface[];
   createdAt: number;
   updatedAt: number;
@@ -79,3 +93,34 @@ export type TerminalSessionRecordInput = {
   surfaces?: TerminalSurface[];
   metadata?: Record<string, unknown>;
 };
+
+/**
+ * The durable handle for a surface. Prefers the stored id and derives the same
+ * value from the surface's address otherwise, so a record written before
+ * surface ids existed resolves to the id it would be issued today.
+ */
+export function terminalSurfaceIdForSurface(
+  surface: Pick<TerminalSurface, "surfaceId" | "backend" | "sessionName" | "paneId">,
+  options: { nodeId?: string | null } = {},
+): TerminalSurfaceId {
+  if (surface.surfaceId) return surface.surfaceId;
+  return formatTerminalSurfaceId({
+    backend: surface.backend,
+    hostSession: surface.sessionName,
+    paneId: surface.paneId,
+    nodeId: options.nodeId ?? null,
+  });
+}
+
+/** True when a handle addresses this surface, in either the opaque or legacy form. */
+export function terminalSurfaceMatchesId(
+  surface: Pick<TerminalSurface, "surfaceId" | "backend" | "sessionName" | "paneId">,
+  handle: string | null | undefined,
+): boolean {
+  const address = parseTerminalSurfaceId(handle);
+  if (!address) return false;
+  if (address.backend !== surface.backend || address.hostSession !== surface.sessionName) return false;
+  // A legacy key carries no pane, so it matches any pane on the session; an
+  // opaque id that names a pane must match it exactly.
+  return address.paneId === null || address.paneId === (surface.paneId ?? null);
+}

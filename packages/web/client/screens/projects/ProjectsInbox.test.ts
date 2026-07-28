@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 
 import type { InboxSession } from "./projects-inbox-model.ts";
+import { formatTerminalSurfaceId } from "@openscout/protocol";
 import type { TerminalSessionRecord } from "@openscout/protocol";
 import {
   nativeTerminalDeepLink,
@@ -144,11 +145,11 @@ describe("ProjectsInbox ThreadRow", () => {
 
     expect(target).toEqual({
       terminalSessionId: "discovered.tmux.pomo",
-      terminalSurfaceKey: "tmux:session-ms0hf3f7-3ngln1",
+      terminalSurfaceKey: formatTerminalSurfaceId({ backend: "tmux", hostSession: "session-ms0hf3f7-3ngln1" }),
       sessionName: "session-ms0hf3f7-3ngln1",
     });
     expect(nativeTerminalDeepLink(target!, "takeover")).toBe(
-      "scout://terminal?session=discovered.tmux.pomo&surface=tmux%3Asession-ms0hf3f7-3ngln1&mode=takeover",
+      `scout://terminal?session=discovered.tmux.pomo&surface=${formatTerminalSurfaceId({ backend: "tmux", hostSession: "session-ms0hf3f7-3ngln1" })}&mode=takeover`,
     );
   });
 });
