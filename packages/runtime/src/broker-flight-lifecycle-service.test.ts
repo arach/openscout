@@ -6,11 +6,13 @@ import type {
   DeliveryIntent,
   FlightRecord,
   InvocationRequest,
+  MessageRecord,
 } from "@openscout/protocol";
 
 import {
   BrokerFlightLifecycleService,
   deliveryStatusForFlight,
+  STALE_LOCAL_DELIVERY_GRACE_MS,
   shouldIgnoreFlightUpdate,
   staleLocalDeliveryReason,
 } from "./broker-flight-lifecycle-service.js";
@@ -71,6 +73,19 @@ function testInvocation(input: Partial<InvocationRequest> = {}): InvocationReque
   };
 }
 
+function testMessage(input: Partial<MessageRecord> = {}): MessageRecord {
+  return {
+    id: "message-1",
+    conversationId: "conversation-1",
+    actorId: "operator",
+    originNodeId: "node-1",
+    class: "agent",
+    body: "hello",
+    createdAt: 1_000,
+    ...input,
+  };
+}
+
 function testFlight(input: Partial<FlightRecord> = {}): FlightRecord {
   return {
     id: "flight-1",
@@ -104,6 +119,7 @@ function testSnapshot(input: {
   agents?: Record<string, AgentDefinition>;
   endpoints?: Record<string, AgentEndpoint>;
   invocations?: Record<string, InvocationRequest>;
+  messages?: Record<string, MessageRecord>;
   flights?: Record<string, FlightRecord>;
 } = {}): RuntimeSnapshot {
   return {
@@ -113,7 +129,7 @@ function testSnapshot(input: {
     endpoints: input.endpoints ?? {},
     conversations: {},
     bindings: {},
-    messages: {},
+    messages: input.messages ?? {},
     readCursors: {},
     invocations: input.invocations ?? {},
     flights: input.flights ?? {},
@@ -360,6 +376,65 @@ describe("broker flight lifecycle helpers", () => {
           staleLocalRegistration: true,
           reconciledStaleDelivery: true,
           reconciledAt: 30_000,
+        }),
+      }),
+    ]);
+  });
+
+  test("does not fail a new delivery while its wake-on-demand endpoint is starting", async () => {
+    const endpoint = testEndpoint({
+      metadata: {},
+      state: "offline",
+    });
+    const now = 30_000;
+    const delivery = testDelivery({
+      invocationId: undefined,
+    });
+    const snapshot = testSnapshot({
+      agents: { "agent-1": testAgent() },
+      endpoints: { [endpoint.id]: endpoint },
+      messages: { "message-1": testMessage({ createdAt: now - 50 }) },
+    });
+    const harness = createHarness({
+      snapshot,
+      deliveries: [delivery],
+      now,
+    });
+
+    expect(staleLocalDeliveryReason(snapshot, delivery, { now })).toBeNull();
+    expect(staleLocalDeliveryReason(snapshot, delivery, {
+      now: now + STALE_LOCAL_DELIVERY_GRACE_MS,
+    })).toBe("endpoint endpoint-1 is offline");
+
+    await harness.service.reconcileStaleLocalDeliveries();
+    expect(harness.updatedDeliveries).toEqual([]);
+  });
+
+  test("a running flight recovers a delivery falsely failed by stale reconciliation", async () => {
+    const delivery = testDelivery({
+      status: "failed",
+      metadata: {
+        failureReason: "agent_offline",
+        reconciledStaleDelivery: true,
+      },
+    });
+    const invocation = testInvocation();
+    const harness = createHarness({
+      deliveries: [delivery],
+      invocation,
+      now: 40_000,
+    });
+
+    await harness.service.recordFlight(testFlight({ state: "running" }));
+
+    expect(harness.updatedDeliveries).toEqual([
+      expect.objectContaining({
+        deliveryId: "delivery-1",
+        status: "running",
+        metadata: expect.objectContaining({
+          failureReason: null,
+          failureDetail: null,
+          recoveredFromStaleReconciliation: true,
         }),
       }),
     ]);

@@ -410,6 +410,56 @@ describe("BrokerLocalEndpointResolver", () => {
     expect(harness.isolatedInvocations).toEqual([]);
   });
 
+  test("allows the first exact invocation into a matching Scout-provisioned pending session", async () => {
+    const harness = createResolver();
+    const endpoint = testEndpoint({
+      id: "pending-endpoint",
+      sessionId: "pending-session",
+      metadata: {
+        alive: true,
+        source: "scout-cardless-session",
+        sessionBacked: true,
+        pendingExternalSession: true,
+        model: "gpt-5.6-sol",
+        reasoningEffort: "high",
+      },
+    });
+    await harness.runtime.upsertEndpoint(endpoint);
+
+    await expect(harness.resolver.resolveLocalEndpointForInvocation(testInvocation({
+      ensureAwake: true,
+      execution: {
+        harness: "codex",
+        model: "gpt-5.6-sol",
+        reasoningEffort: "high",
+        targetSessionId: "pending-session",
+      },
+    }))).resolves.toEqual(endpoint);
+  });
+
+  test("still rejects a pending session whose provisioned runtime does not match", async () => {
+    const harness = createResolver();
+    await harness.runtime.upsertEndpoint(testEndpoint({
+      id: "pending-mismatch",
+      sessionId: "pending-mismatch-session",
+      metadata: {
+        alive: true,
+        source: "scout-cardless-session",
+        sessionBacked: true,
+        pendingExternalSession: true,
+        model: "gpt-5.6-terra",
+      },
+    }));
+
+    await expect(harness.resolver.resolveLocalEndpointForInvocation(testInvocation({
+      execution: {
+        harness: "codex",
+        model: "gpt-5.6-sol",
+        targetSessionId: "pending-mismatch-session",
+      },
+    }))).rejects.toThrow("session_runtime_mismatch");
+  });
+
   test("fails closed when an exact existing session is unobserved or mismatched", async () => {
     const harness = createResolver();
     await harness.runtime.upsertEndpoint(testEndpoint({
