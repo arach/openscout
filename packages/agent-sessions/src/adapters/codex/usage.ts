@@ -94,17 +94,6 @@ function readObservedString(
   return undefined;
 }
 
-function sumObservedNumbers(values: Array<number | undefined>): number | undefined {
-  let sawValue = false;
-  let total = 0;
-  for (const value of values) {
-    if (value === undefined) continue;
-    sawValue = true;
-    total += value;
-  }
-  return sawValue ? total : undefined;
-}
-
 function prefixedRateLimitKeys(prefixes: string[], keys: string[]): string[] {
   return prefixes.flatMap((prefix) => keys.flatMap((key) => [
     `${prefix}_${key}`,
@@ -212,6 +201,31 @@ function readRateLimitWindowMs(
   return windowMinutes === undefined ? undefined : windowMinutes * 60 * 1000;
 }
 
+/**
+ * Codex rate-limit slots are named primary/secondary, but their *duration* is
+ * authoritative (`window_minutes`). Recent Pro snapshots put the weekly window
+ * in `primary` with `secondary: null` — never hardcode primary→5h.
+ */
+function formatCodexQuotaWindowLabel(
+  windowMs: number | undefined,
+  fallback: string,
+): string {
+  if (windowMs === undefined || !Number.isFinite(windowMs) || windowMs <= 0) {
+    return fallback;
+  }
+  const minutes = Math.round(windowMs / 60_000);
+  if (minutes <= 0) {
+    return fallback;
+  }
+  if (minutes % (24 * 60) === 0) {
+    return `${minutes / (24 * 60)}d`;
+  }
+  if (minutes % 60 === 0) {
+    return `${minutes / 60}h`;
+  }
+  return `${minutes}m`;
+}
+
 function codexQuotaWindowFromRateLimit(
   rateLimits: Record<string, unknown>,
   sourceKeys: string[],
@@ -264,7 +278,8 @@ function codexQuotaWindowFromRateLimit(
   }
 
   return {
-    label: readRateLimitString(rateLimits, source, sourceKeys, ["label", "name"]) ?? label,
+    label: readRateLimitString(rateLimits, source, sourceKeys, ["label", "name"])
+      ?? formatCodexQuotaWindowLabel(windowMs, label),
     windowKind: readRateLimitString(rateLimits, source, sourceKeys, ["window_kind", "windowKind", "kind"]) ?? windowKind,
     usedPercent,
     percentRemaining,
@@ -284,7 +299,14 @@ function codexQuotaWindowFromRecord(
   if (!source) {
     return null;
   }
-  const usedPercent = readObservedNumber(source, ["used_percent", "usedPercent", "usage_percent", "usagePercent"]);
+  const usedPercent = readObservedNumber(source, [
+    "used_percent",
+    "usedPercent",
+    "usage_percent",
+    "usagePercent",
+    "percent_used",
+    "percentUsed",
+  ]);
   const percentRemaining = readObservedNumber(source, ["percent_remaining", "percentRemaining", "remaining_percent", "remainingPercent"]);
   const resetAt = parseCodexTimestamp(readObservedString(source, ["reset_at", "resetAt", "resets_at", "resetsAt"]))
     ?? parseCodexTimestamp(readObservedNumber(source, ["reset_at", "resetAt", "resets_at", "resetsAt"]))
@@ -303,8 +325,9 @@ function codexQuotaWindowFromRecord(
     })();
   const windowKind = readObservedString(source, ["window_kind", "windowKind", "kind"])
     ?? (index === 0 ? "primary" : "secondary");
+  const fallbackLabel = windowKind === "secondary" ? "weekly" : index === 0 ? "5h" : "weekly";
   const label = readObservedString(source, ["label", "name"])
-    ?? (windowKind === "secondary" ? "weekly" : index === 0 ? "5h" : "weekly");
+    ?? formatCodexQuotaWindowLabel(windowMs, fallbackLabel);
 
   return {
     label,
@@ -369,16 +392,10 @@ export function readCodexRolloutUsageObservation(
   const lastTokenUsage = observedRecord(info?.last_token_usage);
   const rateLimits = observedRecord(record.rate_limits);
   const inputTokens = observedNumber(totalTokenUsage?.input_tokens);
+  // Codex `cached_input_tokens` is a *subset* of `input_tokens` (cache hits),
+  // not an additive bucket like Claude's cache_read/cache_creation fields.
+  // Context fill is the latest-turn input size, never input + cached.
   const lastInputTokens = observedNumber(lastTokenUsage?.input_tokens);
-  const lastCacheReadInputTokens = readObservedNumber(lastTokenUsage, [
-    "cached_input_tokens",
-    "cache_read_input_tokens",
-    "cacheReadInputTokens",
-  ]);
-  const lastCacheCreationInputTokens = readObservedNumber(lastTokenUsage, [
-    "cache_creation_input_tokens",
-    "cacheCreationInputTokens",
-  ]);
   const cacheReadInputTokens = readObservedNumber(totalTokenUsage, [
     "cached_input_tokens",
     "cache_read_input_tokens",
@@ -386,16 +403,13 @@ export function readCodexRolloutUsageObservation(
   ]);
   const cacheCreationInputTokens = readObservedNumber(totalTokenUsage, [
     "cache_creation_input_tokens",
+    "cache_write_input_tokens",
     "cacheCreationInputTokens",
   ]);
   const outputTokens = observedNumber(totalTokenUsage?.output_tokens);
   const observation: CodexUsageObservation = {
     inputTokens,
-    contextInputTokens: sumObservedNumbers([
-      lastInputTokens,
-      lastCacheReadInputTokens,
-      lastCacheCreationInputTokens,
-    ]),
+    contextInputTokens: lastInputTokens,
     cacheReadInputTokens,
     cacheCreationInputTokens,
     outputTokens,
