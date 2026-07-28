@@ -54,7 +54,7 @@ export default async function FileViewerPage({
             </>
           ) : null}
         </div>
-        <h1 className="mt-1 font-sans text-[20px] font-medium tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-sans text-4xl font-medium tracking-tight text-studio-ink">
           {file.filename}
         </h1>
         <div className="mt-2 flex flex-wrap items-baseline gap-3 font-mono text-[10px] text-studio-ink-faint">

@@ -207,8 +207,10 @@ function AccessoryLine({
 
 /** A realistic iOS keyboard slab. No QuickType strip: the composer declares
  *  `predictions: false`, so the system bar is gone and the accessory line above
- *  takes its place. */
-function Keyboard() {
+ *  takes its place. Exported because every surface that raises the keyboard has
+ *  to show what half the screen actually looks like — see the New-session
+ *  destination study. */
+export function EntryKeyboard() {
   return (
     <div className="iKb" aria-hidden>
       <div className="iKbRow">
@@ -300,7 +302,7 @@ export function EntrySurface({
       <AccessoryLine actions={SMART_ACTIONS} keyboardUp={!resting} />
       {/* Keyboard down, the glass bar is what the screen ends on; keyboard up,
           the keys COVER it (standard iOS) and it isn't drawn at all. */}
-      {resting ? <EntryTabs /> : <Keyboard />}
+      {resting ? <EntryTabs /> : <EntryKeyboard />}
     </>
   );
 }

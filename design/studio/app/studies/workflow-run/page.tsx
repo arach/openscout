@@ -604,7 +604,7 @@ function Header({ runCount }: { runCount: number }) {
       </div>
       <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-[30px] font-medium leading-none text-studio-ink">
+          <h1 className="font-display text-4xl font-medium leading-none text-studio-ink">
             Workflow Topology Lab
           </h1>
           <p className="mt-3 max-w-3xl text-[13px] leading-relaxed text-studio-ink-faint">

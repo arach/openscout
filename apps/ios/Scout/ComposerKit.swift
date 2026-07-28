@@ -6,15 +6,17 @@
 //          it for one-tap picks.
 //   BODY   the message/prompt, with attachments riding directly above the
 //          input row.
-//   BAR    "+" attach (photos/files) on the left, circular send on the right.
+//   BAR    attach (photos/files) anchoring the left, then the runtime readout,
+//          the mic and Send on the right.
 //
 // Surfaces differ only in what they pre-bake (the share composer arrives with
-// a screenshot attached) and what "send" does (DM vs. new session).
+// a screenshot attached) and what "send" does (DM vs. new session) — and BODY
+// and BAR are one type, `ScoutMessageComposer`, everywhere. The host owns the
+// photo/file pickers (see `ScoutComposerAttach`), because the surface that has
+// to show a read failure is the surface that asked for the file.
 
-import PhotosUI
 import ScoutCapabilities
 import SwiftUI
-import UniformTypeIdentifiers
 import HudsonUI
 import HudsonVoice
 
@@ -248,70 +250,6 @@ struct ComposerRecipientField: View {
         case .live: return ScoutVibe.accent
         case .idle: return ScoutVibe.amber
         case .offline, .unknown: return ScoutInk.dim
-        }
-    }
-}
-
-// MARK: - Attach "+" button
-
-/// The composer's attach menu ("+" → Photo / File), self-contained: owns its
-/// pickers and appends into the bound attachment list.
-struct ComposerAttachButton: View {
-    @Binding var attachments: [ScoutComposerAttachment]
-    var disabled: Bool = false
-
-    @State private var photoItems: [PhotosPickerItem] = []
-    @State private var showPhotoPicker = false
-    @State private var showFileImporter = false
-
-    var body: some View {
-        Menu {
-            Button { showPhotoPicker = true } label: { Label("Photo", systemImage: "photo") }
-            Button { showFileImporter = true } label: { Label("File", systemImage: "paperclip") }
-        } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(ScoutInk.muted)
-                .frame(width: 30, height: 30)
-                .background(Circle().fill(ScoutSurface.inset))
-                .overlay(Circle().stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin))
-        }
-        .disabled(disabled)
-        .photosPicker(isPresented: $showPhotoPicker, selection: $photoItems, maxSelectionCount: 8, matching: .images)
-        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
-            addFiles(result)
-        }
-        .onChange(of: photoItems) { _, items in
-            guard !items.isEmpty else { return }
-            Task { await addPhotos(items) }
-        }
-    }
-
-    @MainActor
-    private func addPhotos(_ items: [PhotosPickerItem]) async {
-        defer { photoItems = [] }
-        for item in items {
-            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
-            let type = item.supportedContentTypes.first { $0.conforms(to: .image) }
-            let mediaType = type?.preferredMIMEType ?? "image/jpeg"
-            let ext = type?.preferredFilenameExtension ?? (mediaType == "image/png" ? "png" : "jpg")
-            attachments.append(
-                ScoutComposerAttachment(data: data, mediaType: mediaType, fileName: "photo-\(attachments.count + 1).\(ext)")
-            )
-        }
-    }
-
-    private func addFiles(_ result: Result<[URL], Error>) {
-        guard let urls = try? result.get() else { return }
-        for url in urls {
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            guard let data = try? Data(contentsOf: url) else { continue }
-            let type = UTType(filenameExtension: url.pathExtension)
-            let mediaType = type?.preferredMIMEType ?? "application/octet-stream"
-            attachments.append(
-                ScoutComposerAttachment(data: data, mediaType: mediaType, fileName: url.lastPathComponent)
-            )
         }
     }
 }
@@ -947,21 +885,39 @@ struct ScoutRuntimeChip: View {
     /// .reasoningEffort`); a live conversation leaves it nil because nothing
     /// can change it there.
     var effort: String? = nil
+    /// The panel is open on this chip. The chip does NOT go away while it is —
+    /// the panel grows out of it and it stays as the live readout — so it takes
+    /// an active state instead: a rimmed seat and a flipped chevron.
+    var isPicking: Bool = false
     /// Non-nil only where the pick genuinely takes effect (see above).
     var onPick: (() -> Void)? = nil
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         if identifies {
             if let onPick {
                 Button(action: onPick) { chip }
                     .buttonStyle(.plain)
+                    // Publish the chip's bounds so the panel can grow out of
+                    // exactly this rectangle, wherever the composer has laid it
+                    // out (keyboard up or down, any density).
+                    .scoutRuntimeAnchor()
                     .accessibilityLabel("Runtime: \(readout). Change")
+                    .accessibilityAddTraits(isPicking ? .isSelected : [])
             } else {
                 chip
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel("Runtime: \(readout)")
             }
         }
+    }
+
+    /// A capsule at rest, squaring toward the panel's corner radius while the
+    /// panel is up. 12 IS the capsule on a 24pt-tall chip, so this is a real
+    /// capsule at rest and an interpolable radius on the way to the key.
+    private var chipShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: isPicking ? 9 : 12, style: .continuous)
     }
 
     /// Hugs its content — no minimum, no stretch. The whole point of the chip
@@ -986,15 +942,50 @@ struct ScoutRuntimeChip: View {
             }
             if onPick != nil {
                 Glyphic.chevron(.bottom, size: 9)
-                    .foregroundStyle(ScoutInk.dim)
+                    .foregroundStyle(isPicking ? HudPalette.accent : ScoutInk.dim)
+                    // Points at the panel while the panel is up: the caret is
+                    // the one part of the chip that says which way this opens.
+                    .rotationEffect(.degrees(isPicking ? 180 : 0))
             }
         }
         .padding(.horizontal, HudSpacing.md)
         .frame(height: 24)
-        // A step LIGHTER than the shell — the chip lifts off the capsule,
-        // where the unarmed Send recesses into it.
-        .background(Capsule().fill(ScoutSurface.card))
-        .contentShape(Capsule())
+        // Opening changes the chip's MATERIAL and its SHAPE, not its size.
+        //
+        // A few points of extra width is the one reaction a toolbar control
+        // cannot afford: at that scale the eye reads it as the row failing to
+        // hold still, not as a state. So the chip does something a resize can't
+        // be mistaken for — it stops being a soft pill lying on the composer
+        // and becomes a machined key cut from the panel's own graphite: the
+        // capsule squares toward the panel's corner radius, the fill crossfades
+        // to the plate the panel is made of, and it lifts on a contact shadow.
+        // That is the connection the operator is meant to see, and it is not a
+        // change any amount of width could have said.
+        //
+        // Every layer shares one `chipShape`, so the radius interpolates rather
+        // than cutting between two different rectangles.
+        .background {
+            ZStack {
+                // At rest: a step LIGHTER than the shell — the chip lifts off
+                // the capsule, where the unarmed Send recesses into it.
+                chipShape.fill(ScoutSurface.card)
+                ScoutMachinedPlate(shape: chipShape, rimBoost: 0.1, lightReach: 26, grainOpacity: 0.05)
+                    .opacity(isPicking ? 1 : 0)
+            }
+            .shadow(color: .black.opacity(isPicking ? 0.45 : 0), radius: 4, y: 1.5)
+        }
+        // One rationed hairline of accent ties the key to the panel above it.
+        .overlay(
+            chipShape.stroke(
+                HudPalette.accent.opacity(isPicking ? 0.55 : 0),
+                lineWidth: HudStrokeWidth.thin
+            )
+        )
+        .contentShape(chipShape)
+        // The SAME spring the panel grows on, so the chip seating itself and
+        // the panel rising off it read as one gesture, not two things that
+        // happened at once.
+        .animation(ScoutMotion.honoring(reduceMotion, ScoutMotion.grow), value: isPicking)
     }
 
     @ViewBuilder

@@ -44,6 +44,7 @@ import {
   type ReactNode,
 } from "react";
 import { EyebrowLabel } from "@/components/EyebrowLabel";
+import { StudyHeader } from "@/components/StudyHeader";
 import "./magic.css";
 
 /* ────────────────────────────────────────────────────────────────────
@@ -1274,21 +1275,18 @@ function Th({ children }: { children: ReactNode }) {
 export default function QuickCaptureMagicPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
-      <header className="mb-8 max-w-prose">
-        <EyebrowLabel size="sm">· studies · macos · quick capture</EyebrowLabel>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
-          Quick Capture · Magic Motion
-        </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
-          Motion lab for the two quick-create entries into the HUD Runner — the
-          Hyper+A hotkey and the hot-corner image drop. The audit found every
-          transition today is an opacity fade or a state swap; the thesis here
-          is that the magic upgrade is <em>object permanence and a little
-          physics</em>, not more chrome. Two rigs: the side-by-side compare
-          (where the deltas actually read) and the full interactive stage
-          (where the feel lives).
-        </p>
-      </header>
+      <StudyHeader
+        eyebrow="studies · macos · quick capture"
+        title="Quick Capture · Magic Motion"
+      >
+        Motion lab for the two quick-create entries into the HUD Runner — the
+        Hyper+A hotkey and the hot-corner image drop. The audit found every
+        transition today is an opacity fade or a state swap; the thesis here
+        is that the magic upgrade is <em>object permanence and a little
+        physics</em>, not more chrome. Two rigs: the side-by-side compare
+        (where the deltas actually read) and the full interactive stage
+        (where the feel lives).
+      </StudyHeader>
 
       <section className="mb-10">
         <EyebrowLabel as="h2" size="sm">

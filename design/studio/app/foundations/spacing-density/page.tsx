@@ -10,6 +10,8 @@
  *     lifted from `app/studies/agent-pulse/page.tsx`.
  */
 
+import { StudyHeader } from "@/components/StudyHeader";
+
 type Step = { px: number; tw: string; usage: string };
 type Agent = { name: string; state: keyof typeof STATE_COLOR; task: string; updatedAgo: string; hue: number };
 
@@ -42,20 +44,15 @@ const AGENTS: Agent[] = [
 export default function SpacingDensityPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
-      <header className="mb-8 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
-          · foundations · spacing & density
-        </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
-          Spacing & density
-        </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
-          Spacing scale + the three density variants used across studio rows. The agent-row
-          pattern below is lifted from{" "}
-          <code className="font-mono text-[11px] text-studio-ink">app/studies/agent-pulse</code>{" "}
-          and annotated with px callouts so the deltas between densities are explicit.
-        </p>
-      </header>
+      <StudyHeader
+        eyebrow="foundations · spacing & density"
+        title="Spacing & density"
+      >
+        Spacing scale + the three density variants used across studio rows. The agent-row
+        pattern below is lifted from{" "}
+        <code className="font-mono text-sm text-studio-ink">app/studies/agent-pulse</code>{" "}
+        and annotated with px callouts so the deltas between densities are explicit.
+      </StudyHeader>
 
       <Section title="Spacing scale" hint="Every step the studio actually uses">
         <div className="rounded-md border border-studio-edge bg-studio-surface p-5">
