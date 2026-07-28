@@ -106,16 +106,6 @@ struct OpenScoutToolchain {
             return try command(forPairingControllerAt: explicit.standardizedFileURL, environment: pairingRuntimeEnvironment())
         }
 
-        if let installedBinary = resolver.resolveExecutable(envKeys: [], names: ["pairing-runtime-controller"]) {
-            return try command(forPairingControllerAt: installedBinary.url, environment: pairingRuntimeEnvironment())
-        }
-
-        for candidate in installedPairingRuntimeControllerCandidates() {
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                return try command(forPairingControllerAt: candidate.standardizedFileURL, environment: pairingRuntimeEnvironment())
-            }
-        }
-
         let repoCandidates = [
             "packages/cli/dist/pairing-runtime-controller.mjs",
             "packages/web/dist/pairing-runtime-controller.mjs",
@@ -129,6 +119,16 @@ struct OpenScoutToolchain {
                     currentDirectoryURL: resolver.resolveRepoRoot(),
                     environment: pairingRuntimeEnvironment()
                 )
+            }
+        }
+
+        if let installedBinary = resolver.resolveExecutable(envKeys: [], names: ["pairing-runtime-controller"]) {
+            return try command(forPairingControllerAt: installedBinary.url, environment: pairingRuntimeEnvironment())
+        }
+
+        for candidate in installedPairingRuntimeControllerCandidates() {
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return try command(forPairingControllerAt: candidate.standardizedFileURL, environment: pairingRuntimeEnvironment())
             }
         }
 

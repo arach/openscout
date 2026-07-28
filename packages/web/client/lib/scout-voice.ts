@@ -34,6 +34,10 @@ export type ScoutVoiceLiveCallbacks = {
   onLevel?: (level: number) => void;
 };
 
+export type ScoutVoiceLiveOptions = {
+  surface?: string;
+};
+
 export type ScoutSpeechResult = {
   contentType: string;
   audioBase64: string;
@@ -52,11 +56,38 @@ export type ScoutSpeechHandle = {
 
 export type ScoutSpeechOptions = {
   signal?: AbortSignal;
+  modelId?: string;
+  voiceId?: string;
   speed?: number;
   instructions?: string;
   originAppId?: string;
   utteranceId?: string;
   speechTiming?: ScoutSpeechTimingRequest;
+};
+
+export type ScoutSpeechCatalogModel = {
+  id: string;
+  name: string;
+  provider: string;
+  available: boolean;
+};
+
+export type ScoutSpeechCatalogVoice = {
+  id: string;
+  name: string;
+  language?: string;
+  provider: string;
+  modelId: string;
+  available: boolean;
+  isDefault: boolean;
+};
+
+export type ScoutSpeechCatalog = {
+  defaultModelId: string;
+  defaultVoiceId?: string;
+  models: ScoutSpeechCatalogModel[];
+  voices: ScoutSpeechCatalogVoice[];
+  source: "vox" | "fallback";
 };
 
 export type ScoutSpeechTimingCueRequest = {
@@ -651,9 +682,12 @@ export class ScoutVoiceClient {
     window.location.href = "scout://hud/show";
   }
 
-  async startLive(callbacks: ScoutVoiceLiveCallbacks = {}): Promise<ScoutVoiceLiveHandle> {
+  async startLive(
+    callbacks: ScoutVoiceLiveCallbacks = {},
+    options: ScoutVoiceLiveOptions = {},
+  ): Promise<ScoutVoiceLiveHandle> {
     if (this.captureMode !== "browser") {
-      return await startNativeScoutVoiceLive(callbacks);
+      return await startNativeScoutVoiceLive(callbacks, options);
     }
     return await startBrowserScoutVoiceLive(callbacks);
   }
@@ -661,6 +695,7 @@ export class ScoutVoiceClient {
 
 async function startNativeScoutVoiceLive(
   callbacks: ScoutVoiceLiveCallbacks = {},
+  options: ScoutVoiceLiveOptions = {},
 ): Promise<ScoutVoiceLiveHandle> {
   callbacks.onState?.("starting");
 
@@ -669,7 +704,7 @@ async function startNativeScoutVoiceLive(
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       clientId: "openscout-web",
-      surface: "chat-composer",
+      surface: options.surface?.trim() || "chat-composer",
     }),
   });
   if (!startResponse.ok) {
@@ -961,6 +996,8 @@ export async function prepareScoutSpeech(
     text,
     speed: normalizeSpeechSpeed(options.speed),
   };
+  if (options.modelId) body.modelId = options.modelId;
+  if (options.voiceId) body.voiceId = options.voiceId;
   if (options.originAppId) body.originAppId = options.originAppId;
   if (options.utteranceId) body.utteranceId = options.utteranceId;
   if (options.instructions) body.instructions = options.instructions;
@@ -985,6 +1022,15 @@ export async function prepareScoutSpeech(
     }
   }
   return await response.json() as ScoutSpeechResult;
+}
+
+export async function fetchScoutSpeechCatalog(modelId?: string): Promise<ScoutSpeechCatalog> {
+  const query = modelId ? `?modelId=${encodeURIComponent(modelId)}` : "";
+  const response = await fetch(`/api/voice/catalog${query}`, { headers: { accept: "application/json" } });
+  if (!response.ok) {
+    throw new Error(`Scout voice catalog returned HTTP ${response.status}`);
+  }
+  return await response.json() as ScoutSpeechCatalog;
 }
 
 export async function playPreparedScoutSpeech(
