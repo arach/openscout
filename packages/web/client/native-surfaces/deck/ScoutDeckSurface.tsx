@@ -25,6 +25,7 @@ type DeckLane = SurfaceAgent & {
 type DeckConnection = "waiting" | "ready" | "partial" | "offline" | "error";
 type DeckView = "thread" | "signal";
 type DeckHostScope = "all" | string;
+type DeckSignalTone = "live" | "ready" | "attention" | "quiet";
 
 const HOST_SCOPE_STORAGE_KEY = "scout.deck.hostScope";
 
@@ -252,6 +253,8 @@ export function ScoutDeckSurface() {
     }));
     clientRef.current = client;
     let cancelled = false;
+    let fleetTimer: ReturnType<typeof setInterval> | null = null;
+    let refreshingFleet = false;
 
     void client.bootstrap()
       .then(async (value) => {
@@ -273,16 +276,32 @@ export function ScoutDeckSurface() {
             : hostIds[0] ?? "all";
         setHostScope(nextScope);
         const scope = { hostIds };
-        const [agents, tail] = await Promise.all([
-          client.agents.list(scope),
-          client.tail.recent(scope),
-        ]);
-        if (cancelled) return;
-        const next = buildDeckLanes(value.hosts, agents, tail);
-        setLanes(next);
-        setSelectedKey((current) => next.some((lane) => lane.key === current) ? current : next[0]?.key ?? null);
-        const failures = agents.hosts.filter((host) => !host.ready).length;
-        setConnection(failures > 0 ? "partial" : "ready");
+        const refreshFleet = async () => {
+          if (refreshingFleet) return;
+          refreshingFleet = true;
+          try {
+            const [agents, tail] = await Promise.all([
+              client.agents.list(scope),
+              client.tail.recent(scope),
+            ]);
+            if (cancelled) return;
+            const next = buildDeckLanes(value.hosts, agents, tail);
+            setLanes(next);
+            setSelectedKey((current) => next.some((lane) => lane.key === current) ? current : next[0]?.key ?? null);
+            const failures = agents.hosts.filter((host) => !host.ready).length
+              + tail.hosts.filter((host) => !host.ready).length;
+            setError(null);
+            setConnection(failures > 0 ? "partial" : "ready");
+          } catch (cause) {
+            if (cancelled) return;
+            setError(cause instanceof Error ? cause.message : String(cause));
+            setConnection("partial");
+          } finally {
+            refreshingFleet = false;
+          }
+        };
+        await refreshFleet();
+        if (!cancelled) fleetTimer = setInterval(() => void refreshFleet(), 3_000);
       })
       .catch((cause) => {
         if (cancelled) return;
@@ -292,6 +311,7 @@ export function ScoutDeckSurface() {
 
     return () => {
       cancelled = true;
+      if (fleetTimer) clearInterval(fleetTimer);
       clientRef.current = null;
     };
   }, []);
@@ -450,6 +470,7 @@ export function ScoutDeckSurface() {
   const active = scopedLanes.filter((lane) => isLiveLaneState(lane.state)).length;
   const selectedActivity = activityBins(selected?.events ?? []);
   const isRunning = thread?.state === "running";
+  const selectedControllerTone = controllerTone(adapterAvailable, thread, threadError);
   const canCompose = Boolean(adapterAvailable && thread && thread.state !== "disconnected" && !threadBusy);
   const voiceInputActive = voice.input.state === "listening" || voice.input.state === "transcribing";
 
@@ -655,7 +676,9 @@ export function ScoutDeckSurface() {
                 type="button"
                 className="scout-deck__key"
                 data-active={lane.key === selected?.key || undefined}
-                data-tone={laneTone(lane)}
+                data-tone={lane.key === selected?.key && selectedControllerTone !== "quiet"
+                  ? selectedControllerTone
+                  : laneTone(lane)}
                 key={lane.key}
                 onClick={() => selectLane(lane)}
                 aria-pressed={lane.key === selected?.key}
@@ -691,8 +714,8 @@ export function ScoutDeckSurface() {
                   <em>{selected.transport ?? "transport unreported"}</em>
                 </div>
               </div>
-              <div className="scout-deck__live-line">
-                <span><i className="scout-deck__lamp" />{thread?.state === "running" ? "Turn live" : laneStateLabel(selected.state)}</span>
+              <div className="scout-deck__live-line" data-tone={selectedControllerTone}>
+                <span><i className="scout-deck__lamp" />{controllerStatusLabel(adapterAvailable, thread, threadError, selected.state)}</span>
                 <div className="scout-deck__meter" aria-label="Activity over the last five minutes">
                   <small>5m</small>
                   <div aria-hidden="true">
@@ -700,7 +723,13 @@ export function ScoutDeckSurface() {
                   </div>
                   <small>now</small>
                 </div>
-                <span>{thread?.turnId ? `turn ${shortId(thread.turnId)}` : relativeTime(selected.updatedAt)}</span>
+                <span>{thread?.turnId
+                  ? `turn ${shortId(thread.turnId)}`
+                  : thread?.threadId
+                    ? `thread ${shortId(thread.threadId)}`
+                    : adapterAvailable
+                      ? "No thread"
+                      : relativeTime(selected.updatedAt)}</span>
               </div>
 
               <section className="scout-deck__activity" aria-label={`${selected.name} controller view`}>
@@ -787,11 +816,11 @@ export function ScoutDeckSurface() {
         <aside className="scout-deck__rail" aria-label="Fleet and controller overview">
           <section className="scout-deck__control">
             <div className="scout-deck__panel-label"><span>Controller</span><span>{adapterAvailable ? "Native" : "—"}</span></div>
-            <div className="scout-deck__adapter" data-state={thread?.state ?? "unavailable"}>
+            <div className="scout-deck__adapter" data-state={threadError ? "error" : thread?.state ?? "unavailable"}>
               <span className="scout-deck__adapter-mark">{adapterAvailable ? "CX" : "—"}</span>
               <div>
                 <strong>{adapterAvailable ? "Codex app-server" : "Adapter unavailable"}</strong>
-                <small>{thread?.state ?? selected?.transport ?? "No selected lane"}</small>
+                <small>{threadError ? "link failed" : thread?.state ?? selected?.transport ?? "No selected lane"}</small>
               </div>
               <i />
             </div>
@@ -834,6 +863,7 @@ export function ScoutDeckSurface() {
           <div className="scout-deck__rail-spacer" />
           <section className="scout-deck__legend">
             <span><i data-tone="live" />Live</span>
+            <span><i data-tone="ready" />Linked</span>
             <span><i data-tone="attention" />Attention</span>
             <span><i data-tone="quiet" />Quiet</span>
           </section>
@@ -947,8 +977,15 @@ function ThreadViewport({
       </div>
     );
   }
-  if (error && !thread) {
-    return <div className="scout-deck__thread-empty"><strong>Thread unavailable</strong><p>{error}</p></div>;
+  if (error) {
+    return (
+      <div className="scout-deck__thread-empty" data-state="error">
+        <span className="scout-deck__thread-glyph">!</span>
+        <strong>Controller link failed</strong>
+        <p>{error}</p>
+        <button type="button" onClick={onConnect} disabled={busy}>Retry controller</button>
+      </div>
+    );
   }
   if (!thread) {
     return <div className="scout-deck__thread-empty"><span className="scout-deck__thread-glyph">···</span><strong>Reading host thread</strong></div>;
@@ -980,7 +1017,11 @@ function ThreadViewport({
           <span className="scout-deck__thread-state">{row.status === "streaming" ? "live" : row.status}</span>
         </article>
       )) : (
-        <div className="scout-deck__thread-empty"><strong>Thread connected</strong><p>Start the first turn from the command strip below.</p></div>
+        <div className="scout-deck__thread-empty" data-state="connected">
+          <span className="scout-deck__thread-glyph">●</span>
+          <strong>Codex thread connected</strong>
+          <p>{thread.threadId ? `Thread ${shortId(thread.threadId)} is ready. Start its first turn from the command strip below.` : "The controller is ready. Start its first turn from the command strip below."}</p>
+        </div>
       )}
     </div>
   );
@@ -1182,17 +1223,41 @@ function blockDetail(block: CodexDeckBlock): string {
 }
 
 function connectionLabel(connection: DeckConnection): string {
-  if (connection === "ready") return "Link ready";
-  if (connection === "partial") return "Partial link";
-  if (connection === "error") return "Link error";
-  if (connection === "offline") return "Offline";
-  return "Connecting";
+  if (connection === "ready") return "Bridge online";
+  if (connection === "partial") return "Bridge degraded";
+  if (connection === "error") return "Bridge error";
+  if (connection === "offline") return "Bridge offline";
+  return "Bridge connecting";
 }
 
-function laneTone(lane: DeckLane): "live" | "attention" | "quiet" {
+function laneTone(lane: DeckLane): DeckSignalTone {
   if (lane.state === "waiting" || lane.state === "blocked" || lane.state === "error") return "attention";
   if (isLiveLaneState(lane.state)) return "live";
   return "quiet";
+}
+
+function controllerTone(
+  adapterAvailable: boolean,
+  thread: CodexDeckThreadSnapshot | null,
+  error: string | null,
+): DeckSignalTone {
+  if (error || thread?.state === "disconnected") return "attention";
+  if (!adapterAvailable || !thread) return "quiet";
+  return thread.state === "running" ? "live" : "ready";
+}
+
+function controllerStatusLabel(
+  adapterAvailable: boolean,
+  thread: CodexDeckThreadSnapshot | null,
+  error: string | null,
+  laneState: string | null,
+): string {
+  if (!adapterAvailable) return laneStateLabel(laneState);
+  if (error) return "Controller unavailable";
+  if (!thread) return "Connecting controller";
+  if (thread.state === "disconnected") return "Controller disconnected";
+  if (thread.state === "running") return "Turn live";
+  return "Thread linked · ready";
 }
 
 function laneStateLabel(state: string | null): string {

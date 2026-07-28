@@ -182,10 +182,20 @@ struct RootView: View {
                                 )
                             }
                             surfaceLayer(.lanes) {
-                                MissionControlSurface(model: model, kind: .lanes, isActive: surface == .lanes)
+                                MissionControlSurface(
+                                    model: model,
+                                    kind: .lanes,
+                                    isActive: surface == .lanes,
+                                    onOpenDeck: { selectSurface(.deck) }
+                                )
                             }
                             surfaceLayer(.deck) {
-                                MissionControlSurface(model: model, kind: .deck, isActive: surface == .deck)
+                                MissionControlSurface(
+                                    model: model,
+                                    kind: .deck,
+                                    isActive: surface == .deck,
+                                    onOpenLanes: { selectSurface(.lanes) }
+                                )
                             }
                             surfaceLayer(.dispatch) {
                                 MissionControlSurface(model: model, kind: .dispatch, isActive: surface == .dispatch)

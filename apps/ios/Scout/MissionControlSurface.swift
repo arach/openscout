@@ -53,6 +53,8 @@ struct MissionControlSurface: View {
     let model: AppModel
     let kind: Kind
     let isActive: Bool
+    let onOpenLanes: (() -> Void)?
+    let onOpenDeck: (() -> Void)?
 
     @State private var webState = HudWebViewState()
     @State private var reloadGeneration = 0
@@ -69,10 +71,18 @@ struct MissionControlSurface: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
 
-    init(model: AppModel, kind: Kind, isActive: Bool) {
+    init(
+        model: AppModel,
+        kind: Kind,
+        isActive: Bool,
+        onOpenLanes: (() -> Void)? = nil,
+        onOpenDeck: (() -> Void)? = nil
+    ) {
         self.model = model
         self.kind = kind
         self.isActive = isActive
+        self.onOpenLanes = onOpenLanes
+        self.onOpenDeck = onOpenDeck
         let initialMachineIds = Set(
             model.webSurfaceMachines().filter(\.isOnline).map(\.machineId)
         )
@@ -122,10 +132,8 @@ struct MissionControlSurface: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !kind.isDeck {
-                standardToolbar
-                    .cockpitEntrance(index: 0, phase: entrance)
-            }
+            toolbar
+                .cockpitEntrance(index: 0, phase: entrance)
             Group {
                 // Create each WKWebView lazily on first activation, then leave it
                 // mounted and warm across every subsequent tab switch.
@@ -233,6 +241,9 @@ struct MissionControlSurface: View {
                     .lineLimit(1)
             }
             Spacer(minLength: HudSpacing.md)
+            if kind == .lanes, let onOpenDeck {
+                missionControlLink("Open Deck", glyph: .dispatch, action: onOpenDeck)
+            }
             if webState.isLoading {
                 ProgressView()
                     .controlSize(.small)
@@ -269,6 +280,9 @@ struct MissionControlSurface: View {
                         .foregroundStyle(ScoutInk.dim)
                 }
                 Spacer(minLength: HudSpacing.md)
+                if let onOpenLanes {
+                    missionControlLink("Lanes", glyph: .lanes, action: onOpenLanes)
+                }
                 if webState.isLoading {
                     ProgressView()
                         .controlSize(.small)
@@ -309,6 +323,34 @@ struct MissionControlSurface: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(HudHairline.standard).frame(height: HudStrokeWidth.thin)
         }
+    }
+
+    private func missionControlLink(
+        _ title: String,
+        glyph: GlyphShape.Kind,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: HudSpacing.xs) {
+                Glyphic(kind: glyph, size: 13)
+                Text(title.uppercased())
+            }
+            .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+            .tracking(0.45)
+            .foregroundStyle(HudPalette.accent)
+            .padding(.horizontal, HudSpacing.sm)
+            .padding(.vertical, HudSpacing.xs)
+            .background(
+                RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                    .fill(HudPalette.accent.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                    .stroke(HudPalette.accent.opacity(0.32), lineWidth: HudStrokeWidth.thin)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
     }
 
     // Real count only: the number of hosts currently in the union scope. The
