@@ -397,10 +397,10 @@ describe("pending pair request store under multi-process contention", () => {
 
   interface RaceResult {
     decider: { lost: number; resurrected: number; rounds: number };
-    poller: { touched: number };
+    poller: { touched: number; extended: number; lost: number };
   }
 
-  async function race(scenario: "approve" | "deny" | "expire"): Promise<RaceResult> {
+  async function race(scenario: "approve" | "deny" | "expire" | "sweep"): Promise<RaceResult> {
     const home = tempConfigHome();
     const statePath = pairRequestStatePath(home);
     const signals = join(home, "signals");
@@ -473,6 +473,23 @@ describe("pending pair request store under multi-process contention", () => {
       const result = await race("expire");
       expect(result.decider.rounds).toBe(RACE_ROUNDS);
       expect(result.poller.touched).toBe(RACE_ROUNDS);
+      expect(result.decider.resurrected).toBe(0);
+    },
+    RACE_TIMEOUT_MS,
+  );
+
+  // The two removals a row can suffer, racing each other through the swap: one
+  // instance collecting an expiry it can see while the other extends past it,
+  // and a fulfilled token that must stay buried through all of it.
+  test(
+    "an expiry sweep never collects an extension the polling instance already made",
+    async () => {
+      const result = await race("sweep");
+      expect(result.decider.rounds).toBe(RACE_ROUNDS);
+      expect(result.poller.touched).toBe(RACE_ROUNDS);
+      // Without this the run could pass by never reaching the state it is about.
+      expect(result.poller.extended).toBeGreaterThan(0);
+      expect(result.poller.lost).toBe(0);
       expect(result.decider.resurrected).toBe(0);
     },
     RACE_TIMEOUT_MS,
@@ -989,6 +1006,265 @@ describe("pending pair request store with an unwritable home", () => {
 
       degraded.dispose();
       writable.dispose();
+    },
+  );
+
+  // The other half of the same ambiguity. A row leaving the shared state is
+  // terminal when the payload was handed over and garbage collection when a
+  // sweep ran on knowledge older than an extension it could not see — and the
+  // sweeper is by construction the instance that cannot see it. Reading the
+  // second as the first answers a device with 410 for a token that is still
+  // good, which is the failure this whole file exists to prevent.
+  test.skipIf(runsAsRoot)("keeps a touch extension a peer's expiry sweep could not see", () => {
+    const home = tempConfigHome();
+    const statePath = pairRequestStatePath(home);
+    const runDirectory = dirname(statePath);
+    mkdirSync(runDirectory, { recursive: true, mode: 0o700 });
+    const clock = fixedClock();
+    const ttlMs = 1_000;
+
+    const writable = createPendingPairRequestStore({ statePath, ttlMs, now: clock.now });
+    const req = writable.create({ requesterIp: "192.168.1.70" });
+    expect(latestPairRequestGeneration(statePath)).toBe(1);
+
+    // The phone is polling THIS instance, which read the row out of the shared
+    // file — so the row has been seen there, and its later absence is something
+    // that has to be explained rather than assumed.
+    const degraded = createPendingPairRequestStore({ statePath, ttlMs, now: clock.now });
+    expect(degraded.get(req.token)?.token).toBe(req.token);
+
+    // A read-only window in which the device keeps polling. The extension is
+    // legal and it is the truth; it just cannot be published.
+    chmodSync(runDirectory, 0o500);
+    clock.advance(900);
+    degraded.touch(req.token);
+    const extendedTo = clock.now() + ttlMs;
+    expect(degraded.get(req.token)?.expiresAt).toBe(extendedTo);
+    expect(latestPairRequestGeneration(statePath)).toBe(1);
+
+    // Past the expiry the OTHER instance can see, which knows nothing of the
+    // extension, so its next write collects the row.
+    chmodSync(runDirectory, 0o700);
+    clock.advance(200);
+    expect(clock.now()).toBeGreaterThan(req.expiresAt);
+    writable.create({ requesterIp: "192.168.1.71" });
+    expect(latestPairRequestGeneration(statePath)).toBe(2);
+    expect(freshRead(statePath, req.token, clock.now)).toBeNull();
+
+    // Absence at a later generation — but nobody handed this token's payload
+    // over. It was collected on knowledge older than the extension, and the
+    // extension is the newer fact, so the row survives with it intact.
+    expect(degraded.get(req.token)?.expiresAt).toBe(extendedTo);
+    // ...and goes back into the shared file on the next poll, so the phone
+    // still gets its payload from whichever instance mDNS hands it.
+    degraded.touch(req.token);
+    expect(freshRead(statePath, req.token, clock.now)?.token).toBe(req.token);
+
+    degraded.dispose();
+    writable.dispose();
+  });
+
+  test.skipIf(runsAsRoot)("keeps an approval a peer's expiry sweep could not see", () => {
+    const home = tempConfigHome();
+    const statePath = pairRequestStatePath(home);
+    const runDirectory = dirname(statePath);
+    mkdirSync(runDirectory, { recursive: true, mode: 0o700 });
+    const clock = fixedClock();
+    const ttlMs = 1_000;
+
+    const writable = createPendingPairRequestStore({ statePath, ttlMs, now: clock.now });
+    const req = writable.create({ requesterIp: "192.168.1.72" });
+
+    const degraded = createPendingPairRequestStore({ statePath, ttlMs, now: clock.now });
+    expect(degraded.get(req.token)?.token).toBe(req.token);
+
+    // The human answers on the instance whose home has gone read-only, which
+    // gives the request a fresh window to be polled and fulfilled in.
+    chmodSync(runDirectory, 0o500);
+    clock.advance(900);
+    expect(degraded.decide(req.token, "approve")?.status).toBe("approved");
+    const extendedTo = clock.now() + ttlMs;
+    expect(latestPairRequestGeneration(statePath)).toBe(1);
+
+    chmodSync(runDirectory, 0o700);
+    clock.advance(200);
+    writable.create({ requesterIp: "192.168.1.73" });
+    expect(latestPairRequestGeneration(statePath)).toBe(2);
+    expect(freshRead(statePath, req.token, clock.now)).toBeNull();
+
+    // Losing this one loses a human's answer to a sweep that never saw it.
+    const kept = degraded.get(req.token);
+    expect(kept?.status).toBe("approved");
+    expect(kept?.expiresAt).toBe(extendedTo);
+
+    degraded.touch(req.token);
+    expect(freshRead(statePath, req.token, clock.now)?.status).toBe("approved");
+
+    degraded.dispose();
+    writable.dispose();
+  });
+
+  // The terminal marker is a write like any other, so it has to survive a home
+  // that will not take it — otherwise the instance that delivered the payload
+  // is the one instance that forgets it did.
+  test.skipIf(runsAsRoot)("keeps a fulfil it could not publish buried", () => {
+    const home = tempConfigHome();
+    const statePath = pairRequestStatePath(home);
+    const runDirectory = dirname(statePath);
+    mkdirSync(runDirectory, { recursive: true, mode: 0o700 });
+    const clock = fixedClock();
+    const ttlMs = 10_000;
+
+    const writable = createPendingPairRequestStore({ statePath, ttlMs, now: clock.now });
+    const req = writable.create({ requesterIp: "192.168.1.85" });
+
+    const degraded = createPendingPairRequestStore({ statePath, ttlMs, now: clock.now });
+    expect(degraded.get(req.token)?.token).toBe(req.token);
+
+    // Pair mode is up on THIS instance, so it is the one that hands the payload
+    // over — and its home has gone read-only, so nobody else can see that yet.
+    chmodSync(runDirectory, 0o500);
+    degraded.fulfill(req.token);
+    expect(degraded.get(req.token)).toBeNull();
+    expect(latestPairRequestGeneration(statePath)).toBe(1);
+
+    // The device polls the other instance, which knows nothing about the
+    // delivery and republishes the row it is still holding.
+    chmodSync(runDirectory, 0o700);
+    clock.advance(1_000);
+    writable.touch(req.token);
+    expect(latestPairRequestGeneration(statePath)).toBe(2);
+    expect(freshRead(statePath, req.token, clock.now)?.token).toBe(req.token);
+
+    // The stacked terminal outcome outlives that and lands when it can.
+    clock.advance(1_000);
+    expect(degraded.list()).toEqual([]);
+    expect(degraded.get(req.token)).toBeNull();
+    degraded.touch(req.token);
+    expect(latestPairRequestGeneration(statePath)).toBe(3);
+    expect(freshRead(statePath, req.token, clock.now)).toBeNull();
+
+    degraded.dispose();
+    writable.dispose();
+  });
+
+  test.skipIf(runsAsRoot)(
+    "collects a terminal marker once the row it buries could not come back",
+    () => {
+      const home = tempConfigHome();
+      const statePath = pairRequestStatePath(home);
+      mkdirSync(dirname(statePath), { recursive: true, mode: 0o700 });
+      const clock = fixedClock();
+      const ttlMs = 1_000;
+
+      const store = createPendingPairRequestStore({ statePath, ttlMs, now: clock.now });
+      const req = store.create({ requesterIp: "192.168.1.83" });
+      store.fulfill(req.token);
+      // It travels in the same swapped file the rows do, so a peer reading that
+      // file knows the difference between this and a sweep.
+      const marked = JSON.parse(readFileSync(currentStateFile(statePath), "utf8")) as {
+        fulfilled: { token: string }[];
+      };
+      expect(marked.fulfilled.map((m) => m.token)).toEqual([req.token]);
+
+      // Past the row's expiry plus the longest extension a single stranded
+      // touch could have granted it, no copy anywhere can still be live, so the
+      // marker has nothing left to suppress and stops being carried.
+      clock.advance(2 * ttlMs + 1);
+      store.create({ requesterIp: "192.168.1.84" });
+      const collected = JSON.parse(readFileSync(currentStateFile(statePath), "utf8")) as {
+        fulfilled: unknown[];
+      };
+      expect(collected.fulfilled).toEqual([]);
+
+      store.dispose();
+    },
+  );
+
+  // Generation numbers restart. A cleared run directory takes the chain back to
+  // one, and "a later generation than the one I saw this row in" means nothing
+  // across that boundary — the state we knew is not gone, it is unreachable.
+  test.skipIf(runsAsRoot)(
+    "does not read a restarted chain's first generation as a peer's deletion",
+    () => {
+      const home = tempConfigHome();
+      const statePath = pairRequestStatePath(home);
+      const runDirectory = dirname(statePath);
+      mkdirSync(runDirectory, { recursive: true, mode: 0o700 });
+      const clock = fixedClock();
+
+      const writable = createPendingPairRequestStore({ statePath, now: clock.now });
+      const req = writable.create({ requesterIp: "192.168.1.74" });
+      expect(latestPairRequestGeneration(statePath)).toBe(1);
+
+      const degraded = createPendingPairRequestStore({ statePath, now: clock.now });
+      expect(degraded.get(req.token)?.token).toBe(req.token);
+      writable.dispose();
+
+      chmodSync(runDirectory, 0o500);
+      clock.advance(1_000);
+      degraded.touch(req.token); // a poll that gets no further than memory
+      chmodSync(runDirectory, 0o700);
+
+      // ~/.openscout/run is cleared — a reset, a restore, somebody tidying —
+      // and an unrelated instance starts the chain again. Its generation 1 has
+      // the number the row was last seen at and a different file behind it.
+      rmSync(runDirectory, { recursive: true, force: true });
+      const restarted = createPendingPairRequestStore({ statePath, now: clock.now });
+      const unrelated = restarted.create({ requesterIp: "192.168.1.75" });
+      expect(latestPairRequestGeneration(statePath)).toBe(1);
+
+      // Nothing in a chain that has never held this row says anybody deleted it.
+      expect(degraded.get(req.token)?.token).toBe(req.token);
+      // And it republishes into the chain that replaced the one it came from.
+      degraded.touch(req.token);
+      expect(freshRead(statePath, req.token, clock.now)?.token).toBe(req.token);
+      expect(freshRead(statePath, unrelated.token, clock.now)?.token).toBe(unrelated.token);
+
+      degraded.dispose();
+      restarted.dispose();
+    },
+  );
+
+  test.skipIf(runsAsRoot)(
+    "does not read a restarted chain that outgrew the old one as a peer's deletion",
+    () => {
+      const home = tempConfigHome();
+      const statePath = pairRequestStatePath(home);
+      const runDirectory = dirname(statePath);
+      mkdirSync(runDirectory, { recursive: true, mode: 0o700 });
+      const clock = fixedClock();
+
+      const writable = createPendingPairRequestStore({ statePath, now: clock.now });
+      const req = writable.create({ requesterIp: "192.168.1.76" });
+      writable.create({ requesterIp: "192.168.1.77" });
+      writable.create({ requesterIp: "192.168.1.78" });
+      expect(latestPairRequestGeneration(statePath)).toBe(3);
+
+      const degraded = createPendingPairRequestStore({ statePath, now: clock.now });
+      expect(degraded.get(req.token)?.token).toBe(req.token);
+      writable.dispose();
+
+      chmodSync(runDirectory, 0o500);
+      clock.advance(1_000);
+      degraded.touch(req.token);
+      chmodSync(runDirectory, 0o700);
+
+      // Same clearing, but this time the new chain climbs past the number the
+      // row was last seen at, which used to read as a peer moving on without it.
+      rmSync(runDirectory, { recursive: true, force: true });
+      const restarted = createPendingPairRequestStore({ statePath, now: clock.now });
+      for (const ip of ["192.168.1.79", "192.168.1.80", "192.168.1.81", "192.168.1.82"]) {
+        restarted.create({ requesterIp: ip });
+      }
+      expect(latestPairRequestGeneration(statePath)).toBe(4);
+
+      expect(degraded.get(req.token)?.token).toBe(req.token);
+      degraded.touch(req.token);
+      expect(freshRead(statePath, req.token, clock.now)?.token).toBe(req.token);
+
+      degraded.dispose();
+      restarted.dispose();
     },
   );
 });

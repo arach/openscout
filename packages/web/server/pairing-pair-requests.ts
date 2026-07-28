@@ -62,6 +62,23 @@
 // it, and write nothing at all, which keeps the polling device — which has no
 // decision to publish — out of the writer set entirely.
 //
+// Two things a published generation carries besides the rows, both because a
+// row's ABSENCE from a generation is ambiguous and an instance that could not
+// publish has to interpret it:
+//
+// - a terminal marker per fulfilled token. A row goes away either because its
+//   payload was handed over — final, nothing may bring it back — or because
+//   somebody's expiry sweep collected it on the state that instance could see,
+//   which may not have included a legal extension made by an instance that
+//   could not publish. Guessing wrong in one direction resurrects a spent
+//   token; guessing wrong in the other answers a live phone with 410. So the
+//   terminal case says so out loud, in the same swapped file, and absence with
+//   no marker means garbage collection.
+// - an epoch per chain, minted when a writer starts one from nothing. Clearing
+//   the run directory takes the numbering back to one, and the next chain
+//   climbs through numbers a previous one already used, so "a later generation
+//   than the one I saw this row in" is only meaningful inside a single chain.
+//
 // Omit `statePath` for a pure in-memory store (tests, ephemeral servers).
 
 import {
@@ -261,12 +278,57 @@ function fileSignature(path: string): string | null {
 /**
  * The published state a row was last seen in.
  *
- * Which generation, and which file that generation was — the second only
- * matters for generation 0, the one name a pre-swap instance can write twice.
+ * Which chain, which generation of that chain, and which file that generation
+ * was — the last only matters for generation 0, the one name a pre-swap
+ * instance can write twice.
+ *
+ * The chain has to be part of it because generation numbers restart. A run
+ * directory that gets cleared — a reset, an `rm -rf ~/.openscout/run`, a
+ * restore over the top — takes the numbering back to one, and the chain that
+ * grows after it climbs through the same numbers the old one used. Comparing
+ * bare numbers across that boundary reads generation 1 of a chain that has
+ * never held a row as "the shared state moved past where I saw this row",
+ * which is the opposite of the truth: a cleared directory is not evidence that
+ * anybody deleted anything.
+ *
+ * `epoch` is null for state that carries none — the legacy generation-0 file,
+ * which a pre-swap instance rewrites in place and never stamps. Those all
+ * share the one null epoch, so inside it the file signature stays the only
+ * moved-on signal there is, exactly as before. That is as good as it can get
+ * while an old instance is still writing that name, and it is the case this
+ * store upgrades away from on its first publication.
  */
 interface SharedSighting {
+  epoch: string | null;
   generation: number;
   signature: string | null;
+}
+
+/** A terminal marker as it travels in the published payload. */
+interface TerminalMarker {
+  token: string;
+  /** The instant after which the marker can be collected. */
+  collectAfter: number;
+}
+
+/**
+ * Terminal markers out of a published payload, ignoring anything malformed.
+ *
+ * The file is a trust boundary like the rows are: another instance wrote it and
+ * a human can hand-edit it, and a marker with a non-numeric horizon would
+ * either never be collected or suppress a row forever.
+ */
+function parseTerminalMarkers(value: unknown): TerminalMarker[] {
+  if (!Array.isArray(value)) return [];
+  const markers: TerminalMarker[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") continue;
+    const marker = entry as { token?: unknown; collectAfter?: unknown };
+    if (typeof marker.token !== "string" || marker.token.length === 0) continue;
+    if (typeof marker.collectAfter !== "number" || !Number.isFinite(marker.collectAfter)) continue;
+    markers.push({ token: marker.token, collectAfter: marker.collectAfter });
+  }
+  return markers;
 }
 
 function inodeOf(path: string): number | null {
@@ -292,15 +354,61 @@ export function createPendingPairRequestStore(
   const now = options.now ?? (() => Date.now());
   const statePath = options.statePath;
   const byToken = new Map<string, PairRequest>();
-  /** The generation our map was loaded from, and its fingerprint. */
+  /** The generation our map was loaded from, its fingerprint, and its chain. */
   let loadedGeneration: number | null = null;
   let loadedSignature: string | null = null;
+  let loadedEpoch: string | null = null;
+  /**
+   * Whether the state we loaded carries a terminal ledger at all.
+   *
+   * An instance running an older build deletes a fulfilled row without saying
+   * so, and its publications have no `fulfilled` key — so absence in one of
+   * them is exactly as ambiguous as it always was, and the safe reading is
+   * still the terminal one. The key's presence, empty or not, is what says the
+   * writer speaks this protocol and that absence with no marker really is a
+   * sweep.
+   */
+  let loadedHasTerminalLedger = false;
   /**
    * Rows whose current local state never reached the shared file, and rows we
-   * removed locally but could not remove from it. See `mergeUnpersisted`.
+   * expired out of our own map but could not expire out of it. See
+   * `mergeUnpersisted`.
+   *
+   * Expiry only: a row we fulfilled is recorded in `fulfilledMarkers` instead,
+   * because the two removals mean opposite things to everybody else.
    */
   const unpersistedUpserts = new Set<string>();
-  const unpersistedDeletes = new Map<string, number>();
+  const unpersistedExpiries = new Map<string, number>();
+  /**
+   * Tokens whose payload has been handed over, and the instant after which the
+   * marker saying so can go.
+   *
+   * A row leaving the shared state has two causes that are indistinguishable
+   * from a peer's side and mean opposite things. `fulfill` is terminal — the
+   * device got what it asked for, and nothing may bring the row back. The
+   * expiry sweep is garbage collection — whoever ran it acted on the state it
+   * could see, and an instance that could not publish may be holding a legally
+   * extended copy of the very row being collected. Reading a sweep as terminal
+   * hands that phone a 410 for a token that is still good; reading a fulfil as
+   * a sweep hands a phone a token whose payload has already been delivered.
+   *
+   * So the terminal case is said out loud rather than inferred from absence.
+   * The marker rides the same compare-and-swapped file the rows do — a side
+   * file would be a second consistency domain, and the two could disagree about
+   * the same token. It is unioned rather than overwritten across writers,
+   * because no writer can un-say it. And it is keyed by token rather than by
+   * chain: what it records is a fact about that token's own life, which does
+   * not stop being true because a run directory was cleared. Tokens are UUIDs,
+   * so there is no cross-chain collision to protect against, and chain-scoping
+   * would only make a spent token resurrectable by deleting a directory.
+   */
+  const fulfilledMarkers = new Map<string, number>();
+  /**
+   * Markers minted here that have not reached the shared file yet — the same
+   * bookkeeping unpersisted row changes get, so a terminal outcome survives a
+   * failed publish and is retried on the next operation.
+   */
+  const unpublishedFulfilled = new Set<string>();
   /**
    * Where each row we know reached the shared state was last seen in it.
    *
@@ -351,17 +459,73 @@ export function createPendingPairRequestStore(
   /**
    * Has the shared state moved past the point a row was last seen in it?
    *
-   * Generations only ever go up, so the number answers this on its own —
-   * except at generation 0, the file a pre-swap instance rewrites in place,
-   * where the second write lands on the same name. The fingerprint the reader
-   * already keeps in order to know whether it has parsed a file covers that,
-   * and a generation older than the sighting (a run directory cleared and
-   * started again) is not evidence of anything, so it does not count.
+   * Only ever asked within one chain. Generation numbers restart when a run
+   * directory is cleared, so across chains they compare as freely as they do
+   * within one and mean nothing: a fresh chain's generation 1 has a different
+   * signature from the old chain's, and a fresh chain that has grown past the
+   * number we saw has a bigger number. Both used to read as "a peer deleted
+   * this row", and neither is evidence of anything — the state we knew is not
+   * gone, it is unreachable, and the row we are holding simply republishes into
+   * the chain that replaced it.
+   *
+   * Inside one chain, generations only ever go up, so the number answers this
+   * on its own — except at generation 0, the file a pre-swap instance rewrites
+   * in place, where the second write lands on the same name. The fingerprint
+   * the reader already keeps in order to know whether it has parsed a file
+   * covers that, and it is all there is to go on in the null epoch that legacy
+   * file lives in.
    */
   function movedOnSince(sighting: SharedSighting): boolean {
+    if (loadedEpoch !== sighting.epoch) return false;
     const generation = loadedGeneration ?? -1;
     if (generation !== sighting.generation) return generation > sighting.generation;
     return loadedSignature !== sighting.signature;
+  }
+
+  /**
+   * How long a terminal marker outlives the row it buries.
+   *
+   * A marker can go once the row it marks could no longer be republished live
+   * under any legal extension. `touch` grants `now + ttlMs`, and only to a row
+   * that is still live, so the latest expiry reachable from a copy that expires
+   * at E is E + ttlMs. Past that the merge's own liveness test drops the copy
+   * and the marker has nothing left to do.
+   *
+   * This is expiry arithmetic, in the one domain this store already keeps a
+   * clock for — rows carry deadlines and the sweep reads them off this same
+   * time source — and it is NOT a concurrency timeout. Nothing here decides
+   * between two writers: who lands a generation is settled by `link(2)`, and a
+   * writer that arrives late reloads and re-applies rather than being judged
+   * stale. An instance descheduled across a marker's whole horizon stays safe
+   * by construction rather than by luck, because it could not have touched
+   * anything while it was away: its copy is past its own expiry when it wakes,
+   * and the liveness test — not the marker — is what drops it. The only way to
+   * carry a copy past the horizon is to keep committing, and every commit
+   * reloads first, which is where it meets the marker.
+   */
+  function terminalMarkerHorizon(expiresAt: number): number {
+    return Math.max(expiresAt, now()) + ttlMs;
+  }
+
+  /** Record that a row's payload was handed over, and bury the row. */
+  function markFulfilled(request: PairRequest): void {
+    const horizon = terminalMarkerHorizon(request.expiresAt);
+    const known = fulfilledMarkers.get(request.token);
+    fulfilledMarkers.set(request.token, known === undefined ? horizon : Math.max(known, horizon));
+    unpublishedFulfilled.add(request.token);
+  }
+
+  /** Drop markers whose row could no longer come back even without them. */
+  function collectTerminalMarkers(): void {
+    const t = now();
+    for (const [token, collectAfter] of fulfilledMarkers) {
+      // Strictly after: at the horizon itself a copy extended to exactly that
+      // instant is still live by the store's own `expiresAt > now` rule.
+      if (collectAfter < t) {
+        fulfilledMarkers.delete(token);
+        unpublishedFulfilled.delete(token);
+      }
+    }
   }
 
   /**
@@ -384,14 +548,32 @@ export function createPendingPairRequestStore(
    * merging: the next publication carried the row back into the shared file at
    * a later generation than the one that had deleted it.
    *
-   * The generational model already separates the two. A row absent from a
-   * generation LATER than the one we last saw it in went away between them,
-   * and it was not us that removed it. So sightings are recorded on the way
-   * past, and only a row the shared state has never held is kept alive here —
-   * along with whatever local change was stacked on it, which now has nothing
-   * left to apply to.
+   * The generational model separates those two, within one chain: a row absent
+   * from a generation LATER than the one we last saw it in went away between
+   * them, and it was not us that removed it. So sightings are recorded on the
+   * way past.
+   *
+   * But "a peer removed it" is itself two events that mean opposite things,
+   * and absence cannot tell them apart. `fulfill` is terminal — the payload
+   * went to the device, and the row and everything stacked on it must die.
+   * The expiry sweep is garbage collection, run by an instance on the state it
+   * could see, which is precisely not the state we are holding: our extension
+   * of that row is the newer knowledge, and it was unpublishable rather than
+   * wrong. So the terminal case is read off the marker a fulfiller publishes,
+   * and absence with no marker is a sweep, which our copy survives for as long
+   * as it is genuinely still live under its own extended expiry.
    */
   function mergeUnpersisted(loaded: Map<string, PairRequest>): void {
+    collectTerminalMarkers();
+    // Terminal first, and unconditionally. A token whose payload was handed
+    // over is finished everywhere: in the state we just read (a peer running an
+    // older build could still be republishing it), in whatever we have stacked
+    // to publish, and in our own map. Our own marker that never reached the
+    // file is applied here exactly like an unpersisted delete used to be.
+    for (const token of fulfilledMarkers.keys()) {
+      loaded.delete(token);
+      unpersistedUpserts.delete(token);
+    }
     for (const token of [...unpersistedUpserts]) {
       const mine = byToken.get(token);
       if (!mine) {
@@ -403,10 +585,21 @@ export function createPendingPairRequestStore(
       if (!theirs) {
         const sighting = lastSeenInShared.get(token);
         if (sighting && movedOnSince(sighting)) {
-          // A peer's deletion, not a row only we have. Republishing it would
-          // hand the phone a token whose payload has already been delivered.
-          unpersistedUpserts.delete(token);
-          continue;
+          // Gone from a later generation of the same chain, with no marker to
+          // say the payload was delivered: somebody swept it. They were reading
+          // an expiry we had already extended and could not publish, so the row
+          // comes back — but only while it really is still live under that
+          // extension. A copy that has run out is dropped, which is the same
+          // answer the sweeper reached, one instance late.
+          //
+          // Unless the state we loaded has no ledger in it at all, in which
+          // case its writer is an older build that would not have marked a
+          // fulfil either, absence is as ambiguous there as it ever was, and
+          // the terminal reading is the safe one.
+          if (!loadedHasTerminalLedger || !isLive(mine)) {
+            unpersistedUpserts.delete(token);
+            continue;
+          }
         }
         loaded.set(token, mine);
         continue;
@@ -426,12 +619,22 @@ export function createPendingPairRequestStore(
           : (theirsDecided ? theirs : mine);
       loaded.set(token, { ...winner, expiresAt: Math.max(theirs.expiresAt, mine.expiresAt) });
     }
-    for (const [token, forgetAfter] of unpersistedDeletes) {
-      // Tokens are UUIDs, so a row we dropped can never legitimately come
-      // back — but the marker is not worth keeping past the point where the
-      // row would have expired on its own anyway.
+    for (const [token, forgetAfter] of unpersistedExpiries) {
+      // Not worth keeping past the point where the row would have expired on
+      // its own anyway.
       if (forgetAfter <= now()) {
-        unpersistedDeletes.delete(token);
+        unpersistedExpiries.delete(token);
+        continue;
+      }
+      const theirs = loaded.get(token);
+      if (theirs === undefined) continue;
+      // The same classification, seen from the sweeper's side. Our sweep was
+      // garbage collection performed on the state WE could see; a peer that
+      // has since published an extension of the row knew something we did not,
+      // and re-applying the sweep on top of that would kill a token a device
+      // is still polling. Only a row that is still expired is ours to remove.
+      if (isLive(theirs)) {
+        unpersistedExpiries.delete(token);
         continue;
       }
       loaded.delete(token);
@@ -451,12 +654,23 @@ export function createPendingPairRequestStore(
     }
   }
 
-  function adopt(rows: PairRequest[]): void {
+  function adopt(rows: PairRequest[], markers: TerminalMarker[]): void {
     const loaded = new Map<string, PairRequest>();
     for (const row of rows) loaded.set(row.token, row);
+    // A union, not a replacement: a marker says a payload was handed over, and
+    // no writer can un-say that. The longer horizon wins for the same reason.
+    for (const marker of markers) {
+      const known = fulfilledMarkers.get(marker.token);
+      fulfilledMarkers.set(
+        marker.token,
+        known === undefined ? marker.collectAfter : Math.max(known, marker.collectAfter),
+      );
+    }
     // Every row in the file demonstrably reached the shared state, in this
-    // generation. Recorded before the merge, which reads sightings back.
+    // generation of this chain. Recorded before the merge, which reads
+    // sightings back.
     const sighting: SharedSighting = {
+      epoch: loadedEpoch,
       generation: loadedGeneration ?? 0,
       signature: loadedSignature,
     };
@@ -482,9 +696,11 @@ export function createPendingPairRequestStore(
       if (generation === null) {
         // Nothing published yet, or the run directory was cleared out from
         // under us: whatever we hold is all there is, and the next write starts
-        // the chain again from generation one.
+        // a new chain from generation one.
         loadedGeneration = null;
         loadedSignature = null;
+        loadedEpoch = null;
+        loadedHasTerminalLedger = false;
         return;
       }
       const path = generationPath(generation);
@@ -501,19 +717,34 @@ export function createPendingPairRequestStore(
       }
       loadedGeneration = generation;
       loadedSignature = signature;
+      // Cleared until the payload parses: claiming the chain we were on before
+      // would let a state we cannot read inherit an epoch it never published
+      // under, and every sighting from it would compare against the wrong one.
+      loadedEpoch = null;
+      loadedHasTerminalLedger = false;
       let rows: unknown[];
+      let epoch: string | null = null;
+      let hasLedger = false;
+      let markers: TerminalMarker[] = [];
       try {
-        const parsed: unknown = JSON.parse(raw);
-        rows = Array.isArray((parsed as { requests?: unknown })?.requests)
-          ? (parsed as { requests: unknown[] }).requests
-          : [];
+        const parsed = JSON.parse(raw) as {
+          requests?: unknown;
+          epoch?: unknown;
+          fulfilled?: unknown;
+        };
+        rows = Array.isArray(parsed?.requests) ? parsed.requests : [];
+        epoch = typeof parsed?.epoch === "string" && parsed.epoch.length > 0 ? parsed.epoch : null;
+        hasLedger = Array.isArray(parsed?.fulfilled);
+        markers = parseTerminalMarkers(parsed?.fulfilled);
       } catch {
         // A hand-edited file is not worth failing pairing over, and it must not
         // cost us the rows we are holding either: keep them and republish on
         // the next mutation, which supersedes the damage.
         return;
       }
-      adopt(rows.filter(isPairRequest));
+      loadedEpoch = epoch;
+      loadedHasTerminalLedger = hasLedger;
+      adopt(rows.filter(isPairRequest), markers);
       return;
     }
   }
@@ -533,18 +764,18 @@ export function createPendingPairRequestStore(
   /**
    * Publish our view as the next generation, if nobody else has.
    *
-   * `touched` and `removed` name the rows this operation changed, so a write
+   * `touched` and `expired` name the rows this operation changed, so a write
    * that cannot land can be retried later without claiming authority over rows
    * we merely happened to be holding — republishing those would resurrect
    * another instance's decisions.
    */
-  function publish(touched: readonly string[], removed: readonly string[]): PublishOutcome {
+  function publish(touched: readonly string[], expired: readonly string[]): PublishOutcome {
     if (!statePath || !tempPath) return "won";
     // Nothing changed and nothing is owed: stay off the writer set entirely.
     // Anything outstanding, though, is a write that failed and still has to
     // land, so a home that has become writable again is retried here — on the
     // very next operation, without waiting for one that happens to mutate.
-    if (touched.length === 0 && removed.length === 0 && !hasOutstandingWrites()) return "won";
+    if (touched.length === 0 && expired.length === 0 && !hasOutstandingWrites()) return "won";
     // Publishing is only allowed onto the state we actually read, and only
     // while that is still the newest state there is.
     //
@@ -558,14 +789,30 @@ export function createPendingPairRequestStore(
     // first among everyone who agrees.
     if ((latestGeneration() ?? -1) !== (loadedGeneration ?? -1)) return "lost";
     const next = (loadedGeneration ?? 0) + 1;
+    // State we did not load an epoch from is a chain we are starting: either
+    // nothing has been published, or the only thing published is the legacy
+    // generation-0 file, which carries none. Everyone after us copies it
+    // forward, which is what makes the generations of one chain comparable to
+    // each other and to no other chain's.
+    const epoch = loadedEpoch ?? crypto.randomUUID();
     const target = generationPath(next);
     // Before the first byte hits the disk, not after: a test that reaches for
     // the real home must fail loudly instead of leaving a bearer token there.
     assertIsolatedPairingRunStateWrite(target);
     assertIsolatedPairingRunStateWrite(tempPath);
     // `version` describes the row schema, which has not changed; which
-    // generation a file is lives in its name.
-    const payload = JSON.stringify({ version: 1, requests: [...byToken.values()] });
+    // generation a file is lives in its name. `epoch` and `fulfilled` are
+    // additive siblings of `requests` — an instance running an older build
+    // ignores them, which is the same exposure it already had, and bumping the
+    // number would not teach it to read them.
+    const payload = JSON.stringify({
+      version: 1,
+      epoch,
+      requests: [...byToken.values()],
+      fulfilled: [...fulfilledMarkers].map(
+        ([token, collectAfter]) => ({ token, collectAfter }) satisfies TerminalMarker,
+      ),
+    });
     try {
       // 0700: a row carries the pairing token, which is a bearer credential —
       // whoever reads one can complete the pair. The files are 0600, but if we
@@ -619,13 +866,17 @@ export function createPendingPairRequestStore(
     }
     loadedGeneration = next;
     loadedSignature = signature;
-    // What we just published speaks for everything we hold, including the rows
-    // we removed. Nothing of ours is outstanding any more.
+    loadedEpoch = epoch;
+    loadedHasTerminalLedger = true;
+    // What we just published speaks for everything we hold: the rows we
+    // removed, and the tokens we buried. Nothing of ours is outstanding.
     unpersistedUpserts.clear();
-    unpersistedDeletes.clear();
+    unpersistedExpiries.clear();
+    unpublishedFulfilled.clear();
     // And every row in it has now been seen in the shared state at this
-    // generation — by us, which is the same evidence as having read it there.
-    const sighting: SharedSighting = { generation: next, signature };
+    // generation of this chain — by us, which is the same evidence as having
+    // read it there.
+    const sighting: SharedSighting = { epoch, generation: next, signature };
     for (const token of byToken.keys()) lastSeenInShared.set(token, sighting);
     forgetSightingsWeNoLongerHold();
     collectSuperseded(next);
@@ -651,12 +902,14 @@ export function createPendingPairRequestStore(
     }
   }
 
-  function recordOutstanding(touched: readonly string[], removed: readonly string[]): void {
+  function recordOutstanding(touched: readonly string[], expired: readonly string[]): void {
     for (const token of touched) {
       if (byToken.has(token)) unpersistedUpserts.add(token);
     }
     const forgetAfter = now() + ttlMs;
-    for (const token of removed) unpersistedDeletes.set(token, forgetAfter);
+    for (const token of expired) unpersistedExpiries.set(token, forgetAfter);
+    // Terminal outcomes need no recording here: `markFulfilled` already put
+    // them in `unpublishedFulfilled`, where a failed publish leaves them.
   }
 
   function isLive(request: PairRequest): boolean {
@@ -678,7 +931,9 @@ export function createPendingPairRequestStore(
   }
 
   function hasOutstandingWrites(): boolean {
-    return unpersistedUpserts.size > 0 || unpersistedDeletes.size > 0;
+    return unpersistedUpserts.size > 0
+      || unpersistedExpiries.size > 0
+      || unpublishedFulfilled.size > 0;
   }
 
   interface Applied<T> {
@@ -695,23 +950,27 @@ export function createPendingPairRequestStore(
    * be handed newer state and run again. Every mutation in this store is a
    * transition keyed by a token, so re-running one on top of a state that moved
    * is not a compromise — it is what "extend the window of the request that is
-   * now approved" means. `apply` may push into `removed` to report rows it
-   * dropped.
+   * now approved" means.
    */
-  function commit<T>(apply: (removed: string[]) => Applied<T>): T {
-    if (!statePath) return apply(pruneExpired()).value;
+  function commit<T>(apply: () => Applied<T>): T {
+    if (!statePath) {
+      pruneExpired();
+      collectTerminalMarkers();
+      return apply().value;
+    }
     for (let attempt = 1; ; attempt += 1) {
       reload();
-      const removed = pruneExpired();
-      const { value, touched } = apply(removed);
-      const outcome = publish(touched, removed);
+      const expired = pruneExpired();
+      collectTerminalMarkers();
+      const { value, touched } = apply();
+      const outcome = publish(touched, expired);
       if (outcome === "won") return value;
       if (outcome === "failed" || attempt >= MAX_PUBLISH_ATTEMPTS) {
         // A read-only home, or a peer we cannot get a word in edgeways with.
         // Either way this instance keeps serving the change out of its own
         // memory — the per-process behaviour this store replaced — and retries
         // it on the next operation.
-        recordOutstanding(touched, removed);
+        recordOutstanding(touched, expired);
         return value;
       }
       if (attempt > PUBLISH_SPIN_ATTEMPTS) {
@@ -844,10 +1103,23 @@ export function createPendingPairRequestStore(
     },
 
     fulfill(token) {
-      commit((removed) => {
-        if (byToken.delete(token)) {
+      commit(() => {
+        const request = byToken.get(token);
+        if (request) {
+          // Terminal, and said out loud rather than left to be inferred from
+          // the row's absence: the payload behind this token has been handed to
+          // the device, and no instance may bring it back. The marker is what
+          // stacks if this write cannot land, so the row stays buried either
+          // way.
+          //
+          // Only a row we are actually holding is marked. A token we do not
+          // have is one a peer has already removed — if they fulfilled it their
+          // marker is in the file we just loaded, and if they swept it there is
+          // nothing to bury. Marking regardless would turn an unauthenticated
+          // LAN endpoint into a way to plant markers for arbitrary strings.
+          markFulfilled(request);
+          byToken.delete(token);
           unpersistedUpserts.delete(token);
-          removed.push(token);
         }
         return { value: undefined, touched: [] };
       });
@@ -858,7 +1130,9 @@ export function createPendingPairRequestStore(
       discardTemp();
       byToken.clear();
       unpersistedUpserts.clear();
-      unpersistedDeletes.clear();
+      unpersistedExpiries.clear();
+      unpublishedFulfilled.clear();
+      fulfilledMarkers.clear();
       lastSeenInShared.clear();
     },
   };
