@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "assetRevision": "1fdc82f39d6f5627",
+  "assetRevision": "19b12145a23c842f",
   "protocol": {
     "minimum": 1,
     "maximum": 1
@@ -79,13 +79,13 @@
   "files": [
     {
       "path": "deck/app.css",
-      "sha256": "01f8c16081098b6af83d1a53db110703802b94770b3fc477bdf364ed41dab2c7",
-      "bytes": 27039
+      "sha256": "6ad1b52279af7d900d7b849a6e5dc8e010640a319ccf34a28f1800707da2a6f9",
+      "bytes": 38855
     },
     {
       "path": "deck/app.js",
-      "sha256": "4c6eec0dc341c148dbc729c1688fd63a60f93a99b86ea3ef16848ba8d07dd929",
-      "bytes": 229436
+      "sha256": "4c48e64e9a714cfb5f74da2d251e496cd4adc388c9095a946066da8b66eecdd3",
+      "bytes": 249702
     },
     {
       "path": "deck/index.html",
