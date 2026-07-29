@@ -211,6 +211,22 @@ export const STUDIO_PAGES: StudioPage[] = [
       "Second take: pure MessageComposer shell (not a custom form). PR context + project/agent chips in header; harness·model·effort as toolbar selects; guidance draft is the body. Agent defaults empty. Studio only until ported.",
   },
   {
+    href: "/studies/dispatch-ask-composer",
+    label: "Dispatch · Ask another agent",
+    bucket: "studies",
+    surface: "web",
+    status: "concept",
+    source: [
+      "design/studio/views/dispatch-ask-composer.tsx",
+      "design/studio/app/studies/dispatch-ask-composer/page.tsx",
+      "design/studio/components/MessageComposer.tsx",
+      "packages/web/client/screens/broker/BrokerScreen.tsx",
+      "packages/web/client/screens/system-surfaces-redesign.css",
+    ],
+    blurb:
+      "The inspector's ask module clips all four routing selects to fit one 263px row. Faithful baseline plus three treatments — routing owns the toolbar line · one readout that expands on demand · routing-first instrument band — each at 520px and 380px. Studio only until ported.",
+  },
+  {
     href: "/studies/session-harness-state",
     label: "Session Harness State",
     bucket: "studies",

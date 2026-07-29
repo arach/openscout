@@ -323,6 +323,54 @@ existing handles name already-known live targets. Mutable route aliases retain
 their own scoped broker records, revisions, and explicit alias target kind;
 unknown profile or exact-handle routes never fall through to alias lookup.
 
+### Runtime Specification Is Not Identity
+
+`RuntimeSpec` is a launch contract, never an `AgentIdentity`. Its canonical,
+shell-safe grammar has fixed positions:
+
+```text
+<harness>[/<model>[/<effort>]]
+```
+
+Examples are `codex`, `claude/opus`, and
+`codex/gpt-5.6-sol/xhigh`. Sparse harness-plus-effort requests use separate
+flags because the grammar has no placeholder segment. The equivalent explicit
+form is:
+
+```bash
+scout ask --project ../talkie --harness codex \
+  --model gpt-5.6-sol --effort xhigh "Review this."
+```
+
+Runtime profiles are base presets; valid explicit dimensions override the
+preset. The per-dimension launch ladder is explicit flag or RuntimeSpec,
+profile preset, endpoint metadata, harness config, then harness default.
+Conflicting overlapping selectors and illegal harness/model/effort tuples fail
+closed. Exact runtime selection creates an isolated session instead of
+restamping or reusing a mutable live endpoint. An exact `session:<id>` target
+is legal only when observed runtime evidence matches every requested dimension.
+
+Invocation receipts preserve an `executionResolution` record for harness,
+model, and reasoning effort. Each dimension distinguishes `requested`,
+`resolved` plus its source (`flag`, `literal`, `profile`, `endpoint`, `config`,
+or `default`), and harness-reported `observed` truth plus drift. Resolved launch
+arguments are not treated as observation.
+
+Bare natural-language tokens use one stable priority: a reserved profile id is
+a profile launch; otherwise a launchable harness id is a harness-only
+RuntimeSpec; model-family words are never valid bare; remaining names are agent
+targets only when they are not reserved. The `#` harness and `?` model
+qualifiers retain their fixed meanings on agent identities, and effort is not
+an identity dimension.
+
+New agent names and aliases cannot use runtime grammar words (launchable
+harnesses, profiles, effort values, route words, dimension keys, product
+identities, or built-in definition ids). Exact model ids are intentionally not
+globally reserved. Existing offenders remain migration-readable by qualified
+id only in the one-time development migration. Normal startup now fails with
+`reserved_name_existing` when a stored project or registry entry still uses a
+reserved name; Scout does not silently rename production identities.
+
 ### Three Layers
 
 Scout separates identity into three layers, each serving a different audience:

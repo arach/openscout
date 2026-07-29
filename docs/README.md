@@ -28,7 +28,8 @@ boundaries live in [`current-posture.md`](./current-posture.md).
 - [`agent-integration-contract.md`](./agent-integration-contract.md): the minimum contract for plugging a harness or agent into Scout
 - [`mcp-api-posture.md`](./mcp-api-posture.md): the core vs pro MCP tool tiers
 - [`chat-model.md`](./chat-model.md): the Chat/Conversation model and its invariants
-- [`runtime-sessions.md`](./runtime-sessions.md): session lifecycle detail
+- [`runtime-sessions.md`](./runtime-sessions.md): session lifecycle, intake, terminal surfaces, and follow-up handles
+- [`specs/terminal-session-intake-surfaces.md`](./specs/terminal-session-intake-surfaces.md): harness session identity versus disposable terminal backends
 
 **Operating Scout as a human:**
 
@@ -51,12 +52,15 @@ boundaries live in [`current-posture.md`](./current-posture.md).
 - [`local-secrets.md`](./local-secrets.md): local secret handling
 - [`releases.md`](./releases.md): the coordinated npm, DMG, and GitHub release path
 - [`native-runtime.md`](./native-runtime.md): historical context for the desktop-host/runtime split
+- [`agent/scoutd.agent.md`](./agent/scoutd.agent.md): local service tree, supervision, and native read projection
+- [`agent/pairing-runtime.agent.md`](./agent/pairing-runtime.agent.md): mobile and remote pairing bridge; not broker routing
 
 ## Agent-Optimized Docs
 
 - [`../llms.txt`](../llms.txt): the compact repo-wide LLM index
 - [`../llms-full.txt`](../llms-full.txt): the larger generated copy/paste context bundle
 - [`agent/README.agent.md`](./agent/README.agent.md): dense project context for coding agents
+- [`agent/INDEX.agent.md`](./agent/INDEX.agent.md): semantic subsystem index
 - [`agent/current-posture.agent.md`](./agent/current-posture.agent.md): dense maturity and trust summary
 - [`agent/integration-contract.agent.md`](./agent/integration-contract.agent.md): dense adapter and agent integration checklist
 - [`agent/scout-comms.agent.md`](./agent/scout-comms.agent.md): dense comms integration checklist
@@ -73,6 +77,12 @@ OpenAgents-inspired tracks).
 - "What exactly does this noun mean?": [`concepts.md`](./concepts.md)
 - "What data does Scout own?": the Data Model section of [`architecture.md`](./architecture.md)
 - "How do I address or route to an agent?": the identity sections of [`architecture.md`](./architecture.md)
+- "How do I start work when I know the project but not the agent?": [Capability request and situated target](./concepts.md), then [`agents-and-collaboration.md`](./agents-and-collaboration.md) and [`scout-comms.md`](./scout-comms.md)
+- "How do I reopen a known-good worker?": [Situated target and follow-up handle](./concepts.md), then [receipts in scout-comms](./scout-comms.md)
+- "What is a terminal versus a harness session?": [Terminal surface](./concepts.md), then [`runtime-sessions.md`](./runtime-sessions.md)
+- "How does the phone join?": [Pairing](./concepts.md), then [pairing runtime notes](./agent/pairing-runtime.agent.md); [mesh in architecture](./architecture.md)
+- "Who owns local services on macOS?": [Process tree in architecture](./architecture.md), then [scoutd notes](./agent/scoutd.agent.md)
+- "What does accepted mean on a delivery?": [Receipt layers in scout-comms](./scout-comms.md); [acceptance versus delivery state](./concepts.md)
 - "How does work differ from conversation?": [`agents-and-collaboration.md`](./agents-and-collaboration.md)
 - "How should an agent integrate?": [`agent-integration-contract.md`](./agent-integration-contract.md)
 - "How should a client or adapter understand Scout communication?": [`scout-comms.md`](./scout-comms.md)

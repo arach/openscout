@@ -98,7 +98,7 @@ real extension), with its own inset arithmetic; it is not a rename.
 
 - **Expanded (default, ~260px):**
   - Header: Scout mark + name (click → Home).
-  - "Navigate" section: Home, Projects, Sessions, Chat, Dispatch, Search.
+  - "Navigate" section: Home, Chat, Projects, Sessions, Dispatch, Search.
   - "System" section: Ops, Settings.
   - "Context" section: per-area content from the new exhaustive
     `resolveSidebarContext(route)` (see migration below).

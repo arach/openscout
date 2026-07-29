@@ -68,14 +68,49 @@ collaboration records. Anything that crosses a boundary — between agents,
 harnesses, or machines — is described here. Scout is protocol-over-product:
 surfaces are built on the protocol, not beside it.
 
-**Mesh.** Mesh is how agents on different machines reach and coordinate with
-each other. Each broker advertises its local agents to peers and syncs endpoint
-tables, so an address on another node resolves and messages forward to the
-authority broker that owns the agent. Mesh means reachability and coordination
-— not global consensus, not exactly-once delivery, and not replicated storage
-of external transcripts. That honesty is deliberate: Scout is a coordination
-substrate for high-trust local pilots, so mesh is kept to what it can actually
-guarantee.
+**Mesh.** Mesh lets brokers on different machines discover each other and
+forward work. Each broker advertises its local agents to peers and syncs
+endpoint tables. When an address resolves to another node, the local broker
+forwards the message to the authority broker that owns the agent. Mesh provides
+reachability and coordination only. It does not provide global consensus,
+exactly-once delivery, or replicated storage of external transcripts. Scout
+keeps mesh limited to those guarantees for high-trust local pilots.
+
+**Pairing.** Pairing establishes device trust and connects a phone or second
+device to the local Scout graph. It covers the QR payload, Noise identity,
+trusted peers, and the pairing runtime that bridges mobile clients to local
+harness sessions. Pairing is not the broker and does not perform mesh
+forwarding. After a device is trusted, mesh can extend reachability, but
+pairing and mesh remain separate concerns. For the pairing runtime model, see
+[`agent/pairing-runtime.agent.md`](./agent/pairing-runtime.agent.md). For mesh
+forwarding, see the mesh section of [`architecture.md`](./architecture.md).
+
+**Relay.** A relay is a rendezvous transport between roles, such as a bridge
+and a mobile client, or a terminal surface over a tunnel. A relay is not the
+broker, an agent identity, or mesh authority. Use *broker*, *mesh*, or
+*pairing* when those are the concepts you mean. Use *relay* only for the
+rendezvous pipe itself.
+
+**scoutd And scout-base.** `scoutd` is the native local daemon at the root of
+the macOS Scout process tree. It installs launchd, supervises children, runs
+doctor and status checks, and hosts probes. `scout-base` is the Bun composer
+under `scoutd`. It starts and restarts the broker, web, edge, and menu
+children. Neither process writes Scout coordination records; the broker remains
+the canonical writer. For the process tree, see
+[`architecture.md`](./architecture.md) and
+[`agent/scoutd.agent.md`](./agent/scoutd.agent.md).
+
+**Native Read Projection.** A native read projection is a bounded, read-only
+view built from the broker journal for low-latency local surfaces, such as the
+macOS agent roster. The projection is stale-while-revalidate. It is not a
+second writer and not a routing authority. Surfaces can read it over a Unix
+socket without joining broker or web request queues. For canonical facts or
+writes, surfaces call the broker.
+
+**Broker Journal.** The broker journal is the append-only local log of
+Scout-owned control-plane facts. SQLite stores and native read projections are
+derived from this log. Those stores are query caches, not independent sources
+of truth.
 
 **Surface.** A surface is any view into broker state: the CLI, desktop host,
 web dashboard, iOS companion, terminal UI, or a harness plugin. Surfaces read
@@ -100,6 +135,12 @@ in [`architecture.md`](./architecture.md). The routing consequence is that
 callers should target the base agent or project and only add instance
 constraints when the capability actually matters.
 
+**Node.** A node is one machine that can run a broker and own agents. Each agent
+has an authority node. The broker on that node writes the agent's coordination
+records. Mesh forwards work to the authority node; it does not create a second
+owner. In addresses, use `node:` or `host:` to distinguish the same project on
+different machines.
+
 **Session.** A session is a concrete runtime context — a harness conversation,
 process, or thread — which may or may not be live right now. It is where
 execution actually happens, and it is deliberately separate from the agent: one
@@ -107,11 +148,69 @@ durable agent can be backed by different sessions over time. Commands that start
 or attach a harness use "session" as their public noun and fail loudly when a
 requested harness cannot be backed by a compatible session.
 
-**Route Alias.** A route alias is broker-owned mutable routing state pointing
+**Terminal Surface And Backend.** A terminal surface is a disposable host used
+to open, attach to, observe, or drive a harness session. Examples include tmux,
+Zellij, SSH, Herdr, and later host-control protocols. The harness session id is
+the stable identity. The terminal backend is not. `session intake` and related
+handoff helpers open an existing harness session through a chosen backend
+without changing the session id. A preferred terminal backend is an operator
+setting for that disposable choice; it is not a different session model. See
+[`runtime-sessions.md`](./runtime-sessions.md).
+
+**Capability Request.** A capability request starts work when you know the
+project and optionally the harness, but not a specific agent or session. Pass
+`projectPath` / `--project` and optional `harness` / `--harness`. The broker
+resolves or creates a compatible worker and returns durable follow-up handles.
+Use this path instead of guessing names such as `claude.main`. After the first
+receipt, continue with those handles. Do not issue a new capability guess for
+the same work.
+
+**Situated Target.** A situated target is a broker-saved result of a known-good
+resolution. It holds the agent, project, harness, rules or tool context, and the
+continuation handle Scout should use next. Type it as `target:<name>`. Agent
+prompts and compact UI may render the same handle as `⌖name`. The mark is
+display shorthand, not a separate routing authority. A situated target is not a
+raw session id, a route alias, or a card. The broker resolves it to the current
+ref, session, or binding. Pin a memorable name only after the worker is known
+good.
+
+**Follow-Up Handle.** A follow-up handle is a durable id that the broker returns
+so the next turn can continue the same work. Handles include `ref`, `flightId`,
+`conversationId` or Chat ID, `workId`, `session:<id>`, and a situated
+`target:<name>`. Use the handle from the receipt. Do not rebuild the target from
+body text or invent a short name. Use `session:<id>` or
+`session:<harness>:<native-id>` only when you need that exact prior harness
+context.
+
+**Runtime Profile.** A runtime profile is a broker-owned launch preset for a
+fresh session in the current project. CLI natural-language asks use reserved
+names such as Fable, Kimi, Grok, and Opus. The broker maps the profile to a
+harness, model, and defaults. Some profiles accept effort overrides. A runtime
+profile is not the identity qualifier `profile:` (persona or specialization), a
+situated target, or a route alias. Existing-handle routing (`agent <name> to …`)
+selects exact live targets that the broker already knows. See the identity
+section of [`architecture.md`](./architecture.md).
+
+**RuntimeSpec.** A RuntimeSpec is an exact launch selector with fixed-position
+grammar `<harness>[/<model>[/<effort>]]`, such as
+`codex/gpt-5.6-sol/xhigh`. It is not an agent identity, alias, or session id.
+Profiles provide base values and explicit dimensions override them when the
+resulting tuple is legal. Exact runtime selection implies a fresh isolated
+session; exact continuation of `session:<id>` requires matching observed
+runtime evidence.
+
+**Execution Resolution.** An execution resolution is the durable truth record
+for one requested runtime. For harness, model, and effort it keeps the caller's
+requested value, the launch ladder's resolved value and source, and the value
+later observed from the harness. Drift is match, mismatch, or unknown. A launch
+argument is resolved intent, not evidence that the harness accepted it.
+
+**Route Alias.** A route alias is broker-owned mutable routing state that points
 to one canonical durable agent id or one exact broker-known session. It is not
-an identity, card, actor, endpoint, or session. The scope key is owner realm +
-project + node + normalized name; every accepted dispatch pins the binding
-revision and canonical target so later repoints do not rewrite history.
+an identity, card, actor, endpoint, session, situated target, or runtime
+profile. The scope key is owner realm + project + node + normalized name. Each
+accepted dispatch pins the binding revision and canonical target so later
+repoints do not rewrite history.
 
 **Assigned Role.** An assigned role is an explicit, durable duty granted to an
 agent for a mission, agent, or project scope. It is not an `agentClass`, harness,
@@ -171,11 +270,28 @@ communication continuity and nothing else: it must not collapse into session
 [`chat-model.md`](./chat-model.md) for the invariants that keep those axes
 apart.
 
+**Channel.** A channel is a named shared room for group coordination: an
+explicit multi-party Chat with a handle such as `#ops`. One target routes as a
+DM. Group work requires an explicit channel. Broadcast is opt-in. Some product
+models overload *channel* to mean every Chat row, including DMs. Use *Channel*
+only for named shared rooms. Use *Chat* as the umbrella for any durable message
+place. See [`chat-model.md`](./chat-model.md).
+
 **Message.** A message (`MessageRecord`) is a durable communicative turn: one
 body posted by one actor into one conversation. It carries payload, not routing
 — the target is an explicit field, and body text such as "@hudson" is not
 treated as an instruction to route. A message belongs to exactly one Chat and
 may reply to another message.
+
+**Composer Route Operator.** In Scout-aware composers, type `>> target` as the
+route operator. The surface strips that operator into structured routing
+metadata before the body reaches the broker. The operator is input sugar, not a
+record type. Body mentions still are not routing authority.
+
+**Contact Line.** A contact line is a short first-line display cue for inbound
+Scout-mediated work. Surfaces generate it from structured records, such as
+`⌖ art ≔ ask:8kj4pd`. It is a UI affordance. It is not protocol state and not a
+routing handle by itself.
 
 **Delivery.** A delivery (`DeliveryIntent`) is a planned, transport-specific
 fan-out of a message or invocation. It is separate from the message because one
@@ -247,19 +363,39 @@ material. The anti-spam rule is strict: no active assignment whose role permits
 `mission_log.append` means no mission-log write. The built-in orchestrator role
 has that permission; ordinary workers do not acquire it by being busy or verbose.
 
-**Acceptance.** Acceptance is the requester's judgment that a result is actually
-done — a separate signal from broker acceptance, peer acknowledgement, and agent
-completion. It matters because "the broker journaled it" and "the agent says it
-finished" are not the same as "the person who asked is satisfied." How
-acceptance interacts with work-item states lives in
-[`agents-and-collaboration.md`](./agents-and-collaboration.md); the layered
-delivery and receipt states are in [`scout-comms.md`](./scout-comms.md).
+**Acceptance.** Acceptance is the requester's judgment that a result is done. It
+is separate from broker acceptance, peer acknowledgement, and agent completion.
+A journaled broker record or an agent completion claim is not the same as the
+requester's satisfaction. Delivery receipts use their own layered states, such
+as `accepted`, `peer_acked`, `running`, and `completed`. Do not treat those
+states as requester acceptance. For work-item acceptance rules, see
+[`agents-and-collaboration.md`](./agents-and-collaboration.md). For delivery
+receipt layers, see [`scout-comms.md`](./scout-comms.md).
 
 **Ownership And Next-Move.** At any point in a collaboration, exactly one party
 should own the next step — the decision of what happens now. Scout treats this
 ownership as a real part of the model rather than leaving it implicit in who
 spoke last. The rules for how the next-move baton passes live in
 [`agents-and-collaboration.md`](./agents-and-collaboration.md).
+
+**Operator Attention.** Operator attention is the product model for work that
+needs a human: approvals, questions, waiting work, host-forwarded permission
+prompts, and non-blocking FYI or consult signals. Scout owns only attention that
+enters Scout. If a host intercepts a native permission prompt before a tool
+call, Scout does not see that prompt until a host integration forwards it.
+Non-blocking tools (`notify_operator`, `consult_operator`) write durable
+operator messages and do not create a flight or waiting state. Use a real
+`needs_input` path when the human must own the next move. See
+[`operator-attention-and-unblock.md`](./operator-attention-and-unblock.md).
+
+**Usage.** Usage is lightweight token and cost metadata linked to Scout records
+such as session, endpoint, message, invocation, flight, or work item. Keep
+**protocol overhead** (routing, coaching, attach, wake, wrap) separate from
+**harness execution** (tokens the model spends on the delegated work). Store
+counts, categories, and compact summaries. Do not warehouse full harness
+transcripts as usage. See the coordination-cost sections of
+[`scout-comms.md`](./scout-comms.md) and
+[`runtime-sessions.md`](./runtime-sessions.md).
 
 **Artifact.** An artifact is a durable published output, linked back to the work
 and execution that produced it where possible. Today text output maps cleanly to
@@ -361,5 +497,8 @@ and its A2A practice:
 4. On collision, prefer a Scout-qualified name such as `ScoutAgentCard`, keep the
    Scout-native term with an explicit mapping, and reserve the exact protocol
    term for the actual wire shape.
-5. `relay` and `pairing` are legacy and compatibility vocabulary — kept for
-   continuity, not the preferred canonical names.
+5. Keep mesh, pairing, and relay distinct. **Mesh** is broker-to-broker
+   reachability and authority forwarding. **Pairing** is device trust and the
+   mobile or remote bridge join path. **Relay** is only the rendezvous
+   transport. Do not use *relay* or *pairing* as synonyms for the broker or for
+   mesh consensus.
