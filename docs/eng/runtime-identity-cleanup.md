@@ -229,8 +229,13 @@ Changes:
    plane was migrated once in place so its two historical `openscout`
    identities retained their durable references. No general rename command is
    shipped. Any other stored project or registry entry using a reserved name
-   fails startup with `reserved_name_existing` and must be repaired explicitly.
-   Inferred new names use a non-reserved `-agent` suffix automatically.
+   is rejected with `reserved_name_existing` and must be repaired explicitly.
+   Fleet discovery quarantines a sibling offender and reports a structured
+   `reserved_name_existing` project error so one bad project cannot erase the
+   rest of the fleet. Targeted setup/routing for the offending project still
+   fails closed, as does broker startup when a historical reserved identity is
+   already present in the durable control plane. Inferred new names use a
+   non-reserved `-agent` suffix automatically.
 
 ---
 

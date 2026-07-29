@@ -326,6 +326,14 @@ export type ProjectInventoryEntry = {
   harnesses: ProjectInventoryHarnessEvidence[];
 };
 
+export type ProjectInventoryError = {
+  code: "reserved_name_existing";
+  projectRoot: string;
+  sourceRoot: string;
+  relativePath: string;
+  message: string;
+};
+
 export type SetupResult = {
   supportDirectory: string;
   settingsPath: string;
@@ -339,6 +347,7 @@ export type SetupResult = {
   agents: ResolvedRelayAgentConfig[];
   discoveredAgents: ResolvedRelayAgentConfig[];
   projectInventory: ProjectInventoryEntry[];
+  projectErrors: ProjectInventoryError[];
 };
 
 export type UpdateOpenScoutSettingsInput = {
@@ -3018,6 +3027,8 @@ export async function loadResolvedRelayAgents(options: {
   syncLegacyMirror?: boolean;
   /** Plain-text doctor / UI: invoked after each project row is built (sorted by relative path). */
   onProjectInventoryEntry?: (entry: ProjectInventoryEntry) => void | Promise<void>;
+  /** Invalid historical project identities quarantined from the fleet inventory. */
+  onProjectInventoryError?: (error: ProjectInventoryError) => void | Promise<void>;
   /** Home used for ~/.claude/projects, Cursor workspaceStorage, ~/.codex hints. Defaults to os.homedir(). */
   userLevelHintsHome?: string;
 } = {}): Promise<SetupResult> {
@@ -3119,15 +3130,42 @@ export async function loadResolvedRelayAgents(options: {
   }
 
   const resolvedAgents: ResolvedRelayAgentConfig[] = [];
+  const projectErrors: ProjectInventoryError[] = [];
+  const currentProjectRoot = currentProjectConfig.projectRoot
+    ? normalizePath(currentProjectConfig.projectRoot)
+    : null;
   for (const projectRoot of Array.from(projectCandidates).sort()) {
     if (hiddenProjectRoots.has(normalizePath(projectRoot))) {
       continue;
     }
     const manifest = await readProjectConfig(projectRoot);
     const override = overrideByRoot.get(projectRoot);
-    const resolvedAgent = manifest
-      ? await resolveManifestBackedAgent(projectRoot, manifest, settings, override)
-      : await resolveInferredAgent(projectRoot, settings, override);
+    let resolvedAgent: ResolvedRelayAgentConfig;
+    try {
+      resolvedAgent = manifest
+        ? await resolveManifestBackedAgent(projectRoot, manifest, settings, override)
+        : await resolveInferredAgent(projectRoot, settings, override);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.startsWith("reserved_name_existing:")) {
+        throw error;
+      }
+      if (currentProjectRoot === normalizePath(projectRoot)) {
+        throw error;
+      }
+      const sourceRoot = sourceRootByProject.get(projectRoot)
+        ?? sourceRootForProject(projectRoot, settings.discovery.workspaceRoots);
+      const projectError: ProjectInventoryError = {
+        code: "reserved_name_existing",
+        projectRoot,
+        sourceRoot,
+        relativePath: relativeProjectPath(projectRoot, sourceRoot),
+        message,
+      };
+      projectErrors.push(projectError);
+      await options.onProjectInventoryError?.(projectError);
+      continue;
+    }
 
     if (!resolvedAgent.agentId || BUILT_IN_AGENT_DEFINITION_IDS.has(resolvedAgent.definitionId)) {
       continue;
@@ -3215,6 +3253,7 @@ export async function loadResolvedRelayAgents(options: {
     agents: configuredAgents.sort((lhs, rhs) => lhs.displayName.localeCompare(rhs.displayName)),
     discoveredAgents: dedupedResolvedAgents.sort((lhs, rhs) => lhs.displayName.localeCompare(rhs.displayName)),
     projectInventory,
+    projectErrors,
   };
 }
 

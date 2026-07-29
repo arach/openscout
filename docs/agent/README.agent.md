@@ -128,8 +128,10 @@ known target.
 - Verify `executionResolution` on the invocation: requested and resolved show
   launch intent and provenance; observed and drift show harness-owned truth.
 - Runtime/profile/route/effort grammar words are reserved agent names. Stored
-  historical offenders fail startup with `reserved_name_existing`; rename the
-  project or registry identity explicitly before retrying.
+  historical offenders fail targeted setup or broker startup with
+  `reserved_name_existing`; fleet discovery quarantines invalid siblings so
+  healthy projects remain available. Rename the project or registry identity
+  explicitly before retrying.
 - If blocked, record who or what owns the next move.
 - Mesh means reachability, not distributed consistency guarantees.
 - Do not claim enterprise readiness.

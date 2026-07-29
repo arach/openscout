@@ -106,10 +106,6 @@ export class BrokerLocalEndpointResolver {
       targetSessionId,
       { includeWakeable: invocation.ensureAwake },
     );
-    if (existing && hasExplicitRuntime && (shouldUseExistingSession || sessionPreference === "existing")) {
-      assertEndpointObservedRuntimeMatches(existing, invocation);
-    }
-
     if (
       hasExplicitRuntime
       && !shouldUseExistingSession
@@ -132,6 +128,9 @@ export class BrokerLocalEndpointResolver {
         || isBrokerRunnableLocalAgentTransport(existing.transport)
       )
     ) {
+      if (hasExplicitRuntime) {
+        assertEndpointObservedRuntimeMatches(existing, invocation, this.now());
+      }
       return existing;
     }
 
@@ -329,9 +328,10 @@ export function observedRuntimeForEndpoint(endpoint: AgentEndpoint): ObservedRun
 function assertEndpointObservedRuntimeMatches(
   endpoint: AgentEndpoint,
   invocation: InvocationRequest,
+  now: number,
 ): void {
   const observed = observedRuntimeForEndpoint(endpoint);
-  const provisioned = provisionedRuntimeForPendingEndpoint(endpoint);
+  const provisioned = provisionedRuntimeForPendingEndpoint(endpoint, now);
   const requested: ObservedRuntime = {
     harness: invocation.execution?.harness?.trim(),
     model: invocation.execution?.model?.trim(),
@@ -373,12 +373,28 @@ function assertEndpointObservedRuntimeMatches(
  * Once the provider attaches (or for any externally sourced endpoint), only
  * observed runtime is authoritative.
  */
-function provisionedRuntimeForPendingEndpoint(endpoint: AgentEndpoint): ObservedRuntime | undefined {
+export const PENDING_PROVISIONED_RUNTIME_TRUST_MS = 2 * 60_000;
+
+function provisionedRuntimeForPendingEndpoint(
+  endpoint: AgentEndpoint,
+  now: number,
+): ObservedRuntime | undefined {
   const metadata = endpoint.metadata ?? {};
   if (
     metadata.pendingExternalSession !== true
     || metadata.sessionBacked !== true
     || (metadata.source !== "scout-cardless-session" && metadata.source !== "scout-isolated-agent-session")
+  ) {
+    return undefined;
+  }
+
+  const pendingAt = metadataTimestamp(
+    metadata.pendingExternalSessionAt ?? metadata.startedAt,
+  );
+  if (
+    !pendingAt
+    || pendingAt > now + 30_000
+    || now - pendingAt >= PENDING_PROVISIONED_RUNTIME_TRUST_MS
   ) {
     return undefined;
   }
@@ -401,6 +417,16 @@ function provisionedRuntimeForPendingEndpoint(endpoint: AgentEndpoint): Observed
     model: stringValue(metadata.model) ?? resolvedDimension("model"),
     reasoningEffort: stringValue(metadata.reasoningEffort) ?? resolvedDimension("reasoningEffort"),
   };
+}
+
+function metadataTimestamp(value: unknown): number | undefined {
+  const parsed = typeof value === "number"
+    ? value
+    : typeof value === "string" && value.trim()
+      ? Number(value.trim())
+      : Number.NaN;
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return Math.floor(parsed);
 }
 
 function isWakeableSessionBackedEndpoint(endpoint: AgentEndpoint): boolean {

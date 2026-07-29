@@ -685,10 +685,16 @@ function endpointRuntimeSessionStartedAt(endpoint: AgentEndpoint, fallback: numb
 
 function endpointRuntimeSessionLastSeenAt(endpoint: AgentEndpoint, fallback: number): number {
   const metadata = runtimeSessionMetadata(endpoint);
-  return metadataTimestampValue(metadata, "lastSeenAt")
-    ?? metadataTimestampValue(metadata, "lastEnsuredAt")
-    ?? metadataTimestampValue(metadata, "lastStartedAt")
-    ?? fallback;
+  return Math.max(
+    metadataTimestampValue(metadata, "lastSeenAt") ?? 0,
+    metadataTimestampValue(metadata, "lastEnsuredAt") ?? 0,
+    metadataTimestampValue(metadata, "lastStartedAt") ?? 0,
+    metadataTimestampValue(metadata, "lastCompletedAt") ?? 0,
+    metadataTimestampValue(metadata, "lastFailedAt") ?? 0,
+    metadataTimestampValue(metadata, "lastResumedAt") ?? 0,
+    metadataTimestampValue(metadata, "lastInterruptedAt") ?? 0,
+    fallback,
+  );
 }
 
 function endpointRuntimeSessionIsTerminal(endpoint: AgentEndpoint): boolean {
@@ -1907,21 +1913,19 @@ export class SQLiteControlPlaneStore {
   }
 
   upsertEndpoint(endpoint: AgentEndpoint): void {
-    const existingTimestamp = this.db.query(
-      "SELECT updated_at FROM agent_endpoints WHERE id = ?1",
-    ).get(endpoint.id) as { updated_at: number } | null;
     // Projection replay is not a fresh observation. Prefer harness-owned
     // timestamps and preserve the prior projection time when the endpoint
     // record carries no observation evidence.
-    const observedAt = endpointRuntimeSessionLastSeenAt(
-      endpoint,
-      existingTimestamp?.updated_at ?? currentTimestampMs(),
-    );
-    this.db.query(
+    const observedAt = endpointRuntimeSessionLastSeenAt(endpoint, 0);
+    const insertedAt = currentTimestampMs();
+    const persisted = this.db.query(
       `INSERT INTO agent_endpoints (
         id, agent_id, node_id, harness, transport, state, address, session_id, pane, cwd,
         project_root, metadata_json, updated_at
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+      ) VALUES (
+        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
+        CASE WHEN ?13 > 0 THEN ?13 ELSE ?14 END
+      )
       ON CONFLICT(id) DO UPDATE SET
         agent_id = excluded.agent_id,
         node_id = excluded.node_id,
@@ -1934,8 +1938,12 @@ export class SQLiteControlPlaneStore {
         cwd = excluded.cwd,
         project_root = excluded.project_root,
         metadata_json = excluded.metadata_json,
-        updated_at = excluded.updated_at`,
-    ).run(
+        updated_at = CASE
+          WHEN ?13 > agent_endpoints.updated_at THEN ?13
+          ELSE agent_endpoints.updated_at
+        END
+      RETURNING updated_at`,
+    ).get(
       endpoint.id,
       endpoint.agentId,
       endpoint.nodeId,
@@ -1949,9 +1957,11 @@ export class SQLiteControlPlaneStore {
       endpoint.projectRoot ?? null,
       stringify(endpoint.metadata),
       observedAt,
-    );
+      insertedAt,
+    ) as { updated_at: number } | null;
+    const persistedAt = persisted?.updated_at ?? (observedAt || insertedAt);
 
-    this.projectRuntimeSessionForEndpoint(endpoint, observedAt);
+    this.projectRuntimeSessionForEndpoint(endpoint, persistedAt);
     this.recordEndpointBudgetObservations(endpoint);
   }
 
