@@ -22,6 +22,8 @@ import {
   type ConversationBinding,
   type ConversationDefinition,
   type ConversationReadCursor,
+  conversationNaturalKey,
+  conversationsWithNaturalKey,
   BUILT_IN_AGENT_DEFINITION_IDS,
   type ControlEvent,
   type CollaborationAcceptanceState,
@@ -48,7 +50,10 @@ import {
   type RouteAliasBinding,
   type RouteAliasScope,
   epochMs,
+  namedChannelNaturalKey,
   parseScoutComposerRouteTarget,
+  stableChannelId,
+  systemChannelNaturalKey,
 } from "@openscout/protocol";
 import {
   ensureRelayAgentConfigured,
@@ -583,9 +588,7 @@ type RelayConfig = {
   openaiApiKey?: string;
 };
 
-const BROKER_SHARED_CHANNEL_ID = "channel.shared";
-const BROKER_VOICE_CHANNEL_ID = "channel.voice";
-const BROKER_SYSTEM_CHANNEL_ID = "channel.system";
+const LEGACY_SCOUT_DIRECT_CONVERSATION_ID = "channel.shared";
 const OPERATOR_ID = "operator";
 function relayHubDirectory(): string {
   return resolveOpenScoutSupportPaths().relayHubDirectory;
@@ -1727,13 +1730,21 @@ export async function requireScoutBrokerContext(
 }
 
 export function scoutConversationIdForChannel(channel?: string): string {
-  const normalizedChannel = channel?.trim() || "shared";
-  const sanitizedChannel = sanitizeConversationSegment(normalizedChannel);
-  if (sanitizedChannel.startsWith("channel.")) return sanitizedChannel;
-  if (sanitizedChannel === "voice") return BROKER_VOICE_CHANNEL_ID;
-  if (sanitizedChannel === "system") return BROKER_SYSTEM_CHANNEL_ID;
-  if (sanitizedChannel === "shared") return BROKER_SHARED_CHANNEL_ID;
-  return `channel.${sanitizedChannel}`;
+  const channelName = scoutChannelName(channel);
+  return stableChannelId(scoutChannelNaturalKey(channelName));
+}
+
+function scoutChannelName(channel?: string): string {
+  const sanitized = sanitizeConversationSegment(channel?.trim() || "shared");
+  return sanitized.startsWith("channel.")
+    ? sanitized.slice("channel.".length) || "shared"
+    : sanitized;
+}
+
+function scoutChannelNaturalKey(channelName: string): string {
+  return channelName === "system"
+    ? systemChannelNaturalKey(channelName)
+    : namedChannelNaturalKey(channelName);
 }
 
 function buildMentionCandidate(
@@ -2468,7 +2479,8 @@ function conversationDefinition(
   senderId: string,
   targetParticipantIds: string[] = [],
 ): ScoutBrokerConversationRecord {
-  const normalizedChannel = channel?.trim() || "shared";
+  const normalizedChannel = scoutChannelName(channel);
+  const naturalKey = scoutChannelNaturalKey(normalizedChannel);
   const sharedParticipants = [
     ...new Set([OPERATOR_ID, senderId, ...Object.keys(snapshot.agents)]),
   ].sort();
@@ -2478,7 +2490,7 @@ function conversationDefinition(
 
   if (normalizedChannel === "voice") {
     return {
-      id: BROKER_VOICE_CHANNEL_ID,
+      id: stableChannelId(naturalKey),
       kind: "channel",
       title: "voice",
       visibility: "workspace",
@@ -2490,35 +2502,35 @@ function conversationDefinition(
       ),
       authorityNodeId: nodeId,
       participantIds: scopedParticipants,
-      metadata: { surface: "scout-cli", channel: "voice" },
+      metadata: { surface: "scout-cli", channel: "voice", naturalKey },
     };
   }
   if (normalizedChannel === "system") {
     return {
-      id: BROKER_SYSTEM_CHANNEL_ID,
+      id: stableChannelId(naturalKey),
       kind: "system",
       title: "system",
       visibility: "system",
       shareMode: "local",
       authorityNodeId: nodeId,
       participantIds: [OPERATOR_ID, senderId].sort(),
-      metadata: { surface: "scout-cli", channel: "system" },
+      metadata: { surface: "scout-cli", channel: "system", naturalKey },
     };
   }
   if (normalizedChannel === "shared") {
     return {
-      id: BROKER_SHARED_CHANNEL_ID,
+      id: stableChannelId(naturalKey),
       kind: "channel",
       title: "shared-channel",
       visibility: "workspace",
       shareMode: "shared",
       authorityNodeId: nodeId,
       participantIds: sharedParticipants,
-      metadata: { surface: "scout-cli", channel: "shared" },
+      metadata: { surface: "scout-cli", channel: "shared", naturalKey },
     };
   }
   return {
-    id: `channel.${sanitizeConversationSegment(normalizedChannel)}`,
+    id: stableChannelId(naturalKey),
     kind: "channel",
     title: normalizedChannel,
     visibility: "workspace",
@@ -2530,7 +2542,7 @@ function conversationDefinition(
     ),
     authorityNodeId: nodeId,
     participantIds: scopedParticipants,
-    metadata: { surface: "scout-cli", channel: normalizedChannel },
+    metadata: { surface: "scout-cli", channel: normalizedChannel, naturalKey },
   };
 }
 
@@ -2550,9 +2562,13 @@ async function ensureBrokerConversation(
     targetParticipantIds,
   );
   const existing = snapshot.conversations[definition.id];
+  const naturalKey = conversationNaturalKey(definition);
+  const equivalentConversations = naturalKey
+    ? conversationsWithNaturalKey(Object.values(snapshot.conversations), naturalKey)
+    : [];
   const nextParticipants = [
     ...new Set([
-      ...(existing?.participantIds ?? []),
+      ...equivalentConversations.flatMap((conversation) => conversation.participantIds),
       ...definition.participantIds,
     ]),
   ].sort();
@@ -2612,12 +2628,12 @@ function relayAudienceReason(
 }
 
 function relayRouteKind(
-  conversation: Pick<ScoutBrokerConversationRecord, "id" | "kind">,
+  conversation: Pick<ScoutBrokerConversationRecord, "id" | "kind" | "metadata">,
 ): "dm" | "channel" | "broadcast" {
   if (conversation.kind === "direct") {
     return "dm";
   }
-  return conversation.id === BROKER_SHARED_CHANNEL_ID ? "broadcast" : "channel";
+  return conversation.metadata?.channel === "shared" ? "broadcast" : "channel";
 }
 
 function buildScoutEntityId(prefix: string, createdAtMs: number): string {
@@ -2945,7 +2961,7 @@ async function ensureBrokerDirectConversationBetween(
 ): Promise<ScoutDirectSessionResult> {
   const conversationId =
     targetId === SCOUT_AGENT_ID && sourceId === OPERATOR_ID
-      ? BROKER_SHARED_CHANNEL_ID
+      ? LEGACY_SCOUT_DIRECT_CONVERSATION_ID
       : directConversationIdForActors(sourceId, targetId);
   const participantIds = [...new Set([sourceId, targetId])].sort();
   const nextShareMode = resolveConversationShareMode(

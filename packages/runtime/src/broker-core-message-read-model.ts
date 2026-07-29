@@ -1,4 +1,8 @@
-import type { MessageRecord } from "@openscout/protocol";
+import {
+  conversationNaturalKey,
+  conversationsWithNaturalKey,
+  type MessageRecord,
+} from "@openscout/protocol";
 
 import type { ScoutBrokerMessageQuery } from "./broker-api.js";
 import type { RuntimeRegistrySnapshot } from "./registry.js";
@@ -13,6 +17,22 @@ export function listBrokerMessages(
 ): MessageRecord[] {
   const snapshot = runtime.snapshot();
   const limit = normalizeMessageLimit(input.limit);
+  const requestedConversation = input.conversationId
+    ? snapshot.conversations[input.conversationId]
+    : null;
+  const requestedNaturalKey = requestedConversation
+    ? conversationNaturalKey(requestedConversation)
+    : null;
+  const conversationIds = input.conversationId
+    ? new Set(
+        requestedNaturalKey
+          ? conversationsWithNaturalKey(
+              Object.values(snapshot.conversations),
+              requestedNaturalKey,
+            ).map((conversation) => conversation.id)
+          : [input.conversationId],
+      )
+    : null;
   const participantId = input.participantId?.trim();
   const matchesParticipant = (message: MessageRecord): boolean => {
     if (!participantId) {
@@ -36,7 +56,7 @@ export function listBrokerMessages(
   return Object.values(snapshot.messages)
     .filter((message) => !isBrokerRequesterWaitTimeoutStatusMessage(message))
     .filter((message) =>
-      !input.conversationId || message.conversationId === input.conversationId
+      !conversationIds || conversationIds.has(message.conversationId)
     )
     .filter(matchesParticipant)
     .filter((message) =>

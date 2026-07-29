@@ -4,9 +4,12 @@ import {
   CHAT_ID_PREFIX,
   LEGACY_CHAT_ID_PREFIX,
   LEGACY_CHANNEL_ID_PREFIX,
+  conversationNaturalKey,
+  conversationsWithNaturalKey,
   isOpaqueChannelId,
   mintChannelId,
   namedChannelNaturalKey,
+  preferredConversationWithNaturalKey,
   stableChannelId,
 } from "./channel-identity";
 
@@ -33,5 +36,31 @@ describe("channel identity", () => {
     expect(isOpaqueChannelId(`${LEGACY_CHANNEL_ID_PREFIX}ff3a45d0-76de-4614-995c-530d455ffc48`)).toBe(true);
     expect(isOpaqueChannelId("dm.operator.agent")).toBe(false);
     expect(isOpaqueChannelId("channel.ops")).toBe(false);
+  });
+
+  test("recognizes structural named-channel aliases without natural-key metadata", () => {
+    expect(conversationNaturalKey({
+      id: "channel.huddle-v1",
+      kind: "channel",
+      metadata: { channel: "huddle-v1" },
+    })).toBe(namedChannelNaturalKey("huddle-v1"));
+    expect(conversationNaturalKey({
+      id: "channel.huddle-v1",
+      kind: "channel",
+    })).toBe(namedChannelNaturalKey("huddle-v1"));
+  });
+
+  test("prefers the stable opaque record over legacy and random opaque duplicates", () => {
+    const naturalKey = namedChannelNaturalKey("huddle-v1");
+    const legacy = { id: "channel.huddle-v1", kind: "channel", metadata: { channel: "huddle-v1" } };
+    const randomOpaque = { id: "chn-ffffffffffffffffffffffffffffffff", kind: "channel", metadata: { naturalKey } };
+    const stable = { id: stableChannelId(naturalKey), kind: "channel", metadata: { naturalKey } };
+
+    expect(conversationsWithNaturalKey([legacy, randomOpaque, stable], naturalKey).map((entry) => entry.id)).toEqual([
+      stable.id,
+      randomOpaque.id,
+      legacy.id,
+    ]);
+    expect(preferredConversationWithNaturalKey([legacy, stable], naturalKey)?.id).toBe(stable.id);
   });
 });

@@ -8,7 +8,13 @@ import type {
   InvocationRequest,
   MessageRecord,
 } from "@openscout/protocol";
-import { channelNaturalKeyFromMetadata, epochMs, isOpaqueChannelId } from "@openscout/protocol";
+import {
+  conversationNaturalKey,
+  conversationsWithNaturalKey,
+  epochMs,
+  isOpaqueChannelId,
+  stableChannelId,
+} from "@openscout/protocol";
 import { configuredOperatorActorIds } from "@openscout/runtime/conversations/legacy-ids";
 
 import {
@@ -245,7 +251,7 @@ function conversationIdentityFields(input: {
 }): Pick<ScoutConversationSummary, "alias" | "naturalKey"> {
   return {
     alias: conversationAlias(input),
-    naturalKey: channelNaturalKeyFromMetadata(input.metadata),
+    naturalKey: conversationNaturalKey(input),
   };
 }
 
@@ -742,20 +748,14 @@ function equivalentNamedConversationIds(
   conversationId: string,
 ): Set<string> {
   const conversation = snapshot.conversations[conversationId];
-  const naturalKey = conversation
-    ? channelNaturalKeyFromMetadata(conversation.metadata)
-    : null;
+  const naturalKey = conversation ? conversationNaturalKey(conversation) : null;
   if (!conversation || !naturalKey || conversation.kind !== "channel") {
     return new Set([conversationId]);
   }
-  return new Set(
-    Object.values(snapshot.conversations)
-      .filter((candidate) =>
-        candidate.kind === conversation.kind
-        && channelNaturalKeyFromMetadata(candidate.metadata) === naturalKey
-      )
-      .map((candidate) => candidate.id),
-  );
+  return new Set(conversationsWithNaturalKey(
+    Object.values(snapshot.conversations),
+    naturalKey,
+  ).filter((candidate) => candidate.kind === conversation.kind).map((candidate) => candidate.id));
 }
 
 function coalesceDuplicateNamedChannels(
@@ -780,7 +780,11 @@ function coalesceDuplicateNamedChannels(
       || right.messageCount - left.messageCount
       || left.id.localeCompare(right.id)
     );
-    const canonical = group.find((summary) => summary.id === preferredId) ?? sorted[0]!;
+    const naturalKey = group[0]?.naturalKey;
+    const stableId = naturalKey ? stableChannelId(naturalKey) : null;
+    const canonical = group.find((summary) => summary.id === preferredId)
+      ?? group.find((summary) => summary.id === stableId)
+      ?? sorted[0]!;
     const latest = sorted[0]!;
     const participantIds = [...new Set(group.flatMap((summary) => summary.participantIds))].sort();
     const latestTurn = group
@@ -797,8 +801,8 @@ function coalesceDuplicateNamedChannels(
       preview: latest.preview,
       lastMessageAt: latest.lastMessageAt,
       sessionId: latest.sessionId ?? canonical.sessionId,
-      messageCount: group.reduce((total, summary) => total + summary.messageCount, 0),
-      unreadCount: group.reduce((total, summary) => total + summary.unreadCount, 0),
+      messageCount: Math.max(...group.map((summary) => summary.messageCount)),
+      unreadCount: Math.max(...group.map((summary) => summary.unreadCount)),
       ...(latestTurn ? { turn: latestTurn } : {}),
     };
   });
@@ -853,17 +857,34 @@ export async function getScoutConversations(
         return [];
       }
 
-      const messages = messagesByConversation.get(conversation.id) ?? [];
-      const invocations = invocationsByConversationId.get(conversation.id) ?? [];
-      const flights = flightsByConversationId.get(conversation.id) ?? [];
+      const equivalentConversationIds = [
+        ...equivalentNamedConversationIds(snapshot, conversation.id),
+      ].sort();
+      const equivalentConversations = equivalentConversationIds
+        .map((id) => snapshot.conversations[id])
+        .filter((candidate): candidate is ScoutBrokerSnapshot["conversations"][string] => Boolean(candidate));
+      const participantIds = [...new Set(
+        equivalentConversations.flatMap((candidate) => candidate.participantIds),
+      )].sort();
+      const messages = equivalentConversationIds
+        .flatMap((id) => messagesByConversation.get(id) ?? [])
+        .sort((left, right) =>
+          (normalizeTimestampMs(left.createdAt) ?? 0) - (normalizeTimestampMs(right.createdAt) ?? 0)
+          || left.id.localeCompare(right.id)
+        );
+      const invocations = equivalentConversationIds
+        .flatMap((id) => invocationsByConversationId.get(id) ?? []);
+      const flights = equivalentConversationIds
+        .flatMap((id) => flightsByConversationId.get(id) ?? []);
       const latestMessage = messages.at(-1) ?? null;
       const messageCount = messages.length;
       const sessionId = latestConversationSessionId({ messages, invocations, flights });
-      const unreadCount = unreadCountForConversation(
-        messages,
-        readAtByConversation.get(conversation.id),
-        operatorIds,
-      );
+      const unreadCount = equivalentConversationIds.reduce((total, id) =>
+        total + unreadCountForConversation(
+          messagesByConversation.get(id) ?? [],
+          readAtByConversation.get(id),
+          operatorIds,
+        ), 0);
       const isChildConversation = Boolean(conversation.parentConversationId && conversation.messageId);
       const askField = {};
       const turn = conversationTurn({
@@ -873,17 +894,14 @@ export async function getScoutConversations(
         flights,
         operatorIds,
       });
-      const equivalentConversationIds = [
-        ...equivalentNamedConversationIds(snapshot, conversation.id),
-      ].sort();
       const participants = buildScopedParticipants(
         snapshot,
         conversation.id,
-        conversation.participantIds,
+        participantIds,
       );
 
       if (conversation.kind === "direct") {
-        const { agentId, actor, agent, endpoint } = directConversationAgent(snapshot, conversation.participantIds);
+        const { agentId, actor, agent, endpoint } = directConversationAgent(snapshot, participantIds);
         if (
           !agentId
           || (!agent && !actor)
@@ -903,7 +921,7 @@ export async function getScoutConversations(
           kind: conversation.kind,
           title,
           ...identityFields,
-          participantIds: [...conversation.participantIds],
+          participantIds,
           participants,
           authorityNodeId: conversation.authorityNodeId ?? null,
           authorityNodeName: snapshot.nodes?.[conversation.authorityNodeId]?.name ?? null,
@@ -929,7 +947,7 @@ export async function getScoutConversations(
       }
 
       if (conversation.kind === "channel" || conversation.kind === "group_direct") {
-        const visible = isChildConversation || messageCount >= 1 || conversation.participantIds.includes("operator");
+        const visible = isChildConversation || messageCount >= 1 || participantIds.includes("operator");
         if (!visible) {
           return [];
         }
@@ -950,7 +968,7 @@ export async function getScoutConversations(
         kind: conversation.kind,
         title: conversation.title,
         ...identityFields,
-        participantIds: [...conversation.participantIds],
+        participantIds,
         participants,
         authorityNodeId: conversation.authorityNodeId ?? null,
         authorityNodeName: snapshot.nodes?.[conversation.authorityNodeId]?.name ?? null,

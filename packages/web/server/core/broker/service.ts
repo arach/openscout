@@ -4,13 +4,15 @@ import { basename, join, resolve } from "node:path";
 
 import {
   buildScoutReturnAddress as buildScoutReturnAddressRecord,
+  conversationNaturalKey,
+  conversationsWithNaturalKey,
   type ActorIdentity,
   type AgentDefinition,
   type AgentEndpoint,
   type AgentState,
   type AgentHarness,
   namedChannelNaturalKey,
-  channelNaturalKeyFromMetadata,
+  preferredConversationWithNaturalKey,
   type ConversationBinding,
   type ConversationDefinition,
   type ControlEvent,
@@ -1874,9 +1876,8 @@ function conversationDefinition(
 
   if (normalizedChannel === "voice") {
     const naturalKey = namedChannelNaturalKey("voice");
-    const existing = findConversationByIdentity(snapshot, naturalKey);
     return {
-      id: existing?.id ?? stableChannelId(naturalKey),
+      id: stableChannelId(naturalKey),
       kind: "channel",
       title: "voice",
       visibility: "workspace",
@@ -1892,9 +1893,8 @@ function conversationDefinition(
   }
   if (normalizedChannel === "system") {
     const naturalKey = systemChannelNaturalKey("system");
-    const existing = findConversationByIdentity(snapshot, naturalKey);
     return {
-      id: existing?.id ?? stableChannelId(naturalKey),
+      id: stableChannelId(naturalKey),
       kind: "system",
       title: "system",
       visibility: "system",
@@ -1910,9 +1910,8 @@ function conversationDefinition(
   }
   if (normalizedChannel === "shared") {
     const naturalKey = namedChannelNaturalKey("shared");
-    const existing = findConversationByIdentity(snapshot, naturalKey);
     return {
-      id: existing?.id ?? stableChannelId(naturalKey),
+      id: stableChannelId(naturalKey),
       kind: "channel",
       title: "shared-channel",
       visibility: "workspace",
@@ -1927,9 +1926,8 @@ function conversationDefinition(
     };
   }
   const naturalKey = namedChannelNaturalKey(normalizedChannel);
-  const existing = findConversationByIdentity(snapshot, naturalKey);
   return {
-    id: existing?.id ?? stableChannelId(naturalKey),
+    id: stableChannelId(naturalKey),
     kind: "channel",
     title: normalizedChannel,
     visibility: "workspace",
@@ -1954,7 +1952,14 @@ async function ensureBrokerConversation(
 ): Promise<ScoutBrokerConversationRecord> {
   const definition = conversationDefinition(snapshot, nodeId, channel, senderId, targetParticipantIds);
   const existing = snapshot.conversations[definition.id];
-  const nextParticipants = [...new Set([...(existing?.participantIds ?? []), ...definition.participantIds])].sort();
+  const naturalKey = conversationNaturalKey(definition);
+  const equivalentConversations = naturalKey
+    ? conversationsWithNaturalKey(Object.values(snapshot.conversations), naturalKey)
+    : [];
+  const nextParticipants = [...new Set([
+    ...equivalentConversations.flatMap((conversation) => conversation.participantIds),
+    ...definition.participantIds,
+  ])].sort();
 
   if (
     !existing ||
@@ -1979,9 +1984,9 @@ function findConversationByIdentity(
   snapshot: ScoutBrokerSnapshot,
   naturalKey: string,
 ): ScoutBrokerConversationRecord | undefined {
-  return Object.values(snapshot.conversations).find(
-    (conversation) =>
-      channelNaturalKeyFromMetadata(conversation.metadata) === naturalKey,
+  return preferredConversationWithNaturalKey(
+    Object.values(snapshot.conversations),
+    naturalKey,
   );
 }
 

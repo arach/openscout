@@ -182,10 +182,10 @@ describe("BrokerConversationService", () => {
 
   test("creates and merges channel conversations with scoped participant rules", async () => {
     const existingDocs = conversation({
-      id: "docs-existing",
+      id: "channel.docs",
       title: "docs",
       shareMode: "local",
-      metadata: { naturalKey: namedChannelNaturalKey("docs"), channel: "docs" },
+      metadata: { channel: "docs" },
       participantIds: ["operator"],
     });
     const harness = createHarness({
@@ -220,9 +220,12 @@ describe("BrokerConversationService", () => {
       channel: "docs",
     });
     expect(docs).toEqual(expect.objectContaining({
-      id: "docs-existing",
+      id: stableChannelId(namedChannelNaturalKey("docs")),
       title: "docs",
       participantIds: ["agent-1", "operator"],
+      metadata: expect.objectContaining({
+        naturalKey: namedChannelNaturalKey("docs"),
+      }),
     }));
 
     const system = await harness.service.ensureDeliveryConversation({

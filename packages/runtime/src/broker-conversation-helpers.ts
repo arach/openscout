@@ -1,6 +1,6 @@
 import {
   buildScoutReturnAddress,
-  channelNaturalKeyFromMetadata,
+  preferredConversationWithNaturalKey,
   type AgentDefinition,
   type AgentEndpoint,
   type ConversationDefinition,
@@ -208,9 +208,9 @@ export function findConversationByIdentity(
   snapshot: RuntimeSnapshot,
   naturalKey: string,
 ): ConversationDefinition | undefined {
-  return Object.values(snapshot.conversations).find(
-    (conversation) =>
-      channelNaturalKeyFromMetadata(conversation.metadata) === naturalKey,
+  return preferredConversationWithNaturalKey(
+    Object.values(snapshot.conversations),
+    naturalKey,
   );
 }
 

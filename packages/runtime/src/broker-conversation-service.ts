@@ -1,4 +1,6 @@
 import {
+  conversationNaturalKey,
+  conversationsWithNaturalKey,
   directChannelNaturalKey,
   namedChannelNaturalKey,
   stableChannelId,
@@ -157,7 +159,14 @@ export class BrokerConversationService {
       systemParticipants,
     });
     const existing = snapshot.conversations[definition.id];
-    const nextParticipants = [...new Set([...(existing?.participantIds ?? []), ...definition.participantIds])].sort();
+    const naturalKey = conversationNaturalKey(definition);
+    const equivalentConversations = naturalKey
+      ? conversationsWithNaturalKey(Object.values(snapshot.conversations), naturalKey)
+      : [];
+    const nextParticipants = [...new Set([
+      ...equivalentConversations.flatMap((conversation) => conversation.participantIds),
+      ...definition.participantIds,
+    ])].sort();
     if (
       existing
       && existing.kind === definition.kind
@@ -187,9 +196,8 @@ export class BrokerConversationService {
   ): ConversationDefinition {
     if (input.channel === "voice") {
       const naturalKey = namedChannelNaturalKey("voice");
-      const existing = findConversationByIdentity(snapshot, naturalKey);
       return {
-        id: existing?.id ?? stableChannelId(naturalKey),
+        id: stableChannelId(naturalKey),
         kind: "channel",
         title: "voice",
         visibility: "workspace",
@@ -206,9 +214,8 @@ export class BrokerConversationService {
 
     if (input.channel === "system") {
       const naturalKey = systemChannelNaturalKey("system");
-      const existing = findConversationByIdentity(snapshot, naturalKey);
       return {
-        id: existing?.id ?? stableChannelId(naturalKey),
+        id: stableChannelId(naturalKey),
         kind: "system",
         title: "system",
         visibility: "system",
@@ -225,9 +232,8 @@ export class BrokerConversationService {
 
     if (input.channel === "shared") {
       const naturalKey = namedChannelNaturalKey("shared");
-      const existing = findConversationByIdentity(snapshot, naturalKey);
       return {
-        id: existing?.id ?? stableChannelId(naturalKey),
+        id: stableChannelId(naturalKey),
         kind: "channel",
         title: "shared-channel",
         visibility: "workspace",
@@ -243,9 +249,8 @@ export class BrokerConversationService {
     }
 
     const naturalKey = namedChannelNaturalKey(input.channel);
-    const existing = findConversationByIdentity(snapshot, naturalKey);
     return {
-      id: existing?.id ?? stableChannelId(naturalKey),
+      id: stableChannelId(naturalKey),
       kind: "channel",
       title: input.channel,
       visibility: "workspace",

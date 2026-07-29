@@ -25,9 +25,11 @@ import type {
   VisibilityScope,
 } from "@openscout/protocol";
 import {
-  channelNaturalKeyFromMetadata,
+  conversationNaturalKey,
+  preferredConversationWithNaturalKey,
   directChannelNaturalKey,
   mintChannelId,
+  stableChannelId,
 } from "@openscout/protocol";
 
 import type { SQLiteControlPlaneStore } from "../sqlite-store.js";
@@ -84,16 +86,17 @@ export class Conversations implements ConversationsApi {
     const rows = this.readDb.query(
       "SELECT id FROM conversations ORDER BY created_at ASC",
     ).all() as ConversationRow[];
+    const matches: ConversationDefinition[] = [];
     for (const row of rows) {
       const conversation = this.findById(row.id);
       if (
         conversation &&
-        channelNaturalKeyFromMetadata(conversation.metadata) === normalizedKey
+        conversationNaturalKey(conversation) === normalizedKey
       ) {
-        return conversation;
+        matches.push(conversation);
       }
     }
-    return null;
+    return preferredConversationWithNaturalKey(matches, normalizedKey) ?? null;
   }
 
   findByAgent(agentId: ScoutId): ConversationDefinition | null {
@@ -161,18 +164,25 @@ export class Conversations implements ConversationsApi {
 
   ensureByNaturalKey(input: EnsureConversationInput): ConversationDefinition {
     const existing = this.findByNaturalKey(input.naturalKey);
-    if (existing) {
+    const stableId = input.naturalKey.startsWith("channel:")
+      || input.naturalKey.startsWith("system:")
+      ? stableChannelId(input.naturalKey)
+      : null;
+    if (existing && (!stableId || existing.id === stableId)) {
       return existing;
     }
 
     const conversation: ConversationDefinition = {
-      id: mintChannelId(randomUUID),
+      id: stableId ?? mintChannelId(randomUUID),
       kind: input.kind,
       title: input.title,
       visibility: input.visibility,
       shareMode: input.shareMode,
       authorityNodeId: input.authorityNodeId,
-      participantIds: input.participantIds,
+      participantIds: [...new Set([
+        ...(existing?.participantIds ?? []),
+        ...input.participantIds,
+      ])].sort(),
       parentConversationId: input.parentConversationId,
       topic: input.topic,
       metadata: {
