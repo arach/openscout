@@ -1,4 +1,5 @@
 import {
+  loadScoutBrokerContext,
   loadScoutMessages,
   readScoutBrokerHealth,
   readScoutBrokerHome,
@@ -8,6 +9,11 @@ import {
   type ScoutBrokerHomeAgentRecord,
   type ScoutBrokerMessageRecord,
 } from "../broker/service.ts";
+import { sendScoutMobileMessage } from "../mobile/service.ts";
+import {
+  loadScoutRuntimesReport,
+  type ScoutRuntimesReport,
+} from "../setup/service.ts";
 
 export type ScoutMonitorAgent = ScoutBrokerHomeAgentRecord;
 export type ScoutMonitorActivity = ScoutBrokerHomeActivityRecord;
@@ -31,8 +37,69 @@ export type ScoutMonitorSnapshotOptions = {
   limit?: number;
 };
 
+export type ScoutMonitorHarnessSnapshot = {
+  conversationId: string | null;
+  messages: ScoutBrokerMessageRecord[];
+};
+
+export type ScoutMonitorHarnessOptions = {
+  senderId: string;
+  agentId?: string;
+  conversationId?: string;
+  limit?: number;
+};
+
 const DEFAULT_MONITOR_CHANNEL = "shared";
 const DEFAULT_MONITOR_MESSAGE_LIMIT = 64;
+export const SCOUT_MONITOR_ASSISTANT_ID = "scoutbot";
+
+export async function sendScoutMonitorAssistantMessage(input: {
+  body: string;
+  currentDirectory: string;
+}): Promise<{ conversationId: string; messageId: string }> {
+  return sendScoutMobileMessage({
+    agentId: SCOUT_MONITOR_ASSISTANT_ID,
+    body: input.body,
+    source: "scout-tui-harness",
+  }, input.currentDirectory);
+}
+
+export async function loadScoutMonitorRuntimes(
+  currentDirectory: string,
+): Promise<ScoutRuntimesReport> {
+  return loadScoutRuntimesReport(currentDirectory);
+}
+
+export async function loadScoutMonitorHarness(
+  input: ScoutMonitorHarnessOptions,
+): Promise<ScoutMonitorHarnessSnapshot> {
+  const brokerUrl = resolveScoutBrokerUrl();
+  let conversationId = input.conversationId?.trim() || null;
+
+  if (!conversationId && input.agentId?.trim()) {
+    const context = await loadScoutBrokerContext(brokerUrl);
+    const senderId = input.senderId.trim();
+    const agentId = input.agentId.trim();
+    const conversation = Object.values(context?.snapshot.conversations ?? {})
+      .find((candidate) => (
+        candidate.kind === "direct"
+        && candidate.participantIds.includes(senderId)
+        && candidate.participantIds.includes(agentId)
+      ));
+    conversationId = conversation?.id ?? null;
+  }
+
+  if (!conversationId) {
+    return { conversationId: null, messages: [] };
+  }
+
+  const messages = await loadScoutMessages({
+    baseUrl: brokerUrl,
+    conversationId,
+    limit: input.limit ?? DEFAULT_MONITOR_MESSAGE_LIMIT,
+  });
+  return { conversationId, messages };
+}
 
 export async function loadScoutMonitorSnapshot(
   input: ScoutMonitorSnapshotOptions,
