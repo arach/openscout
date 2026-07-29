@@ -52,6 +52,15 @@ private struct ScoutSessionHarnessCatalog: Identifiable, Equatable {
             .init(harness: "codex", value: "gpt-5.5", label: "GPT-5.5", detail: nil),
             .init(harness: "codex", value: "gpt-5.5-mini", label: "GPT-5.5 mini", detail: "Fast"),
         ]),
+        .init(id: "grok", label: "Grok", models: [
+            .init(harness: "grok", value: "grok-4.5", label: "Grok 4.5", detail: "Latest"),
+            .init(harness: "grok", value: "grok-4.3", label: "Grok 4.3", detail: nil),
+        ]),
+        // No curated Kimi model ids exist in-repo; the empty value dispatches
+        // without an explicit model so the harness picks its own default.
+        .init(id: "kimi", label: "Kimi", models: [
+            .init(harness: "kimi", value: "", label: "Auto", detail: "Harness default"),
+        ]),
     ]
 }
 

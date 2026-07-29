@@ -87,6 +87,16 @@ struct ComposerModelHarness: Identifiable, Hashable {
             ComposerModelFamily(id: "gpt-5.6-luna", label: "5.6", sublabel: "luna", value: "gpt-5.6-luna", isDefault: false),
             ComposerModelFamily(id: "gpt-5.5-mini", label: "5.5", sublabel: "mini", value: "gpt-5.5-mini", isDefault: false),
         ]),
+        ComposerModelHarness(id: "grok", label: "Grok", short: "Grok", monogram: "✕", families: [
+            ComposerModelFamily(id: "grok-4.5", label: "Grok", sublabel: "4.5", value: "grok-4.5", isDefault: true),
+            ComposerModelFamily(id: "grok-4.3", label: "Grok", sublabel: "4.3", value: "grok-4.3", isDefault: false),
+        ]),
+        // Kimi ships no curated model ids we can verify; Auto omits `--model`
+        // so the harness picks its own. Observed models arrive via the fetched
+        // catalog (C.5), not this seed.
+        ComposerModelHarness(id: "kimi", label: "Kimi", short: "Kimi", monogram: "◐", families: [
+            ComposerModelFamily(id: "auto", label: "Auto", sublabel: "", value: nil, isDefault: true),
+        ]),
     ]
 
     static func curated(_ id: String) -> ComposerModelHarness? {
@@ -176,7 +186,9 @@ struct ComposerEffortOption: Identifiable, Hashable {
     let label: String
     let value: String?
     let harnesses: Set<String>
-    let models: Set<String>? = nil
+    // `var` + default: the memberwise init both accepts it (the fetched-catalog
+    // bridge passes per-model effort scoping) and lets the seed rows omit it.
+    var models: Set<String>? = nil
 
     static let defaultId = "auto"
     static let catalog: [ComposerEffortOption] = [
