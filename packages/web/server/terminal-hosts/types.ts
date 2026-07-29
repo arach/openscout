@@ -16,6 +16,7 @@ export type TerminalHostControlAction =
   | "stop-job"
   | "restart-resume"
   | "detach"
+  | "release"
   | "force-quit"
   | "force-quit-bridge";
 

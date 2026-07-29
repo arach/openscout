@@ -1409,7 +1409,7 @@ impl ProbeEngine {
             &[
                 "list-sessions",
                 "-F",
-                "#{session_name}|#{session_windows}|#{session_attached}|#{session_created}|#{pane_current_command}|#{pane_current_path}",
+                "#{session_name}|#{session_windows}|#{session_attached}|#{session_created}|#{session_activity}|#{pane_current_command}|#{pane_current_path}",
             ],
         );
         match run_capped_command_with_input(
@@ -2116,7 +2116,7 @@ fn served_capabilities() -> Vec<ProbeCapability> {
         },
         ProbeCapability {
             probe_id: TMUX_SESSIONS_ID.to_string(),
-            schema_version: 1,
+            schema_version: 2,
             ttl_ms: TMUX_TTL_MS,
         },
         ProbeCapability {
@@ -2939,9 +2939,9 @@ fn parse_tmux_session_list(output: &str) -> Vec<Value> {
                 return None;
             }
             let fields = if line.contains('|') {
-                split_delimited_line(line, '|', 6)
+                split_delimited_line(line, '|', 7)
             } else {
-                split_delimited_line(line, '\t', 6)
+                split_delimited_line(line, '\t', 7)
             };
             let name = fields.first()?.to_string();
             if name.is_empty() {
@@ -2953,13 +2953,20 @@ fn parse_tmux_session_list(output: &str) -> Vec<Value> {
                 .filter(|value| *value > 0)
                 .map(Value::from)
                 .unwrap_or(Value::Null);
+            let activity_at = fields
+                .get(4)
+                .and_then(|value| value.parse::<u64>().ok())
+                .filter(|value| *value > 0)
+                .map(Value::from)
+                .unwrap_or(Value::Null);
             Some(json!({
                 "name": name,
                 "windows": parse_nonnegative_integer(fields.get(1), 1),
                 "attached": parse_nonnegative_integer(fields.get(2), 0),
                 "createdAt": created_at,
-                "currentCommand": optional_trimmed_string(fields.get(4)),
-                "currentPath": optional_trimmed_string(fields.get(5)),
+                "activityAt": activity_at,
+                "currentCommand": optional_trimmed_string(fields.get(5)),
+                "currentPath": optional_trimmed_string(fields.get(6)),
             }))
         })
         .collect()

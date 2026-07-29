@@ -98,6 +98,55 @@
   letter-spacing: var(--tracking-sm);
 }
 
+.terminal-nav-section-title--review {
+  padding-top: var(--space-md);
+  color: color-mix(in srgb, var(--red) 76%, var(--dim));
+}
+
+.terminal-nav-inactive-toggle {
+  width: 100%;
+  min-height: 34px;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-lg);
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-lg);
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.terminal-nav-inactive-toggle:hover,
+.terminal-nav-inactive-toggle:focus-visible {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  color: var(--muted);
+}
+
+.terminal-nav-inactive-toggle:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.terminal-nav-inactive-toggle svg {
+  transition: transform 120ms ease;
+}
+
+.terminal-nav-inactive-toggle[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+.terminal-nav-review-count {
+  color: color-mix(in srgb, var(--red) 68%, var(--dim));
+  letter-spacing: var(--tracking-sm);
+}
+
 .terminal-nav-empty {
   padding: var(--space-md) var(--space-lg);
   font-family: var(--font-mono);
@@ -145,6 +194,12 @@
 .terminal-nav-row:focus-within .terminal-nav-row-select,
 .terminal-nav-row--active .terminal-nav-row-select {
   padding-right: calc(var(--space-lg) + 56px);
+}
+
+.terminal-nav-row--review:hover .terminal-nav-row-select,
+.terminal-nav-row--review:focus-within .terminal-nav-row-select,
+.terminal-nav-row--review.terminal-nav-row--active .terminal-nav-row-select {
+  padding-right: calc(var(--space-lg) + 84px);
 }
 
 .terminal-nav-row-select:focus-visible,
@@ -240,6 +295,11 @@
   color: color-mix(in srgb, var(--ink) 60%, transparent);
 }
 
+.terminal-nav-badge--review {
+  border-color: color-mix(in srgb, var(--red) 28%, transparent);
+  color: color-mix(in srgb, var(--red) 76%, var(--muted));
+}
+
 .terminal-nav-row-actions {
   position: absolute;
   top: 50%;
@@ -299,6 +359,17 @@
   border-color: color-mix(in srgb, var(--ink) 20%, transparent);
   background: color-mix(in srgb, var(--ink) 7%, transparent);
   color: var(--ink);
+}
+
+.terminal-nav-action:disabled {
+  cursor: progress;
+  opacity: 0.5;
+}
+
+.terminal-nav-action--release:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--red) 36%, transparent);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+  color: var(--red);
 }
 
 .terminal-nav-action--selected {

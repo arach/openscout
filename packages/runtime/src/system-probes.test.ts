@@ -25,6 +25,7 @@ import {
   resetScoutdProbeClientForTests,
   resetGitBuildInfoProbeForTests,
   tailscaleStatusProbe,
+  parseTmuxSessionList,
   tmuxPanesProbe,
   tmuxSessionsProbe,
   zellijSessionsProbe
@@ -51,6 +52,20 @@ const describeScoutdConformance = runScoutdConformance ? describe : describe.ski
 if (!runScoutdConformance) {
   console.warn("[openscout] skipping real scoutd conformance harness; set OPENSCOUT_CONFORMANCE=1 to run it.");
 }
+
+test("tmux session parser preserves host-reported last activity", () => {
+  expect(parseTmuxSessionList(
+    "alpha|2|1|1710000000|1710003600|zsh|/Users/art/dev/alpha\n",
+  )).toEqual([{
+    name: "alpha",
+    windows: 2,
+    attached: 1,
+    createdAt: 1710000000,
+    activityAt: 1710003600,
+    currentCommand: "zsh",
+    currentPath: "/Users/art/dev/alpha",
+  }]);
+});
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -1299,8 +1314,8 @@ if [ "$1" = "-S" ]; then
 fi
 if [ "$1" = "list-sessions" ]; then
   cat <<'ROWS'
-alpha|2|1|1710000000|zsh|/Users/art/dev/alpha
-beta|1|0||node|
+alpha|2|1|1710000000|1710003600|zsh|/Users/art/dev/alpha
+beta|1|0|||node|
 ROWS
   exit 0
 fi
@@ -2055,6 +2070,7 @@ exit 64
         windows: 2,
         attached: 1,
         createdAt: 1710000000,
+        activityAt: 1710003600,
         currentCommand: "zsh",
         currentPath: "/Users/art/dev/alpha",
       },
@@ -2063,6 +2079,7 @@ exit 64
         windows: 1,
         attached: 0,
         createdAt: null,
+        activityAt: null,
         currentCommand: "node",
         currentPath: null,
       },
