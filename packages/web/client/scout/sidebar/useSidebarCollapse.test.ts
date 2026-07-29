@@ -23,10 +23,12 @@ import {
 } from "./sidebar-collapse-state.ts";
 
 describe("sidebar collapse constants (SCO-083 / SCO-086)", () => {
-  test("auto-collapse breakpoint is below 1024px", () => {
-    expect(SIDEBAR_AUTO_COLLAPSE_MAX_WIDTH).toBe(1023);
-    expect(900).toBeLessThanOrEqual(SIDEBAR_AUTO_COLLAPSE_MAX_WIDTH);
-    expect(1280).toBeGreaterThan(SIDEBAR_AUTO_COLLAPSE_MAX_WIDTH);
+  test("auto-collapse fires only when genuinely cramped", () => {
+    expect(SIDEBAR_AUTO_COLLAPSE_MAX_WIDTH).toBe(880);
+    // An ordinary half-screen window (~960-1280) must keep its labels.
+    expect(960).toBeGreaterThan(SIDEBAR_AUTO_COLLAPSE_MAX_WIDTH);
+    // The expanded sidebar plus ~600px of content still fits at the boundary.
+    expect(SIDEBAR_AUTO_COLLAPSE_MAX_WIDTH).toBeGreaterThanOrEqual(SIDEBAR_EXPANDED_WIDTH + 600);
   });
 
   test("expanded and icon-rail widths match the anatomy", () => {

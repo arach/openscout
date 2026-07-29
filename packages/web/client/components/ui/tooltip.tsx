@@ -7,7 +7,11 @@ import { Tooltip as TooltipPrimitive } from "@base-ui-components/react/tooltip";
 import { cn } from "../../lib/utils.ts";
 
 function TooltipProvider({
-  delay = 0,
+  // Hover intent, not transit: zero delay opened a label for every pointer
+  // pass across the rail, and a fast swipe could orphan one open (the close
+  // never fires once the trigger re-renders under it). 500ms means labels
+  // appear only on a settled hover.
+  delay = 500,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Provider>) {
   return <TooltipPrimitive.Provider delay={delay} {...props} />;
