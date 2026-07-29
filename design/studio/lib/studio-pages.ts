@@ -134,6 +134,21 @@ export const STUDIO_PAGES: StudioPage[] = [
 
   // ── Foundations ─────────────────────────────────────────────────
   {
+    href: "/system",
+    label: "Design System",
+    bucket: "foundations",
+    family: "design-system",
+    status: "in-flight",
+    source: [
+      "design/studio/lib/design-system/manifest.ts",
+      "design/studio/lib/design-system/registry.ts",
+      "design/studio/components/RuntimePicker.manifest.ts",
+      "design/studio/scripts/ds.ts",
+    ],
+    blurb:
+      "Components that have graduated out of being a study, each carrying a manifest an agent can search and adopt without reading the source. Status is earned \u2014 the audit refuses a claim it cannot back up.",
+  },
+  {
     href: "/foundations/color-tokens",
     label: "Color Tokens",
     bucket: "foundations",
@@ -1697,16 +1712,17 @@ export const STUDIO_PAGES: StudioPage[] = [
     label: "RuntimePicker",
     bucket: "atoms",
     family: "message-composer",
-    status: "draft",
+    status: "shipped",
     source: [
       "design/studio/components/RuntimePicker.tsx",
+      "design/studio/components/RuntimePicker.manifest.ts",
+      "design/studio/components/runtime-picker.css",
+      "design/studio/lib/runtime-catalog.ts",
       "design/studio/app/atoms/runtime-picker/page.tsx",
-      "packages/web/client/components/MessageComposer/MessageComposerToolSelect.tsx",
-      "packages/web/client/scout/repo-watch/PullRequestAssignDialog.tsx",
-      "packages/web/client/scout/repo-watch/pull-request-actions.ts",
+      "packages/web/client/components/MessageComposer/RuntimePicker.tsx",
     ],
     blurb:
-      "Harness · model · effort collapsed into one control. At rest the harness is a mark rather than a word, so the chip is a glyph, a model and a level; the panel opens upward into harness/model/effort. Two treatments — rail (console-dense) and bands (more air). Replaces two select pills plus a free-text model field.",
+      "Harness · model · effort collapsed into one control, and the first component to graduate into the design system. Catalog-driven rather than hard-coded, so it drops into a surface with real runtimes on hand; carries loading/error/empty/custom-model states and roving keyboard navigation. Two treatments — rail (console-dense) and bands (more air).",
   },
 
   {
