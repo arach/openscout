@@ -161,7 +161,6 @@ import {
   type TailEvent,
 } from "@openscout/runtime/tail";
 import {
-  indexRecentSessionKnowledge,
   resolveOpenScoutKnowledgePaths,
   SQLiteKnowledgeStore,
   type KnowledgeCollectionKind,
@@ -546,6 +545,64 @@ function addKnowledgeFacetValue(facets: KnowledgeFacets, key: string, rawValue: 
   }
   const next = Array.isArray(existing) ? existing : [existing];
   if (!next.includes(value)) facets[key] = [...next, value];
+}
+
+type SessionKnowledgeIndexOutcome = {
+  ok: boolean;
+  result?: unknown;
+  status?: unknown;
+  error?: string;
+};
+
+// Session indexing runs in a child process: it parses hundreds of MB of
+// transcripts and performs heavy SQLite/FTS writes, which froze every web
+// request when it ran on the server's event loop (a worker thread still
+// shares the process heap and took the server down under a full rebuild).
+// Concurrent callers share the in-flight run instead of stacking writers.
+const SESSION_KNOWLEDGE_INDEX_TIMEOUT_MS = 15 * 60 * 1000;
+
+let activeSessionKnowledgeIndex: Promise<SessionKnowledgeIndexOutcome> | null = null;
+
+function runSessionKnowledgeIndex(input: {
+  days: number;
+  limit: number;
+  force: boolean;
+}): Promise<SessionKnowledgeIndexOutcome> {
+  activeSessionKnowledgeIndex ??= (async () => {
+    try {
+      // Dev serves this file's TS source; packaged builds bundle the child as
+      // a sibling .mjs (see build:server). Prefer whichever exists.
+      const childTs = new URL("./knowledge-index-child.ts", import.meta.url);
+      const childMjs = new URL("./knowledge-index-child.mjs", import.meta.url);
+      const scriptPath = fileURLToPath(existsSync(childTs) ? childTs : childMjs);
+      const child = Bun.spawn([process.execPath, scriptPath, JSON.stringify(input)], {
+        stdout: "pipe",
+        stderr: "inherit",
+        env: process.env,
+      });
+      const timeout = setTimeout(() => child.kill(), SESSION_KNOWLEDGE_INDEX_TIMEOUT_MS);
+      const stdout = await new Response(child.stdout).text();
+      const exitCode = await child.exited;
+      clearTimeout(timeout);
+      const lastLine = stdout.trim().split("\n").filter(Boolean).at(-1);
+      if (lastLine) {
+        try {
+          return JSON.parse(lastLine) as SessionKnowledgeIndexOutcome;
+        } catch {
+          // fall through to the generic failure below
+        }
+      }
+      return {
+        ok: false,
+        error: `knowledge index child exited ${exitCode} without a result`,
+      };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    } finally {
+      activeSessionKnowledgeIndex = null;
+    }
+  })();
+  return activeSessionKnowledgeIndex;
 }
 
 function parseKnowledgeSearchParams(rawUrl: string): {
@@ -4508,7 +4565,7 @@ export async function createOpenScoutWebServer(
   app.get("/api/build", (c) => c.json(loadOpenScoutBuildInfo(currentDirectory)));
 
   app.get("/api/knowledge/status", (c) => {
-    const store = new SQLiteKnowledgeStore();
+    const store = new SQLiteKnowledgeStore(undefined, undefined, { readonly: true });
     try {
       return c.json(store.status());
     } finally {
@@ -4520,7 +4577,7 @@ export async function createOpenScoutWebServer(
     const q = c.req.query("q") ?? "";
     const limit = parseOptionalPositiveInt(c.req.query("limit"), 30) ?? 30;
     const primitives = parseKnowledgeSearchParams(c.req.url);
-    const store = new SQLiteKnowledgeStore();
+    const store = new SQLiteKnowledgeStore(undefined, undefined, { readonly: true });
     try {
       return c.json({
         q,
@@ -4544,7 +4601,7 @@ export async function createOpenScoutWebServer(
   app.get("/api/knowledge/search-primitives", (c) => {
     const keys = new URL(c.req.url, "http://localhost").searchParams.getAll("key");
     const limit = parseOptionalPositiveInt(c.req.query("limit"), 200) ?? 200;
-    const store = new SQLiteKnowledgeStore();
+    const store = new SQLiteKnowledgeStore(undefined, undefined, { readonly: true });
     try {
       return c.json({
         facets: store.listFacetValues(keys, limit),
@@ -4601,18 +4658,11 @@ export async function createOpenScoutWebServer(
       ? body.limit
       : 220;
     const force = body.force === true;
-    try {
-      const result = await indexRecentSessionKnowledge({ days, limit, force });
-      const store = new SQLiteKnowledgeStore();
-      try {
-        return c.json({ result, status: store.status() });
-      } finally {
-        store.close();
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return c.json({ error: message }, 500);
+    const outcome = await runSessionKnowledgeIndex({ days, limit, force });
+    if (!outcome.ok) {
+      return c.json({ error: outcome.error ?? "session indexing failed" }, 500);
     }
+    return c.json({ result: outcome.result, status: outcome.status });
   });
 
   app.get("/api/ui/scenes", async (c) => {

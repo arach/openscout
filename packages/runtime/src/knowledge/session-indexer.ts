@@ -120,6 +120,26 @@ function clampPositiveInt(value: number | undefined, fallback: number, max: numb
   return Math.min(max, Math.floor(value));
 }
 
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
+/**
+ * Time-budgeted yield for long synchronous loops (JSON.parse over hundreds of
+ * MB, per-record summarization). Keeps the hosting server's event loop
+ * responsive instead of blocking it for the duration of a large transcript.
+ */
+function createYieldBudget(intervalMs = 12): () => Promise<void> {
+  let last = Date.now();
+  return async () => {
+    const now = Date.now();
+    if (now - last >= intervalMs) {
+      await yieldToEventLoop();
+      last = Date.now();
+    }
+  };
+}
+
 function sessionRoots(): Array<{ harness: Harness; root: string }> {
   const home = homedir();
   const roots: Array<{ harness: Harness; root: string }> = [
@@ -169,6 +189,7 @@ function discoverRecentSessionFiles(days: number, limit: number): SessionFile[] 
 }
 
 async function parseJsonl(file: SessionFile): Promise<ParseResult> {
+  const maybeYield = createYieldBudget();
   const records: NormalizedRecord[] = [];
   const hash = createHash("sha256");
   let carry = "";
@@ -177,8 +198,7 @@ async function parseJsonl(file: SessionFile): Promise<ParseResult> {
   let cwd: string | null = null;
   let sessionId: string | null = null;
 
-  const handleLine = (rawLine: string) => {
-    const lineOffset = offset;
+  const handleLine = (rawLine: string) => {    const lineOffset = offset;
     offset += Buffer.byteLength(rawLine, "utf8") + 1;
     if (!rawLine.trim()) return;
     try {
@@ -213,6 +233,7 @@ async function parseJsonl(file: SessionFile): Promise<ParseResult> {
     const lines = carry.split(/\r?\n/u);
     carry = lines.pop() ?? "";
     for (const line of lines) handleLine(line);
+    await maybeYield();
   }
   if (carry.length > 0) handleLine(carry);
 
@@ -659,7 +680,8 @@ function buildToolCalls(parse: ParseResult): string {
   return `${lines.join("\n")}\n`;
 }
 
-function buildEventDocuments(parse: ParseResult, file: SessionFile): ExtractedDocument[] {
+async function buildEventDocuments(parse: ParseResult, file: SessionFile): Promise<ExtractedDocument[]> {
+  const maybeYield = createYieldBudget();
   const docs: ExtractedDocument[] = [];
   for (let start = 0; start < parse.records.length; start += EVENT_WINDOW_RECORDS) {
     const slice = parse.records.slice(start, start + EVENT_WINDOW_RECORDS);
@@ -684,11 +706,12 @@ function buildEventDocuments(parse: ParseResult, file: SessionFile): ExtractedDo
       sourceRef,
       facets: documentFacets("events", slice),
     });
+    await maybeYield();
   }
   return docs;
 }
 
-function buildDocuments(parse: ParseResult, file: SessionFile, project: string, title: string): ExtractedDocument[] {
+async function buildDocuments(parse: ParseResult, file: SessionFile, project: string, title: string): Promise<ExtractedDocument[]> {
   const allSourceRef = sourceRefFor(file, parse, parse.records.length > 0 ? [0, parse.records.at(-1)!.i] : undefined);
   const toolRecords = parse.records.filter((record) => record.kind === "command_or_tool");
   return [
@@ -716,7 +739,7 @@ function buildDocuments(parse: ParseResult, file: SessionFile, project: string, 
       sourceRef: allSourceRef,
       facets: documentFacets("tool-calls", toolRecords),
     },
-    ...buildEventDocuments(parse, file),
+    ...await buildEventDocuments(parse, file),
   ];
 }
 
@@ -867,12 +890,12 @@ function documentId(collectionId: string, path: string): string {
   return hashText(`${collectionId}\0${path}`);
 }
 
-function storeSessionCollection(
+async function storeSessionCollection(
   store: SQLiteKnowledgeStore,
   file: SessionFile,
   parse: ParseResult,
   force: boolean,
-): IndexedSessionKnowledgeSummary {
+): Promise<IndexedSessionKnowledgeSummary> {
   const project = projectName(parse.cwd, file.path);
   const id = collectionIdFor(file, parse);
   const qmdPath = knowledgeCollectionQmdPath(id);
@@ -918,7 +941,7 @@ function storeSessionCollection(
     };
   }
 
-  const documents = buildDocuments(parse, file, project, title);
+  const documents = await buildDocuments(parse, file, project, title);
   writeQmdCollection(collection, documents, parse, file);
 
   store.deleteCollection(id);
@@ -935,7 +958,7 @@ function storeSessionCollection(
       contentHash: hashText(extracted.content),
     };
     store.upsertDocument(doc);
-    chunkDocument(extracted).forEach((chunk, ordinal) => {
+    const entries = chunkDocument(extracted).map((chunk, ordinal) => {
       const chunkFacets: KnowledgeFacets = {
         ...facets,
         ...(extracted.facets ?? { documentKind: extracted.kind }),
@@ -959,9 +982,12 @@ function storeSessionCollection(
         sourceRefs: [chunk.sourceRef],
         facets: chunkFacets,
       };
-      store.upsertChunk(knowledgeChunk, `${title} / ${extracted.path}`);
       chunks++;
+      return { chunk: knowledgeChunk, title: `${title} / ${extracted.path}` };
     });
+    store.upsertChunks(entries);
+    // Big transcripts produce hundreds of documents; keep the process responsive.
+    await yieldToEventLoop();
   }
 
   return {
@@ -1003,7 +1029,7 @@ export async function indexRecentSessionKnowledge(
     for (const file of files) {
       try {
         const parse = await parseJsonl(file);
-        const summary = storeSessionCollection(store, file, parse, input.force === true);
+        const summary = await storeSessionCollection(store, file, parse, input.force === true);
         sessions.push(summary);
         indexed++;
       } catch (error) {
@@ -1030,6 +1056,7 @@ export async function indexRecentSessionKnowledge(
         leaseGeneration,
         progress: { discovered: files.length, extracted: indexed + failed, indexed, failed },
       });
+      await yieldToEventLoop();
     }
     const completed = store.updateIndexJob({
       id: job.id,

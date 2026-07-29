@@ -32,6 +32,11 @@ const entries = [
     target: "bun",
   },
   {
+    input: resolve(packageDirectory, "server", "knowledge-index-child.ts"),
+    output: resolve(outputDirectory, "knowledge-index-child.mjs"),
+    target: "bun",
+  },
+  {
     input: resolve(packageDirectory, "server", "terminal-relay-node.ts"),
     output: resolve(outputDirectory, "openscout-terminal-relay.mjs"),
     target: "node",
