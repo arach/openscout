@@ -234,6 +234,7 @@ const DEFAULT_MOBILE_HISTORY_PAGE_LIMIT = 40;
 export type SendScoutMobileMessageInput = {
   agentId: string;
   body: string;
+  source?: "scout-mobile" | "scout-tui-harness";
   attachments?: OutgoingAttachmentInput[];
   clientMessageId?: string | null;
   replyToMessageId?: string | null;
@@ -1213,7 +1214,7 @@ export async function sendScoutMobileMessage(
     replyToMessageId: input.replyToMessageId,
     referenceMessageIds: input.referenceMessageIds,
     executionHarness: input.harness,
-    source: "scout-mobile",
+    source: input.source ?? "scout-mobile",
     deviceId,
   });
 }
@@ -1267,7 +1268,7 @@ async function sendScoutbotMobileThreadMessage(
     policy: "durable",
     createdAt: now,
     metadata: {
-      source: "scout-mobile",
+      source: input.source ?? "scout-mobile",
       destinationKind: "scoutbot_thread",
       destinationId: SCOUTBOT_DEFAULT_THREAD_ID,
       scoutbotThreadId: SCOUTBOT_DEFAULT_THREAD_ID,
