@@ -1,9 +1,13 @@
 import type { Metadata } from "next";
-import Script from "next/script";
+import { HudsonThemeScript, ThemeProvider } from "hudsonkit/theme";
+// Token sheet only — full `hudsonkit/styles` is a prebuilt Tailwind bundle
+// that collides with this app's `@tailwind base` pipeline. Tokens give us
+// --hud-* + theme/template attribute rules without re-injecting base CSS.
+import "hudsonkit/styles/tokens.css";
+import "./theme-aliases.css";
 import "./globals.css";
 import "./scout-skins.css";
 import { StudioShell } from "@/components/StudioShell";
-import { THEME_BOOTSTRAP_SCRIPT } from "@/components/ThemeToggle";
 import { listPlans, plansToStudioPages } from "@/lib/plans";
 import { engDocsToStudioPages, listEngDocs } from "@/lib/eng-docs";
 import { studyMtimes } from "@/lib/study-mtimes";
@@ -13,6 +17,9 @@ export const metadata: Metadata = {
   description:
     "Internal design + planning studio for OpenScout. Plans, design studies, and a live atom gallery.",
 };
+
+/** Keep the legacy openscout-studio:theme key so existing preferences survive. */
+const THEME_STORAGE_KEY = "openscout-studio:theme";
 
 export default function RootLayout({
   children,
@@ -31,16 +38,13 @@ export default function RootLayout({
   const mtimes = studyMtimes();
 
   return (
-    <html lang="en" data-theme="dark" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <head>
-        {/* No-FOUC: read localStorage and set data-theme before any
-         *  CSS evaluates. `beforeInteractive` runs the script in <head>
-         *  before hydration, equivalent to a raw inline <script> but
-         *  via the Next-sanctioned API. */}
-        <Script
-          id="theme-bootstrap"
-          strategy="beforeInteractive"
-          dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP_SCRIPT }}
+        {/* Pre-paint: sets data-hudson-theme before CSS evaluates (no FOUC). */}
+        <HudsonThemeScript
+          defaultTheme="dark"
+          defaultTemplate="hudson"
+          storageKey={THEME_STORAGE_KEY}
         />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
@@ -48,16 +52,23 @@ export default function RootLayout({
           href="https://fonts.gstatic.com"
           crossOrigin=""
         />
-        {/* Studio face stack — Play (display), Inter Tight (body),
-         *  JetBrains Mono (chrome). Scout proper now also ships Play via
-         *  packages/web/client/scout/Provider.tsx (--hud-font-serif). */}
+        {/* Workmanlike stack — Inter Tight for display + body, JetBrains Mono
+         *  for chrome. No display/futuristic face. */}
         <link
-          href="https://fonts.googleapis.com/css2?family=Play:wght@400;700&family=Inter+Tight:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
           rel="stylesheet"
         />
       </head>
       <body>
-        <StudioShell extraPages={extraPages} studyMtimes={mtimes}>{children}</StudioShell>
+        <ThemeProvider
+          defaultTheme="dark"
+          defaultTemplate="hudson"
+          storageKey={THEME_STORAGE_KEY}
+        >
+          <StudioShell extraPages={extraPages} studyMtimes={mtimes}>
+            {children}
+          </StudioShell>
+        </ThemeProvider>
       </body>
     </html>
   );

@@ -1,0 +1,49 @@
+/*
+ * OpenScout Studio → Hudsonkit token aliases.
+ *
+ * Studio components and Tailwind still speak --studio-*, --scout-*,
+ * --status-*, --code-*. Hudsonkit owns the live values as --hud-*
+ * (flipped by [data-hudson-theme="light|dark"] via HudsonThemeScript).
+ *
+ * Import order (layout.tsx / globals.css):
+ *   1. hudsonkit/styles   — --hud-* contract
+ *   2. this file          — studio aliases
+ *   3. remaining studio utilities (focus-ring, ink tints, …)
+ */
+
+:root {
+  /* Surfaces */
+  --studio-canvas:       var(--hud-bg);
+  --studio-canvas-alt:   var(--hud-bg-2, var(--hud-surface));
+  --studio-surface:      var(--hud-surface);
+
+  /* Text ladder */
+  --studio-ink:          var(--hud-ink);
+  --studio-ink-muted:    var(--hud-ink-1, var(--hud-ink));
+  --studio-ink-faint:    var(--hud-muted);
+
+  /* Structure */
+  --studio-edge:         var(--hud-border);
+  --studio-edge-strong:  var(--hud-line-strong, var(--hud-chrome-border, var(--hud-border)));
+
+  /* Accent (legacy "scout" namespace kept for existing class names) */
+  --scout-accent:        var(--hud-accent);
+  --scout-accent-soft:   var(--hud-accent-soft);
+
+  /* Status */
+  --status-ok-fg:        var(--hud-status-ok);
+  --status-warn-fg:      var(--hud-status-warn);
+  --status-error-fg:     var(--hud-status-error);
+  --status-info-fg:      var(--hud-status-info);
+  --status-neutral-fg:   var(--hud-muted);
+
+  --status-ok-bg:        color-mix(in oklab, var(--hud-status-ok) 14%, transparent);
+  --status-warn-bg:      color-mix(in oklab, var(--hud-status-warn) 14%, transparent);
+  --status-error-bg:     color-mix(in oklab, var(--hud-status-error) 14%, transparent);
+  --status-info-bg:      color-mix(in oklab, var(--hud-status-info) 14%, transparent);
+  --status-neutral-bg:   color-mix(in oklab, var(--hud-muted) 12%, transparent);
+
+  /* Code viewer */
+  --code-bg:             var(--hud-bg-2, var(--hud-surface));
+  --code-border:         var(--hud-border);
+}

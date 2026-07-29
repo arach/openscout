@@ -15,15 +15,15 @@ type Row = { sample: React.ReactNode; spec: Array<[string, string]> };
 const DISPLAY: Row[] = [
   {
     sample: <span className="font-display text-[28px] font-medium leading-[1.15] tracking-[-0.012em] text-studio-ink">H1 — Display 28</span>,
-    spec: [["family", "Play"], ["size", "28px"], ["weight", "500"], ["letter-spacing", "-0.012em"], ["line-height", "1.15"], ["usage", "page titles · prose h1"]],
+    spec: [["family", "Inter Tight"], ["size", "28px"], ["weight", "500"], ["letter-spacing", "-0.012em"], ["line-height", "1.15"], ["usage", "page titles · prose h1"]],
   },
   {
     sample: <span className="font-display text-[20px] font-medium leading-[1.25] tracking-[-0.012em] text-studio-ink">H2 — Display 20</span>,
-    spec: [["family", "Play"], ["size", "20px"], ["weight", "500"], ["line-height", "1.25"], ["usage", "prose h2 · section openers"]],
+    spec: [["family", "Inter Tight"], ["size", "20px"], ["weight", "500"], ["line-height", "1.25"], ["usage", "prose h2 · section openers"]],
   },
   {
     sample: <span className="font-display text-[16px] font-semibold tracking-[-0.012em] text-studio-ink">H3 — Display 16</span>,
-    spec: [["family", "Play"], ["size", "16px"], ["weight", "600"], ["usage", "prose h3 · sub-section"]],
+    spec: [["family", "Inter Tight"], ["size", "16px"], ["weight", "600"], ["usage", "prose h3 · sub-section"]],
   },
   {
     sample: <span className="font-mono text-[13.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">H4 — Mono caps 13.5</span>,
@@ -69,13 +69,13 @@ export default function TypographyPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <StudyHeader eyebrow="foundations · typography" title="Typography">
-        Three families, three ramps, one prose stress-test. Display is Play, body
+        Three families, three ramps, one prose stress-test. Display is Inter Tight, body
         is Inter Tight, chrome is JetBrains Mono. Sizes match the rules in{" "}
         <code className="font-mono text-sm text-studio-ink">.studio-prose</code>{" "}
         (app/globals.css) and the conventions used across existing studies.
       </StudyHeader>
 
-      <Section title="Display ramp" hint="Play — page titles and prose headings">
+      <Section title="Display ramp" hint="Inter Tight — page titles and prose headings">
         <RampTable rows={DISPLAY} />
       </Section>
       <Section title="Sans ramp" hint="Inter Tight — body copy and chrome labels">

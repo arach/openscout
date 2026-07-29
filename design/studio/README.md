@@ -20,11 +20,42 @@ Three buckets:
 ```sh
 cd design/studio
 bun install
-bun run dev        # → http://localhost:43140
+bun run dev        # → http://openscout.studio.local  (and http://127.0.0.1:43140)
 ```
+
+`dev` wraps Next with arach/studio's host CLI (`studio dev`), which registers
+this Git repo as `openscout.studio.local` on the local edge (port 80, or a
+narrow route on Scout's Caddy when that already owns :80). Needs the sibling
+checkout at `../../studio` (`/Users/…/dev/studio` next to openscout).
+
+Escape hatch without the host: `bun run dev:raw` → port 43140 only.
 
 `?focus=1` on any page strips the sidebar + page strip for screenshots /
 presentation.
+
+## Theme (Hudsonkit)
+
+Studio tokens are now Hudsonkit-backed:
+
+| Piece | Role |
+| --- | --- |
+| `hudsonkit` (`^0.3.5`, same as `packages/web`) | theme runtime |
+| `hudsonkit/styles/tokens.css` | `--hud-*` values (not full `styles` — that is a prebuilt Tailwind bundle and collides with studio's own `@tailwind base`) |
+| `HudsonThemeScript` + `ThemeProvider` | pre-paint + React theme flip |
+| `app/theme-aliases.css` | `--studio-*` / `--scout-*` / `--status-*` → `--hud-*` |
+| `ThemeToggle` | sidebar dark/light control via `useTheme()` |
+
+Tailwind still uses `var(--studio-*)` class names — only the value source changed.
+
+## Chrome
+
+| Piece | Role |
+| --- | --- |
+| Owned left rail | Nav, search/sort, theme; **resizable** |
+| `StatusBar` (Hudsonkit) | Bottom bar + width controls + clock |
+| `StudioSidebar` | Search / sort / buckets (rail body) |
+
+**Resize:** drag the rail’s right-edge grip · status-bar `−` / `+` · keys **`[`** / **`]`**. Width persists in `localStorage`.
 
 ## Layout
 

@@ -2,9 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { cn } from "@/lib/utils";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   STUDIO_PAGES,
   familyGroups,
@@ -16,104 +22,382 @@ import {
   type StudioStatus,
 } from "@/lib/studio-pages";
 
+type SortMode = "recent" | "alpha" | "status";
+
+const SORT_MODES: ReadonlyArray<{ id: SortMode; label: string; title: string }> = [
+  { id: "recent", label: "rec", title: "Most recently edited first" },
+  { id: "alpha", label: "a–z", title: "Alphabetical by label" },
+  { id: "status", label: "stat", title: "By status, then label" },
+];
+
+const SORT_LS_KEY = "studio.sidebar.sort";
+const STATUS_RANK: Record<StudioStatus, number> = {
+  "in-flight": 0,
+  draft: 1,
+  concept: 2,
+  shipped: 3,
+  shelved: 4,
+};
+
 /**
- * Persistent left sidebar — Plans / Studies / Atoms buckets, with
- * Studies sub-grouped by surface. Variants of the same family collapse
- * under their primary. 220px width to mirror Talkie Studio.
+ * Studio nav body for Hudsonkit SidePanel — search, sort, and bucket list.
+ * Plans / Studies / Atoms with surface grouping; family variants collapse
+ * under their primary. Shell owns the SidePanel chrome + width + status bar.
  */
 export function StudioSidebar({
   extraPages,
   studyMtimes = {},
-  width = 220,
 }: {
   extraPages: StudioPage[];
   studyMtimes?: Record<string, number>;
-  width?: number;
 }) {
   const pathname = usePathname();
   const totalPages = STUDIO_PAGES.length + extraPages.length;
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<SortMode>("recent");
+  const searchRef = useRef<HTMLInputElement>(null);
 
-  return (
-    <aside
-      className={cn(
-        "fixed left-0 top-0 z-30 flex h-screen flex-col",
-        "border-r border-studio-edge bg-studio-canvas",
-        "overflow-y-auto",
-      )}
-      style={{ width }}
-    >
-      <SidebarHeader />
+  useEffect(() => {
+    const saved = localStorage.getItem(SORT_LS_KEY) as SortMode | null;
+    if (saved && SORT_MODES.some((m) => m.id === saved)) setSort(saved);
+  }, []);
 
-      <nav className="flex flex-col gap-7 px-4 pb-10 pt-3 font-mono text-sm">
-        <BucketSection
-          title="Plans"
-          bucket="plans"
-          pathname={pathname}
-          extraPages={extraPages}
-        />
-        <EngBucketSection pathname={pathname} extraPages={extraPages} />
-        <BucketSection
-          title="Foundations"
-          bucket="foundations"
-          pathname={pathname}
-          extraPages={extraPages}
-        />
-        <BucketSection
-          title="Studies"
-          bucket="studies"
-          pathname={pathname}
-          extraPages={extraPages}
-          surfaceGrouped
-          studyMtimes={studyMtimes}
-        />
-        <BucketSection
-          title="Atoms"
-          bucket="atoms"
-          pathname={pathname}
-          extraPages={extraPages}
-        />
-      </nav>
+  const setSortPersist = useCallback((mode: SortMode) => {
+    setSort(mode);
+    localStorage.setItem(SORT_LS_KEY, mode);
+  }, []);
 
-      <SidebarFooter totalPages={totalPages} />
-    </aside>
+  // `/` focuses search when not already typing in a field; Escape clears.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const typing =
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable);
+      if (e.key === "/" && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const q = query.trim().toLowerCase();
+  const searching = q.length > 0;
+
+  const allPages = useMemo(
+    () => [...STUDIO_PAGES, ...extraPages],
+    [extraPages],
   );
-}
 
-function SidebarHeader() {
+  const matches = useMemo(() => {
+    if (!searching) return null;
+    return allPages.filter((p) => pageMatches(p, q));
+  }, [allPages, searching, q]);
+
   return (
-    <div className="flex items-center gap-2 border-b border-studio-edge px-4 py-3.5">
-      <div
-        aria-hidden
-        className="h-2 w-2 rounded-full"
-        style={{ background: "var(--scout-accent)" }}
+    <div className="pointer-events-auto flex h-full min-h-0 flex-col">
+      <SidebarControls
+        query={query}
+        onQueryChange={setQuery}
+        sort={sort}
+        onSortChange={setSortPersist}
+        searchRef={searchRef}
+        matchCount={matches?.length}
+        totalPages={totalPages}
       />
-      <Link
-        href="/"
-        className="focus-ring rounded-[2px] font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink"
-      >
-        Scout · Studio
-      </Link>
+
+      <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-6 pt-2 font-mono text-sm">
+        {searching ? (
+          <SearchResults
+            pages={sortPages(matches ?? [], sort, studyMtimes)}
+            query={q}
+            pathname={pathname}
+            studyMtimes={studyMtimes}
+          />
+        ) : (
+          <div className="flex flex-col gap-7">
+            <BucketSection
+              title="Plans"
+              bucket="plans"
+              pathname={pathname}
+              extraPages={extraPages}
+              sort={sort}
+              studyMtimes={studyMtimes}
+            />
+            <EngBucketSection
+              pathname={pathname}
+              extraPages={extraPages}
+              sort={sort}
+            />
+            <BucketSection
+              title="Foundations"
+              bucket="foundations"
+              pathname={pathname}
+              extraPages={extraPages}
+              sort={sort}
+              studyMtimes={studyMtimes}
+            />
+            <BucketSection
+              title="Studies"
+              bucket="studies"
+              pathname={pathname}
+              extraPages={extraPages}
+              surfaceGrouped
+              sort={sort}
+              studyMtimes={studyMtimes}
+            />
+            <BucketSection
+              title="Atoms"
+              bucket="atoms"
+              pathname={pathname}
+              extraPages={extraPages}
+              sort={sort}
+              studyMtimes={studyMtimes}
+            />
+          </div>
+        )}
+      </nav>
     </div>
   );
 }
 
-function SidebarFooter({ totalPages }: { totalPages: number }) {
+function pageMatches(page: StudioPage, q: string): boolean {
+  const hay = [
+    page.label,
+    page.blurb,
+    page.href,
+    page.bucket,
+    page.surface,
+    page.status,
+    page.family,
+    ...(page.source ?? []),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  // Token AND — typing "ios home" requires both tokens somewhere.
+  return q.split(/\s+/).every((token) => hay.includes(token));
+}
+
+function pageRecency(page: StudioPage, mtimes: Record<string, number>): number {
+  const fromMtime = mtimes[page.href] ?? 0;
+  const fromIso = page.updatedAt ? Date.parse(page.updatedAt) || 0 : 0;
+  return Math.max(fromMtime, fromIso);
+}
+
+function comparePages(
+  a: StudioPage,
+  b: StudioPage,
+  sort: SortMode,
+  mtimes: Record<string, number>,
+): number {
+  if (sort === "recent") {
+    const delta = pageRecency(b, mtimes) - pageRecency(a, mtimes);
+    if (delta !== 0) return delta;
+  } else if (sort === "status") {
+    const ra = a.status ? STATUS_RANK[a.status] : 99;
+    const rb = b.status ? STATUS_RANK[b.status] : 99;
+    if (ra !== rb) return ra - rb;
+  }
+  return a.label.localeCompare(b.label, undefined, { sensitivity: "base" });
+}
+
+function sortPages(
+  pages: StudioPage[],
+  sort: SortMode,
+  mtimes: Record<string, number>,
+): StudioPage[] {
+  return [...pages].sort((a, b) => comparePages(a, b, sort, mtimes));
+}
+
+function sortFamilyGroups(
+  groups: ReturnType<typeof familyGroups>,
+  sort: SortMode,
+  mtimes: Record<string, number>,
+) {
+  return [...groups].sort((a, b) => {
+    if (sort === "recent") {
+      return (
+        freshest([b.primary, ...b.variants], mtimes) -
+        freshest([a.primary, ...a.variants], mtimes)
+      );
+    }
+    if (sort === "status") {
+      const ra = a.primary.status ? STATUS_RANK[a.primary.status] : 99;
+      const rb = b.primary.status ? STATUS_RANK[b.primary.status] : 99;
+      if (ra !== rb) return ra - rb;
+    }
+    return a.primary.label.localeCompare(b.primary.label, undefined, {
+      sensitivity: "base",
+    });
+  });
+}
+
+function SidebarControls({
+  query,
+  onQueryChange,
+  sort,
+  onSortChange,
+  searchRef,
+  matchCount,
+  totalPages,
+}: {
+  query: string;
+  onQueryChange: (value: string) => void;
+  sort: SortMode;
+  onSortChange: (mode: SortMode) => void;
+  searchRef: RefObject<HTMLInputElement | null>;
+  matchCount?: number;
+  totalPages: number;
+}) {
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Escape") {
+      if (query) {
+        e.preventDefault();
+        onQueryChange("");
+      } else {
+        (e.target as HTMLInputElement).blur();
+      }
+    }
+  };
+
   return (
-    <div className="mt-auto border-t border-studio-edge px-4 py-3">
-      <ThemeToggle />
-      <div className="mt-2 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
-        <span>openscout</span>
-        <span className="mx-1.5">·</span>
-        <span>{totalPages} pages</span>
+    <div className="shrink-0 border-b border-studio-edge px-3 py-2.5">
+      <label className="relative flex items-center gap-1.5 rounded-[4px] border border-studio-edge bg-studio-canvas-alt px-2 py-1.5">
+        <span
+          aria-hidden
+          className="font-mono text-2xs text-studio-ink-faint"
+        >
+          ▸
+        </span>
+        <input
+          ref={searchRef}
+          type="search"
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder="search pages…"
+          aria-label="Search studio pages"
+          className={cn(
+            "focus-ring min-w-0 flex-1 bg-transparent font-mono text-xs text-studio-ink",
+            "placeholder:text-studio-ink-faint outline-none",
+            // Kill browser search chrome so the field stays studio-shaped.
+            "[&::-webkit-search-cancel-button]:hidden",
+          )}
+        />
+        {!query ? (
+          <kbd className="shrink-0 rounded-[2px] border border-studio-edge px-1 font-mono text-2xs text-studio-ink-faint">
+            /
+          </kbd>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onQueryChange("")}
+            className="focus-ring shrink-0 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint hover:text-studio-ink"
+            aria-label="Clear search"
+          >
+            esc
+          </button>
+        )}
+      </label>
+
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <div
+          role="group"
+          aria-label="Sort pages"
+          className="flex items-center gap-0.5 rounded-[4px] border border-studio-edge p-0.5"
+        >
+          {SORT_MODES.map((mode) => {
+            const active = sort === mode.id;
+            return (
+              <button
+                key={mode.id}
+                type="button"
+                title={mode.title}
+                aria-pressed={active}
+                onClick={() => onSortChange(mode.id)}
+                className={cn(
+                  "focus-ring rounded-[3px] px-1.5 py-0.5 font-mono text-2xs uppercase tracking-eyebrow transition-colors",
+                  active
+                    ? "bg-studio-canvas-alt text-studio-ink"
+                    : "text-studio-ink-faint hover:text-studio-ink",
+                )}
+              >
+                {mode.label}
+              </button>
+            );
+          })}
+        </div>
+        <span
+          suppressHydrationWarning
+          className="font-mono text-2xs tabular-nums text-studio-ink-faint"
+        >
+          {matchCount !== undefined
+            ? `${matchCount}/${totalPages}`
+            : SORT_MODES.find((m) => m.id === sort)?.label}
+        </span>
       </div>
     </div>
+  );
+}
+
+function SearchResults({
+  pages,
+  query,
+  pathname,
+  studyMtimes,
+}: {
+  pages: StudioPage[];
+  query: string;
+  pathname: string | null;
+  studyMtimes: Record<string, number>;
+}) {
+  if (pages.length === 0) {
+    return (
+      <div className="px-1 py-6 font-mono text-xs text-studio-ink-faint">
+        No pages match{" "}
+        <span className="text-studio-ink">“{query}”</span>
+      </div>
+    );
+  }
+
+  // Flat list while searching — buckets dissolve so a token like "ios"
+  // can surface studies + eng notes in one scannable column.
+  return (
+    <section>
+      <SectionTitle>
+        Matches{" "}
+        <span className="text-studio-ink-faint">· {pages.length}</span>
+      </SectionTitle>
+      <div className="mt-1.5 flex flex-col">
+        {pages.map((page) => (
+          <SidebarLink
+            key={page.href}
+            href={page.href}
+            active={page.href === pathname}
+          >
+            <span className="flex-1 truncate">{page.label}</span>
+            <span className="shrink-0 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
+              {page.bucket}
+            </span>
+            <AgeStamp ms={pageRecency(page, studyMtimes) || undefined} />
+            {page.status ? <StatusDot status={page.status} /> : null}
+          </SidebarLink>
+        ))}
+      </div>
+    </section>
   );
 }
 
 /** Freshest mtime across a set of pages (0 if none are tracked). */
 function freshest(pages: StudioPage[], mtimes: Record<string, number>): number {
   let max = 0;
-  for (const p of pages) max = Math.max(max, mtimes[p.href] ?? 0);
+  for (const p of pages) max = Math.max(max, pageRecency(p, mtimes));
   return max;
 }
 
@@ -148,6 +432,7 @@ function BucketSection({
   pathname,
   extraPages,
   surfaceGrouped = false,
+  sort,
   studyMtimes = {},
 }: {
   title: string;
@@ -155,6 +440,7 @@ function BucketSection({
   pathname: string | null;
   extraPages: StudioPage[];
   surfaceGrouped?: boolean;
+  sort: SortMode;
   studyMtimes?: Record<string, number>;
 }) {
   return (
@@ -162,30 +448,50 @@ function BucketSection({
       <SectionTitle>{title}</SectionTitle>
       <div className="mt-1.5 flex flex-col gap-3">
         {surfaceGrouped ? (
-          // Most-recently-edited first — both the surface blocks and the
-          // family groups within each are ordered by file mtime.
           [...pagesBySurface(bucket, extraPages)]
-            .sort((a, b) => freshest(b.pages, studyMtimes) - freshest(a.pages, studyMtimes))
+            .sort((a, b) => {
+              if (sort === "alpha") {
+                return surfaceLabel(a.surface).localeCompare(
+                  surfaceLabel(b.surface),
+                  undefined,
+                  { sensitivity: "base" },
+                );
+              }
+              if (sort === "status") {
+                // Surface order stays recency-ish for status mode; status
+                // applies inside each surface block.
+                return (
+                  freshest(b.pages, studyMtimes) - freshest(a.pages, studyMtimes)
+                );
+              }
+              return freshest(b.pages, studyMtimes) - freshest(a.pages, studyMtimes);
+            })
             .map(({ surface, pages }) => (
               <SurfaceBlock
                 key={surface}
                 label={surfaceLabel(surface)}
-                groups={[...familyGroups(pages)].sort(
-                  (a, b) =>
-                    freshest([b.primary, ...b.variants], studyMtimes) -
-                    freshest([a.primary, ...a.variants], studyMtimes),
-                )}
+                groups={sortFamilyGroups(familyGroups(pages), sort, studyMtimes)}
                 pathname={pathname}
                 mtimes={studyMtimes}
               />
             ))
         ) : (
           <div className="flex flex-col">
-            {familyGroups(pagesIn(bucket, extraPages)).map((group) => (
+            {sortFamilyGroups(
+              familyGroups(pagesIn(bucket, extraPages)),
+              sort,
+              studyMtimes,
+            ).map((group) => (
               <PageItem
                 key={group.primary.href}
                 group={group}
                 pathname={pathname}
+                mtime={
+                  sort === "recent"
+                    ? freshest([group.primary, ...group.variants], studyMtimes) ||
+                      undefined
+                    : pageRecency(group.primary, studyMtimes) || undefined
+                }
               />
             ))}
           </div>
@@ -196,20 +502,24 @@ function BucketSection({
 }
 
 /** Engineering bucket renders lean: the Index entry + the 5 most
- *  recently touched SCO docs. The /eng index page is the canonical
- *  browser for the full 46-family corpus. */
+ *  recently touched SCO docs (or all when sorted alpha/status with room).
+ *  The /eng index page is the canonical browser for the full corpus. */
 function EngBucketSection({
   pathname,
   extraPages,
+  sort,
 }: {
   pathname: string | null;
   extraPages: StudioPage[];
+  sort: SortMode;
 }) {
   const all = pagesIn("eng", extraPages);
   const indexPage = all.find((p) => p.href === "/eng");
-  const docs = all
-    .filter((p) => p.href !== "/eng" && p.updatedAt)
-    .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
+  const docs = sortPages(
+    all.filter((p) => p.href !== "/eng"),
+    sort,
+    {},
+  );
   const recent = docs.slice(0, 5);
   const remaining = docs.length - recent.length;
 
@@ -229,7 +539,7 @@ function EngBucketSection({
         {recent.length > 0 ? (
           <>
             <div className="mt-3 mb-1 px-2 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
-              Recent
+              {sort === "alpha" ? "A–Z" : sort === "status" ? "By status" : "Recent"}
             </div>
             <div className="flex flex-col">
               {recent.map((page) => (
@@ -291,7 +601,12 @@ function SurfaceBlock({
             pathname={pathname}
             // The family's freshest, not the primary's — the row must wear
             // the same recency the sort ranked it by.
-            mtime={mtimes ? freshest([group.primary, ...group.variants], mtimes) || undefined : undefined}
+            mtime={
+              mtimes
+                ? freshest([group.primary, ...group.variants], mtimes) ||
+                  undefined
+                : undefined
+            }
           />
         ))}
       </div>

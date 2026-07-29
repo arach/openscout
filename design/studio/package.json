@@ -5,11 +5,13 @@
   "type": "module",
   "description": "Internal design + planning studio for OpenScout. Renders the plans/ tree, hosts inline UI studies, and exposes a live atom gallery.",
   "scripts": {
-    "dev": "next dev --port 43140",
+    "dev": "bun ../../../studio/bin/studio.mjs dev --port 43140 -- next dev --port 43140",
+    "dev:raw": "next dev --port 43140",
     "build": "next build --webpack",
     "start": "next start --port 43140"
   },
   "dependencies": {
+    "hudsonkit": "^0.3.5",
     "@arach/arc": "0.4.1",
     "@codemirror/lang-css": "^6.3.1",
     "@codemirror/lang-html": "^6.4.11",

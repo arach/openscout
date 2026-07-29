@@ -6,7 +6,7 @@ Product/design review aligning the OpenScout **web** homepage with the proposed 
 
 - **Web Home** — default route → `screens/HomeScreen.tsx:474-1255`, rendered for the `fleet` and default cases in `scout/slots/Content.tsx:87,146`. Hero in `screens/HomeHero.tsx:391-552`.
 - **macOS** — `Scout/ScoutRootView.swift` + `Scout/ScoutModels.swift:6-34`. There is **no Home/Overview today** — five equal sections (Comms, Agents, Tail, Repos, Settings).
-- **Docs** — `docs/eng/sco-068-unified-native-settings.md` (Settings>Overview, system-health only), `docs/eng/scout-ios-home-projects-designreview.md` (iOS projects-first Home).
+- **Docs** — `docs/eng/sco-068-unified-native-settings.md` (Settings>Overview, system-health only). iOS no longer ships a projects-first Home tree; the row grammar below is the salvage from that pass.
 
 ---
 
@@ -30,7 +30,7 @@ Net: optimizes for **live monitoring + triage of everything at once**.
 - **Posture: log/workspace, not launchpad.** The biggest module is a raw event firehose (#4). The intended Home is an orientation/launchpad that previews one signal and pushes granular detail to ops — it should read curated feeds, not the raw firehose.
 - **Curated feed bypassed.** `/v1/home` is built but unused by Home; Home aggregates the raw `/api/fleet` instead.
 - **"Needs Attention" is a primary module.** The operator queue (#6) is its own top-level block. Operator direction is to derive attention, not anchor on it.
-- **No Recent Projects anchor at all.** Projects appear only implicitly as `workspace` paths inside agent cards. The only real projects-first Home precedent is **iOS** (`scout-ios-home-projects-designreview.md`: folder rows, agents as children, single-agent compresses inline) — never ported to web or Mac.
+- **No Recent Projects anchor at all.** Projects appear only implicitly as `workspace` paths inside agent cards. A former iOS projects-first Home (folder rows, agents as children, single-agent compressed inline) was the only real precedent — never ported to web or Mac, and no longer present on iOS either.
 - **Mac has no Home to share.** Five equal sections (`ScoutModels.swift:6-34`); SCO-068's "Overview" is a **Settings** system-health page, not a product Home. So web and Mac currently share no Home model.
 
 ## 3) Recommended shared structure (web + Mac)
@@ -61,8 +61,17 @@ Two primary anchors, supporting rails around them, same on both platforms:
 
 **Recent Projects** — project rows keyed by repo identity, most-recent-activity first:
 - project name, agent count, last-activity age, derived attention badge;
-- expandable to per-agent child rows; **child rows must not restate the parent name** (port the iOS discriminator: trailing id → harness/model → short sessionId → branch → "agent"; see designreview §1);
+- expandable to per-agent child rows; **child rows must not restate the parent name**;
 - single-agent projects compressed inline (folder → name / runtime).
+
+**Row grammar** (durable rules from the retired iOS projects Home polish — apply when this anchor lands on web/Mac):
+- **Child identity discriminator** when title restates the project, in order: trailing id already in the title → harness/model → short sessionId → branch → `"agent"` last.
+- **Runtime chrome:** plain mono token in expanded list rows; capsule only on the compressed solo row (one deliberate accent).
+- **Right-edge column:** always mono + `monospacedDigit` + muted, fixed min-width, never truncates; title is the only field that yields.
+- **Truncation:** project names → tail; agent titles → middle (keep human prefix *and* trailing id).
+- **Chevrons:** expand-in-place and drill-into-conversation must not share one glyph; solo leaf can drop the chevron entirely.
+- **Tree connector:** either make the spine actually legible, or drop it — no faint-and-pointless middle ground.
+- **One indent system:** one leaf rail, not stacked paddings that push the title past ~half the card.
 
 ## 6) Quick Actions placement
 

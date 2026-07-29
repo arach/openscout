@@ -5,84 +5,18 @@
 /* ──────────────────────────────────────────────────────────────────
  * OpenScout Studio globals.
  *
- * Two palettes — dark (default, matches scout's HUD default) and
- * light — both backed by scout's actual oklch tokens from
- * `packages/web/client/scout/Provider.tsx`. The theme is selected by
- * `data-theme="dark|light"` on <html>; flip via the ThemeToggle in
- * the sidebar. A bootstrap script in app/layout.tsx reads the saved
- * value from localStorage before paint to avoid FOUC.
+ * Color tokens come from Hudsonkit:
+ *   1. hudsonkit/styles        — --hud-* (theme + template)
+ *   2. theme-aliases.css       — --studio-* / --scout-* / --status-* → --hud-*
+ *   3. this file               — studio utilities (prose, ink tints, …)
  *
- * Tailwind reads these as `var(--…)` (see tailwind.config.ts), so a
- * single attribute flip recolors the whole studio.
+ * Theme flip: HudsonThemeScript + ThemeProvider set
+ * data-hudson-theme. ThemeToggle also mirrors onto data-theme for
+ * legacy selectors (eng-doc, CodeViewer, foundation swatches).
  * ────────────────────────────────────────────────────────────────── */
 
-/* ── Dark (default) — scout HUD dark bundle ───────────────────────── */
-:root,
-[data-theme="dark"] {
-  --studio-canvas:       oklch(0.14 0.008 80);
-  --studio-canvas-alt:   oklch(0.19 0.009 80);
-  --studio-surface:      oklch(0.21 0.010 80);
-  --studio-ink:          oklch(0.96 0.008 80);
-  --studio-ink-muted:    oklch(0.76 0.012 80);
-  --studio-ink-faint:    oklch(0.64 0.012 80);
-  /* Dividers: a slightly-elevated SOLID, never near-white-with-alpha.
-   * White-with-alpha on a dark surface reads as a hard pixel rule no
-   * matter how low the alpha gets — the contrast with the dark surface
-   * is what the eye picks up. A solid 0.25 in the same warm hue stays
-   * inside the surface family and reads as a quiet lift, not a stripe. */
-  --studio-edge:         oklch(0.29 0.008 80);
-  --studio-edge-strong:  oklch(0.37 0.010 80);
-
-  --scout-accent:        oklch(0.86 0.17 125);
-  --scout-accent-soft:   oklch(0.86 0.17 125 / 0.18);
-
-  --status-ok-fg:        oklch(0.84 0.16 155);
-  --status-ok-bg:        oklch(0.64 0.16 155 / 0.18);
-  --status-warn-fg:      oklch(0.85 0.15 85);
-  --status-warn-bg:      oklch(0.72 0.15 85 / 0.16);
-  --status-error-fg:     oklch(0.78 0.17 25);
-  --status-error-bg:     oklch(0.72 0.18 25 / 0.16);
-  --status-info-fg:      oklch(0.80 0.10 220);
-  --status-info-bg:      oklch(0.70 0.12 220 / 0.18);
-  --status-neutral-fg:   oklch(0.78 0.010 80);
-  --status-neutral-bg:   oklch(0.96 0.008 80 / 0.06);
-
-  --code-bg:             oklch(0.20 0.010 80);
-  --code-border:         oklch(0.24 0.010 80);
-
-  color-scheme: dark;
-}
-
-/* ── Light — scout HUD light bundle ───────────────────────────────── */
-[data-theme="light"] {
-  --studio-canvas:       oklch(0.978 0.004 85);
-  --studio-canvas-alt:   oklch(0.93 0.005 85);
-  --studio-surface:      oklch(0.992 0.003 85);
-  --studio-ink:          oklch(0.24 0.01 80);
-  --studio-ink-muted:    oklch(0.44 0.014 80);
-  --studio-ink-faint:    oklch(0.58 0.012 80);
-  --studio-edge:         oklch(0.78 0.008 82);
-  --studio-edge-strong:  oklch(0.66 0.010 82);
-
-  --scout-accent:        oklch(0.62 0.16 125);
-  --scout-accent-soft:   oklch(0.72 0.16 125 / 0.18);
-
-  --status-ok-fg:        oklch(0.40 0.14 155);
-  --status-ok-bg:        oklch(0.88 0.08 155 / 0.55);
-  --status-warn-fg:      oklch(0.48 0.14 75);
-  --status-warn-bg:      oklch(0.90 0.10 85 / 0.55);
-  --status-error-fg:     oklch(0.46 0.18 25);
-  --status-error-bg:     oklch(0.88 0.08 25 / 0.55);
-  --status-info-fg:      oklch(0.42 0.10 220);
-  --status-info-bg:      oklch(0.88 0.06 220 / 0.55);
-  --status-neutral-fg:   oklch(0.38 0.010 80);
-  --status-neutral-bg:   oklch(0.92 0.006 80);
-
-  --code-bg:             oklch(0.94 0.005 85);
-  --code-border:         oklch(0.84 0.008 82);
-
-  color-scheme: light;
-}
+/* hudsonkit/styles + theme-aliases are imported from layout.tsx so Next
+ * resolves the package export without postcss package-name gymnastics. */
 
 html,
 body {
@@ -90,6 +24,12 @@ body {
   color: var(--studio-ink);
   font-family: theme("fontFamily.mono");
   -webkit-font-smoothing: antialiased;
+}
+
+/* StatusBar ships a locale clock (AM/PM, tight min-width). We render
+ * StudioClock in the right slot and hide the built-in trailing clock. */
+[data-frame-panel="status-bar"] > div:last-child > div:last-child {
+  display: none;
 }
 
 /* ── Focus ring ────────────────────────────────────────────────────
@@ -158,9 +98,8 @@ body {
 
 /* ── Prose ─────────────────────────────────────────────────────────
  * Applied via `.studio-prose` on the rendered markdown wrapper.
- * Play for prose headings (studio's display direction), Inter Tight
- * for body, JetBrains Mono for code + chrome. Sized for sustained
- * reading at ~720px column width. */
+ * Inter Tight for headings + body, JetBrains Mono for code + chrome.
+ * Sized for sustained reading at ~720px column width. */
 
 .studio-prose {
   font-family: theme("fontFamily.sans");
