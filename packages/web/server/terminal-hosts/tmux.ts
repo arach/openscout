@@ -1,4 +1,9 @@
-import { captureTmuxPane, execSystemFile, tmuxSessionsProbe } from "@openscout/runtime/system-probes";
+import {
+  captureTmuxPane,
+  execSystemFile,
+  invalidateTmuxSessions,
+  tmuxSessionsProbe,
+} from "@openscout/runtime/system-probes";
 import { formatTerminalSurfaceId } from "@openscout/protocol";
 import type { TerminalSurface } from "@openscout/protocol";
 
@@ -28,7 +33,7 @@ export const tmuxTerminalHost: TerminalHostAdapter = {
     list: true,
     // Delivery state is inferred from a rendered composer, not reported.
     observedAgentState: false,
-    control: ["interrupt", "quit", "detach", "force-quit-bridge"],
+    control: ["interrupt", "quit", "detach", "release", "force-quit-bridge"],
     harnessControl: ["stop-job", "restart-resume", "force-quit"],
   },
 
@@ -47,6 +52,7 @@ export const tmuxTerminalHost: TerminalHostAdapter = {
       metadata: {
         windows: session.windows,
         ...(session.createdAt ? { startedAt: session.createdAt * 1000 } : {}),
+        ...(session.activityAt ? { activityAt: session.activityAt * 1000 } : {}),
       },
     }));
   },
@@ -104,6 +110,13 @@ export const tmuxTerminalHost: TerminalHostAdapter = {
             timeoutMs: TMUX_TIMEOUT_MS,
             env: context.env,
           });
+          return { delivered: true };
+        case "release":
+          await execSystemFile("tmux", ["kill-session", "-t", target.sessionName], {
+            timeoutMs: TMUX_TIMEOUT_MS,
+            env: context.env,
+          });
+          invalidateTmuxSessions({ env: context.env, reason: "terminal-host.release" });
           return { delivered: true };
         default:
           return { delivered: false, reason: `tmux does not perform ${action}` };

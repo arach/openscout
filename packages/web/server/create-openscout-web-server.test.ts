@@ -202,6 +202,11 @@ mock.module("./terminal-session-discovery.ts", () => ({
       raw: line,
     })),
   queryDiscoveredTerminalSessions: () => queryDiscoveredTerminalSessionsResult,
+  reconcileTerminalSessionInventory: (
+    registered: Array<Record<string, unknown>>,
+    discovered: Array<Record<string, unknown>>,
+    limit: number,
+  ) => [...registered, ...discovered].slice(0, limit),
   terminalSurfaceKey: (backend: string, sessionName: string) => `${backend}:${sessionName}`,
 }));
 

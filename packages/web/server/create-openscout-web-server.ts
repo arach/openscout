@@ -74,6 +74,7 @@ import { resolveTerminalSurface } from "./core/terminal-surfaces.ts";
 import { resolveRepoKeysByRoot } from "./core/repo-identity.ts";
 import {
   queryDiscoveredTerminalSessions,
+  reconcileTerminalSessionInventory,
   terminalSurfaceKey,
 } from "./terminal-session-discovery.ts";
 import {
@@ -1265,7 +1266,7 @@ function parseTerminalSessionDiscoveryFlag(value: string | undefined): boolean {
   return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "backend";
 }
 
-function parseTerminalSurfaceControlAction(value: string | undefined): "interrupt" | "quit" | "stop-job" | "restart-resume" | "detach" | "force-quit" | "force-quit-bridge" | undefined {
+function parseTerminalSurfaceControlAction(value: string | undefined): "interrupt" | "quit" | "stop-job" | "restart-resume" | "detach" | "release" | "force-quit" | "force-quit-bridge" | undefined {
   const normalized = value?.trim().toLowerCase();
   if (
     normalized === "interrupt"
@@ -1273,6 +1274,7 @@ function parseTerminalSurfaceControlAction(value: string | undefined): "interrup
     || normalized === "stop-job"
     || normalized === "restart-resume"
     || normalized === "detach"
+    || normalized === "release"
     || normalized === "force-quit"
     || normalized === "force-quit-bridge"
   ) {
@@ -5264,13 +5266,14 @@ export async function createOpenScoutWebServer(
     const discovered = includeDiscovered
       ? await queryDiscoveredTerminalSessions({
           ...(backend ? { backend } : {}),
-          limit: Math.max(0, limit - sessions.length),
-          excludeSurfaces: sessions.flatMap((session) =>
-            session.surfaces.map((surface) => terminalSurfaceKey(surface.backend, surface.sessionName))
-          ),
+          // Read the full host inventory so a registered surface can inherit
+          // authoritative activity even when it is already at the result cap.
+          limit: 1000,
         })
       : [];
-    const visibleSessions = [...sessions, ...discovered];
+    const visibleSessions = includeDiscovered
+      ? reconcileTerminalSessionInventory(sessions, discovered, limit)
+      : sessions;
     return c.json({
       ok: true,
       count: visibleSessions.length,
@@ -6921,7 +6924,7 @@ export async function createOpenScoutWebServer(
 
     if (!backend) return c.json({ error: "backend must be a registered terminal host" }, 400);
     if (!sessionName) return c.json({ error: "sessionName is required" }, 400);
-    if (!action) return c.json({ error: "action must be interrupt, quit, stop-job, restart-resume, detach, force-quit, or force-quit-bridge" }, 400);
+    if (!action) return c.json({ error: "action must be interrupt, quit, stop-job, restart-resume, detach, release, force-quit, or force-quit-bridge" }, 400);
 
     // Capability, not backend. A host that cannot perform a verb says so with
     // the capability that is missing, and the UI is expected to have read
@@ -6944,7 +6947,7 @@ export async function createOpenScoutWebServer(
       if (action === "restart-resume") {
         resumeResult = await restartClaudeWithResumeInTmuxSurface(sessionName);
         delivered = resumeResult.ok;
-      } else if (action !== "force-quit-bridge") {
+      } else if (action !== "force-quit-bridge" && action !== "release") {
         delivered = await controlTmuxSurface(sessionName, action);
       }
     } else if (action !== "force-quit-bridge") {
@@ -6954,7 +6957,7 @@ export async function createOpenScoutWebServer(
     }
 
     let destroyed = 0;
-    if (action === "detach" || action === "force-quit" || action === "force-quit-bridge" || action === "restart-resume") {
+    if (action === "detach" || action === "release" || action === "force-quit" || action === "force-quit-bridge" || action === "restart-resume") {
       // Only hosts the relay can carry have a bridge to tear down. That is the
       // `relayAttach` capability plus what this vendored relay build accepts,
       // asked as one question instead of spelled out as a backend list here.
@@ -6963,7 +6966,7 @@ export async function createOpenScoutWebServer(
         destroyed = await options.destroyTerminalRelaySurface(relayBackend, sessionName);
       }
       const detachSupport = terminalHostSupportsControl(backend, "detach");
-      if (action !== "restart-resume" && action !== "detach" && detachSupport.supported) {
+      if (action !== "restart-resume" && action !== "detach" && action !== "release" && detachSupport.supported) {
         await resolveTerminalHostAdapter(backend).control?.("detach", { sessionName });
       }
     }

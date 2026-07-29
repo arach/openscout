@@ -29,6 +29,7 @@ const ALL_ACTIONS: TerminalHostControlAction[] = [
   "stop-job",
   "restart-resume",
   "detach",
+  "release",
   "force-quit",
   "force-quit-bridge",
 ];
@@ -88,7 +89,7 @@ describe("terminal host registry", () => {
         capture: true,
         create: true,
         observedAgentState: false,
-        control: ["interrupt", "quit", "detach", "force-quit-bridge"],
+        control: ["interrupt", "quit", "detach", "release", "force-quit-bridge"],
         harnessControl: ["stop-job", "restart-resume", "force-quit"],
       },
       zellij: {
@@ -131,6 +132,7 @@ describe("terminal host registry", () => {
   test("support answers which route a verb takes, or that there is none", () => {
     expect(terminalHostSupportsControl("tmux", "interrupt")).toEqual({ supported: true, via: "host" });
     expect(terminalHostSupportsControl("tmux", "restart-resume")).toEqual({ supported: true, via: "harness" });
+    expect(terminalHostSupportsControl("tmux", "release")).toEqual({ supported: true, via: "host" });
     expect(terminalHostSupportsControl("zellij", "interrupt")).toEqual({ supported: true, via: "host" });
     expect(terminalHostSupportsControl("zellij", "restart-resume")).toEqual({ supported: false, via: null });
     expect(terminalHostSupportsControl("herdr", "force-quit-bridge")).toEqual({ supported: true, via: "host" });

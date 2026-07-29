@@ -13,6 +13,10 @@ export type TerminalSessionSort = {
   direction: "asc" | "desc";
 };
 
+export const TERMINAL_SESSION_INACTIVE_AFTER_MS = 7 * 24 * 60 * 60 * 1_000;
+export const TERMINAL_SESSION_REVIEW_AFTER_MS = 30 * 24 * 60 * 60 * 1_000;
+export type TerminalSessionLifecycle = "current" | "inactive" | "review";
+
 /**
  * Default sort: the sessions doing something come first, then the most
  * recently active. An operator opening the picker is looking for live work far
@@ -63,14 +67,42 @@ export function terminalSessionStateLabel(item: TerminalListItem): string {
  * Last activity, in epoch ms, or null when the host does not report one.
  *
  * Discovered records are stamped with the moment they were probed, which is
- * not activity and must not be presented as it; a tmux session's start time is
- * real and is used instead. Null renders as an em dash rather than "just now".
+ * not activity and must not be presented as it. Tmux reports its own last
+ * activity; start time remains a compatibility fallback for older hosts.
  */
 export function terminalSessionActivityAt(item: TerminalListItem): number | null {
+  const activityAt = item.session.metadata?.activityAt;
+  if (typeof activityAt === "number" && Number.isFinite(activityAt) && activityAt > 0) return activityAt;
   const startedAt = item.session.metadata?.startedAt;
   if (typeof startedAt === "number" && Number.isFinite(startedAt) && startedAt > 0) return startedAt;
   if (item.origin === "backend") return null;
   return item.session.updatedAt || null;
+}
+
+/**
+ * Project a terminal surface into the lifecycle policy. Unknown activity stays
+ * current: absence of evidence must never become permission to stop work.
+ */
+export function terminalSessionLifecycle(
+  item: TerminalListItem,
+  now = Date.now(),
+): TerminalSessionLifecycle {
+  // Start time is useful for sorting an old host, but it is not proof of
+  // inactivity. Lifecycle decisions require last activity (or Scout's own
+  // durable update timestamp for registered records).
+  const hostActivityAt = item.session.metadata?.activityAt;
+  const activityAt = typeof hostActivityAt === "number"
+    && Number.isFinite(hostActivityAt)
+    && hostActivityAt > 0
+    ? hostActivityAt
+    : item.origin === "backend"
+      ? null
+      : item.session.updatedAt || null;
+  if (activityAt === null) return "current";
+  const age = Math.max(0, now - activityAt);
+  if (age >= TERMINAL_SESSION_REVIEW_AFTER_MS) return "review";
+  if (age >= TERMINAL_SESSION_INACTIVE_AFTER_MS) return "inactive";
+  return "current";
 }
 
 function compareText(left: string, right: string): number {

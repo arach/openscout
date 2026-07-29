@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
 import { formatTerminalSurfaceId, parseTerminalSurfaceId } from "@openscout/protocol";
+import type { TerminalSessionRecord } from "@openscout/protocol";
 
 import {
   isDiscoverableTerminalBackend,
   parseTmuxSessionList,
   queryDiscoveredTerminalSessions,
   parseZellijSessionList,
+  reconcileTerminalSessionInventory,
   terminalSurfaceKey,
 } from "./terminal-session-discovery.ts";
 
@@ -73,3 +75,57 @@ describe("discovered records", () => {
     expect(isDiscoverableTerminalBackend(null)).toBe(false);
   });
 });
+
+describe("terminal inventory reconciliation", () => {
+  test("enriches a registered surface with live host activity without duplicating it", () => {
+    const registered = terminalSession("registered", "shared", 1, { owner: "scout" });
+    const discovered = terminalSession("discovered", "shared", 2, {
+      source: "backend-discovery",
+      activityAt: 9_000,
+    });
+    const other = terminalSession("other", "other", 3, { activityAt: 8_000 });
+
+    expect(reconcileTerminalSessionInventory([registered], [discovered, other], 10)).toEqual([
+      {
+        ...registered,
+        metadata: { owner: "scout", activityAt: 9_000 },
+      },
+      other,
+    ]);
+  });
+
+  test("keeps the newest known activity and honors the result limit", () => {
+    const registered = terminalSession("registered", "shared", 1, { activityAt: 12_000 });
+    const discovered = terminalSession("discovered", "shared", 2, { activityAt: 9_000 });
+    const other = terminalSession("other", "other", 3, { activityAt: 8_000 });
+
+    expect(reconcileTerminalSessionInventory([registered], [discovered, other], 1)).toEqual([registered]);
+  });
+});
+
+function terminalSession(
+  id: string,
+  sessionName: string,
+  updatedAt: number,
+  metadata: Record<string, unknown>,
+): TerminalSessionRecord {
+  return {
+    id,
+    harness: id === "discovered" ? "" : "claude",
+    sourceSessionId: sessionName,
+    cwd: "/repo",
+    resumeCommand: id === "discovered" ? "" : `claude --resume ${sessionName}`,
+    surfaces: [{
+      backend: "tmux",
+      sessionName,
+      paneId: null,
+      attachCommand: ["tmux", "attach", "-t", sessionName],
+      observeCommand: null,
+      relay: { backend: "tmux", sessionName, tmuxSession: sessionName },
+      state: "live",
+    }],
+    createdAt: updatedAt,
+    updatedAt,
+    metadata,
+  };
+}

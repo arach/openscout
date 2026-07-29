@@ -3,8 +3,11 @@ import { describe, expect, test } from "bun:test";
 import type { TerminalListItem } from "../../lib/terminal-sessions.ts";
 import {
   DEFAULT_TERMINAL_SESSION_SORT,
+  TERMINAL_SESSION_INACTIVE_AFTER_MS,
+  TERMINAL_SESSION_REVIEW_AFTER_MS,
   sortTerminalSessionItems,
   terminalSessionActivityAt,
+  terminalSessionLifecycle,
   terminalSessionStateLabel,
   terminalSessionStateRank,
   toggleTerminalSessionSort,
@@ -18,6 +21,7 @@ function item(input: {
   project?: string;
   origin?: "backend" | "scout";
   startedAt?: number;
+  activityAt?: number;
   updatedAt?: number;
 }): TerminalListItem {
   return {
@@ -53,6 +57,7 @@ function item(input: {
       metadata: {
         ...(input.attached === undefined ? {} : { attachedClients: input.attached }),
         ...(input.startedAt === undefined ? {} : { startedAt: input.startedAt }),
+        ...(input.activityAt === undefined ? {} : { activityAt: input.activityAt }),
       },
     },
   } as TerminalListItem;
@@ -75,8 +80,15 @@ describe("terminalSessionStateRank", () => {
 });
 
 describe("terminalSessionActivityAt", () => {
-  test("prefers a host-reported start time", () => {
-    expect(terminalSessionActivityAt(item({ title: "a", backend: "tmux", startedAt: 1000, origin: "backend" })))
+  test("prefers host activity and falls back to start time", () => {
+    expect(terminalSessionActivityAt(item({
+      title: "a",
+      backend: "tmux",
+      activityAt: 2000,
+      startedAt: 1000,
+      origin: "backend",
+    }))).toBe(2000);
+    expect(terminalSessionActivityAt(item({ title: "b", backend: "tmux", startedAt: 1000, origin: "backend" })))
       .toBe(1000);
   });
 
@@ -86,6 +98,39 @@ describe("terminalSessionActivityAt", () => {
       .toBeNull();
     expect(terminalSessionActivityAt(item({ title: "b", backend: "tmux", origin: "scout", updatedAt: 9999 })))
       .toBe(9999);
+  });
+});
+
+describe("terminalSessionLifecycle", () => {
+  const now = 100 * 24 * 60 * 60 * 1_000;
+
+  test("keeps recent work current and separates inactive from review", () => {
+    expect(terminalSessionLifecycle(item({
+      title: "current",
+      backend: "tmux",
+      activityAt: now - TERMINAL_SESSION_INACTIVE_AFTER_MS + 1,
+    }), now)).toBe("current");
+    expect(terminalSessionLifecycle(item({
+      title: "inactive",
+      backend: "tmux",
+      activityAt: now - TERMINAL_SESSION_INACTIVE_AFTER_MS,
+    }), now)).toBe("inactive");
+    expect(terminalSessionLifecycle(item({
+      title: "review",
+      backend: "tmux",
+      activityAt: now - TERMINAL_SESSION_REVIEW_AFTER_MS,
+    }), now)).toBe("review");
+  });
+
+  test("unknown activity is never treated as permission to retire", () => {
+    expect(terminalSessionLifecycle(item({ title: "unknown", backend: "zellij", origin: "backend" }), now))
+      .toBe("current");
+    expect(terminalSessionLifecycle(item({
+      title: "old-host",
+      backend: "tmux",
+      origin: "backend",
+      startedAt: now - TERMINAL_SESSION_REVIEW_AFTER_MS,
+    }), now)).toBe("current");
   });
 });
 
