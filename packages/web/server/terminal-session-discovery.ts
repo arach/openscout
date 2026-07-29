@@ -52,6 +52,63 @@ export async function queryDiscoveredTerminalSessions(
 }
 
 /**
+ * Combine durable Scout registrations with the live host inventory.
+ *
+ * A registered surface wins identity and resume metadata, while a matching
+ * host record contributes authoritative activity. Without this reconciliation
+ * the API suppresses the discovered duplicate and accidentally leaves the UI
+ * to treat the registration timestamp as terminal activity.
+ */
+export function reconcileTerminalSessionInventory(
+  registered: readonly TerminalSessionRecord[],
+  discovered: readonly TerminalSessionRecord[],
+  limit: number,
+): TerminalSessionRecord[] {
+  const discoveredBySurface = new Map<string, TerminalSessionRecord>();
+  for (const session of discovered) {
+    for (const surface of session.surfaces) {
+      discoveredBySurface.set(terminalSurfaceKey(surface.backend, surface.sessionName), session);
+    }
+  }
+
+  const registeredSurfaces = new Set<string>();
+  const enriched = registered.map((session) => {
+    const registeredActivityAt = metadataNumber(session.metadata, "activityAt");
+    let activityAt = registeredActivityAt;
+    for (const surface of session.surfaces) {
+      const key = terminalSurfaceKey(surface.backend, surface.sessionName);
+      registeredSurfaces.add(key);
+      const liveActivityAt = metadataNumber(discoveredBySurface.get(key)?.metadata, "activityAt");
+      if (liveActivityAt !== null && (activityAt === null || liveActivityAt > activityAt)) {
+        activityAt = liveActivityAt;
+      }
+    }
+    if (activityAt === null || activityAt === registeredActivityAt) {
+      return session;
+    }
+    return {
+      ...session,
+      metadata: {
+        ...(session.metadata ?? {}),
+        activityAt,
+      },
+    };
+  });
+
+  const unregistered = discovered.filter((session) =>
+    !session.surfaces.some((surface) =>
+      registeredSurfaces.has(terminalSurfaceKey(surface.backend, surface.sessionName))
+    )
+  );
+  return [...enriched, ...unregistered].slice(0, limit);
+}
+
+function metadataNumber(metadata: Record<string, unknown> | undefined, key: string): number | null {
+  const value = metadata?.[key];
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/**
  * A host that is not installed is not an error: it has no sessions. A host that
  * is installed but broken should not take the whole inventory down with it
  * either, so one failing adapter contributes nothing and the rest still list.

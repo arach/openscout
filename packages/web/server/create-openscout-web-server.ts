@@ -74,6 +74,7 @@ import { resolveTerminalSurface } from "./core/terminal-surfaces.ts";
 import { resolveRepoKeysByRoot } from "./core/repo-identity.ts";
 import {
   queryDiscoveredTerminalSessions,
+  reconcileTerminalSessionInventory,
   terminalSurfaceKey,
 } from "./terminal-session-discovery.ts";
 import {
@@ -5265,13 +5266,14 @@ export async function createOpenScoutWebServer(
     const discovered = includeDiscovered
       ? await queryDiscoveredTerminalSessions({
           ...(backend ? { backend } : {}),
-          limit: Math.max(0, limit - sessions.length),
-          excludeSurfaces: sessions.flatMap((session) =>
-            session.surfaces.map((surface) => terminalSurfaceKey(surface.backend, surface.sessionName))
-          ),
+          // Read the full host inventory so a registered surface can inherit
+          // authoritative activity even when it is already at the result cap.
+          limit: 1000,
         })
       : [];
-    const visibleSessions = [...sessions, ...discovered];
+    const visibleSessions = includeDiscovered
+      ? reconcileTerminalSessionInventory(sessions, discovered, limit)
+      : sessions;
     return c.json({
       ok: true,
       count: visibleSessions.length,
