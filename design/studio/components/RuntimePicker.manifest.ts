@@ -269,12 +269,12 @@ export const runtimePickerManifest: ComponentManifest = {
     status: "drifted",
     drift: [
       "Value shape: studio takes one `value: RuntimeValue` plus `onChange`; web takes `harness`/`model`/`effort` as three props with three separate callbacks.",
-      "`RuntimeOption` means different things: studio is `{ value, label, note?, disabled? }`; web is `string | { value, label?, disabled? }`.",
+      "Option shape: studio options are `{ value, label, note?, disabled? }` objects; web takes flat `readonly string[]` lists (effort aside, which is `{ value, label }[]`), so web options carry no notes and no per-option disabled state.",
       "Catalog: studio is catalog-driven with per-harness model lists; web takes two flat lists that are deliberately NOT filtered by harness, because its callers' builders are not harness-aware.",
       "Effort ladder: studio is per-harness and can be absent entirely; web ships a fixed eight-rung list and gates the whole band behind `showEffort`.",
       "Reconciliation: studio resets the model and clamps effort when the harness changes; web leaves both to the caller.",
       "Keyboard: studio has roving arrow-key navigation; web relies on plain tab order through every option button.",
-      "Unselectable options: studio uses aria-disabled and keeps them focusable; web uses the disabled attribute, which drops them out of the focus order.",
+      "Unselectable options: studio supports them — aria-disabled, still focusable so they are announced; web has no per-option disabled concept at all, only the whole control can be disabled.",
       "Styling: studio is Tailwind utilities plus `.rp-*` CSS; web is pure CSS under `.s-rt-*`. Token names differ (`--studio-ink` vs `--ink`).",
     ],
     notes:
@@ -284,8 +284,8 @@ export const runtimePickerManifest: ComponentManifest = {
     // these, which is the only way anyone finds out that editing the
     // production copy silently invalidated a studio sidecar.
     verifiedAgainst: {
-      "design/studio/components/RuntimePicker.tsx": "068b2ebc766f",
-      "packages/web/client/components/MessageComposer/RuntimePicker.tsx": "5aa9f1afa23c",
+      "design/studio/components/RuntimePicker.tsx": "8ba42e3daf3c",
+      "packages/web/client/components/MessageComposer/RuntimePicker.tsx": "29fb0088748b",
     },
   },
 };

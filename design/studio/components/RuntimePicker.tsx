@@ -409,7 +409,7 @@ function ModelList({ ctx }: { ctx: PanelCtx }) {
       key={ctx.value.harness}
       role="listbox"
       aria-label="Model"
-      className="rp-swap flex min-w-0 flex-1 flex-col gap-px p-1.5"
+      className="rp-models rp-swap flex min-w-0 flex-1 flex-col gap-px p-1.5"
     >
       {ctx.models.map((model, index) => (
         <ModelRow

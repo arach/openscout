@@ -182,6 +182,18 @@ button:hover > .rp-seg[data-state="empty"] {
   transform-origin: top left;
 }
 
+/* The list is the only unbounded content in the panel — a live catalog can be
+ * arbitrarily long, and the panel is positioned against a fixed height
+ * estimate. Cap it and scroll, so a long catalog overflows the list instead of
+ * the viewport (an up-panel is anchored by its bottom edge, so overflow there
+ * clips the first rows with no way to reach them). The vh term shrinks the cap
+ * on short viewports before the flip math ever sees them. */
+.rp-models {
+  max-height: min(248px, calc(100vh - 220px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 /* Rows arrive after the box, stepped. The delay is set inline per row so the
  * stagger survives a variant swap without a second keyframe set. */
 .rp-stagger {
