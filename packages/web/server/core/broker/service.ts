@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 
@@ -101,6 +101,13 @@ type ScoutBrokerContextCacheEntry = {
 };
 
 const scoutBrokerContextCache = new Map<string, ScoutBrokerContextCacheEntry>();
+
+function invalidateScoutBrokerContextCache(baseUrl: string): void {
+  const prefix = [baseUrl, resolveBrokerSocketPathForBaseUrl(baseUrl) ?? "http"].join("\u0000") + "\u0000";
+  for (const key of scoutBrokerContextCache.keys()) {
+    if (key.startsWith(prefix)) scoutBrokerContextCache.delete(key);
+  }
+}
 
 export type ScoutBrokerContext = {
   baseUrl: string;
@@ -270,6 +277,19 @@ export type ScoutDirectMessageResult = {
   messageId: string;
   flight?: ScoutFlightRecord;
 };
+
+export class ScoutDirectDeliveryUnavailableError extends Error {
+  readonly delivery: Exclude<ScoutDeliverResponse, { kind: "delivery" }>;
+
+  constructor(delivery: Exclude<ScoutDeliverResponse, { kind: "delivery" }>) {
+    const detail = delivery.kind === "question"
+      ? delivery.question.detail
+      : delivery.rejection.detail;
+    super(detail);
+    this.name = "ScoutDirectDeliveryUnavailableError";
+    this.delivery = delivery;
+  }
+}
 
 export type ScoutWatchOptions = {
   agentId?: string;
@@ -624,6 +644,32 @@ function clientMessageMetadata(clientMessageId: string | null | undefined): Reco
   return normalized ? { clientMessageId: normalized } : {};
 }
 
+function deliveryRequestId(clientMessageId: string | null | undefined, createdAt: number): string {
+  const normalized = typeof clientMessageId === "string" ? clientMessageId.trim() : "";
+  if (!normalized) {
+    return `deliver-${createdAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+  const digest = createHash("sha256").update(normalized).digest("hex").slice(0, 32);
+  return `deliver-client-${digest}`;
+}
+
+function stableBrokerRecordId(
+  prefix: "m" | "inv",
+  clientMessageId: string | null | undefined,
+  createdAt: number,
+  discriminator = "",
+): string {
+  const normalized = typeof clientMessageId === "string" ? clientMessageId.trim() : "";
+  if (!normalized) {
+    return `${prefix}-${createdAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+  const digest = createHash("sha256")
+    .update(`${normalized}\u0000${discriminator}`)
+    .digest("hex")
+    .slice(0, 32);
+  return `${prefix}-client-${digest}`;
+}
+
 function endpointSessionId(endpoint: ScoutBrokerEndpointRecord | undefined): string | undefined {
   return endpoint?.sessionId?.trim()
     || metadataString(endpoint?.metadata, "externalSessionId")
@@ -751,12 +797,18 @@ async function brokerPostJson<T>(
   body: unknown,
   options: BrokerPostJsonOptions<T> = {},
 ): Promise<T> {
-  return requestScoutBrokerJson<T>(baseUrl, path, {
+  const response = await requestScoutBrokerJson<T>(baseUrl, path, {
     method: "POST",
     body,
     acceptErrorJson: options.acceptErrorJson,
     socketPath: resolveBrokerSocketPathForBaseUrl(baseUrl),
   });
+  // A successful broker mutation makes every bounded snapshot for this broker
+  // stale immediately. Leaving the old promise cached for five seconds caused
+  // the destination Chat to remount against a pre-send snapshot: the optimistic
+  // message disappeared, then reappeared only after the TTL expired.
+  invalidateScoutBrokerContextCache(baseUrl);
+  return response;
 }
 
 function isScoutDeliverResponse(value: unknown): value is ScoutDeliverResponse {
@@ -2044,6 +2096,8 @@ export async function sendScoutMessage(input: {
   clientMessageId?: string | null;
   createdAtMs?: number;
   executionHarness?: AgentHarness;
+  executionModel?: string;
+  executionReasoningEffort?: string;
   currentDirectory?: string;
 }): Promise<ScoutMessagePostResult> {
   const broker = await loadScoutBrokerContext();
@@ -2202,7 +2256,7 @@ export async function sendScoutMessage(input: {
     .concat(mentionResolution.unresolved)
     .concat(mentionResolution.ambiguous.map((entry) => entry.label))
     .concat(explicitTargetCandidates.filter((targetId) => !validTargets.includes(targetId)));
-  const messageId = `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const messageId = stableBrokerRecordId("m", input.clientMessageId, createdAtMs);
   const speechText = input.shouldSpeak ? stripScoutAgentSelectorLabels(input.body) : "";
   const returnAddress = buildScoutReturnAddress(broker.snapshot, senderId, {
     conversationId: conversation.id,
@@ -2236,7 +2290,7 @@ export async function sendScoutMessage(input: {
 
   for (const targetAgentId of validTargets) {
     await brokerPostJson(broker.baseUrl, scoutBrokerPaths.v1.invocations, {
-      id: `inv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      id: stableBrokerRecordId("inv", input.clientMessageId, createdAtMs, targetAgentId),
       requesterId: senderId,
       requesterNodeId: broker.node.id,
       targetAgentId,
@@ -2246,6 +2300,10 @@ export async function sendScoutMessage(input: {
       messageId,
       execution: {
         ...(input.executionHarness ? { harness: input.executionHarness } : {}),
+        ...(input.executionModel?.trim() ? { model: input.executionModel.trim() } : {}),
+        ...(input.executionReasoningEffort?.trim()
+          ? { reasoningEffort: input.executionReasoningEffort.trim() }
+          : {}),
         session: "new",
       },
       ensureAwake: true,
@@ -2342,7 +2400,7 @@ export async function sendScoutConversationMessage(input: {
     .map((target) => target.label)
     .concat(mentionResolution.unresolved)
     .concat(mentionResolution.ambiguous.map((entry) => entry.label));
-  const messageId = `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const messageId = stableBrokerRecordId("m", input.clientMessageId, createdAtMs);
   const returnAddress = buildScoutReturnAddress(broker.snapshot, senderId, {
     conversationId: conversation.id,
     replyToMessageId: messageId,
@@ -2404,6 +2462,7 @@ export async function sendScoutConversationSteer(input: {
   steerContextByTargetAgentId?: Record<string, { runId: string; flightId?: string }>;
   intent?: "invoke" | "steer" | "tell";
   execution?: InvocationRequest["execution"];
+  clientMessageId?: string | null;
   createdAtMs?: number;
   currentDirectory?: string;
   source?: string;
@@ -2517,7 +2576,7 @@ export async function sendScoutConversationSteer(input: {
       .filter((label) => !scopedSelectorLabels.has(normalizeAgentSelectorSegment(label))))
     .concat(explicitTargetIds.filter((targetId) => !targetIds.includes(targetId)));
 
-  const messageId = `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const messageId = stableBrokerRecordId("m", input.clientMessageId, createdAtMs);
   const returnAddress = buildScoutReturnAddress(broker.snapshot, senderId, {
     conversationId: conversation.id,
     replyToMessageId: messageId,
@@ -2556,6 +2615,7 @@ export async function sendScoutConversationSteer(input: {
       relayMessageId: messageId,
       relayTargetIds: targetIds,
       scopedTargets: targetLabels,
+      ...clientMessageMetadata(input.clientMessageId),
       returnAddress,
     },
   });
@@ -2570,7 +2630,7 @@ export async function sendScoutConversationSteer(input: {
       broker.baseUrl,
       scoutBrokerPaths.v1.invocations,
       {
-        id: `inv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        id: stableBrokerRecordId("inv", input.clientMessageId, createdAtMs, targetActorId),
         requesterId: senderId,
         requesterNodeId: broker.node.id,
         targetAgentId: targetActorId,
@@ -2745,38 +2805,37 @@ export async function sendScoutDirectMessage(input: {
   replyToMessageId?: string | null;
   referenceMessageIds?: string[];
   executionHarness?: AgentHarness;
+  executionModel?: string;
+  executionReasoningEffort?: string;
   source?: string;
   deviceId?: string;
 }): Promise<ScoutDirectMessageResult> {
   const broker = await requireScoutBrokerContext();
   const createdAt = Date.now();
   const source = input.source?.trim() || "scout-mobile";
-  const targetEndpoints = Object.values(broker.snapshot.endpoints ?? {})
-    .filter((endpoint) => endpoint.agentId === input.agentId);
-  const targetIsSuperseded = isSupersededBrokerAgent(broker.snapshot, input.agentId)
-    || (
-      targetEndpoints.length > 0
-      && targetEndpoints.every((endpoint) => (
-        metadataBoolean(endpoint.metadata, "retiredFromFleet")
-        || metadataBoolean(endpoint.metadata, "staleLocalRegistration")
-      ))
-    );
-  if (targetIsSuperseded) {
-    throw new Error(
-      `${displayNameForBrokerActor(broker.snapshot, input.agentId)} is a superseded local registration. Start the current project session from Workspaces before sending.`,
-    );
-  }
+  const attachments = normalizeOutgoingAttachments(input.attachments);
+  // The mobile bridge deliberately accepts attachment-only posts. `/v1/deliver`
+  // requires a non-empty body because consult deliveries also become invocation
+  // tasks, so give a valid attachment-only send an explicit task instead of
+  // letting the broker reject it after the upload succeeded.
+  const body = input.body.trim() || (attachments?.length ? "Review the attached message." : "");
   const delivery = await brokerPostDeliver(broker.baseUrl, {
-    id: `deliver-${createdAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    // A retry after a lost bridge acknowledgement must address the same broker
+    // transaction. The runtime pairs this stable id with clientMessageId.
+    id: deliveryRequestId(input.clientMessageId, createdAt),
     requesterId: OPERATOR_ID,
     requesterNodeId: broker.node.id,
     targetAgentId: input.agentId,
-    body: input.body.trim(),
-    attachments: normalizeOutgoingAttachments(input.attachments),
+    body,
+    attachments,
     intent: "consult",
     replyToMessageId: input.replyToMessageId ?? undefined,
     execution: {
       ...(input.executionHarness ? { harness: input.executionHarness } : {}),
+      ...(input.executionModel?.trim() ? { model: input.executionModel.trim() } : {}),
+      ...(input.executionReasoningEffort?.trim()
+        ? { reasoningEffort: input.executionReasoningEffort.trim() }
+        : {}),
       session: "new",
     },
     ensureAwake: true,
@@ -2797,9 +2856,7 @@ export async function sendScoutDirectMessage(input: {
     },
   });
   if (delivery.kind !== "delivery") {
-    throw new Error(
-      delivery.kind === "question" ? delivery.question.detail : delivery.rejection.detail,
-    );
+    throw new ScoutDirectDeliveryUnavailableError(delivery);
   }
 
   return {
@@ -2818,6 +2875,7 @@ export async function askScoutQuestion(input: {
   channel?: string;
   shouldSpeak?: boolean;
   createdAtMs?: number;
+  clientMessageId?: string | null;
   executionHarness?: AgentHarness;
   executionModel?: string;
   executionReasoningEffort?: string;
@@ -2871,7 +2929,7 @@ export async function askScoutQuestion(input: {
   const createdAt = input.createdAtMs ?? Date.now();
   const source = input.source?.trim() || "scout-cli";
   const delivery = await brokerPostDeliver(broker.baseUrl, {
-    id: `deliver-${createdAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    id: deliveryRequestId(input.clientMessageId, createdAt),
     requesterId: senderId,
     requesterNodeId: broker.node.id,
     ...(input.target ? { target: input.target } : {}),
@@ -2904,6 +2962,7 @@ export async function askScoutQuestion(input: {
     createdAt,
     messageMetadata: {
       source,
+      ...clientMessageMetadata(input.clientMessageId),
       ...(input.messageMetadata ?? {}),
     },
     invocationMetadata: {

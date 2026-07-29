@@ -9,11 +9,89 @@
 // because the controller has no LAN relay service to advertise.
 
 import { type ChildProcess, spawn } from "node:child_process";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { resolvedPairingConfig } from "./core/pairing/runtime/config.ts";
-import { resolveWebPort } from "@openscout/runtime/local-config";
+import { localConfigHome, resolveWebPort } from "@openscout/runtime/local-config";
 import { tryLoadIdentityPublicKeyHex } from "./core/pairing/runtime/security/identity.ts";
 
 const RECONCILE_INTERVAL_MS = 5_000;
+/** A claim older than this belongs to a process that stopped refreshing it. */
+const CLAIM_STALE_MS = RECONCILE_INTERVAL_MS * 4;
+
+interface BeaconClaim {
+  pid: number;
+  webPort: number;
+  updatedAt: number;
+}
+
+function claimPath(): string {
+  return join(localConfigHome(), "run", "lan-beacon.json");
+}
+
+function readClaim(): BeaconClaim | null {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(claimPath(), "utf8"));
+    const c = parsed as Partial<BeaconClaim>;
+    if (typeof c?.pid !== "number" || typeof c?.updatedAt !== "number") return null;
+    return { pid: c.pid, webPort: typeof c.webPort === "number" ? c.webPort : 0, updatedAt: c.updatedAt };
+  } catch {
+    return null;
+  }
+}
+
+function isAlive(pid: number): boolean {
+  try {
+    // Signal 0 tests for existence without delivering anything.
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Is some OTHER live local process already advertising this Mac?
+ *
+ * The identity in `~/.openscout` is per-Mac, so every local instance advertises
+ * the SAME `_oscout-pair._tcp` fingerprint. mDNS does not reject the duplicate —
+ * it renames it ("OpenScout <fp> (2)") — so the Mac shows up twice and a phone
+ * can resolve into whichever process it happens to pick. Bonjour cannot tell us
+ * which advert is ours (the names are identical by construction), so ownership
+ * is claimed here instead: first live process to write the claim advertises,
+ * everyone else stands down, and a claim whose owner died is taken over.
+ */
+function anotherInstanceOwnsBeacon(): boolean {
+  const claim = readClaim();
+  if (!claim) return false;
+  if (claim.pid === process.pid) return false;
+  if (!isAlive(claim.pid)) return false;
+  return Date.now() - claim.updatedAt < CLAIM_STALE_MS;
+}
+
+function takeClaim(webPort: number): void {
+  try {
+    const path = claimPath();
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(
+      path,
+      JSON.stringify({ pid: process.pid, webPort, updatedAt: Date.now() } satisfies BeaconClaim),
+      { mode: 0o600 },
+    );
+  } catch {
+    // Unwritable home — fall back to the old behaviour (advertise anyway).
+  }
+}
+
+function releaseClaim(): void {
+  const claim = readClaim();
+  if (claim?.pid !== process.pid) return;
+  try {
+    rmSync(claimPath(), { force: true });
+  } catch {
+    // A stale claim just ages out.
+  }
+}
 
 export interface ScoutPairLanBeacon {
   stop(): void;
@@ -89,9 +167,19 @@ export function startScoutPairLanBeacon(
     if (stopped || reconciling) return;
     reconciling = true;
     try {
+      // Another LIVE local instance already speaks for this Mac — stand down
+      // rather than register a duplicate the phone can resolve into.
+      if (anotherInstanceOwnsBeacon()) {
+        stopAdvert();
+        return;
+      }
       if (await shouldSuppressBeacon()) {
         stopAdvert();
+        releaseClaim();
       } else {
+        // Refresh on every pass, so if we die the claim ages out and another
+        // instance takes over within a few reconciles.
+        takeClaim(webPort);
         startAdvert();
       }
     } catch {
@@ -111,6 +199,7 @@ export function startScoutPairLanBeacon(
       stopped = true;
       clearInterval(timer);
       stopAdvert();
+      releaseClaim();
     },
   };
 }

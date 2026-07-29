@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  parseHerdrSessionList,
   parseTmuxSessionList,
   parseZellijSessionList,
   terminalSurfaceKey,
 } from "./terminal-session-discovery.ts";
+import { resolvePreferredDurableBackend } from "./preferred-terminal-backend.ts";
 
 describe("terminal session discovery", () => {
   test("parses tmux session inventory", () => {
@@ -31,7 +33,27 @@ describe("terminal session discovery", () => {
     }]);
   });
 
+  test("parses herdr session inventory JSON", () => {
+    expect(parseHerdrSessionList(JSON.stringify({
+      sessions: [
+        { default: true, name: "default", running: true, session_dir: "/Users/art/.config/herdr" },
+        { default: false, name: "scout-local-1", running: false },
+      ],
+    }))).toEqual([
+      { name: "default", isDefault: true, running: true, sessionDir: "/Users/art/.config/herdr" },
+      { name: "scout-local-1", isDefault: false, running: false, sessionDir: null },
+    ]);
+  });
+
   test("keys backend surfaces by backend and session name", () => {
     expect(terminalSurfaceKey("tmux", "relay-claude")).toBe("tmux:relay-claude");
+    expect(terminalSurfaceKey("herdr", "default")).toBe("herdr:default");
+  });
+
+  test("prefers herdr for durable backends when available", () => {
+    expect(resolvePreferredDurableBackend({ herdr: true, tmux: true, zellij: true })).toBe("herdr");
+    expect(resolvePreferredDurableBackend({ herdr: false, tmux: true, zellij: true })).toBe("tmux");
+    expect(resolvePreferredDurableBackend({ herdr: false, tmux: false, zellij: true })).toBe("zellij");
+    expect(resolvePreferredDurableBackend({})).toBe("pty");
   });
 });

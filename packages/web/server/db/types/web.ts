@@ -10,7 +10,7 @@ import type { AgentRun, FlightSessionTraceEntry } from "@openscout/protocol";
 import type { AgentSummaryState, WorkAttention } from "./common.ts";
 
 export type WebTerminalSurfaceDescriptor = {
-  backend: "tmux" | "zellij";
+  backend: "tmux" | "zellij" | "herdr";
   sessionName: string;
   paneId: string | null;
   socketDir: string | null;
@@ -66,6 +66,7 @@ export type WebAgent = {
   repoKey?: string | null;
   role: string | null;
   model: string | null;
+  reasoningEffort?: string | null;
   harnessSessionId: string | null;
   terminalSurface: WebTerminalSurfaceDescriptor | null;
   harnessLogPath: string | null;
@@ -220,6 +221,7 @@ export type WebWorkItem = {
 export type WebFlight = {
   id: string;
   invocationId: string;
+  messageId?: string | null;
   agentId: string;
   agentName: string | null;
   conversationId: string | null;
@@ -244,6 +246,7 @@ export type WebWorkInvocation = {
   source: string | null;
   requestedHarness: string | null;
   requestedModel: string | null;
+  requestedReasoningEffort: string | null;
   requestedPermissionProfile: string | null;
   targetSessionId: string | null;
   requesterId: string | null;
@@ -251,6 +254,11 @@ export type WebWorkInvocation = {
   targetAgentId: string | null;
   targetAgentName: string | null;
   resolvedHarness: string | null;
+  resolvedModel: string | null;
+  resolvedReasoningEffort: string | null;
+  observedHarness: string | null;
+  observedModel: string | null;
+  observedReasoningEffort: string | null;
   resolvedTransport: string | null;
   resolvedSessionId: string | null;
   conversationId: string | null;

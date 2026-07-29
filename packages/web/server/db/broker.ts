@@ -49,6 +49,8 @@ type DispatchRow = {
   requester_id: string | null;
   actor_name: string | null;
   dispatched_at: number;
+  invocation_execution_json: string | null;
+  invocation_execution_resolution_json: string | null;
 };
 
 type DeliveryRow = {
@@ -69,6 +71,8 @@ type DeliveryRow = {
   conversation_id: string | null;
   actor_name: string | null;
   metadata_json: string | null;
+  invocation_execution_json: string | null;
+  invocation_execution_resolution_json: string | null;
 };
 
 type DeliveryAttemptRow = {
@@ -86,6 +90,8 @@ type DeliveryAttemptRow = {
   invocation_id: string | null;
   conversation_id: string | null;
   actor_name: string | null;
+  invocation_execution_json: string | null;
+  invocation_execution_resolution_json: string | null;
 };
 
 const DEFAULT_BROKER_WINDOW_MS = 24 * 60 * 60_000;
@@ -384,9 +390,12 @@ function queryDispatchRows(limit: number, cursor: BrokerCursor | null, since?: n
          sd.conversation_id,
          sd.requester_id,
          ac.display_name AS actor_name,
-         sd.dispatched_at
+         sd.dispatched_at,
+         inv.execution_json AS invocation_execution_json,
+         inv.execution_resolution_json AS invocation_execution_resolution_json
        FROM scout_dispatches sd
        LEFT JOIN actors ac ON ac.id = sd.requester_id
+       LEFT JOIN invocations inv ON inv.id = sd.invocation_id
        ${whereClause(predicates)}
        ORDER BY ts DESC, sort_id ASC
        LIMIT ?`,
@@ -414,6 +423,11 @@ function failedQueryFromRow(row: DispatchRow): WebBrokerRouteAttempt {
       dispatchKind: row.kind,
       requestedLabel: row.asked_label,
       requesterId: row.requester_id,
+      execution: parseJson<Record<string, unknown> | null>(row.invocation_execution_json, null),
+      executionResolution: parseJson<Record<string, unknown> | null>(
+        row.invocation_execution_resolution_json,
+        null,
+      ),
     },
   };
 }
@@ -452,12 +466,15 @@ function queryFailedDeliveryRows(limit: number, cursor: BrokerCursor | null, sin
          d.status,
          d.created_at,
          d.metadata_json,
+         inv.execution_json AS invocation_execution_json,
+         inv.execution_resolution_json AS invocation_execution_resolution_json,
          m.conversation_id,
          ac.display_name AS actor_name
        FROM deliveries d
        LEFT JOIN messages m ON m.id = d.message_id
        LEFT JOIN actors sender ON sender.id = m.actor_id
        LEFT JOIN actors ac ON ac.id = d.target_id
+       LEFT JOIN invocations inv ON inv.id = d.invocation_id
        ${whereClause(predicates)}
        ORDER BY ts DESC, sort_id ASC
        LIMIT ?`,
@@ -497,6 +514,11 @@ function failedDeliveryFromRow(row: DeliveryRow): WebBrokerRouteAttempt {
       status: row.status,
       createdAt: row.created_at,
       actorName: row.actor_name,
+      execution: parseJson<Record<string, unknown> | null>(row.invocation_execution_json, null),
+      executionResolution: parseJson<Record<string, unknown> | null>(
+        row.invocation_execution_resolution_json,
+        null,
+      ),
       ...(failureReason ? { failureReason } : {}),
       ...(failureDetail ? { failureDetail } : {}),
       ...(reconciledReason ? { reconciledReason } : {}),
@@ -551,12 +573,15 @@ function queryDeliveryAttemptRows(limit: number, cursor: BrokerCursor | null, si
          d.transport,
          d.message_id,
          d.invocation_id,
+         inv.execution_json AS invocation_execution_json,
+         inv.execution_resolution_json AS invocation_execution_resolution_json,
          m.conversation_id,
          ac.display_name AS actor_name
        FROM delivery_attempts da
        JOIN deliveries d ON d.id = da.delivery_id
        LEFT JOIN messages m ON m.id = d.message_id
        LEFT JOIN actors ac ON ac.id = d.target_id
+       LEFT JOIN invocations inv ON inv.id = d.invocation_id
        ${whereClause(predicates)}
        ORDER BY ts DESC, sort_id ASC
        LIMIT ?`,
@@ -585,6 +610,11 @@ function deliveryAttemptFromRow(row: DeliveryAttemptRow): WebBrokerRouteAttempt 
       targetId: row.target_id,
       transport: row.transport,
       error: row.error,
+      execution: parseJson<Record<string, unknown> | null>(row.invocation_execution_json, null),
+      executionResolution: parseJson<Record<string, unknown> | null>(
+        row.invocation_execution_resolution_json,
+        null,
+      ),
     },
   };
 }

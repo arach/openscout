@@ -15,6 +15,9 @@ import {
   flightSessionTrace,
   isOpaqueChannelId,
   resolveAgentIdentity,
+  SCOUT_LAUNCHABLE_HARNESSES,
+  SCOUT_RUNTIME_EFFORT_CATALOG,
+  SCOUT_RUNTIME_MODEL_CATALOG,
   SCOUT_ROLE_CATALOG,
   type AgentEndpoint,
   type AgentHarness,
@@ -22,6 +25,7 @@ import {
   type CollaborationKind,
   type ConversationDefinition,
   type ConversationKind,
+  type ScoutRuntimeCapabilityCatalog,
 } from "@openscout/protocol";
 import {
   collectOccupiedDefinitionIdsFromBrokerSnapshot,
@@ -45,7 +49,10 @@ import {
   type ScoutPairingControlAction,
   type ScoutPairingState,
 } from "./pairing.ts";
-import { createPendingPairRequestStore } from "./pairing-pair-requests.ts";
+import {
+  createPendingPairRequestStore,
+  pairRequestStatePath,
+} from "./pairing-pair-requests.ts";
 import { startScoutPairLanBeacon } from "./pairing-lan-beacon.ts";
 import {
   createCachedSnapshot,
@@ -257,6 +264,7 @@ import {
   provisionalAgentNamesApiFields,
 } from "@openscout/runtime/provisional-agent-names";
 import {
+  localConfigHome,
   localConfigPath,
 } from "@openscout/runtime/local-config";
 import {
@@ -287,6 +295,12 @@ import {
   resolveOpenScoutWebRoutes,
   serializeOpenScoutWebBootstrap,
 } from "../shared/runtime-config.js";
+import {
+  DEFAULT_MESSAGE_PAGE_LIMIT,
+  MessageCursorError,
+  clampMessagePageLimit,
+  parseMessageHistoryCursor,
+} from "../shared/message-pagination.ts";
 
 function parseConversationKinds(value: string | undefined): ConversationKind[] | undefined {
   const trimmed = value?.trim();
@@ -410,7 +424,7 @@ export type CreateOpenScoutWebServerOptions = {
   trustedOrigins?: string[];
   runTerminalCommand?: (request: TerminalRunRequest) => Promise<void>;
   destroyTerminalRelaySession?: (sessionId: string) => Promise<boolean>;
-  destroyTerminalRelaySurface?: (backend: "tmux" | "zellij", sessionName: string) => Promise<number>;
+  destroyTerminalRelaySurface?: (backend: "tmux" | "zellij" | "herdr", sessionName: string) => Promise<number>;
   terminalRelayHealthcheck?: () => Promise<boolean>;
   revealPath?: (targetPath: string) => Promise<void> | void;
   captureTmuxPane?: (request: TmuxPanePeekRequest) => Promise<TmuxPanePeekCapture | null> | TmuxPanePeekCapture | null;
@@ -1250,9 +1264,9 @@ function firstMetadataString(...values: Array<unknown>): string | null {
   return null;
 }
 
-function parseTerminalSessionBackend(value: string | undefined): "tmux" | "zellij" | undefined {
+function parseTerminalSessionBackend(value: string | undefined): "tmux" | "zellij" | "herdr" | undefined {
   const normalized = value?.trim().toLowerCase();
-  return normalized === "tmux" || normalized === "zellij" ? normalized : undefined;
+  return normalized === "tmux" || normalized === "zellij" || normalized === "herdr" ? normalized : undefined;
 }
 
 function parseTerminalSessionLimit(value: string | undefined): number {
@@ -1736,6 +1750,7 @@ function brokerFlightToWebFlight(
   return {
     id: flight.id,
     invocationId: flight.invocationId,
+    ...(invocation?.messageId ? { messageId: invocation.messageId } : {}),
     agentId: flight.targetAgentId,
     agentName: agent?.displayName ?? actor?.displayName ?? null,
     conversationId:
@@ -2499,6 +2514,10 @@ function mergeBrokerAgentProjection(local: WebAgent, broker: WebAgent | undefine
   return {
     ...broker,
     ...local,
+    // Broker flights own work lifecycle. A local endpoint can remain `active`
+    // for the lifetime of an attached harness session, so its projected
+    // `working` value must not outlive the completed flight in list views.
+    state: broker.state,
     updatedAt: Math.max(local.updatedAt ?? 0, broker.updatedAt ?? 0) || null,
     role: local.role ?? broker.role,
     brokerActivity: broker.brokerActivity,
@@ -3101,6 +3120,7 @@ function buildAgentSessionCatalogPayload(input: {
   terminalSurface?: WebAgent["terminalSurface"];
   activeSessionId?: string | null;
   model?: string | null;
+  reasoningEffort?: string | null;
   startedAt?: number | null;
   endpoint?: AgentEndpoint | null;
   nativeTranscript?: DiscoveredTranscript | null;
@@ -3170,6 +3190,7 @@ function buildAgentSessionCatalogPayload(input: {
           ...(input.harness ? { harness: input.harness } : {}),
           ...(input.transport ? { transport: input.transport } : {}),
           ...(input.model ? { model: input.model } : {}),
+          ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
           ...(provider ? { provider } : {}),
           ...(sessionHistoryPath ? { historyPath: sessionHistoryPath } : {}),
           ...(terminalSurface?.sessionName && terminalSurface.sessionName !== sessionId
@@ -3873,6 +3894,179 @@ async function buildOperatorAttentionState(
 }
 
 
+/**
+ * ASCII mark for the scout.local portal masthead.
+ *
+ * The mark is a RENDER of the real logo artwork, not a shape constructed in
+ * ASCII. `design/logo-attempts/focused-03-wire-cube-mark.svg` — the outer
+ * hexagon plus its inner echo — was rasterised, sampled once per character
+ * cell, and the resulting coverage field baked in below. Rasterising is what
+ * frees the 30 degree edges: placed by hand they staircase into dashed
+ * circles, sampled they antialias.
+ *
+ * The field is quantised HERE, on the server, so first paint is correct and
+ * the mark survives with JavaScript disabled. The inline script in the page
+ * only drives the shimmer, and it re-quantises the same field rather than
+ * animating opacity — modulating coverage before quantisation is what makes
+ * structure travel; modulating brightness afterwards just eats holes in it.
+ *
+ * Regenerate with design/studio `/studies/ascii-render-lab` (the params are
+ * in the hash) if the artwork or the grid changes.
+ */
+const ORB_COLS = 60;
+const ORB_ROWS = 47;
+/** Row-major coverage, one base64-alphabet character per cell, 64 levels. */
+const ORB_FIELD =
+  "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";
+
+/** Locked render settings — see the lab link above. */
+const ORB_CEIL = 0.83;
+const ORB_GAMMA = 0.7;
+const ORB_GAIN = 1.65;
+const ORB_TONES = 4;
+const ORB_GLYPH = "\u2591";
+/** Bayer 2x2. Ordered, never random: a regular threshold lattice keeps the
+ *  dots on their grid while the field moves under them, where random
+ *  thresholding boils. */
+const ORB_BAYER = [
+  [0.125, 0.625],
+  [0.875, 0.375],
+];
+/** The frame rendered server-side, and the one reduced-motion pins to. */
+const ORB_STILL = 0.42;
+
+const ORB_ALPHABET =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/** Shimmer: a sweep band travelling across the field. Mirrors the lab. */
+function orbShimmer(x: number, y: number, t: number): number {
+  const nx = (x / (ORB_COLS - 1)) * 2 - 1;
+  const ny = (y / (ORB_ROWS - 1)) * 2 - 1;
+  const a = (120 * Math.PI) / 180;
+  const u = nx * Math.cos(a) + ny * Math.sin(a) - t;
+  const c = Math.pow(Math.cos(u * Math.PI * 2) * 0.5 + 0.5, 2.5);
+  return 1 - 0.46 + 0.46 * c * 2;
+}
+
+/** One frame, as five tone layers of text. Pure — no canvas, no DOM. */
+function renderAsciiOrbFrame(t: number): string[] {
+  const layers: string[][] = [[], [], [], [], []];
+  for (let y = 0; y < ORB_ROWS; y += 1) {
+    const rows = ["", "", "", "", ""];
+    for (let x = 0; x < ORB_COLS; x += 1) {
+      const raw = ORB_ALPHABET.indexOf(ORB_FIELD[y * ORB_COLS + x]) / 63;
+      let v = raw * orbShimmer(x, y, t);
+      v = Math.max(0, Math.min(1, v)) / ORB_CEIL;
+      v = Math.pow(Math.max(0, Math.min(1, v)), ORB_GAMMA);
+      const lit = v * ORB_GAIN > ORB_BAYER[y % 2][x % 2];
+      const step = Math.min(ORB_TONES - 1, Math.floor(v * ORB_TONES));
+      const tone = Math.round((step * 4) / (ORB_TONES - 1));
+      for (let i = 0; i < 5; i += 1) {
+        rows[i] += lit && i === tone ? ORB_GLYPH : " ";
+      }
+    }
+    for (let i = 0; i < 5; i += 1) layers[i].push(rows[i]);
+  }
+  return layers.map((rows) => rows.join("\n"));
+}
+
+/** The five stacked <pre> layers, with the still frame already in the markup. */
+function renderAsciiOrbHtml(): string {
+  return renderAsciiOrbFrame(ORB_STILL)
+    .map((text, i) => `<pre class="orb-l" data-t="${i}">${escapeHtml(text)}</pre>`)
+    .join("");
+}
+
+/**
+ * The shimmer, as inline script. Progressive enhancement only — the still
+ * frame is already in the markup, so this page is complete without it.
+ *
+ * It re-quantises the same coverage field per frame. Nothing here animates
+ * opacity or colour: modulating coverage before quantisation makes the
+ * structure travel through the dither lattice, where modulating the rendered
+ * output would just pulse holes in it.
+ */
+function renderAsciiOrbScript(): string {
+  return `<script>
+(function () {
+  var els = document.querySelectorAll(".orb-l");
+  if (els.length !== 5 || !window.requestAnimationFrame) return;
+  var mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+  var F = "${ORB_FIELD}";
+  var A = "${ORB_ALPHABET}";
+  var COLS = ${ORB_COLS}, ROWS = ${ORB_ROWS};
+  var BAYER = [[0.125, 0.625], [0.875, 0.375]];
+  var raf = 0, last = 0;
+
+  function frame(t) {
+    var out = ["", "", "", "", ""];
+    for (var y = 0; y < ROWS; y++) {
+      var ny = (y / (ROWS - 1)) * 2 - 1;
+      for (var x = 0; x < COLS; x++) {
+        var nx = (x / (COLS - 1)) * 2 - 1;
+        var u = nx * Math.cos(2.0943951) + ny * Math.sin(2.0943951) - t;
+        var c = Math.pow(Math.cos(u * Math.PI * 2) * 0.5 + 0.5, 2.5);
+        var v = (A.indexOf(F.charAt(y * COLS + x)) / 63) * (0.54 + 0.46 * c * 2);
+        v = Math.max(0, Math.min(1, v)) / ${ORB_CEIL};
+        v = Math.pow(Math.max(0, Math.min(1, v)), ${ORB_GAMMA});
+        var lit = v * ${ORB_GAIN} > BAYER[y % 2][x % 2];
+        var tone = Math.round(Math.min(${ORB_TONES} - 1, Math.floor(v * ${ORB_TONES})) * 4 / (${ORB_TONES} - 1));
+        for (var i = 0; i < 5; i++) out[i] += lit && i === tone ? "\\u2591" : " ";
+      }
+      if (y < ROWS - 1) for (var j = 0; j < 5; j++) out[j] += "\\n";
+    }
+    for (var k = 0; k < 5; k++) els[k].textContent = out[k];
+  }
+
+  function loop(ts) {
+    raf = requestAnimationFrame(loop);
+    if (ts - last < 41) return;          // ~24fps
+    last = ts;
+    frame(${ORB_STILL} + (ts / 1000) * 0.6);
+  }
+  function sync() {
+    cancelAnimationFrame(raf);
+    raf = 0;
+    if (mq.matches || document.hidden) frame(${ORB_STILL});
+    else raf = requestAnimationFrame(loop);
+  }
+  if (mq.addEventListener) mq.addEventListener("change", sync);
+  document.addEventListener("visibilitychange", sync);
+  sync();
+})();
+</script>`;
+}
+
 function renderScoutLocalPortal(input: {
   requestUrl: string;
   portalHost: string;
@@ -3884,6 +4078,9 @@ function renderScoutLocalPortal(input: {
   const portalHost = escapeHtml(input.portalHost);
   const nodeHost = escapeHtml(input.nodeHost);
   const escapedNodeUrl = escapeHtml(nodeUrl);
+  // Wire-cube mark + density orb: identity for the bare mesh portal.
+  // Keep this page self-contained (inline CSS only) — it is served before
+  // the SPA shell and must not depend on client assets.
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -3891,37 +4088,204 @@ function renderScoutLocalPortal(input: {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Scout Local</title>
     <style>
-      :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #080a07; color: #f5f1e8; }
+      :root {
+        color-scheme: dark;
+        --bg: #080a07;
+        --surface: #10130e;
+        --surface-2: #141810;
+        --ink: #f5f1e8;
+        --muted: #aaa69b;
+        --edge: #303729;
+        --accent: #a6e15e;
+        --accent-soft: color-mix(in srgb, #a6e15e 18%, transparent);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: var(--bg);
+        color: var(--ink);
+      }
       * { box-sizing: border-box; }
-      body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 32px; }
-      main { width: min(760px, 100%); }
-      .eyebrow { color: #a6e15e; font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; letter-spacing: .12em; }
-      h1 { margin: 14px 0 10px; font-size: clamp(34px, 7vw, 58px); line-height: .98; font-weight: 650; letter-spacing: 0; }
-      p { max-width: 600px; margin: 0 0 28px; color: #aaa69b; line-height: 1.55; font-size: 16px; }
-      .node { display: grid; grid-template-columns: 1fr auto; gap: 18px; align-items: center; border: 1px solid #303729; color: #f5f1e8; text-decoration: none; padding: 18px 20px; background: #10130e; border-radius: 8px; }
-      .node:hover { border-color: #a6e15e; background: #141810; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 32px;
+        background:
+          radial-gradient(ellipse 70% 50% at 50% 42%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 62%),
+          radial-gradient(circle at 50% 100%, color-mix(in srgb, var(--accent) 4%, transparent), transparent 42%),
+          var(--bg);
+      }
+      main {
+        width: min(760px, 100%);
+        position: relative;
+      }
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 28px 36px;
+        align-items: end;
+        margin-bottom: 32px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 18px;
+      }
+      .mark {
+        width: 44px;
+        height: 44px;
+        border-radius: 11px;
+        border: 1px solid var(--edge);
+        background:
+          radial-gradient(circle at 50% 40%, var(--accent-soft), transparent 68%),
+          var(--surface);
+        display: grid;
+        place-items: center;
+        color: var(--ink);
+        flex-shrink: 0;
+      }
+      .mark svg { display: block; }
+      .eyebrow {
+        color: var(--accent);
+        font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+        text-transform: uppercase;
+        letter-spacing: .12em;
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: clamp(34px, 7vw, 58px);
+        line-height: .98;
+        font-weight: 650;
+        letter-spacing: -0.02em;
+      }
+      .lede {
+        max-width: 520px;
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.55;
+        font-size: 16px;
+      }
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 14px;
+        margin-top: 18px;
+        font: 500 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+        text-transform: uppercase;
+        letter-spacing: .1em;
+        color: color-mix(in srgb, var(--muted) 88%, transparent);
+      }
+      .meta .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 55%, transparent);
+        display: inline-block;
+        vertical-align: middle;
+        margin-right: 2px;
+      }
+      .meta span[aria-hidden] { opacity: .45; }
+      /* The mark is five stacked layers of the same grid, one per tone step.
+         The cell metrics are load-bearing: the coverage field was sampled at
+         8px/1.1 in this exact stack, so changing the family or the line-height
+         shears the render. Font-size alone is safe — it scales width and height
+         together, which is how the mobile rule below works. */
+      .orb {
+        position: relative;
+        justify-self: end;
+        align-self: center;
+        user-select: none;
+        pointer-events: none;
+      }
+      .orb-l {
+        margin: 0;
+        font: 200 8px/1.1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        letter-spacing: 0;
+        white-space: pre;
+      }
+      .orb-l + .orb-l { position: absolute; inset: 0; }
+      /* Warm neutral ramp. The mark carries no hue at all now — the one accent
+         stays rationed to state and action (mesh dot, eyebrow, Open). */
+      .orb-l[data-t="0"] { color: #2e2b27; }
+      .orb-l[data-t="1"] { color: #474339; }
+      .orb-l[data-t="2"] { color: #6b6558; }
+      .orb-l[data-t="3"] { color: #968e7f; }
+      .orb-l[data-t="4"] { color: #d5cdbd; }
+      .node {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 18px;
+        align-items: center;
+        border: 1px solid var(--edge);
+        color: var(--ink);
+        text-decoration: none;
+        padding: 18px 20px;
+        background: color-mix(in srgb, var(--surface) 92%, transparent);
+        border-radius: 10px;
+        transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+      }
+      .node:hover {
+        border-color: color-mix(in srgb, var(--accent) 55%, var(--edge));
+        background: var(--surface-2);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent),
+          0 12px 40px color-mix(in srgb, #000 35%, transparent);
+      }
       .node strong { display: block; font-size: 17px; font-weight: 620; letter-spacing: 0; }
-      .node span { color: #aaa69b; font-size: 13px; }
-      .open { color: #a6e15e; font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; letter-spacing: .08em; }
-      @media (max-width: 520px) {
+      .node .sub { color: var(--muted); font-size: 13px; margin-top: 3px; }
+      .open {
+        color: var(--accent);
+        font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+        text-transform: uppercase;
+        letter-spacing: .08em;
+      }
+      @media (max-width: 620px) {
         body { padding: 22px; place-items: start center; }
+        .hero { grid-template-columns: 1fr; gap: 18px; }
+        .orb { justify-self: start; order: -1; }
+        .orb-l { font-size: 6px; }
         .node { grid-template-columns: 1fr; }
       }
+      /* No reduced-motion rule is needed for the mark: the shimmer is driven by
+         the inline script, which never starts when reduced motion is set,
+         leaving the server-rendered still frame in place. */
     </style>
   </head>
   <body>
     <main>
-      <div class="eyebrow">${portalHost}</div>
-      <h1>Scout local</h1>
-      <p>Registered machines on this local Scout mesh. Open a node to inspect agents, sessions, activity, and settings.</p>
+      <div class="hero">
+        <div>
+          <div class="brand">
+            <span class="mark" aria-hidden="true">
+              <svg width="26" height="26" viewBox="0 0 32 32" fill="none">
+                <polygon points="16,4.8 26.2,10.7 26.2,21.9 16,27.8 5.8,21.9 5.8,10.7" stroke="currentColor" stroke-width="1.55" stroke-linejoin="round" fill="currentColor" fill-opacity="0.08"/>
+                <path d="M16 4.8v23M5.8 10.7 16 16.6 26.2 10.7" stroke="currentColor" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round" opacity="0.45"/>
+                <polygon points="16,11 21.1,14 21.1,19.6 16,22.6 10.9,19.6 10.9,14" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round" fill="currentColor" fill-opacity="0.16" opacity="0.92"/>
+              </svg>
+            </span>
+            <div class="eyebrow">${portalHost}</div>
+          </div>
+          <h1>Scout local</h1>
+          <p class="lede">Registered machines on this local Scout mesh. Open a node to inspect agents, sessions, activity, and settings.</p>
+          <div class="meta" aria-hidden="true">
+            <span><span class="dot"></span> mesh</span>
+            <span aria-hidden>·</span>
+            <span>local-first</span>
+            <span aria-hidden>·</span>
+            <span>nothing leaves this network</span>
+          </div>
+        </div>
+        <div class="orb" aria-hidden="true">${renderAsciiOrbHtml()}</div>
+      </div>
       <a class="node" href="${escapedNodeUrl}">
         <span>
           <strong>${nodeHost}</strong>
-          <span>Local web node</span>
+          <span class="sub">Local web node</span>
         </span>
         <span class="open">Open</span>
       </a>
     </main>
+    ${renderAsciiOrbScript()}
   </body>
 </html>`;
 }
@@ -4047,84 +4411,6 @@ const HUD_PROJECT_MARKERS = [
   "go.mod",
 ] as const;
 
-const HUD_RUNNER_MODEL_OPTIONS: HudRunnerModelOption[] = [
-  {
-    id: "claude-opus-5",
-    label: "Opus 5",
-    harnesses: ["claude"],
-    source: "default",
-    family: "Opus",
-    version: "5",
-  },
-  {
-    id: "claude-sonnet-4-6",
-    label: "Sonnet 4.6",
-    harnesses: ["claude"],
-    source: "default",
-    family: "Sonnet",
-    version: "4.6",
-  },
-  {
-    id: "claude-haiku-4-5",
-    label: "Haiku 4.5",
-    harnesses: ["claude"],
-    source: "default",
-    family: "Haiku",
-    version: "4.5",
-  },
-  {
-    id: "gpt-5.6-sol",
-    label: "GPT-5.6 Sol",
-    harnesses: ["codex"],
-    source: "default",
-    family: "GPT",
-    version: "5.6 Sol",
-  },
-  {
-    id: "gpt-5.6-terra",
-    label: "GPT-5.6 Terra",
-    harnesses: ["codex"],
-    source: "default",
-    family: "GPT",
-    version: "5.6 Terra",
-  },
-  {
-    id: "gpt-5.6-luna",
-    label: "GPT-5.6 Luna",
-    harnesses: ["codex"],
-    source: "default",
-    family: "GPT",
-    version: "5.6 Luna",
-  },
-  {
-    id: "gpt-5.5",
-    label: "GPT-5.5",
-    harnesses: ["codex"],
-    source: "default",
-    family: "GPT",
-    version: "5.5",
-  },
-  {
-    id: "gpt-5.5-mini",
-    label: "GPT-5.5 mini",
-    harnesses: ["codex"],
-    source: "default",
-    family: "GPT",
-    version: "5.5 mini",
-  },
-];
-
-const HUD_RUNNER_EFFORT_OPTIONS: HudRunnerEffortOption[] = [
-  { id: "none", label: "None", description: "No extra thinking", harnesses: ["codex"] },
-  { id: "minimal", label: "Minimal", description: "Smallest reasoning budget", harnesses: ["codex"] },
-  { id: "low", label: "Low", description: "Quick pass", harnesses: ["claude", "codex"] },
-  { id: "medium", label: "Medium", description: "Balanced default", harnesses: ["claude", "codex"] },
-  { id: "high", label: "High", description: "Deeper pass", harnesses: ["claude", "codex"] },
-  { id: "xhigh", label: "XHigh", description: "Highest supported", harnesses: ["claude", "codex"] },
-  { id: "max", label: "Max", description: "Maximum reasoning depth", harnesses: ["claude", "codex"] },
-  { id: "ultra", label: "Ultra", description: "Maximum with delegation", harnesses: ["codex"] },
-];
-
 function isRetiredHudRunnerModel(model: string, harness: string): boolean {
   const normalized = model.trim().toLowerCase();
   return harness === "codex"
@@ -4132,7 +4418,7 @@ function isRetiredHudRunnerModel(model: string, harness: string): boolean {
 }
 
 function hudRunnerModels(agents: WebAgent[]): HudRunnerModelOption[] {
-  const models = HUD_RUNNER_MODEL_OPTIONS.map((model) => ({
+  const models = SCOUT_RUNTIME_MODEL_CATALOG.map((model) => ({
     ...model,
     harnesses: [...model.harnesses],
   }));
@@ -4205,7 +4491,13 @@ function dedupeHudRunnerProjects(projects: HudRunnerProjectOption[]): HudRunnerP
   return result;
 }
 
-async function buildHudRunnerOptions(currentDirectory: string) {
+async function buildHudRunnerOptions(
+  currentDirectory: string,
+  input: {
+    scope?: ScoutRuntimeCapabilityCatalog["scope"];
+    projectRoot?: string;
+  } = {},
+) {
   // This endpoint sits on the global-hotkey path, so it deliberately avoids
   // the workspace scan performed by the full agent-configuration snapshot.
   const [settingsResult, catalogResult] = await Promise.allSettled([
@@ -4214,13 +4506,20 @@ async function buildHudRunnerOptions(currentDirectory: string) {
   ]);
   const settings = settingsResult.status === "fulfilled" ? settingsResult.value : null;
   const catalog = catalogResult.status === "fulfilled" ? catalogResult.value : null;
-  const agents = queryAgents(50);
+  const allAgents = queryAgents(50);
+  const scope = input.scope ?? "global+project";
+  const scopedProjectRoot = normalizeHudRunnerRoot(input.projectRoot ?? currentDirectory);
+  const projectAgents = allAgents.filter((agent) => {
+    const root = agent.projectRoot ?? agent.cwd;
+    return Boolean(root) && normalizeHudRunnerRoot(root!) === scopedProjectRoot;
+  });
+  const observedAgents = scope === "global" ? [] : projectAgents;
   const defaultHarness = settings?.agents.defaultHarness ?? "claude";
 
   const harnessesById = new Map<string, HudRunnerHarnessOption>();
   for (const entry of catalog?.entries ?? []) {
     const id = String(entry.harness || entry.name || "").trim();
-    if (!id) continue;
+    if (!SCOUT_LAUNCHABLE_HARNESSES.includes(id as (typeof SCOUT_LAUNCHABLE_HARNESSES)[number])) continue;
     harnessesById.set(id, {
       id,
       name: entry.name,
@@ -4231,10 +4530,18 @@ async function buildHudRunnerOptions(currentDirectory: string) {
       detail: entry.readinessReport.detail,
     });
   }
-  for (const fallback of [
-    { id: "claude", label: "Claude Code" },
-    { id: "codex", label: "Codex" },
-  ]) {
+  const fallbackLabels: Record<string, string> = {
+    claude: "Claude Code",
+    codex: "Codex",
+    grok: "Grok",
+    "grok-acp": "Grok ACP",
+    kimi: "Kimi",
+    flue: "Flue",
+    cursor: "Cursor",
+    pi: "Pi",
+  };
+  for (const id of SCOUT_LAUNCHABLE_HARNESSES) {
+    const fallback = { id, label: fallbackLabels[id] ?? id };
     if (harnessesById.has(fallback.id)) continue;
     harnessesById.set(fallback.id, {
       id: fallback.id,
@@ -4247,7 +4554,7 @@ async function buildHudRunnerOptions(currentDirectory: string) {
     });
   }
 
-  const projectOptions: HudRunnerProjectOption[] = agents
+  const projectOptions: HudRunnerProjectOption[] = allAgents
     .map((agent) => agent.projectRoot ?? agent.cwd)
     .filter((root): root is string => typeof root === "string" && root.trim().length > 0)
     .map((root) => {
@@ -4265,13 +4572,17 @@ async function buildHudRunnerOptions(currentDirectory: string) {
   if (currentProject) projectOptions.unshift(currentProject);
   const projects = dedupeHudRunnerProjects(projectOptions);
   const defaultDirectory = projects[0]?.root ?? normalizeHudRunnerRoot(currentDirectory);
-  const models = hudRunnerModels(agents);
+  const models = hudRunnerModels(observedAgents);
   const harnesses = Array.from(harnessesById.values()).sort((left, right) => {
     const rank = (id: string) => id === defaultHarness ? 0 : id === "claude" ? 1 : id === "codex" ? 2 : 3;
     return rank(left.id) - rank(right.id) || left.label.localeCompare(right.label);
   });
 
   return {
+    schemaVersion: "openscout.runtime-capabilities.v1" as const,
+    generatedAt: Date.now(),
+    scope,
+    ...(scope !== "global" ? { projectRoot: scopedProjectRoot } : {}),
     defaults: {
       runner: "scout",
       directory: defaultDirectory,
@@ -4288,9 +4599,13 @@ async function buildHudRunnerOptions(currentDirectory: string) {
     }],
     harnesses,
     models,
-    efforts: HUD_RUNNER_EFFORT_OPTIONS,
+    efforts: SCOUT_RUNTIME_EFFORT_CATALOG.map((effort) => ({
+      ...effort,
+      harnesses: [...effort.harnesses],
+      ...(effort.models ? { models: [...effort.models] } : {}),
+    })),
     projects,
-    agents: agents.map((agent): HudRunnerAgentOption => ({
+    agents: (scope === "global" ? allAgents : projectAgents).map((agent): HudRunnerAgentOption => ({
       id: agent.id,
       name: agent.name,
       handle: agent.handle,
@@ -4453,7 +4768,12 @@ export async function createOpenScoutWebServer(
 
   // Approval-gated LAN pairing: a phone tapping an idle Mac registers a request
   // here; the Mac approves it before pair mode starts and the payload is served.
-  const pendingPairRequests = createPendingPairRequestStore();
+  // Shared per-Mac, not per-process: the pairing identity is shared by every
+  // local instance, so the requests made against it have to be too. See
+  // pairing-pair-requests.ts.
+  const pendingPairRequests = createPendingPairRequestStore({
+    statePath: pairRequestStatePath(localConfigHome()),
+  });
   // Always-on discovery beacon so idle Macs still appear in the iOS "On your
   // network" list. Stands down only when the controller has its own LAN advert.
   const lanPairBeacon = options.backgroundServices === false
@@ -5112,9 +5432,18 @@ export async function createOpenScoutWebServer(
   app.get("/api/agent-config/snapshot", async (c) =>
     c.json(await buildAgentConfigurationSnapshot(currentDirectory)),
   );
-  app.get("/api/runner/options", async (c) =>
-    c.json(await buildHudRunnerOptions(currentDirectory)),
-  );
+  app.get("/api/runner/options", async (c) => {
+    const requestedScope = c.req.query("scope");
+    const scope: ScoutRuntimeCapabilityCatalog["scope"] = requestedScope === "global"
+      || requestedScope === "project"
+      || requestedScope === "global+project"
+      ? requestedScope
+      : "global+project";
+    return c.json(await buildHudRunnerOptions(currentDirectory, {
+      scope,
+      projectRoot: c.req.query("projectRoot") || currentDirectory,
+    }));
+  });
   app.get("/api/agents", async (c) => {
     const requestedLimit = parseOptionalPositiveInt(c.req.query("limit"));
     const limit = Math.min(requestedLimit ?? 100, 100);
@@ -5133,7 +5462,7 @@ export async function createOpenScoutWebServer(
   app.get("/api/terminal-sessions", async (c) => {
     const backend = parseTerminalSessionBackend(c.req.query("backend"));
     if (c.req.query("backend") && !backend) {
-      return c.json({ error: "backend must be tmux or zellij" }, 400);
+      return c.json({ error: "backend must be tmux, zellij, or herdr" }, 400);
     }
     const limit = parseTerminalSessionLimit(c.req.query("limit"));
     const sessions = queryTerminalSessions({
@@ -5275,6 +5604,7 @@ export async function createOpenScoutWebServer(
       };
       seed?: {
         instructions?: string;
+        clientMessageId?: string;
         fromMessageId?: string;
         fromConversationId?: string;
         attachments?: OutgoingAttachmentInput[];
@@ -5365,6 +5695,7 @@ export async function createOpenScoutWebServer(
       });
     }
     const instructions = optionalString(body.seed?.instructions)?.trim();
+    const clientMessageId = optionalString(body.seed?.clientMessageId)?.trim();
     const fromMessageId = optionalString(body.seed?.fromMessageId)?.trim();
     const fromConversationId = optionalString(body.seed?.fromConversationId)?.trim();
     if ((fromMessageId && !fromConversationId) || (fromConversationId && !fromMessageId)) {
@@ -5404,6 +5735,7 @@ export async function createOpenScoutWebServer(
       },
       currentDirectory: projectPath ?? currentDirectory,
       source: "scout-session-initiation",
+      ...(clientMessageId ? { clientMessageId } : {}),
     });
 
     if (!result.usedBroker) {
@@ -5454,6 +5786,7 @@ export async function createOpenScoutWebServer(
       conversationId: result.conversationId ?? null,
       messageId: result.messageId ?? null,
       flightId: result.flight?.id ?? null,
+      invocationId: result.flight?.invocationId ?? null,
       agentId: result.targetAgentId ?? result.flight?.targetAgentId ?? routeTargetAgentId ?? targetAgentId ?? null,
       sessionId: result.targetSessionId ?? null,
       handle: agentHandle ?? null,
@@ -5536,6 +5869,7 @@ export async function createOpenScoutWebServer(
     if (!agent) return c.json(emptyAgentSessionCatalogPayload(agentId));
     const observePayload = await loadAgentObservePayload(agentId).catch(() => null);
     const observedModel = observePayload?.data.metadata?.session?.model?.trim() || null;
+    const observedEffort = observePayload?.data.metadata?.session?.effort?.trim() || null;
     const broker = await loadScoutBrokerContext().catch(() => null);
     const endpoint = broker ? activeEndpointForAgent(broker.snapshot, agentId, {
       harness: agent.harness,
@@ -5561,6 +5895,7 @@ export async function createOpenScoutWebServer(
         terminalSurface: agent.terminalSurface,
         activeSessionId: endpoint?.sessionId ?? agent.harnessSessionId,
         model: observedModel ?? agent.model,
+        reasoningEffort: observedEffort ?? agent.reasoningEffort,
         startedAt: agent.createdAt ?? agent.updatedAt,
         endpoint,
         nativeTranscript,
@@ -5821,14 +6156,34 @@ export async function createOpenScoutWebServer(
     if (cId && !isOpaqueChannelId(cId)) {
       return c.json({ error: "chatId must be an opaque chat id" }, 400);
     }
-    const limit = parseOptionalPositiveInt(c.req.query("limit"), 80) ?? 80;
-    const brokerMessages = cId
-      ? await getScoutConversationMessages(cId, limit)
-      : null;
-    const messages = brokerMessages ?? queryRecentMessages(
-      limit,
-      { conversationId: cId },
+    // Clamp once, before choosing a source: the broker projection and the
+    // SQLite fallback must never disagree about how big a page is.
+    const limit = clampMessagePageLimit(
+      parseOptionalPositiveInt(c.req.query("limit"), DEFAULT_MESSAGE_PAGE_LIMIT),
+      DEFAULT_MESSAGE_PAGE_LIMIT,
     );
+    const beforeMessageId = c.req.query("beforeMessageId")?.trim() || undefined;
+    let messages;
+    try {
+      // Cursor shape is the route's business — a malformed cursor is a 400
+      // whichever source would have answered. Whether the cursor still resolves
+      // is the source's business, and the source throws the same error type.
+      parseMessageHistoryCursor(beforeMessageId);
+      const brokerMessages = cId
+        ? await getScoutConversationMessages(cId, limit, beforeMessageId)
+        : null;
+      messages = brokerMessages ?? queryRecentMessages(
+        limit,
+        { conversationId: cId, beforeMessageId },
+      );
+    } catch (cause) {
+      // An unreadable cursor is a client error, not the end of the transcript.
+      // Answering [] here is what strands history behind a deleted anchor.
+      if (cause instanceof MessageCursorError) {
+        return c.json({ error: cause.message, reason: cause.reason }, 400);
+      }
+      throw cause;
+    }
     return c.json(messages.map((message) => ({
       ...message,
       chatId: message.conversationId,
@@ -6761,13 +7116,19 @@ export async function createOpenScoutWebServer(
     const sessionName = body.sessionName?.trim();
     const action = parseTerminalSurfaceControlAction(body.action);
 
-    if (!backend) return c.json({ error: "backend must be tmux or zellij" }, 400);
+    if (!backend) return c.json({ error: "backend must be tmux, zellij, or herdr" }, 400);
     if (!sessionName) return c.json({ error: "sessionName is required" }, 400);
     if (!action) return c.json({ error: "action must be interrupt, quit, stop-job, restart-resume, detach, force-quit, or force-quit-bridge" }, 400);
 
     let delivered = false;
     let resumeResult: { ok: boolean; sessionId: string | null; transcriptPath: string | null } | null = null;
-    if (backend === "tmux" && action === "restart-resume") {
+    if (backend === "herdr") {
+      // Herdr host sessions outlive Scout clients. Track A only detaches Scout
+      // relay bridges; it never stops or force-quits the Herdr server.
+      if (action !== "detach" && action !== "force-quit-bridge") {
+        return c.json({ error: "herdr surface control is limited to detach / force-quit-bridge" }, 400);
+      }
+    } else if (backend === "tmux" && action === "restart-resume") {
       resumeResult = await restartClaudeWithResumeInTmuxSurface(sessionName);
       delivered = resumeResult.ok;
     } else if (backend === "tmux" && action !== "force-quit-bridge") {
@@ -6957,6 +7318,7 @@ export async function createOpenScoutWebServer(
   type ChatMessageDispatchInput = {
     chatId: string;
     body: string;
+    clientMessageId?: string;
     attachments?: OutgoingAttachmentInput[];
     replyToMessageId?: string;
     /** Compatibility-only overrides accepted by the transitional /api/send route. */
@@ -7012,6 +7374,9 @@ export async function createOpenScoutWebServer(
 
     const isOperatorDirectConversation =
       semanticSession.kind === "direct" && sessionIncludesOperatorParticipant(semanticSession);
+    const directTargetAgentId = isOperatorDirectConversation
+      ? inferDirectTargetAgentId(input.chatId, semanticSession, senderId)
+      : null;
     const isSharedChat =
       routeSession.kind === "channel"
       || routeSession.kind === "group_direct"
@@ -7077,18 +7442,37 @@ export async function createOpenScoutWebServer(
           body: input.body,
           attachments: input.attachments,
           replyToMessageId: input.replyToMessageId,
+          clientMessageId: input.clientMessageId,
           // Shared Chat membership is broker-owned. A passive post creates
           // durable visibility deliveries without creating requested work.
           notifyParticipantAgents: isSharedChat,
           currentDirectory,
           source: "scout-web",
         })
+      : sendMode === "invoke" && directTargetAgentId
+        ? {
+            usedBroker: true as const,
+            ...await sendScoutDirectMessage({
+              agentId: directTargetAgentId,
+              body: input.body,
+              attachments: input.attachments,
+              currentDirectory,
+              clientMessageId: input.clientMessageId,
+              replyToMessageId: input.replyToMessageId,
+              executionHarness,
+              executionModel,
+              source: "scout-web",
+            }),
+            invokedTargets: [directTargetAgentId],
+            unresolvedTargets: [],
+          }
       : await sendScoutConversationSteer({
           conversationId: routedConversationId,
           senderId,
           body: input.body,
           attachments: input.attachments,
           replyToMessageId: input.replyToMessageId,
+          clientMessageId: input.clientMessageId,
           ...(scopedTargetParticipantIds?.length
             ? { targetParticipantIds: scopedTargetParticipantIds }
             : {}),
@@ -7138,6 +7522,7 @@ export async function createOpenScoutWebServer(
       body?: unknown;
       attachments?: unknown;
       replyToMessageId?: unknown;
+      clientMessageId?: unknown;
     };
     const body = optionalString(requestBody.body) ?? "";
     if (requestBody.attachments !== undefined && !Array.isArray(requestBody.attachments)) {
@@ -7155,10 +7540,19 @@ export async function createOpenScoutWebServer(
     if (hasReplyAnchor && !replyToMessageId) {
       return c.json({ error: "replyToMessageId must be a non-empty string" }, 400);
     }
+    const hasClientMessageId = requestBody.clientMessageId !== undefined
+      && requestBody.clientMessageId !== null;
+    const clientMessageId = hasClientMessageId
+      ? optionalString(requestBody.clientMessageId)?.trim()
+      : undefined;
+    if (hasClientMessageId && !clientMessageId) {
+      return c.json({ error: "clientMessageId must be a non-empty string" }, 400);
+    }
 
     const outcome = await dispatchOperatorChatMessage({
       chatId,
       body: body.trim(),
+      ...(clientMessageId ? { clientMessageId } : {}),
       ...(attachments?.length ? { attachments } : {}),
       ...(replyToMessageId ? { replyToMessageId } : {}),
     });

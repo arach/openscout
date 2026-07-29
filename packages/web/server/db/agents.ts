@@ -263,6 +263,8 @@ function mapAgentRows(
       branch: (meta.branch as string) ?? null,
       role: (meta.role as string) ?? null,
       model: (meta.model as string) ?? metadataString(endpointMeta, "model"),
+      reasoningEffort: metadataString(endpointMeta, "reasoningEffort")
+        ?? metadataString(endpointMeta, "effort"),
       harnessSessionId: resolveHarnessSessionIdForAgent(r.transport, r.session_id, endpointMeta, state),
       terminalSurface: resolveTerminalSurface({
         transport: r.transport,

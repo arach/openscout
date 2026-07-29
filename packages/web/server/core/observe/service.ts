@@ -541,6 +541,7 @@ function buildObserveMetadata(
   const sessionMeta: ObserveSessionMeta = {};
   if (snapshot.session.adapterType) sessionMeta.adapterType = snapshot.session.adapterType;
   if (snapshot.session.model) sessionMeta.model = snapshot.session.model;
+  if (snapshot.session.reasoningEffort) sessionMeta.effort = snapshot.session.reasoningEffort;
   if (snapshot.session.cwd) sessionMeta.cwd = snapshot.session.cwd;
   if (typeof sessionStart === "number" && Number.isFinite(sessionStart)) {
     sessionMeta.sessionStart = sessionStart;

@@ -12,6 +12,9 @@ import {
   channelNaturalKeyFromMetadata,
   directChannelNaturalKey,
   epochMs,
+  SCOUT_LAUNCHABLE_HARNESSES,
+  SCOUT_RUNTIME_EFFORT_CATALOG,
+  SCOUT_RUNTIME_MODEL_CATALOG,
 } from "@openscout/protocol";
 import { loadHarnessCatalogSnapshot } from "@openscout/runtime/harness-catalog";
 import {
@@ -25,7 +28,7 @@ import {
 import { createAgentWorkspace } from "@openscout/runtime/agent-workspace";
 
 import { upScoutAgent } from "../agents/service.ts";
-import { queryFleet } from "../../db-queries.ts";
+import { queryAgents, queryFleet } from "../../db-queries.ts";
 import { queryTerminalSessions } from "../../db/terminal-sessions.ts";
 import {
   loadServiceBudgets,
@@ -37,6 +40,7 @@ import {
   openScoutPeerSession,
   recordScoutBrokerReadCursor,
   registerScoutLocalAgentBinding,
+  ScoutDirectDeliveryUnavailableError,
   sendScoutConversationMessage,
   sendScoutDirectMessage,
   sendScoutMessage,
@@ -51,6 +55,46 @@ import { postScoutbotOperatorMessage } from "../../scoutbot/runner.ts";
 import { SCOUTBOT_AGENT_ID } from "../../scoutbot/role.ts";
 import type { AgentAttentionEntry } from "../attention/agent-attention.ts";
 import { createAgentAttentionIndexReader } from "../attention/build-agent-attention-index.ts";
+
+export async function getScoutMobileRuntimeCapabilities(projectRoot?: string) {
+  const catalog = await loadHarnessCatalogSnapshot().catch(() => null);
+  const labels = new Map((catalog?.entries ?? []).map((entry) => [entry.harness, entry.label]));
+  const normalizedProjectRoot = projectRoot?.trim() ? resolve(projectRoot) : null;
+  const models = SCOUT_RUNTIME_MODEL_CATALOG.map((model) => ({
+    ...model,
+    harnesses: [...model.harnesses],
+  }));
+  const seenModels = new Set(models.flatMap((model) => (
+    model.harnesses.map((harness) => `${harness}:${model.id.toLowerCase()}`)
+  )));
+  if (normalizedProjectRoot) {
+    for (const agent of queryAgents(100)) {
+      const root = agent.projectRoot ?? agent.cwd;
+      const harness = agent.harness?.trim().toLowerCase();
+      const model = agent.model?.trim();
+      if (!root || resolve(root) !== normalizedProjectRoot || !harness || !model) continue;
+      const key = `${harness}:${model.toLowerCase()}`;
+      if (!seenModels.add(key)) continue;
+      models.push({ id: model, label: model, harnesses: [harness], source: "observed" });
+    }
+  }
+  return {
+    schemaVersion: "openscout.runtime-capabilities.v1" as const,
+    generatedAt: Date.now(),
+    scope: projectRoot ? "global+project" as const : "global" as const,
+    ...(normalizedProjectRoot ? { projectRoot: normalizedProjectRoot } : {}),
+    harnesses: SCOUT_LAUNCHABLE_HARNESSES.map((id) => ({
+      id,
+      label: labels.get(id) ?? id,
+    })),
+    models,
+    efforts: SCOUT_RUNTIME_EFFORT_CATALOG.map((effort) => ({
+      ...effort,
+      harnesses: [...effort.harnesses],
+      ...(effort.models ? { models: [...effort.models] } : {}),
+    })),
+  };
+}
 
 /// Shared, TTL-cached reader for the per-agent needs-attention index. Same
 /// sourcing as web /api/agents (see core/attention/build-agent-attention-index),
@@ -140,6 +184,7 @@ export type CreateScoutSessionInput = {
   profile?: string | null;
   branch?: string;
   model?: string;
+  reasoningEffort?: string;
   forceNew?: boolean;
   seed?: {
     instructions?: string | null;
@@ -237,6 +282,14 @@ export type ScoutMobileSendResult = {
   lifecycleState?: ScoutMobileSendLifecycleState | null;
   summary?: string | null;
   error?: string | null;
+  delivery?: ScoutMobileDeliveryState | null;
+};
+
+export type ScoutMobileDeliveryState = {
+  state: "accepted" | "recoverable";
+  reason?: "session_ended" | "target_unavailable";
+  action?: "start_replacement" | "retry";
+  detail?: string;
 };
 
 function mobileLifecycleStateForFlight(flight: { state?: string } | null | undefined): ScoutMobileSendLifecycleState | null {
@@ -262,7 +315,28 @@ function mobileSendResultFromDirect(result: ScoutDirectMessageResult): ScoutMobi
     lifecycleState: mobileLifecycleStateForFlight(result.flight) ?? (result.flight ? "dispatching" : null),
     summary: result.flight?.summary ?? null,
     error: result.flight?.error ?? null,
+    delivery: { state: "accepted" },
   };
+}
+
+function recoverableMobileDelivery(
+  error: ScoutDirectDeliveryUnavailableError,
+): ScoutMobileDeliveryState {
+  const remediation = error.delivery.remediation;
+  const sessionEnded = remediation?.kind === "session_reference_not_attachable";
+  return sessionEnded
+    ? {
+        state: "recoverable",
+        reason: "session_ended",
+        action: "start_replacement",
+        detail: "This session ended. Start a new session from the project to deliver this message.",
+      }
+    : {
+        state: "recoverable",
+        reason: "target_unavailable",
+        action: "retry",
+        detail: "Message saved. Retry delivery when the target is available.",
+      };
 }
 
 function normalizeTimestamp(value: number | null | undefined): number | null {
@@ -1054,6 +1128,7 @@ export async function createScoutSession(
     currentDirectory: currentDirectory ?? workspace.root,
     cwdOverride: agentCwd !== workspace.root ? agentCwd : undefined,
     model: input.model,
+    reasoningEffort: input.reasoningEffort,
     permissionProfile: input.profile?.trim() || undefined,
     branch: input.branch,
   });
@@ -1105,6 +1180,8 @@ export async function createScoutSession(
         attachments: seedAttachments,
         currentDirectory: currentDirectory ?? workspace.root,
         executionHarness: input.harness,
+        executionModel: input.model,
+        executionReasoningEffort: input.reasoningEffort,
         source: "scout-mobile",
         deviceId,
       })
@@ -1657,18 +1734,51 @@ export async function sendScoutMobileComms(
   if (conv.kind === "direct") {
     const targetAgentId = conv.participantIds.find((p) => !selfIds.has(p));
     if (!targetAgentId) throw new Error("Conversation has no agent participant to address.");
-    const result = await sendScoutMobileMessage(
-      {
-        agentId: targetAgentId,
-        body: input.body,
+    try {
+      const result = await sendScoutMobileMessage(
+        {
+          agentId: targetAgentId,
+          body: input.body,
+          attachments: input.attachments,
+          clientMessageId: input.clientMessageId,
+          replyToMessageId: input.replyToMessageId,
+        },
+        currentDirectory,
+        deviceId,
+      );
+      return mobileSendResultFromDirect(result);
+    } catch (error) {
+      if (!(error instanceof ScoutDirectDeliveryUnavailableError)) throw error;
+
+      // Routing/session liveness is broker-owned, but drafting is not. Keep the
+      // operator's outbound message in the conversation even when its transport
+      // cannot currently attach, and return a typed recovery action to the app.
+      const persisted = await sendScoutConversationMessage({
+        conversationId: input.conversationId,
+        senderId: MOBILE_OPERATOR_ID,
+        body: input.body.trim() || (input.attachments?.length ? "Review the attached message." : ""),
         attachments: input.attachments,
-        clientMessageId: input.clientMessageId,
         replyToMessageId: input.replyToMessageId,
-      },
-      currentDirectory,
-      deviceId,
-    );
-    return mobileSendResultFromDirect(result);
+        clientMessageId: input.clientMessageId,
+        source: "scout-mobile",
+        currentDirectory,
+      });
+      if (!persisted.usedBroker || !persisted.messageId) {
+        throw new Error("The broker disconnected before it could save this message.");
+      }
+      const delivery = recoverableMobileDelivery(error);
+      return {
+        conversationId: persisted.conversationId ?? input.conversationId,
+        messageId: persisted.messageId,
+        flightId: null,
+        invocationId: null,
+        targetAgentId,
+        lifecycleState: "failed",
+        summary: delivery.detail ?? null,
+        error: null,
+        delivery,
+      };
+    }
   }
 
   // Groups and threads must post to THIS conversation — collapsing to a 1:1 DM

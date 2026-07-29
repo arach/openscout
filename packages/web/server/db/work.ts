@@ -386,6 +386,7 @@ function queryPrimaryWorkInvocation(workId: string, flights: WebFlight[]): WebWo
        inv.target_agent_id,
        target.display_name AS target_agent_name,
        inv.execution_json,
+       inv.execution_resolution_json,
        inv.metadata_json,
        inv.created_at,
        ep.harness AS endpoint_harness,
@@ -416,6 +417,7 @@ function queryPrimaryWorkInvocation(workId: string, flights: WebFlight[]): WebWo
     target_agent_id: string | null;
     target_agent_name: string | null;
     execution_json: string | null;
+    execution_resolution_json: string | null;
     metadata_json: string | null;
     created_at: number;
     endpoint_harness: string | null;
@@ -429,6 +431,16 @@ function queryPrimaryWorkInvocation(workId: string, flights: WebFlight[]): WebWo
   }
 
   const execution = parseJson<Record<string, unknown>>(row.execution_json, {});
+  const executionResolution = parseJson<Record<string, unknown>>(row.execution_resolution_json, {});
+  const resolutionDimension = (key: string): Record<string, unknown> => {
+    const value = executionResolution[key];
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {};
+  };
+  const harnessResolution = resolutionDimension("harness");
+  const modelResolution = resolutionDimension("model");
+  const effortResolution = resolutionDimension("reasoningEffort");
   const metadata = parseJson<Record<string, unknown>>(row.metadata_json, {});
   const endpointMetadata = parseJson<Record<string, unknown>>(row.endpoint_metadata_json, {});
   const flight = latestFlightByInvocation.get(row.invocation_id) ?? null;
@@ -443,15 +455,22 @@ function queryPrimaryWorkInvocation(workId: string, flights: WebFlight[]): WebWo
     action: row.action,
     task: row.task,
     source: metadataString(metadata, "source"),
-    requestedHarness: metadataString(execution, "harness"),
-    requestedModel: metadataString(execution, "model"),
+    requestedHarness: metadataString(harnessResolution, "requested") ?? metadataString(execution, "harness"),
+    requestedModel: metadataString(modelResolution, "requested") ?? metadataString(execution, "model"),
+    requestedReasoningEffort: metadataString(effortResolution, "requested")
+      ?? metadataString(execution, "reasoningEffort"),
     requestedPermissionProfile: metadataString(execution, "permissionProfile"),
     targetSessionId,
     requesterId: row.requester_id,
     requesterName: row.requester_name,
     targetAgentId: row.target_agent_id,
     targetAgentName: row.target_agent_name,
-    resolvedHarness: row.endpoint_harness,
+    resolvedHarness: metadataString(harnessResolution, "resolved") ?? row.endpoint_harness,
+    resolvedModel: metadataString(modelResolution, "resolved"),
+    resolvedReasoningEffort: metadataString(effortResolution, "resolved"),
+    observedHarness: metadataString(harnessResolution, "observed"),
+    observedModel: metadataString(modelResolution, "observed"),
+    observedReasoningEffort: metadataString(effortResolution, "observed"),
     resolvedTransport: row.endpoint_transport,
     resolvedSessionId,
     conversationId: row.conversation_id,

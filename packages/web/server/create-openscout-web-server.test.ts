@@ -50,6 +50,8 @@ let brokerDiagnosticsResult: Record<string, unknown> = makeBrokerDiagnostics();
 let pairingStateResult: Record<string, unknown> = makePairingState();
 let pairingSessionSnapshotsResult: SessionState[] = [];
 let queryFleetResult: Record<string, unknown> | null = null;
+const queryRecentMessagesCalls: Array<Record<string, unknown>> = [];
+let queryRecentMessagesResult: Array<Record<string, unknown>> = [];
 
 let querySessionByIdImpl: (conversationId: string) => {
   id?: string;
@@ -143,7 +145,10 @@ mock.module("./db-queries.ts", () => ({
     return queryRunsResult;
   },
   queryTerminalSessions: () => queryTerminalSessionsResult,
-  queryRecentMessages: () => [],
+  queryRecentMessages: (limit?: number, opts?: Record<string, unknown>) => {
+    queryRecentMessagesCalls.push({ limit, ...opts });
+    return queryRecentMessagesResult;
+  },
   querySessions: () => [],
   querySessionById: (conversationId: string) =>
     querySessionByIdImpl(conversationId),
@@ -700,6 +705,8 @@ beforeEach(() => {
   queryConversationDefinitionByIdImpl = () => null;
   scoutBrokerContextResult = null;
   loadScoutBrokerContextCalls = 0;
+  queryRecentMessagesCalls.length = 0;
+  queryRecentMessagesResult = [];
   scoutBrokerMessagesResult = null;
   scoutBrokerHomeResult = null;
   scoutBrokerSnapshotResult = null;
@@ -1456,6 +1463,106 @@ describe("createOpenScoutWebServer", () => {
     ]);
   });
 
+  test("clamps an oversized message page to the same size for either source", async () => {
+    const chatId = "chn-0600eb9f39144007919e969bc3c13e12";
+    const messages: Record<string, unknown> = {};
+    for (let index = 1; index <= 600; index += 1) {
+      messages[`msg-${index}`] = {
+        id: `msg-${index}`,
+        conversationId: chatId,
+        actorId: "session-vox-zeno",
+        body: `message ${index}`,
+        class: "agent",
+        createdAt: 1_783_915_198_000 + index,
+      };
+    }
+    scoutBrokerContextResult = {
+      snapshot: {
+        conversations: {
+          [chatId]: { id: chatId, kind: "direct", title: "Vox", participantIds: ["operator"] },
+        },
+        messages,
+        agents: {},
+        actors: { "session-vox-zeno": { id: "session-vox-zeno", displayName: "vox-zeno-2" } },
+        endpoints: {},
+      },
+    };
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const brokerResponse = await server.app.request(
+      `http://localhost/api/messages?conversationId=${chatId}&limit=1000`,
+    );
+    expect(brokerResponse.status).toBe(200);
+    await expect(brokerResponse.json()).resolves.toHaveLength(500);
+
+    // Same request, SQLite fallback: the route must have clamped before it
+    // picked a source, not after.
+    scoutBrokerContextResult = null;
+    const sqliteResponse = await server.app.request(
+      `http://localhost/api/messages?conversationId=${chatId}&limit=1000`,
+    );
+    expect(sqliteResponse.status).toBe(200);
+    expect(queryRecentMessagesCalls.at(-1)?.limit).toBe(500);
+  });
+
+  test("answers 400 for a history cursor it cannot read", async () => {
+    const chatId = "chn-0600eb9f39144007919e969bc3c13e13";
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request(
+      `http://localhost/api/messages?conversationId=${chatId}&beforeMessageId=${encodeURIComponent("not-a-timestamp|msg-1")}`,
+    );
+
+    // A cursor the server cannot honour must never read as "no older messages".
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ reason: "malformed" });
+  });
+
+  test("answers 400 when a legacy cursor no longer names a message", async () => {
+    const chatId = "chn-0600eb9f39144007919e969bc3c13e14";
+    scoutBrokerContextResult = {
+      snapshot: {
+        conversations: {
+          [chatId]: { id: chatId, kind: "direct", title: "Vox", participantIds: ["operator"] },
+        },
+        messages: {
+          "msg-vox-1": {
+            id: "msg-vox-1",
+            conversationId: chatId,
+            actorId: "session-vox-zeno",
+            body: "still here",
+            class: "agent",
+            createdAt: 1_783_915_198_766,
+          },
+        },
+        agents: {},
+        actors: { "session-vox-zeno": { id: "session-vox-zeno", displayName: "vox-zeno-2" } },
+        endpoints: {},
+      },
+    };
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request(
+      `http://localhost/api/messages?conversationId=${chatId}&beforeMessageId=msg-vox-deleted`,
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ reason: "unknown" });
+  });
+
   test("includes broker-registered agent cards in the agents API", async () => {
     queryAgentsResult = [
       {
@@ -1634,6 +1741,48 @@ describe("createOpenScoutWebServer", () => {
     expect(agents[0]).not.toHaveProperty("brokerActivity");
     expect(agents[0]).not.toHaveProperty("authorityProfile");
     expect(agents[0]).not.toHaveProperty("runtimePolicy");
+  });
+
+  test("lets broker flight state clear a stale local working projection", async () => {
+    queryAgentsResult = [{
+      id: "agent-1",
+      definitionId: "agent-1",
+      name: "Agent One",
+      state: "working",
+      updatedAt: 1_700_000_100_000,
+    }];
+    scoutBrokerHomeResult = {
+      updatedAt: 1_700_000_200_000,
+      agents: [{
+        id: "agent-1",
+        title: "Agent One",
+        role: null,
+        summary: null,
+        projectRoot: null,
+        state: "available",
+        reachable: true,
+        statusLabel: "Available",
+        statusDetail: null,
+        activeTask: null,
+        lastSeenAt: 1_700_000_200_000,
+      }],
+      activity: [],
+    };
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request(
+      "http://localhost/api/agents?detail=summary",
+    );
+
+    expect(response.status).toBe(200);
+    const agents = await response.json() as Array<{ id: string; state: string }>;
+    expect(agents.find((agent) => agent.id === "agent-1")).toMatchObject({
+      state: "available",
+    });
   });
 
   test("keeps database agent rows authoritative when broker cards share an id", async () => {
@@ -2866,10 +3015,9 @@ describe("createOpenScoutWebServer", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(sendScoutConversationSteerCalls).toEqual([
-      {
-        conversationId: "c.agent-1",
-        senderId: expect.any(String),
+    expect(sendScoutDirectMessageCalls).toEqual([
+      expect.objectContaining({
+        agentId: "agent-1",
         body: "Status update",
         attachments: [
           {
@@ -2879,19 +3027,60 @@ describe("createOpenScoutWebServer", () => {
             url: "http://127.0.0.1:3200/api/blobs/blob-1",
           },
         ],
-        intent: "invoke",
         currentDirectory: "/tmp/openscout",
         source: "scout-web",
-      },
+      }),
     ]);
+    expect(sendScoutConversationSteerCalls).toHaveLength(0);
     expect(sendScoutConversationMessageCalls).toHaveLength(0);
-    expect(sendScoutDirectMessageCalls).toHaveLength(0);
     expect(sendScoutMessageCalls).toHaveLength(0);
     expect(queryRunsCalls).toEqual([{
       conversationId: "c.agent-1",
       active: true,
       limit: 100,
     }]);
+  });
+
+  test("keeps a stable client message identity through a direct Chat invoke", async () => {
+    querySessionByIdImpl = () => ({
+      kind: "direct",
+      agentId: "agent-1",
+      participantIds: ["operator", "agent-1"],
+    });
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request(
+      "http://localhost/api/chats/c.agent-1/messages",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          body: "Status update",
+          clientMessageId: "web-message-stable-1",
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(sendScoutDirectMessageCalls).toEqual([
+      expect.objectContaining({
+        agentId: "agent-1",
+        body: "Status update",
+        clientMessageId: "web-message-stable-1",
+        currentDirectory: "/tmp/openscout",
+        source: "scout-web",
+      }),
+    ]);
+    await expect(response.json()).resolves.toMatchObject({
+      chatId: "c.agent-1",
+      conversationId: "c.agent-1",
+      messageId: "msg-1",
+      runIds: ["run:flight:flt-1"],
+    });
   });
 
   test("steers the active Run in the selected direct Chat by default", async () => {
@@ -2975,14 +3164,14 @@ describe("createOpenScoutWebServer", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(sendScoutConversationSteerCalls).toEqual([
+    expect(sendScoutDirectMessageCalls).toEqual([
       expect.objectContaining({
-        conversationId: "c.agent-1",
+        agentId: "agent-1",
         body: "",
         attachments: [expect.objectContaining({ id: "att-only" })],
-        intent: "invoke",
       }),
     ]);
+    expect(sendScoutConversationSteerCalls).toHaveLength(0);
     expect(sendScoutConversationMessageCalls).toHaveLength(0);
   });
 
@@ -3032,8 +3221,7 @@ describe("createOpenScoutWebServer", () => {
       agentId: "agent-1",
       participantIds: ["operator", "agent-1"],
     });
-    sendScoutMessageResult = {
-      usedBroker: true,
+    sendScoutDirectMessageResult = {
       conversationId: "c.agent-1",
       messageId: "msg-send-1",
       flight: {
@@ -3042,8 +3230,6 @@ describe("createOpenScoutWebServer", () => {
         targetAgentId: "agent-1",
         state: "queued",
       },
-      invokedTargets: ["agent-1"],
-      unresolvedTargets: [],
     };
 
     const server = await createOpenScoutWebServer({
@@ -3063,17 +3249,17 @@ describe("createOpenScoutWebServer", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(sendScoutConversationSteerCalls).toEqual([
-      {
-        conversationId: "c.agent-1",
-        senderId: "operator",
+    expect(sendScoutDirectMessageCalls).toEqual([
+      expect.objectContaining({
+        agentId: "agent-1",
         body: "Review this and report back",
-        intent: "invoke",
-        execution: { harness: "codex", model: "gpt-test" },
+        executionHarness: "codex",
+        executionModel: "gpt-test",
         currentDirectory: "/tmp/openscout",
         source: "scout-web",
-      },
+      }),
     ]);
+    expect(sendScoutConversationSteerCalls).toHaveLength(0);
     await expect(response.json()).resolves.toMatchObject({
       conversationId: "c.agent-1",
       chatId: "c.agent-1",
@@ -3105,18 +3291,16 @@ describe("createOpenScoutWebServer", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(sendScoutConversationSteerCalls).toEqual([
-      {
-        conversationId: "c.arach-agent-1",
-        senderId: expect.any(String),
+    expect(sendScoutDirectMessageCalls).toEqual([
+      expect.objectContaining({
+        agentId: "agent-1",
         body: "Status update",
-        intent: "invoke",
         currentDirectory: "/tmp/openscout",
         source: "scout-web",
-      },
+      }),
     ]);
+    expect(sendScoutConversationSteerCalls).toHaveLength(0);
     expect(sendScoutConversationMessageCalls).toHaveLength(0);
-    expect(sendScoutDirectMessageCalls).toHaveLength(0);
     expect(sendScoutMessageCalls).toHaveLength(0);
   });
 

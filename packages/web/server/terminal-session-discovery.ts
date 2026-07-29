@@ -2,8 +2,12 @@ import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
+  buildHerdrAttachCommand,
+  herdrSessionsProbe,
+  parseHerdrSessionListJson,
   tmuxSessionsProbe,
   zellijSessionsProbe,
+  type HerdrSessionInfo,
 } from "@openscout/runtime/system-probes";
 
 import type {
@@ -50,6 +54,10 @@ export async function queryDiscoveredTerminalSessions(options: DiscoveryOptions 
 
   if (!options.backend || options.backend === "zellij") {
     sessions.push(...await discoverZellijSessions({ env, excluded }));
+  }
+
+  if (!options.backend || options.backend === "herdr") {
+    sessions.push(...await discoverHerdrSessions({ env, excluded }));
   }
 
   return sessions.slice(0, limit);
@@ -118,6 +126,49 @@ async function discoverZellijSessions(input: { env: NodeJS.ProcessEnv; excluded:
         raw: session.raw,
       },
     }));
+}
+
+async function discoverHerdrSessions(input: { env: NodeJS.ProcessEnv; excluded: Set<string> }): Promise<DiscoveredTerminalSession[]> {
+  const snapshot = await herdrSessionsProbe.for({ env: input.env }).fresh();
+  return (snapshot.value ?? [])
+    .filter((session) => !input.excluded.has(terminalSurfaceKey("herdr", session.name)))
+    .map((session) => discoveredHerdrRecord(session));
+}
+
+function discoveredHerdrRecord(session: HerdrSessionInfo): DiscoveredTerminalSession {
+  const state: TerminalSurfaceState = session.running ? "live" : "detached";
+  const attachCommand = buildHerdrAttachCommand(session);
+  return discoveredRecordFromSurface({
+    backend: "herdr",
+    name: session.name,
+    state,
+    surface: {
+      backend: "herdr",
+      sessionName: session.name,
+      paneId: null,
+      attachCommand,
+      observeCommand: null,
+      relay: {
+        backend: "herdr",
+        sessionName: session.name,
+        herdrSession: session.name,
+      },
+      state,
+    },
+    metadata: {
+      source: "backend-discovery",
+      registryState: "discovered",
+      backendState: state,
+      herdrRunning: session.running,
+      herdrIsDefault: session.isDefault,
+      // sessionDir / socket paths stay off the wire deliberately.
+    },
+  });
+}
+
+/** @internal test helper — parse Herdr CLI JSON without probing the binary. */
+export function parseHerdrSessionList(output: string): HerdrSessionInfo[] {
+  return parseHerdrSessionListJson(output);
 }
 
 export function parseTmuxSessionList(output: string): TmuxSessionInfo[] {

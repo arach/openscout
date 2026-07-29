@@ -21,8 +21,10 @@ import {
   readScoutBrokerHealth,
   readScoutBrokerTailRecent,
   resolveScoutBrokerUrl,
+  ScoutDirectDeliveryUnavailableError,
   sendScoutConversationSteer,
   sendScoutConversationMessage,
+  sendScoutDirectMessage,
   sendScoutMessage,
 } from "./service.ts";
 
@@ -205,6 +207,57 @@ describe("loadScoutBrokerContext", () => {
 
     expect(contexts.every((context) => context?.node.id === "node-1")).toBe(true);
     expect(snapshotRequests).toBe(1);
+  });
+
+  test("invalidates cached snapshots after a successful broker write", async () => {
+    const home = useIsolatedOpenScoutHome();
+    let snapshotRequests = 0;
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        snapshotRequests += 1;
+        return jsonResponse({
+          nodes: {},
+          actors: {
+            operator: { id: "operator", kind: "person", displayName: "Operator" },
+          },
+          agents: {},
+          endpoints: {},
+          conversations: {},
+          bindings: {},
+          messages: {},
+          readCursors: {},
+          invocations: {},
+          flights: {},
+          collaborationRecords: {},
+        });
+      }
+      if (
+        request.method === "POST"
+        && (url.pathname === "/v1/conversations" || url.pathname === "/v1/messages")
+      ) {
+        return jsonResponse({ ok: true });
+      }
+      return jsonResponse({ error: "unexpected request" }, 404);
+    }) as unknown as typeof fetch;
+
+    await loadScoutBrokerContext();
+    await sendScoutMessage({
+      senderId: "operator",
+      body: "Keep the first paint continuous.",
+      channel: "lifecycle-cache-test",
+      currentDirectory: home,
+    });
+    await loadScoutBrokerContext();
+
+    expect(snapshotRequests).toBe(2);
   });
 });
 
@@ -802,6 +855,7 @@ describe("sendScoutConversationMessage", () => {
       conversationId: "chn-iris",
       senderId: "operator",
       body: "Keep the first slice simple.",
+      clientMessageId: "web-channel-stable-1",
       notifyParticipantAgents: true,
       currentDirectory: home,
       source: "scout-web",
@@ -816,8 +870,23 @@ describe("sendScoutConversationMessage", () => {
       metadata: {
         deliveryIntent: "group_message",
         relayTargetIds: ["fable", "talkie"],
+        clientMessageId: "web-channel-stable-1",
       },
     });
+
+    await sendScoutConversationMessage({
+      conversationId: "chn-iris",
+      senderId: "operator",
+      body: "Keep the first slice simple.",
+      clientMessageId: "web-channel-stable-1",
+      notifyParticipantAgents: true,
+      currentDirectory: home,
+      source: "scout-web",
+    });
+    const retriedMessagePosts = requests.filter((request) => request.path === "/v1/messages");
+    expect(retriedMessagePosts).toHaveLength(2);
+    expect(retriedMessagePosts[0]?.body.id).toBe(retriedMessagePosts[1]?.body.id);
+    expect(retriedMessagePosts[0]?.body.id).toMatch(/^m-client-/);
 
     requests.length = 0;
     const threadResult = await sendScoutConversationMessage({
@@ -1562,4 +1631,176 @@ describe("openScoutPeerSession", () => {
       visibility: "private",
     }));
   }, 15000);
+});
+
+describe("sendScoutDirectMessage", () => {
+  test("gives attachment-only mobile consults a broker-valid task body", async () => {
+    useIsolatedOpenScoutHome();
+    const agentId = "project-woolf-15.main.node-1";
+    const deliveredBodies: Record<string, unknown>[] = [];
+
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      const body = request.method === "POST" ? await request.json() as Record<string, unknown> : null;
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {},
+          agents: {
+            [agentId]: {
+              id: agentId,
+              kind: "agent",
+              displayName: "Project Woolf 15",
+            },
+          },
+          endpoints: {
+            "endpoint-woolf": {
+              id: "endpoint-woolf",
+              agentId,
+              nodeId: "node-1",
+              harness: "claude",
+              transport: "tmux",
+              state: "idle",
+            },
+          },
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/deliver") {
+        if (body) deliveredBodies.push(body);
+        return jsonResponse({
+          kind: "delivery",
+          accepted: true,
+          routeKind: "dm",
+          conversation: {
+            id: "chn-woolf",
+            kind: "direct",
+            title: "Project Woolf 15",
+            visibility: "private",
+            shareMode: "local",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", agentId],
+          },
+          message: {
+            id: "msg-woolf",
+            conversationId: "chn-woolf",
+            actorId: "operator",
+            originNodeId: "node-1",
+            class: "agent",
+            body: "Review the attached message.",
+            visibility: "private",
+            policy: "durable",
+            createdAt: Date.now(),
+          },
+          targetAgentId: agentId,
+        });
+      }
+      return jsonResponse({ error: "unexpected request" }, 404);
+    }) as unknown as typeof fetch;
+
+    await sendScoutDirectMessage({
+      agentId,
+      body: "",
+      attachments: [{
+        id: "att-photo",
+        mediaType: "image/jpeg",
+        fileName: "Photo.jpg",
+        url: "http://127.0.0.1:43132/files/att-photo",
+      }],
+      source: "scout-mobile",
+      clientMessageId: "ios-stable-photo",
+    });
+
+    await sendScoutDirectMessage({
+      agentId,
+      body: "",
+      attachments: [{
+        id: "att-photo",
+        mediaType: "image/jpeg",
+        fileName: "Photo.jpg",
+        url: "http://127.0.0.1:43132/files/att-photo",
+      }],
+      source: "scout-mobile",
+      clientMessageId: "ios-stable-photo",
+    });
+
+    expect(deliveredBodies[0]).toMatchObject({
+      body: "Review the attached message.",
+      attachments: [{
+        id: "att-photo",
+        mediaType: "image/jpeg",
+        fileName: "Photo.jpg",
+        url: "http://127.0.0.1:43132/files/att-photo",
+      }],
+      intent: "consult",
+    });
+    expect(deliveredBodies[0]?.id).toBe(deliveredBodies[1]?.id);
+    expect(deliveredBodies[0]?.id).toMatch(/^deliver-client-[a-f0-9]{32}$/);
+  });
+
+  test("asks the broker to route a cached superseded endpoint and exposes typed recovery", async () => {
+    useIsolatedOpenScoutHome();
+    const agentId = "stale-session.node-1";
+    let deliveryRequests = 0;
+
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {},
+          agents: { [agentId]: { id: agentId, kind: "agent", displayName: "Stale session" } },
+          endpoints: {
+            "endpoint-stale": {
+              id: "endpoint-stale",
+              agentId,
+              nodeId: "node-1",
+              harness: "claude",
+              transport: "tmux",
+              state: "offline",
+              metadata: { retiredFromFleet: true },
+            },
+          },
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/deliver") {
+        deliveryRequests += 1;
+        return jsonResponse({
+          kind: "question",
+          accepted: false,
+          question: { detail: "The exact session is no longer attachable." },
+          remediation: {
+            kind: "session_reference_not_attachable",
+            detail: "Start a replacement session.",
+          },
+        }, 409);
+      }
+      return jsonResponse({ error: "unexpected request" }, 404);
+    }) as unknown as typeof fetch;
+
+    await expect(sendScoutDirectMessage({
+      agentId,
+      body: "continue",
+      clientMessageId: "ios-stale-session",
+    })).rejects.toBeInstanceOf(ScoutDirectDeliveryUnavailableError);
+    expect(deliveryRequests).toBe(1);
+  });
 });

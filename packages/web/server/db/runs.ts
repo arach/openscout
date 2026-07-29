@@ -419,6 +419,7 @@ export function queryFlights(opts?: {
   const sql = `SELECT
     inv.flight_id AS id,
     inv.id AS invocation_id,
+    inv.message_id,
     inv.target_agent_id,
     ac.display_name AS agent_name,
     inv.conversation_id,
@@ -447,6 +448,7 @@ export function queryFlights(opts?: {
   const rows = db().prepare(sql).all(...params) as Array<{
     id: string;
     invocation_id: string;
+    message_id: string | null;
     target_agent_id: string;
     agent_name: string | null;
     conversation_id: string | null;
@@ -473,6 +475,7 @@ export function queryFlights(opts?: {
     return {
       id: r.id,
       invocationId: r.invocation_id,
+      ...(r.message_id ? { messageId: r.message_id } : {}),
       agentId: r.target_agent_id,
       agentName: r.agent_name,
       conversationId: r.conversation_id,
