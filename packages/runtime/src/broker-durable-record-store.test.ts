@@ -12,7 +12,12 @@ import type {
 
 import { createInMemoryControlRuntime } from "./broker.js";
 import type { BrokerJournalEntry } from "./broker-journal.js";
-import { BrokerDurableRecordStore, isEndpointLastSeenHeartbeat } from "./broker-durable-record-store.js";
+import {
+  BrokerDurableRecordStore,
+  isEndpointLastSeenHeartbeat,
+  isEndpointUnchanged,
+  isOfflineEndpointResurrection,
+} from "./broker-durable-record-store.js";
 import { BrokerDurableStore } from "./broker-durable-store.js";
 
 function createTestRecordStore() {
@@ -158,6 +163,82 @@ describe("BrokerDurableRecordStore", () => {
 
     expect(appended).toEqual([]);
     expect(runtime.peek().endpoints["endpoint-1"]?.metadata?.lastSeenAt).toBe(2);
+  });
+
+  test("detects offline endpoint resurrections from registry rebuilds", () => {
+    const offline = testEndpoint({
+      state: "offline",
+      transport: "tmux",
+      metadata: {
+        source: "test",
+        lastError: "tmux session missing: session-1",
+        lastFailedAt: 100,
+      },
+    });
+    const rebuiltWaiting = testEndpoint({
+      state: "waiting",
+      transport: "tmux",
+      metadata: { source: "test" },
+    });
+    const rebuiltIdle = testEndpoint({
+      state: "idle",
+      transport: "tmux",
+      metadata: { source: "test" },
+    });
+    const rebuiltElsewhere = testEndpoint({
+      state: "waiting",
+      transport: "tmux",
+      cwd: "/somewhere/else",
+      metadata: { source: "test" },
+    });
+
+    expect(isOfflineEndpointResurrection(offline, rebuiltWaiting)).toBe(true);
+    // A live rebuild (idle) is real new information and must go through.
+    expect(isOfflineEndpointResurrection(offline, rebuiltIdle)).toBe(false);
+    // So must a rebuild that changes anything beyond liveness bookkeeping.
+    expect(isOfflineEndpointResurrection(offline, rebuiltElsewhere)).toBe(false);
+    expect(isOfflineEndpointResurrection(undefined, rebuiltWaiting)).toBe(false);
+  });
+
+  test("keeps the probed offline record when a registry rebuild claims waiting", async () => {
+    const { runtime, appended, records } = createTestRecordStore();
+    const offline = testEndpoint({
+      state: "offline",
+      transport: "tmux",
+      metadata: {
+        source: "test",
+        lastError: "tmux session missing: session-1",
+        lastFailedAt: 100,
+      },
+    });
+    await runtime.upsertEndpoint(offline);
+
+    await records.upsertEndpoint(testEndpoint({
+      state: "waiting",
+      transport: "tmux",
+      metadata: { source: "test" },
+    }));
+
+    expect(appended).toEqual([]);
+    const kept = runtime.peek().endpoints["endpoint-1"];
+    expect(kept?.state).toBe("offline");
+    expect(kept?.metadata?.lastError).toBe("tmux session missing: session-1");
+  });
+
+  test("skips durable writes for unchanged endpoint rebuilds", async () => {
+    const { runtime, appended, records } = createTestRecordStore();
+    await runtime.upsertEndpoint(testEndpoint({ state: "idle", metadata: { source: "test", lastSeenAt: 5 } }));
+
+    // Same record, staler heartbeat: no durable write, no in-memory regression.
+    await records.upsertEndpoint(testEndpoint({ state: "idle", metadata: { source: "test", lastSeenAt: 3 } }));
+
+    expect(appended).toEqual([]);
+    expect(runtime.peek().endpoints["endpoint-1"]?.metadata?.lastSeenAt).toBe(5);
+
+    expect(isEndpointUnchanged(
+      testEndpoint({ state: "idle" }),
+      testEndpoint({ state: "waiting" }),
+    )).toBe(false);
   });
 
   test("deletes endpoints through the durable journal", async () => {

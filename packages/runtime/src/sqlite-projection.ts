@@ -440,6 +440,50 @@ export class RecoverableSQLiteProjection {
     });
   }
 
+  async pruneEvents(options: { kinds: readonly string[]; olderThanMs: number; now?: number }): Promise<number> {
+    if (this.options.disabled || this.closed) {
+      return 0;
+    }
+
+    await this.flush();
+    const store = await this.ensureStore();
+    if (!store) {
+      return 0;
+    }
+
+    try {
+      return store.pruneEvents(options);
+    } catch (error) {
+      if (isTransientStoreBusyError(error)) {
+        return 0;
+      }
+      this.invalidateStore(error);
+      return 0;
+    }
+  }
+
+  async reclaimFreeSpace(): Promise<{ vacuumed: boolean; freePages: number; totalPages: number } | null> {
+    if (this.options.disabled || this.closed) {
+      return null;
+    }
+
+    await this.flush();
+    const store = await this.ensureStore();
+    if (!store) {
+      return null;
+    }
+
+    try {
+      return store.reclaimFreeSpace();
+    } catch (error) {
+      if (isTransientStoreBusyError(error)) {
+        return null;
+      }
+      this.invalidateStore(error);
+      return null;
+    }
+  }
+
   async listActivityItems(options: ActivityQuery = {}): Promise<ActivityItem[]> {
     if (this.options.disabled || this.closed) {
       return [];

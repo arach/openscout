@@ -2036,3 +2036,65 @@ describe("terminal session registry", () => {
     }
   });
 });
+
+describe("ephemeral event retention", () => {
+  test("prunes only the requested kinds past the cutoff", () => {
+    const store = createStore();
+    try {
+      const base = 1_000_000;
+      const event = (id: string, kind: string, ts: number) => ({
+        id,
+        kind,
+        actorId: "agent-1",
+        ts,
+        payload: { seq: id },
+      });
+      store.recordEvent(event("evt-old-endpoint", "agent.endpoint.upserted", base - 10_000));
+      store.recordEvent(event("evt-new-endpoint", "agent.endpoint.upserted", base - 10));
+      store.recordEvent(event("evt-old-message", "message.posted", base - 10_000));
+
+      const pruned = store.pruneEvents({
+        kinds: ["agent.endpoint.upserted"],
+        olderThanMs: 1_000,
+        now: base,
+      });
+
+      expect(pruned).toBe(1);
+      const remaining = store.recentEvents(10).map((entry) => entry.id).sort();
+      // The durable-history kind and the in-window event both survive.
+      expect(remaining).toEqual(["evt-new-endpoint", "evt-old-message"]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("reclaimFreeSpace only vacuums when the freelist share is large", () => {
+    const store = createStore();
+    try {
+      const untouched = store.reclaimFreeSpace();
+      expect(untouched.vacuumed).toBe(false);
+
+      for (let i = 0; i < 500; i += 1) {
+        store.recordEvent({
+          id: `evt-${i}`,
+          kind: "agent.endpoint.upserted",
+          actorId: "agent-1",
+          ts: i,
+          payload: { filler: "x".repeat(2_000) },
+        });
+      }
+      const pruned = store.pruneEvents({
+        kinds: ["agent.endpoint.upserted"],
+        olderThanMs: 1,
+        now: 10_000_000,
+      });
+      expect(pruned).toBe(500);
+
+      const reclaimed = store.reclaimFreeSpace();
+      expect(reclaimed.vacuumed).toBe(true);
+      expect(store.reclaimFreeSpace().vacuumed).toBe(false);
+    } finally {
+      store.close();
+    }
+  });
+});

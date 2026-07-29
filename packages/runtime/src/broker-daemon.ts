@@ -270,6 +270,19 @@ const cardlessSessionIdleTtlMs = Number.parseInt(
 );
 const repoWatchServeCacheTtlMs = Number.parseInt(process.env.OPENSCOUT_REPO_WATCH_CACHE_TTL_MS ?? "1200000", 10);
 const repoWatchRehydrateAfterMs = Number.parseInt(process.env.OPENSCOUT_REPO_WATCH_REHYDRATE_AFTER_MS ?? "30000", 10);
+// Registry/state-sync events carry no history value: current state lives in
+// the projection tables and only the recent tail is ever read back.
+const EPHEMERAL_EVENT_KINDS = [
+  "agent.endpoint.upserted",
+  "agent.endpoint.deleted",
+  "agent.registered",
+  "actor.registered",
+  "node.upserted",
+] as const;
+const ephemeralEventRetentionMs = Number.parseInt(
+  process.env.OPENSCOUT_EPHEMERAL_EVENT_RETENTION_MS ?? String(3 * 24 * 60 * 60 * 1000),
+  10,
+);
 
 ensureOpenScoutCleanSlateSync();
 
@@ -1771,6 +1784,36 @@ if (routeAliasService) {
   setInterval(() => {
     routeAliasService.sweepExpired();
   }, 60_000).unref();
+}
+
+if (Number.isFinite(ephemeralEventRetentionMs) && ephemeralEventRetentionMs > 0 && !sqliteDisabled) {
+  const pruneEphemeralControlEvents = async (phase: "startup" | "periodic"): Promise<void> => {
+    const pruned = await projection.pruneEvents({
+      kinds: EPHEMERAL_EVENT_KINDS,
+      olderThanMs: ephemeralEventRetentionMs,
+    });
+    if (pruned > 0) {
+      console.log(`[openscout-runtime] pruned ${pruned} ephemeral control events (${phase})`);
+    }
+    if (phase === "startup") {
+      const reclaim = await projection.reclaimFreeSpace();
+      if (reclaim?.vacuumed) {
+        console.log(
+          `[openscout-runtime] vacuumed control-plane db (${reclaim.freePages}/${reclaim.totalPages} pages were free)`,
+        );
+      }
+    }
+  };
+  setTimeout(() => {
+    pruneEphemeralControlEvents("startup").catch((error) => {
+      console.error("[openscout-runtime] startup event prune failed:", error);
+    });
+  }, 15_000).unref();
+  setInterval(() => {
+    pruneEphemeralControlEvents("periodic").catch((error) => {
+      console.error("[openscout-runtime] periodic event prune failed:", error);
+    });
+  }, 6 * 60 * 60 * 1000).unref();
 }
 
 async function shutdownBroker(exitCode = 0): Promise<void> {

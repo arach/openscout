@@ -1318,6 +1318,49 @@ export class SQLiteControlPlaneStore {
     };
   }
 
+  /**
+   * Control events are only ever read back as a bounded recent tail
+   * (recentEvents); state rehydrates from the journal and projection tables.
+   * Ephemeral state-sync kinds (endpoint upserts, re-registrations) therefore
+   * turn into dead weight past the retention window and can be deleted.
+   */
+  pruneEvents(options: { kinds: readonly string[]; olderThanMs: number; now?: number }): number {
+    if (options.kinds.length === 0 || options.olderThanMs <= 0) {
+      return 0;
+    }
+    this.flushPendingEvents();
+    const cutoff = (options.now ?? currentTimestampMs()) - options.olderThanMs;
+    const placeholders = options.kinds.map(() => "?").join(", ");
+    const result = this.db.query(
+      `DELETE FROM events WHERE ts < ? AND kind IN (${placeholders})`,
+    ).run(cutoff, ...options.kinds) as { changes?: number };
+    return result.changes ?? 0;
+  }
+
+  /**
+   * VACUUM blocks every other connection, so it only runs when a meaningful
+   * share of the file is freelist pages (e.g. after a large event prune) and
+   * callers gate it to startup.
+   */
+  reclaimFreeSpace(options: { minFreePageRatio?: number } = {}): {
+    vacuumed: boolean;
+    freePages: number;
+    totalPages: number;
+  } {
+    const freePages = Number(
+      (this.db.query<{ freelist_count: number }>("PRAGMA freelist_count").get())?.freelist_count ?? 0,
+    );
+    const totalPages = Number(
+      (this.db.query<{ page_count: number }>("PRAGMA page_count").get())?.page_count ?? 0,
+    );
+    const minRatio = options.minFreePageRatio ?? 0.2;
+    if (totalPages <= 0 || freePages / totalPages < minRatio) {
+      return { vacuumed: false, freePages, totalPages };
+    }
+    this.db.exec("VACUUM");
+    return { vacuumed: true, freePages, totalPages };
+  }
+
   close(): void {
     this.flushPendingEvents();
     if (this.flushPendingEventsTimer) {

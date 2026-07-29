@@ -73,10 +73,21 @@ function normalizeComparableValue(value: unknown): unknown {
   );
 }
 
-function comparableEndpointWithoutHeartbeatMetadata(endpoint: AgentEndpoint): unknown {
+function heartbeatIgnoredMetadataKeys(endpoint: AgentEndpoint): Set<string> {
   const ignoredMetadataKeys = new Set(["lastSeenAt"]);
   if (endpoint.metadata?.source === "scout-channel") {
     ignoredMetadataKeys.add("startedAt");
+  }
+  return ignoredMetadataKeys;
+}
+
+function comparableEndpointWithoutHeartbeatMetadata(
+  endpoint: AgentEndpoint,
+  extraIgnoredMetadataKeys?: readonly string[],
+): unknown {
+  const ignoredMetadataKeys = heartbeatIgnoredMetadataKeys(endpoint);
+  for (const key of extraIgnoredMetadataKeys ?? []) {
+    ignoredMetadataKeys.add(key);
   }
   const metadata = endpoint.metadata
     ? Object.fromEntries(
@@ -111,6 +122,62 @@ export function isEndpointLastSeenHeartbeat(
     return false;
   }
 
+  return JSON.stringify(comparableEndpointWithoutHeartbeatMetadata(previous))
+    === JSON.stringify(comparableEndpointWithoutHeartbeatMetadata(next));
+}
+
+/**
+ * Registry rebuilds re-announce every registered local agent from scratch, so
+ * an endpoint the liveness probe already marked offline comes back as a bare
+ * "waiting" record with the failure metadata stripped. Persisting that would
+ * flip the endpoint waiting<->offline forever (the probe re-marks it offline
+ * minutes later), emitting a durable event per swing. The rebuild carries no
+ * liveness information the probe has not already contradicted, so it must not
+ * overwrite the probed record.
+ */
+const OFFLINE_BOOKKEEPING_METADATA_KEYS = [
+  "lastError",
+  "lastFailedAt",
+  "disabledReason",
+  "staleLocalRegistration",
+  "staleAt",
+  "replacedByAgentId",
+  "supersededLocalTransport",
+  "replacedByEndpointId",
+  "replacedByTransport",
+  "retiredAt",
+] as const;
+
+export function isOfflineEndpointResurrection(
+  previous: AgentEndpoint | undefined,
+  next: AgentEndpoint,
+): boolean {
+  if (!previous || previous.state !== "offline" || next.state !== "waiting") {
+    return false;
+  }
+  const { state: _previousState, ...previousRest } = previous;
+  const { state: _nextState, ...nextRest } = next;
+  return JSON.stringify(
+    comparableEndpointWithoutHeartbeatMetadata(previousRest as AgentEndpoint, OFFLINE_BOOKKEEPING_METADATA_KEYS),
+  ) === JSON.stringify(
+    comparableEndpointWithoutHeartbeatMetadata(nextRest as AgentEndpoint, OFFLINE_BOOKKEEPING_METADATA_KEYS),
+  );
+}
+
+/**
+ * A rebuild that changes nothing (same state, same fields modulo heartbeat
+ * metadata) does not deserve a durable write either — without this, every
+ * registry sync re-persists every unchanged endpoint. Unlike the heartbeat
+ * path this does not refresh the in-memory record: the incoming copy's
+ * heartbeat fields may be staler than what the runtime already holds.
+ */
+export function isEndpointUnchanged(
+  previous: AgentEndpoint | undefined,
+  next: AgentEndpoint,
+): boolean {
+  if (!previous || previous.state !== next.state) {
+    return false;
+  }
   return JSON.stringify(comparableEndpointWithoutHeartbeatMetadata(previous))
     === JSON.stringify(comparableEndpointWithoutHeartbeatMetadata(next));
 }
@@ -163,6 +230,9 @@ export class BrokerDurableRecordStore {
     const previous = this.options.runtime.peek().endpoints[endpoint.id];
     if (isEndpointLastSeenHeartbeat(previous, endpoint)) {
       this.options.runtime.refreshEndpointSilently(endpoint);
+      return;
+    }
+    if (isEndpointUnchanged(previous, endpoint) || isOfflineEndpointResurrection(previous, endpoint)) {
       return;
     }
 
