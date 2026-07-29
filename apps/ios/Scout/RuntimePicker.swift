@@ -38,6 +38,7 @@
 
 import SwiftUI
 import HudsonUI
+import ScoutCapabilities
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -86,6 +87,16 @@ struct ComposerModelHarness: Identifiable, Hashable {
             ComposerModelFamily(id: "gpt-5.6-luna", label: "5.6", sublabel: "luna", value: "gpt-5.6-luna", isDefault: false),
             ComposerModelFamily(id: "gpt-5.5-mini", label: "5.5", sublabel: "mini", value: "gpt-5.5-mini", isDefault: false),
         ]),
+        ComposerModelHarness(id: "grok", label: "Grok", short: "Grok", monogram: "✕", families: [
+            ComposerModelFamily(id: "grok-4.5", label: "Grok", sublabel: "4.5", value: "grok-4.5", isDefault: true),
+            ComposerModelFamily(id: "grok-4.3", label: "Grok", sublabel: "4.3", value: "grok-4.3", isDefault: false),
+        ]),
+        // Kimi ships no curated model ids we can verify; Auto omits `--model`
+        // so the harness picks its own. Observed models arrive via the fetched
+        // catalog (C.5), not this seed.
+        ComposerModelHarness(id: "kimi", label: "Kimi", short: "Kimi", monogram: "◐", families: [
+            ComposerModelFamily(id: "auto", label: "Auto", sublabel: "", value: nil, isDefault: true),
+        ]),
     ]
 
     static func curated(_ id: String) -> ComposerModelHarness? {
@@ -105,19 +116,91 @@ struct ComposerModelHarness: Identifiable, Hashable {
     }
 }
 
+extension RuntimeCapabilityCatalog {
+    var composerHarnesses: [ComposerModelHarness] {
+        harnesses.map { harness in
+            let choices = models.filter { $0.harnesses.contains(harness.id) }.map { model in
+                ComposerModelFamily(
+                    id: model.id,
+                    label: model.label,
+                    sublabel: "",
+                    value: model.id,
+                    isDefault: false
+                )
+            }
+            let seededDefault = ComposerModelHarness.curated(harness.id)?.defaultFamily.id
+            let normalized = choices.enumerated().map { index, choice in
+                ComposerModelFamily(
+                    id: choice.id,
+                    label: choice.label,
+                    sublabel: choice.sublabel,
+                    value: choice.value,
+                    isDefault: choice.id == seededDefault || (seededDefault == nil && index == 0)
+                )
+            }
+            return ComposerModelHarness(
+                id: harness.id,
+                label: harness.label,
+                short: harness.label.split(separator: " ").first.map(String.init) ?? harness.id,
+                monogram: ComposerModelHarness.curated(harness.id)?.monogram
+                    ?? harness.id.prefix(1).uppercased(),
+                families: normalized.isEmpty
+                    ? [ComposerModelFamily(id: "auto", label: "Auto", sublabel: "", value: nil, isDefault: true)]
+                    : normalized
+            )
+        }
+    }
+
+    var composerEfforts: [ComposerEffortOption] {
+        [ComposerEffortOption(id: ComposerEffortOption.defaultId, label: "Auto", value: nil, harnesses: [])]
+            + efforts.map { effort in
+                ComposerEffortOption(
+                    id: effort.id,
+                    label: effort.label,
+                    value: effort.id,
+                    harnesses: Set(effort.harnesses),
+                    models: effort.models.map { Set($0) }
+                )
+            }
+    }
+}
+
+enum ComposerRuntimeCatalogCache {
+    private static let key = "scout.runtime-capabilities.v1"
+
+    static func load() -> RuntimeCapabilityCatalog? {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(RuntimeCapabilityCatalog.self, from: data)
+    }
+
+    static func save(_ catalog: RuntimeCapabilityCatalog) {
+        guard let data = try? JSONEncoder().encode(catalog) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+}
+
 /// One reasoning-effort stop. `value` is the spec's `execution.reasoningEffort`;
 /// nil for Auto — the field is omitted and the harness decides.
 struct ComposerEffortOption: Identifiable, Hashable {
     let id: String
     let label: String
     let value: String?
+    let harnesses: Set<String>
+    // `var` + default: the memberwise init both accepts it (the fetched-catalog
+    // bridge passes per-model effort scoping) and lets the seed rows omit it.
+    var models: Set<String>? = nil
 
     static let defaultId = "auto"
     static let catalog: [ComposerEffortOption] = [
-        ComposerEffortOption(id: defaultId, label: "Auto", value: nil),
-        ComposerEffortOption(id: "low", label: "Low", value: "low"),
-        ComposerEffortOption(id: "medium", label: "Medium", value: "medium"),
-        ComposerEffortOption(id: "high", label: "High", value: "high"),
+        ComposerEffortOption(id: defaultId, label: "Auto", value: nil, harnesses: []),
+        ComposerEffortOption(id: "none", label: "None", value: "none", harnesses: ["codex"]),
+        ComposerEffortOption(id: "minimal", label: "Minimal", value: "minimal", harnesses: ["codex"]),
+        ComposerEffortOption(id: "low", label: "Low", value: "low", harnesses: ["claude", "codex"]),
+        ComposerEffortOption(id: "medium", label: "Medium", value: "medium", harnesses: ["claude", "codex"]),
+        ComposerEffortOption(id: "high", label: "High", value: "high", harnesses: ["claude", "codex"]),
+        ComposerEffortOption(id: "xhigh", label: "XHigh", value: "xhigh", harnesses: ["claude", "codex"]),
+        ComposerEffortOption(id: "max", label: "Max", value: "max", harnesses: ["claude", "codex"]),
+        ComposerEffortOption(id: "ultra", label: "Ultra", value: "ultra", harnesses: ["codex"]),
     ]
 }
 
@@ -207,6 +290,7 @@ extension View {
     func scoutRuntimePicker(
         isPresented: Binding<Bool>,
         harnesses: [ComposerModelHarness],
+        efforts: [ComposerEffortOption] = ComposerEffortOption.catalog,
         harnessId: Binding<String>,
         familyId: Binding<String>,
         effortId: Binding<String>
@@ -215,6 +299,7 @@ extension View {
             ScoutRuntimePickerPresenter(
                 isPresented: isPresented,
                 harnesses: harnesses,
+                effortOptions: efforts,
                 harnessId: harnessId,
                 familyId: familyId,
                 effortId: effortId
@@ -239,6 +324,7 @@ extension View {
 private struct ScoutRuntimePickerPresenter: ViewModifier {
     @Binding var isPresented: Bool
     let harnesses: [ComposerModelHarness]
+    let effortOptions: [ComposerEffortOption]
     @Binding var harnessId: String
     @Binding var familyId: String
     @Binding var effortId: String
@@ -291,6 +377,7 @@ private struct ScoutRuntimePickerPresenter: ViewModifier {
                                 Color.clear.allowsHitTesting(false)
                                 ScoutRuntimePanel(
                                     harnesses: harnesses,
+                                    effortOptions: effortOptions,
                                     harnessId: $harnessId,
                                     familyId: $familyId,
                                     effortId: $effortId,
@@ -370,6 +457,7 @@ private struct ScoutRuntimePickerPresenter: ViewModifier {
 /// live — the chip under the scrim updates as you go.
 struct ScoutRuntimePanel: View {
     let harnesses: [ComposerModelHarness]
+    let effortOptions: [ComposerEffortOption]
     @Binding var harnessId: String
     @Binding var familyId: String
     @Binding var effortId: String
@@ -410,8 +498,25 @@ struct ScoutRuntimePanel: View {
 
     private var families: [ComposerModelFamily] { harness.families }
 
+    private var efforts: [ComposerEffortOption] {
+        let selectedModel = (families.first { $0.id == familyId } ?? harness.defaultFamily).value
+        return supportedEfforts(harnessId: harness.id, model: selectedModel)
+    }
+
+    private func supportedEfforts(harnessId: String, model: String?) -> [ComposerEffortOption] {
+        effortOptions.filter { option in
+            guard option.harnesses.isEmpty || option.harnesses.contains(harnessId) else {
+                return false
+            }
+            guard let models = option.models, !models.isEmpty, let model else {
+                return true
+            }
+            return models.contains(model)
+        }
+    }
+
     private var effortIndex: Int {
-        max(0, ComposerEffortOption.catalog.firstIndex { $0.id == effortId } ?? 0)
+        max(0, efforts.firstIndex { $0.id == effortId } ?? 0)
     }
 
     var body: some View {
@@ -471,6 +576,13 @@ struct ScoutRuntimePanel: View {
                     pick {
                         harnessId = entry.id
                         familyId = entry.defaultFamily.id
+                        let selectedModel = entry.defaultFamily.value
+                        let supported = supportedEfforts(harnessId: entry.id, model: selectedModel)
+                        if !supported.contains(where: { $0.id == effortId }) {
+                            effortId = supported.first(where: { $0.id == "medium" })?.id
+                                ?? supported.first?.id
+                                ?? ComposerEffortOption.defaultId
+                        }
                     }
                 } label: {
                     HStack(spacing: HudSpacing.md) {
@@ -516,7 +628,15 @@ struct ScoutRuntimePanel: View {
                 ForEach(families) { family in
                     let on = family.id == resolvedFamilyId
                     Button {
-                        pick { familyId = family.id }
+                        pick {
+                            familyId = family.id
+                            let supported = supportedEfforts(harnessId: harness.id, model: family.value)
+                            if !supported.contains(where: { $0.id == effortId }) {
+                                effortId = supported.first(where: { $0.id == "medium" })?.id
+                                    ?? supported.first?.id
+                                    ?? ComposerEffortOption.defaultId
+                            }
+                        }
                     } label: {
                         HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
                             Circle()
@@ -583,7 +703,7 @@ struct ScoutRuntimePanel: View {
     /// selecting it fills nothing.
     private var effortLadder: some View {
         HStack(spacing: HudSpacing.xs) {
-            ForEach(Array(ComposerEffortOption.catalog.enumerated()), id: \.element.id) { index, option in
+            ForEach(Array(efforts.enumerated()), id: \.element.id) { index, option in
                 let current = index == effortIndex
                 let filled = index > 0 && index < effortIndex
                 Button {
@@ -713,6 +833,7 @@ private struct ScoutRuntimePanelPreview: View {
             HudPalette.bg.ignoresSafeArea()
             ScoutRuntimePanel(
                 harnesses: ComposerModelHarness.catalog,
+                effortOptions: ComposerEffortOption.catalog,
                 harnessId: $harnessId,
                 familyId: $familyId,
                 effortId: $effortId,

@@ -5,6 +5,8 @@ import {
   normalizeAgentSelectorSegment,
   normalizeReservedRuntimeProfileId,
   normalizeRuntimeProfileReasoningEffort,
+  isScoutLaunchableHarness,
+  parseScoutRuntimeSpec,
   parseScoutComposerRoute,
   parseScoutComposerRouteTarget,
   SCOUT_RESERVED_RUNTIME_PROFILE_IDS,
@@ -42,6 +44,9 @@ export type ScoutAskCommandOptions = ContextRootOptions & {
   targetLabel?: string;
   existingTargetHandle?: string;
   runtimeProfile?: string;
+  runtimeLiteral?: string;
+  executionSource?: Partial<Record<"harness" | "model" | "reasoningEffort", "flag" | "literal">>;
+  model?: string;
   reasoningEffort?: string;
   targetRef?: string;
   projectPath?: string;
@@ -223,11 +228,13 @@ function shouldInferCurrentProjectAskTarget(input: {
   targetLabel?: string | null;
   projectPath?: string;
   harness?: string;
+  model?: string;
+  reasoningEffort?: string;
   session?: ScoutAskCommandOptions["session"];
 }): boolean {
   return !input.targetLabel
     && !input.projectPath
-    && Boolean(input.harness || input.session);
+    && Boolean(input.harness || input.model || input.reasoningEffort || input.session);
 }
 
 type NaturalLanguageAskTarget =
@@ -239,6 +246,14 @@ type NaturalLanguageAskTarget =
   | {
       kind: "runtime_profile";
       profile: string;
+      reasoningEffort?: string;
+      message: string;
+    }
+  | {
+      kind: "runtime_spec";
+      literal: string;
+      harness: string;
+      model?: string;
       reasoningEffort?: string;
       message: string;
     };
@@ -263,6 +278,28 @@ function parseNaturalLanguageAskTarget(
       );
     }
     return { kind: "existing_handle", handle, message };
+  }
+
+  const leadingToken = trimmed.match(/^(\S+)(?:\s+|$)([\s\S]*)$/u);
+  const runtimeToken = leadingToken?.[1] ?? "";
+  const runtimeCandidate = runtimeToken.includes("/")
+    || (isScoutLaunchableHarness(runtimeToken) && !normalizeReservedRuntimeProfileId(runtimeToken))
+    ? parseScoutRuntimeSpec(runtimeToken)
+    : null;
+  if (runtimeCandidate?.ok) {
+    const message = (leadingToken?.[2] ?? "").replace(/^to\b[\s,;:-]*/i, "").trim();
+    if (!message && !options.allowMissingMessage) {
+      throw new ScoutCliError(`runtime ${runtimeToken} requires a request`);
+    }
+    return {
+      kind: "runtime_spec",
+      literal: runtimeToken,
+      ...runtimeCandidate.value,
+      message,
+    };
+  }
+  if (runtimeCandidate && !runtimeCandidate.ok) {
+    throw new ScoutCliError(runtimeCandidate.error);
   }
 
   const firstToken = trimmed.match(/^([A-Za-z][A-Za-z0-9_-]*)(.*)$/s);
@@ -324,13 +361,34 @@ function parseRuntimeProfileEffortFlag(value: string): string {
   return effort;
 }
 
+function parseRuntimeLiteralFlag(value: string) {
+  const parsed = parseScoutRuntimeSpec(value);
+  if (!parsed.ok) {
+    throw new ScoutCliError(`runtime_spec_invalid: ${parsed.error}`);
+  }
+  return parsed.value;
+}
+
+function mergeRuntimeDimension(
+  dimension: string,
+  explicitValue: string | undefined,
+  literalValue: string | undefined,
+): string | undefined {
+  if (explicitValue && literalValue && explicitValue.toLowerCase() !== literalValue.toLowerCase()) {
+    throw new ScoutCliError(
+      `runtime_conflict: conflicting runtime ${dimension}: explicit ${explicitValue} and literal ${literalValue}`,
+    );
+  }
+  return explicitValue ?? literalValue;
+}
+
 function mergeRuntimeProfileReasoningEffort(
   flagEffort: string | undefined,
   naturalEffort: string | undefined,
 ): string | undefined {
   if (flagEffort && naturalEffort && flagEffort !== naturalEffort) {
     throw new ScoutCliError(
-      `conflicting runtime profile efforts: --effort ${flagEffort} and natural-language effort ${naturalEffort}`,
+      `runtime_conflict: conflicting runtime profile efforts: --effort ${flagEffort} and natural-language effort ${naturalEffort}`,
     );
   }
   return naturalEffort ?? flagEffort;
@@ -342,7 +400,7 @@ function rejectUnsupportedRuntimeProfileEffort(
 ): void {
   if (reasoningEffort && (profile === "grok" || profile === "kimi")) {
     throw new ScoutCliError(
-      `${profile} runtime profile does not support reasoning effort through its ACP transport`,
+      `reasoning_effort_harness_mismatch: ${profile} runtime profile does not support reasoning effort through its ACP transport`,
     );
   }
 }
@@ -720,7 +778,15 @@ export function parseAskCommandOptions(
   let targetLabel: string | null = null;
   let existingTargetHandle: string | undefined;
   let runtimeProfile: string | undefined;
+  let runtimeLiteral: string | undefined;
+  let runtimeLiteralModel: string | undefined;
+  let runtimeLiteralHarness: string | undefined;
+  let runtimeLiteralEffort: string | undefined;
+  let model: string | undefined;
   let reasoningEffort: string | undefined;
+  let explicitHarnessFlag = false;
+  let explicitModelFlag = false;
+  let explicitEffortFlag = false;
   let targetRef: string | undefined;
   let projectPath: string | undefined;
   let channel: string | undefined;
@@ -754,10 +820,29 @@ export function parseAskCommandOptions(
       index = value.nextIndex;
       continue;
     }
+    if (current === "--runtime" || current.startsWith("--runtime=")) {
+      const value = parseFlagValue(parsed.args, index, "--runtime");
+      const runtime = parseRuntimeLiteralFlag(value.value);
+      runtimeLiteral = value.value;
+      runtimeLiteralHarness = runtime.harness;
+      runtimeLiteralModel = runtime.model;
+      runtimeLiteralEffort = runtime.reasoningEffort;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--model" || current.startsWith("--model=")) {
+      const value = parseFlagValue(parsed.args, index, "--model");
+      model = value.value.trim();
+      explicitModelFlag = true;
+      if (!model) missingFlagValue("--model");
+      index = value.nextIndex;
+      continue;
+    }
     const effortFlag = flagNameFor(current, ["--effort", "--reasoning-effort"]);
     if (effortFlag) {
       const value = parseFlagValue(parsed.args, index, effortFlag);
       reasoningEffort = parseRuntimeProfileEffortFlag(value.value);
+      explicitEffortFlag = true;
       index = value.nextIndex;
       continue;
     }
@@ -783,6 +868,7 @@ export function parseAskCommandOptions(
     if (current === "--harness" || current.startsWith("--harness=")) {
       const value = parseFlagValue(parsed.args, index, "--harness");
       harness = value.value;
+      explicitHarnessFlag = true;
       index = value.nextIndex;
       continue;
     }
@@ -869,7 +955,7 @@ export function parseAskCommandOptions(
       message = routed.message;
     }
   }
-  if (!targetLabel && !projectPath && !runtimeProfile && message) {
+  if (!targetLabel && !runtimeProfile && !runtimeLiteral && message) {
     const natural = parseNaturalLanguageAskTarget(message, {
       allowMissingMessage: Boolean(promptFile),
     });
@@ -883,33 +969,44 @@ export function parseAskCommandOptions(
         natural.reasoningEffort,
       );
       message = natural.message;
+    } else if (natural?.kind === "runtime_spec") {
+      runtimeLiteral = natural.literal;
+      runtimeLiteralHarness = natural.harness;
+      runtimeLiteralModel = natural.model;
+      runtimeLiteralEffort = natural.reasoningEffort;
+      message = natural.message;
     }
   }
-  if (shouldInferCurrentProjectAskTarget({ targetLabel, projectPath, harness, session })) {
+  harness = mergeRuntimeDimension("harness", harness, runtimeLiteralHarness);
+  model = mergeRuntimeDimension("model", model, runtimeLiteralModel);
+  reasoningEffort = mergeRuntimeDimension("reasoning effort", reasoningEffort, runtimeLiteralEffort);
+  if (!runtimeProfile && shouldInferCurrentProjectAskTarget({ targetLabel, projectPath, harness, model, reasoningEffort, session })) {
     projectPath = parsed.currentDirectory;
-    if (harness && !session) {
-      session = "new";
-    }
   }
-  const targetCount = [targetLabel, projectPath, runtimeProfile, existingTargetHandle]
+  const parsedExplicitTarget = targetLabel ? parseScoutComposerRouteTarget(targetLabel) : null;
+  if (
+    (harness || model || reasoningEffort)
+    && !session
+    && parsedExplicitTarget?.kind !== "session_id"
+  ) {
+    session = "new";
+  }
+  const targetCount = [targetLabel || existingTargetHandle, projectPath || runtimeProfile]
     .filter(Boolean).length;
-  if (targetLabel && projectPath && !runtimeProfile && !existingTargetHandle) {
+  if (targetLabel && projectPath) {
     throw new ScoutCliError("provide either --to/--ref or --project, not both");
   }
   if (targetCount > 1) {
-    throw new ScoutCliError("provide exactly one existing target, project, or runtime profile");
+    throw new ScoutCliError("provide one existing target, or a project/runtime launch target");
   }
   if (targetCount === 0) {
     throw new ScoutCliError("--to <name>, --project <path>, --profile <name>, or natural target is required");
   }
-  if (reasoningEffort && !runtimeProfile) {
-    throw new ScoutCliError("--effort/--reasoning-effort requires --profile or a reserved profile name");
-  }
   if (runtimeProfile) {
     rejectUnsupportedRuntimeProfileEffort(runtimeProfile, reasoningEffort);
   }
-  if (runtimeProfile && (harness || session)) {
-    throw new ScoutCliError("runtime profiles own harness and fresh-session defaults; do not combine them with --harness/--session/--new");
+  if ((model || reasoningEffort) && !harness && !runtimeProfile) {
+    throw new ScoutCliError("runtime_target_required: --model/--effort requires --harness, --runtime, or --profile");
   }
   if (message && promptFile) {
     rejectMixedBodySources("question");
@@ -928,6 +1025,17 @@ export function parseAskCommandOptions(
     ...(targetLabel ? { targetLabel } : {}),
     ...(existingTargetHandle ? { existingTargetHandle } : {}),
     ...(runtimeProfile ? { runtimeProfile } : {}),
+    ...(runtimeLiteral ? { runtimeLiteral } : {}),
+    ...((runtimeLiteral || explicitHarnessFlag || explicitModelFlag || explicitEffortFlag) ? {
+      executionSource: {
+        ...(harness ? { harness: explicitHarnessFlag ? "flag" as const : "literal" as const } : {}),
+        ...(model ? { model: explicitModelFlag ? "flag" as const : "literal" as const } : {}),
+        ...(reasoningEffort
+          ? { reasoningEffort: explicitEffortFlag ? "flag" as const : "literal" as const }
+          : {}),
+      },
+    } : {}),
+    ...(model ? { model } : {}),
     ...(reasoningEffort ? { reasoningEffort } : {}),
     targetRef,
     projectPath,
@@ -951,6 +1059,8 @@ export function parseImplicitAskCommandOptions(
   const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
   let agentName: string | null = null;
   let runtimeProfile: string | undefined;
+  let runtimeLiteral: string | undefined;
+  let model: string | undefined;
   let reasoningEffort: string | undefined;
   let channel: string | undefined;
   let harness: string | undefined;
@@ -972,6 +1082,20 @@ export function parseImplicitAskCommandOptions(
     if (current === "--profile" || current.startsWith("--profile=")) {
       const value = parseFlagValue(parsed.args, index, "--profile");
       runtimeProfile = parseRuntimeProfileFlag(value.value);
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--runtime" || current.startsWith("--runtime=")) {
+      const value = parseFlagValue(parsed.args, index, "--runtime");
+      parseRuntimeLiteralFlag(value.value);
+      runtimeLiteral = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--model" || current.startsWith("--model=")) {
+      const value = parseFlagValue(parsed.args, index, "--model");
+      model = value.value.trim();
+      if (!model) missingFlagValue("--model");
       index = value.nextIndex;
       continue;
     }
@@ -1059,7 +1183,7 @@ export function parseImplicitAskCommandOptions(
     throw new ScoutCliError("no question provided");
   }
 
-  const routed = runtimeProfile
+  const routed = runtimeProfile || runtimeLiteral
     ? null
     : parseComposerRoutedBody(input, "ask", parsed.currentDirectory);
   if (routed) {
@@ -1080,6 +1204,8 @@ export function parseImplicitAskCommandOptions(
       projectPath: routed.projectPath,
       channel: mergeComposerChannel(channel, routed.channel),
       harness,
+      model,
+      reasoningEffort,
       session,
       timeoutSeconds,
       replyMode,
@@ -1089,18 +1215,18 @@ export function parseImplicitAskCommandOptions(
     };
   }
 
-  const natural = !runtimeProfile && input
+  const natural = !runtimeProfile && !runtimeLiteral && input
     ? parseNaturalLanguageAskTarget(input, {
         allowMissingMessage: Boolean(promptFile),
       })
     : null;
-  if (natural || runtimeProfile) {
+  if (natural || runtimeProfile || runtimeLiteral) {
     const selectedProfile = natural?.kind === "runtime_profile"
       ? natural.profile
       : runtimeProfile;
     if (natural?.kind === "existing_handle") {
-      if (runtimeProfile || reasoningEffort || harness || session) {
-        throw new ScoutCliError("existing agent targets cannot be combined with runtime profile options");
+      if (runtimeProfile || runtimeLiteral) {
+        throw new ScoutCliError("runtime_conflict: existing agent targets cannot also be runtime-profile or RuntimeSpec targets");
       }
       if (natural.message && promptFile) {
         rejectMixedBodySources("question");
@@ -1111,10 +1237,47 @@ export function parseImplicitAskCommandOptions(
         agentName,
         existingTargetHandle: natural.handle,
         channel,
+        harness,
+        model,
+        reasoningEffort,
+        session: session ?? (harness || model || reasoningEffort ? "new" : undefined),
         timeoutSeconds,
         replyMode,
         ...(labels.length ? { labels } : {}),
         message: natural.message,
+        promptFile,
+      };
+    }
+    if (natural?.kind === "runtime_spec" || runtimeLiteral) {
+      const literal = natural?.kind === "runtime_spec" ? natural.literal : runtimeLiteral!;
+      const literalRuntime = natural?.kind === "runtime_spec"
+        ? natural
+        : parseRuntimeLiteralFlag(literal);
+      const selectedHarness = mergeRuntimeDimension("harness", harness, literalRuntime.harness);
+      const selectedModel = mergeRuntimeDimension("model", model, literalRuntime.model);
+      const selectedReasoningEffort = mergeRuntimeDimension(
+        "reasoning effort",
+        reasoningEffort,
+        literalRuntime.reasoningEffort,
+      );
+      const message = natural?.kind === "runtime_spec" ? natural.message : input;
+      if (message && promptFile) rejectMixedBodySources("question");
+      if (!message && !promptFile) throw new ScoutCliError("no question provided");
+      return {
+        currentDirectory: parsed.currentDirectory,
+        args: parsed.args,
+        agentName,
+        projectPath: parsed.currentDirectory,
+        runtimeLiteral: literal,
+        harness: selectedHarness,
+        model: selectedModel,
+        reasoningEffort: selectedReasoningEffort,
+        session: session ?? "new",
+        channel,
+        timeoutSeconds,
+        replyMode,
+        ...(labels.length ? { labels } : {}),
+        message,
         promptFile,
       };
     }
@@ -1126,9 +1289,6 @@ export function parseImplicitAskCommandOptions(
       natural?.kind === "runtime_profile" ? natural.reasoningEffort : undefined,
     );
     rejectUnsupportedRuntimeProfileEffort(selectedProfile, selectedReasoningEffort);
-    if (harness || session) {
-      throw new ScoutCliError("runtime profiles own harness and fresh-session defaults; do not combine them with --harness/--session/--new");
-    }
     const message = natural?.kind === "runtime_profile" ? natural.message : input;
     if (message && promptFile) {
       rejectMixedBodySources("question");
@@ -1141,7 +1301,10 @@ export function parseImplicitAskCommandOptions(
       args: parsed.args,
       agentName,
       runtimeProfile: selectedProfile,
+      ...(harness ? { harness } : {}),
+      ...(model ? { model } : {}),
       reasoningEffort: selectedReasoningEffort,
+      session,
       channel,
       timeoutSeconds,
       replyMode,
@@ -1151,14 +1314,14 @@ export function parseImplicitAskCommandOptions(
     };
   }
 
-  if (reasoningEffort) {
-    throw new ScoutCliError("--effort/--reasoning-effort requires --profile or a reserved profile name");
+  if ((model || reasoningEffort) && !harness) {
+    throw new ScoutCliError("runtime_target_required: --model/--effort requires --harness, --runtime, or --profile");
   }
 
   const mentions = extractMentionTargets(input);
   if (mentions.length === 0) {
-    if (shouldInferCurrentProjectAskTarget({ harness, session })) {
-      const inferredSession = harness && !session ? "new" : session;
+    if (shouldInferCurrentProjectAskTarget({ harness, model, reasoningEffort, session })) {
+      const inferredSession = (harness || model || reasoningEffort) && !session ? "new" : session;
       return {
         currentDirectory: parsed.currentDirectory,
         args: parsed.args,
@@ -1166,6 +1329,8 @@ export function parseImplicitAskCommandOptions(
         projectPath: parsed.currentDirectory,
         channel,
         harness,
+        model,
+        reasoningEffort,
         session: inferredSession,
         timeoutSeconds,
         replyMode,
@@ -1196,7 +1361,9 @@ export function parseImplicitAskCommandOptions(
     targetLabel: target.label,
     channel,
     harness,
-    session,
+    model,
+    reasoningEffort,
+    session: session ?? (harness || model || reasoningEffort ? "new" : undefined),
     timeoutSeconds,
     replyMode,
     ...(labels.length ? { labels } : {}),

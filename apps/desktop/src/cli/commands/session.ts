@@ -95,6 +95,7 @@ type SessionIntakePayload = {
   terminalSurface: TerminalSurface;
   tmuxSession?: string;
   zellijSession?: string;
+  herdrSession?: string;
   zellijPaneId?: string | null;
   cwd: string;
   resumeCommand: string;
@@ -217,6 +218,7 @@ async function runSessionIntakeAction(context: ScoutCommandContext, args: string
     terminalSurface,
     ...(options.backend === "tmux" ? { tmuxSession: terminalSession } : {}),
     ...(options.backend === "zellij" ? { zellijSession: terminalSession, zellijPaneId: paneId } : {}),
+    ...(options.backend === "herdr" ? { herdrSession: terminalSession } : {}),
     cwd: options.cwd,
     resumeCommand,
     created,
@@ -398,10 +400,10 @@ function parseSessionIntakeOptions(context: ScoutCommandContext, args: string[])
 
 function parseTerminalBackend(value: string): TerminalBackend {
   const normalized = value.trim().toLowerCase();
-  if (normalized === "tmux" || normalized === "zellij") {
+  if (normalized === "tmux" || normalized === "zellij" || normalized === "herdr") {
     return normalized;
   }
-  throw new ScoutCliError(`unknown terminal backend: ${value} (expected tmux or zellij)`);
+  throw new ScoutCliError(`unknown terminal backend: ${value} (expected tmux, zellij, or herdr)`);
 }
 
 function readOptionValue(args: string[], index: number, flag: string): { value: string; nextIndex: number } {
@@ -558,7 +560,33 @@ function materializeTerminalSurface(
   if (input.backend === "zellij") {
     return materializeZellijSurface(context, input);
   }
+  if (input.backend === "herdr") {
+    return materializeHerdrSurface(context, input);
+  }
   return materializeTmuxSurface(context, input);
+}
+
+function materializeHerdrSurface(
+  context: ScoutCommandContext,
+  input: { sessionName: string },
+): { created: boolean; paneId: string | null } {
+  assertHerdrAvailable(context);
+  // Herdr create-or-attach is deferred to attach / client open (`herdr --session`).
+  // Intake only registers the durable surface identity.
+  return { created: true, paneId: null };
+}
+
+function assertHerdrAvailable(context: ScoutCommandContext): void {
+  const result = spawnSync("herdr", ["--version"], { env: context.env, stdio: "ignore" });
+  if (result.error) {
+    const detail = (result.error as NodeJS.ErrnoException).code === "ENOENT"
+      ? "herdr not found on PATH"
+      : result.error.message;
+    throw new ScoutCliError(`session intake failed: ${detail}`);
+  }
+  if (typeof result.status === "number" && result.status !== 0) {
+    throw new ScoutCliError("session intake failed: herdr is installed but did not respond to `herdr --version`");
+  }
 }
 
 function materializeTmuxSurface(
@@ -770,6 +798,24 @@ function buildTerminalSurfacePayload(input: {
     };
   }
 
+  if (input.backend === "herdr") {
+    const isDefault = !input.sessionName || input.sessionName === "default";
+    return {
+      backend: "herdr",
+      sessionName: input.sessionName,
+      paneId: null,
+      attachCommand: isDefault
+        ? ["herdr"]
+        : ["herdr", "session", "attach", input.sessionName],
+      observeCommand: null,
+      relay: {
+        backend: "herdr",
+        sessionName: input.sessionName,
+        herdrSession: input.sessionName,
+      },
+    };
+  }
+
   return {
     backend: "tmux",
     sessionName: input.sessionName,
@@ -792,7 +838,24 @@ function attachTerminalSurface(
     attachZellijSession(context, input.sessionName);
     return;
   }
+  if (input.backend === "herdr") {
+    attachHerdrSession(context, input.sessionName);
+    return;
+  }
   attachTmuxSession(context, input.sessionName);
+}
+
+function attachHerdrSession(context: ScoutCommandContext, sessionName: string): void {
+  const args = !sessionName || sessionName === "default"
+    ? []
+    : ["session", "attach", sessionName];
+  const result = spawnSync("herdr", args, { env: context.env, stdio: "inherit" });
+  if (result.error) {
+    throw new ScoutCliError(`session intake failed to attach herdr session: ${result.error.message}`);
+  }
+  if (typeof result.status === "number" && result.status !== 0) {
+    process.exitCode = result.status;
+  }
 }
 
 function attachTmuxSession(context: ScoutCommandContext, tmuxSession: string): void {

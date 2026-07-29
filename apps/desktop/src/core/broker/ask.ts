@@ -73,6 +73,7 @@ type ScoutAskDeliveryResult = {
   messageId?: string;
   bindingRef?: string;
   sessionAlias?: string;
+  executionResolution?: ScoutAskReceipt["executionResolution"];
   workItem?: ScoutAskResult["workItem"];
   targetDiagnostic?: ScoutAskResult["targetDiagnostic"];
 };
@@ -174,6 +175,9 @@ function buildScoutAskReceipt(input: {
       bindingRef: input.result.bindingRef,
       sessionAlias: input.result.sessionAlias,
     }),
+    ...(input.result.executionResolution
+      ? { executionResolution: input.result.executionResolution }
+      : {}),
     ...(next ? { next } : {}),
   };
 }
@@ -256,7 +260,7 @@ function resolveAskProjectPath(
 function shouldInferCurrentProjectAskTarget(
   command: ScoutAskCommand,
 ): boolean {
-  return Boolean(command.harness || command.workspace || command.session);
+  return Boolean(command.harness || command.model || command.reasoningEffort || command.workspace || command.session);
 }
 
 function isProjectRouteTarget(to: string): boolean {
@@ -277,7 +281,7 @@ export function buildScoutAskRoute(input: {
     const target = {
       kind: "runtime_profile" as const,
       profile: input.runtimeProfile,
-      projectPath: resolve(input.currentDirectory),
+      projectPath: resolve(input.currentDirectory, input.projectPath?.trim() || "."),
       ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
     };
     return target;
@@ -335,10 +339,8 @@ export const scoutAskHandler: ScoutAskHandler = async (command) => {
       ? { persistence: "one_time" as const }
       : undefined;
   const explicitTargetCount = [
-    requestedTo,
-    commandProjectPath,
-    requestedRuntimeProfile,
-    requestedExistingHandle,
+    requestedTo || requestedExistingHandle,
+    commandProjectPath || requestedRuntimeProfile,
   ].filter(Boolean).length;
   if (explicitTargetCount > 1) {
     return {
@@ -347,7 +349,7 @@ export const scoutAskHandler: ScoutAskHandler = async (command) => {
       ids: {},
       error: {
         code: "invalid_request",
-        message: "provide exactly one of to, projectPath, runtimeProfile, or existingHandle",
+        message: "provide one existing target, or a project/runtime launch target",
       },
     };
   }
@@ -405,6 +407,9 @@ export const scoutAskHandler: ScoutAskHandler = async (command) => {
     channel: command.channel,
     shouldSpeak: command.shouldSpeak,
     executionHarness: command.harness,
+    executionModel: command.model,
+    executionReasoningEffort: command.reasoningEffort,
+    executionSource: command.executionSource,
     executionSession: executionSessionForAsk(command.session),
     workspace: command.workspace,
     senderContext,

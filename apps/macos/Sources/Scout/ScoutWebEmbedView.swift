@@ -108,7 +108,12 @@ struct ScoutWebEmbedContent<AdditionalTrailing: View>: View {
     @ViewBuilder var additionalTrailing: () -> AdditionalTrailing
 
     @Environment(\.colorScheme) private var colorScheme
+    /// Identity for forced reloads. Not used as a cache-buster on first mount.
     @State private var reloadToken = UUID()
+    /// `_cb` query value — nil on first mount so the HTTP cache can serve the page.
+    @State private var cacheBuster: String?
+    /// When true, the next load uses `.reloadIgnoringCacheData` (explicit Reload / param change).
+    @State private var ignoresHTTPCache = false
 
     init(
         surface: ScoutEmbedSurfaceId,
@@ -137,7 +142,7 @@ struct ScoutWebEmbedContent<AdditionalTrailing: View>: View {
             surface: surface,
             colorScheme: colorScheme,
             extraQueryItems: extraQueryItems,
-            cacheBuster: reloadToken.uuidString
+            cacheBuster: cacheBuster
         )
     }
 
@@ -150,11 +155,12 @@ struct ScoutWebEmbedContent<AdditionalTrailing: View>: View {
                 surface: surface,
                 url: url,
                 reloadToken: reloadToken,
+                ignoresHTTPCache: ignoresHTTPCache,
                 loadingLaneSize: loadingLaneSize,
                 onRealtimeVoiceStateChange: onRealtimeVoiceStateChange,
                 onRealtimeVoiceAction: onRealtimeVoiceAction,
                 realtimeVoiceStopRequest: realtimeVoiceStopRequest,
-                onReload: { reloadToken = UUID() }
+                onReload: { scheduleCacheBustingReload(invalidateBaseURL: true) }
             )
         }
         .background {
@@ -167,14 +173,26 @@ struct ScoutWebEmbedContent<AdditionalTrailing: View>: View {
             }
         }
         .onChange(of: colorScheme) { _, _ in
-            reloadToken = UUID()
+            scheduleCacheBustingReload()
         }
         .onChange(of: loadingLaneSize) { _, _ in
-            reloadToken = UUID()
+            scheduleCacheBustingReload()
         }
         .onChange(of: embedQueryFingerprint) { _, _ in
-            reloadToken = UUID()
+            scheduleCacheBustingReload()
         }
+    }
+
+    /// Explicit Reload and reload-intended param changes attach `_cb` and bypass
+    /// the HTTP cache. First mount leaves both unset so protocol caching works.
+    private func scheduleCacheBustingReload(invalidateBaseURL: Bool = false) {
+        if invalidateBaseURL {
+            ScoutWeb.invalidateBaseURLCache()
+        }
+        let token = UUID()
+        reloadToken = token
+        cacheBuster = token.uuidString
+        ignoresHTTPCache = true
     }
 
     private var embedQueryFingerprint: String {
@@ -200,7 +218,7 @@ struct ScoutWebEmbedContent<AdditionalTrailing: View>: View {
                 additionalTrailing()
                 ScoutWebEmbedHeaderDivider()
                 ScoutWebEmbedTextButton(title: "Reload", icon: "arrow.clockwise") {
-                    reloadToken = UUID()
+                    scheduleCacheBustingReload(invalidateBaseURL: true)
                 }
                 ScoutWebEmbedTextButton(title: "Open in browser", icon: "safari") {
                     ScoutWeb.open(path: surface.shellPath)
@@ -215,6 +233,7 @@ struct ScoutWebEmbedHost: View {
     let surface: ScoutEmbedSurfaceId
     let url: URL
     let reloadToken: UUID
+    var ignoresHTTPCache: Bool = false
     var loadingLaneSize: ScoutAgentLaneSize?
     var onRealtimeVoiceStateChange: (String, String?) -> Void = { _, _ in }
     var onRealtimeVoiceAction: (ScoutRealtimeVoiceNativeAction) -> Void = { _ in }
@@ -234,6 +253,7 @@ struct ScoutWebEmbedHost: View {
                 surface: surface,
                 url: url,
                 reloadToken: reloadToken,
+                ignoresHTTPCache: ignoresHTTPCache,
                 phase: $phase,
                 onRealtimeVoiceStateChange: onRealtimeVoiceStateChange,
                 onRealtimeVoiceAction: onRealtimeVoiceAction,
@@ -265,10 +285,31 @@ struct ScoutWebEmbedHost: View {
         switch surface {
         case .lanes:
             ScoutLanesMaterializingView(laneSize: loadingLaneSize ?? .md)
+        case .thread:
+            ScoutThreadMaterializingView()
         default:
-            ProgressView("Loading \(surface.title)…")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ScoutSurfaceMaterializingView(title: surface.title)
         }
+    }
+}
+
+/// Fallback loading state for embeds without a content-shaped skeleton. Still
+/// a Scout-native indicator rather than the stock `ProgressView` ring, so no
+/// surface drops out of the cockpit's visual language mid-load.
+private struct ScoutSurfaceMaterializingView: View {
+    let title: String
+
+    var body: some View {
+        HStack(spacing: HudSpacing.sm) {
+            ScoutBrailleSpinner(size: 12, speed: 0.1)
+                .accessibilityHidden(true)
+            Text("Opening \(title.lowercased())")
+                .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                .foregroundStyle(ScoutPalette.dim)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(ScoutDesign.bg)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -310,6 +351,7 @@ private struct ScoutWebEmbedWebView: NSViewRepresentable {
     let surface: ScoutEmbedSurfaceId
     let url: URL
     let reloadToken: UUID
+    let ignoresHTTPCache: Bool
     @Binding var phase: ScoutWebEmbedLoadPhase
     let onRealtimeVoiceStateChange: (String, String?) -> Void
     let onRealtimeVoiceAction: (ScoutRealtimeVoiceNativeAction) -> Void
@@ -359,7 +401,12 @@ private struct ScoutWebEmbedWebView: NSViewRepresentable {
         context.coordinator.navigationStartedAt = Date()
         context.coordinator.navigationToken = UUID()
         phase = .loading
-        webView.load(URLRequest(url: url, cachePolicy: .reloadIgnoringCacheData, timeoutInterval: 30))
+        // First mount uses protocol cache policy; explicit Reload / param-driven
+        // reloads pass ignoresHTTPCache so we bypass stale document entries.
+        let cachePolicy: URLRequest.CachePolicy = ignoresHTTPCache
+            ? .reloadIgnoringCacheData
+            : .useProtocolCachePolicy
+        webView.load(URLRequest(url: url, cachePolicy: cachePolicy, timeoutInterval: 30))
     }
 
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {

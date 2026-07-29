@@ -297,6 +297,70 @@ describe("parseAskCommandOptions", () => {
     expect(options.message).toBe("review this");
   });
 
+  test("parses exact runtime flags and a shell-safe RuntimeSpec", () => {
+    const flags = parseAskCommandOptions(
+      ["--project", "../talkie", "--harness", "codex", "--model", "gpt-5.6-sol", "--effort", "xhigh", "review"],
+      "/tmp/openscout",
+    );
+    expect(flags).toEqual(expect.objectContaining({
+      projectPath: "/tmp/talkie",
+      harness: "codex",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "xhigh",
+      session: "new",
+    }));
+
+    const literal = parseAskCommandOptions(
+      ["codex/gpt-5.6-sol/xhigh", "to", "review", "the", "diff"],
+      "/tmp/openscout",
+    );
+    expect(literal).toEqual(expect.objectContaining({
+      projectPath: "/tmp/openscout",
+      runtimeLiteral: "codex/gpt-5.6-sol/xhigh",
+      harness: "codex",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "xhigh",
+      message: "review the diff",
+      session: "new",
+    }));
+  });
+
+  test("uses profiles as presets and fails conflicting RuntimeSpec flags closed", () => {
+    expect(parseAskCommandOptions(
+      ["--profile", "fable", "--model", "claude-opus-5", "--effort", "max", "review"],
+      "/tmp/openscout",
+    )).toEqual(expect.objectContaining({
+      runtimeProfile: "fable",
+      model: "claude-opus-5",
+      reasoningEffort: "max",
+    }));
+    expect(() => parseAskCommandOptions(
+      ["--runtime", "codex/gpt-5.6-sol/xhigh", "--model", "gpt-5.6-terra", "review"],
+      "/tmp/openscout",
+    )).toThrow("conflicting runtime model");
+  });
+
+  test("narrows profile and natural RuntimeSpec launches to an explicit project", () => {
+    expect(parseAskCommandOptions(
+      ["--project", "../talkie", "--profile", "fable", "review"],
+      "/tmp/openscout",
+    )).toEqual(expect.objectContaining({
+      projectPath: "/tmp/talkie",
+      runtimeProfile: "fable",
+      message: "review",
+    }));
+    expect(parseAskCommandOptions(
+      ["--project", "../talkie", "codex/gpt-5.6-sol/xhigh", "to", "review"],
+      "/tmp/openscout",
+    )).toEqual(expect.objectContaining({
+      projectPath: "/tmp/talkie",
+      runtimeLiteral: "codex/gpt-5.6-sol/xhigh",
+      harness: "codex",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "xhigh",
+    }));
+  });
+
   test("parses ask session preference flags", () => {
     const options = parseAskCommandOptions(
       ["--new", "--harness", "codex", "review", "this"],
@@ -472,6 +536,20 @@ describe("parseImplicitAskCommandOptions", () => {
     expect(options.harness).toBe("codex");
     expect(options.session).toBe("new");
     expect(options.message).toBe("review this");
+  });
+
+  test("parses exact runtime controls in implicit ask mode", () => {
+    expect(parseImplicitAskCommandOptions(
+      ["--runtime", "codex/gpt-5.6-sol/xhigh", "review", "the", "diff"],
+      "/tmp/openscout",
+    )).toEqual(expect.objectContaining({
+      projectPath: "/tmp/openscout",
+      runtimeLiteral: "codex/gpt-5.6-sol/xhigh",
+      harness: "codex",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "xhigh",
+      session: "new",
+    }));
   });
 
   test("extracts a target agent from the composer route operator", () => {

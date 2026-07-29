@@ -4,6 +4,20 @@ import Foundation
 /// values so Settings and ScoutRootView cannot drift on the string.
 enum ScoutCommsSettings {
     static let threadPresentationKey = "scout.comms.threadPresentation"
+    static let threadRendererKey = "scout.comms.threadRenderer"
+}
+
+/// Which implementation draws the Comms transcript. `shared` mounts the web
+/// `/embed/thread` surface so web, macOS and iOS read one implementation;
+/// `native` keeps the SwiftUI message list, which still builds and is the
+/// escape hatch when the embed can't load.
+enum ScoutThreadRenderer: String, CaseIterable, Hashable, Identifiable {
+    case shared
+    case native
+
+    var id: String { rawValue }
+
+    static let fallback = ScoutThreadRenderer.shared
 }
 
 /// How the conversation transcript is laid out — Settings › Appearance ›

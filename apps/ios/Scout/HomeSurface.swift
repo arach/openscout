@@ -73,6 +73,12 @@ struct HomeSurface: View {
 
     @State private var agents: [HomeAgent] = []
     @State private var isLoading = true
+    /// Whether the whisper lane has ever had a SUCCESSFUL conversation read.
+    /// Distinct from `isLoading`, which is a one-shot first-pass flag: this one
+    /// stays false through every failed or machine-less attempt, so "we have not
+    /// asked and got an answer yet" and "we asked and there is nothing" stay
+    /// different facts on screen.
+    @State private var hasReadConversations = false
     @State private var route: HomeConversationRoute?
     @State private var routeClient: (any ScoutBrokerClient)?
     @State private var activity: [HomeActivity] = []
@@ -101,6 +107,7 @@ struct HomeSurface: View {
     @State private var entryHarnessId = ComposerModelHarness.catalog[0].id
     @State private var entryFamilyId = ComposerModelHarness.catalog[0].defaultFamily.id
     @State private var entryEffortId = ComposerEffortOption.defaultId
+    @State private var entryRuntimeCatalog: RuntimeCapabilityCatalog? = ComposerRuntimeCatalogCache.load()
     @State private var showEntryModelPicker = false
     /// Entry only: attachments staged on the front door, handed to New with the
     /// prompt (the paperclip is real — see `NewSessionSeed`).
@@ -296,7 +303,8 @@ struct HomeSurface: View {
         // that container is the coordinate space the chip's anchor is read in.
         .scoutRuntimePicker(
             isPresented: $showEntryModelPicker,
-            harnesses: ComposerModelHarness.catalog,
+            harnesses: entryRuntimeHarnesses,
+            efforts: entryRuntimeEfforts,
             harnessId: $entryHarnessId,
             familyId: $entryFamilyId,
             effortId: $entryEffortId
@@ -337,6 +345,15 @@ struct HomeSurface: View {
     private var entryRecents: some View {
         let rows = Array(conversations.prefix(5))
         VStack(spacing: 0) {
+            // Before the first answer lands this lane rendered nothing at all,
+            // and the front door was a black sheet with a composer at the foot.
+            // The whisper keeps its shape while it is being fetched: same row
+            // geometry, same rhythm, redacted rather than invented — so the real
+            // recents fade in where the ghosts were instead of shoving the
+            // composer down the screen when they arrive.
+            if rows.isEmpty, !hasReadConversations, !isNotConnected {
+                entryRecentsSkeleton
+            }
             ForEach(rows) { row in
                 Button {
                     routeClient = row.client
@@ -375,6 +392,37 @@ struct HomeSurface: View {
         // with it the whole surface, which shoves the masthead off-screen).
         .frame(width: max(0, layout.contentWidth - HudSpacing.xxl * 2), alignment: .leading)
         .padding(.horizontal, layout.contentInset + HudSpacing.xxl)
+    }
+
+    /// The whisper lane's own silhouette, on Home's established skeleton recipe
+    /// (`HomeLoadingSkeleton`): the real row geometry in the real fonts, dimmed,
+    /// `.redacted(reason: .placeholder)`, `.opacity(0.46)`. Three rows, not five
+    /// — enough to say "a list is coming" without promising how long it is.
+    private var entryRecentsSkeleton: some View {
+        ForEach(0..<3, id: \.self) { index in
+            HStack(alignment: .firstTextBaseline, spacing: HudSpacing.md) {
+                Text(["Openscout", "Hudson", "Talkie"][index])
+                    .font(HudFont.ui(HudTextSize.sm, weight: .medium))
+                    .lineLimit(1)
+                    .layoutPriority(1)
+                Text("Recent conversation")
+                    .font(HudFont.ui(11.5))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: HudSpacing.sm)
+                Text("2h")
+                    .font(HudFont.mono(9.5))
+                    .monospacedDigit()
+                    .fixedSize()
+            }
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .foregroundStyle(ScoutInk.dim)
+        .redacted(reason: .placeholder)
+        .opacity(0.46)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Loading recent conversations")
     }
 
     /// OUR line where the system's QuickType strip used to be: the smart-action
@@ -563,8 +611,17 @@ struct HomeSurface: View {
 
     // MARK: Entry runtime
 
+    private var entryRuntimeHarnesses: [ComposerModelHarness] {
+        let fetched = entryRuntimeCatalog?.composerHarnesses ?? []
+        return fetched.isEmpty ? ComposerModelHarness.catalog : fetched
+    }
+
+    private var entryRuntimeEfforts: [ComposerEffortOption] {
+        entryRuntimeCatalog?.composerEfforts ?? ComposerEffortOption.catalog
+    }
+
     private var entryHarness: ComposerModelHarness {
-        ComposerModelHarness.catalog.first { $0.id == entryHarnessId } ?? ComposerModelHarness.catalog[0]
+        entryRuntimeHarnesses.first { $0.id == entryHarnessId } ?? entryRuntimeHarnesses[0]
     }
 
     private var entryFamily: ComposerModelFamily {
@@ -1204,6 +1261,7 @@ struct HomeSurface: View {
         var sawAgentRead = false
         var sawActivityRead = false
         var sawConversationRead = false
+        var freshRuntimeCatalog: RuntimeCapabilityCatalog?
         // The whisper lane is Entry's only extra read; the dashboard never
         // pays for it.
         let readsConversations = homeStyle == .entry
@@ -1228,9 +1286,28 @@ struct HomeSurface: View {
                     HomeConversation(id: "\(machine.id)::\(conversation.id)", client: client, conversation: conversation)
                 })
             }
+            if readsConversations, freshRuntimeCatalog == nil,
+               let catalog = try? await client.runtimeCapabilities(projectRoot: nil),
+               catalog.schemaVersion == "openscout.runtime-capabilities.v1" {
+                freshRuntimeCatalog = catalog
+            }
         }
 
         guard !Task.isCancelled, loadKey == reloadKey else { return }
+
+        if let freshRuntimeCatalog {
+            entryRuntimeCatalog = freshRuntimeCatalog
+            ComposerRuntimeCatalogCache.save(freshRuntimeCatalog)
+            let harnesses = freshRuntimeCatalog.composerHarnesses
+            if let selectedHarness = harnesses.first(where: { $0.id == entryHarnessId }) {
+                if !selectedHarness.families.contains(where: { $0.id == entryFamilyId }) {
+                    entryFamilyId = selectedHarness.defaultFamily.id
+                }
+            } else if let firstHarness = harnesses.first {
+                entryHarnessId = firstHarness.id
+                entryFamilyId = firstHarness.defaultFamily.id
+            }
+        }
 
         if sawAgentRead {
             agents = freshAgents
@@ -1266,6 +1343,12 @@ struct HomeSurface: View {
             conversations = freshConversations.sorted {
                 ($0.conversation.lastMessageAt ?? .distantPast) > ($1.conversation.lastMessageAt ?? .distantPast)
             }
+            // Only a real answer retires the ghosts. `isLoading` cannot do this
+            // job: it goes false after the FIRST pass and never re-arms, and that
+            // first pass routinely runs before any machine is readable — so the
+            // lane spent the entire connect window looking like a fleet with no
+            // history rather than one still being asked.
+            hasReadConversations = true
         } else if noReadableMachines {
             conversations = []
         }

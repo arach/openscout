@@ -207,6 +207,47 @@ final class ScoutEndpointsTests: XCTestCase {
             XCTAssertNotEqual(ScoutBroker.baseURL().port, 54321)
         }
     }
+
+    func testBaseURLMemoizesUntilHostInfoMtimeChangesOrInvalidate() throws {
+        let supportDirectory = try makeSupportDirectory()
+        defer { removeDirectory(supportDirectory) }
+        try writeHostInfo(
+            supportDirectory: supportDirectory,
+            updatedAtMs: Date().timeIntervalSince1970 * 1000,
+            brokerURL: "http://127.0.0.1:43110",
+            webURL: "http://127.0.0.1:32100"
+        )
+
+        withEndpointEnvironment(supportDirectory: supportDirectory) {
+            XCTAssertEqual(ScoutWeb.baseURL().port, 32100)
+            XCTAssertEqual(ScoutWeb.baseURL().port, 32100)
+
+            // Same mtime: rewrite without a measurable mtime bump should still
+            // be covered by explicit invalidate for operator Reload paths.
+            try? writeHostInfo(
+                supportDirectory: supportDirectory,
+                updatedAtMs: Date().timeIntervalSince1970 * 1000,
+                brokerURL: "http://127.0.0.1:43110",
+                webURL: "http://127.0.0.1:32101"
+            )
+            // Bump mtime past second-resolution filesystems if needed.
+            let hostInfo = supportDirectory.appendingPathComponent(".host-info")
+            try? FileManager.default.setAttributes(
+                [.modificationDate: Date().addingTimeInterval(2)],
+                ofItemAtPath: hostInfo.path
+            )
+            XCTAssertEqual(ScoutWeb.baseURL().port, 32101)
+
+            try? writeHostInfo(
+                supportDirectory: supportDirectory,
+                updatedAtMs: Date().timeIntervalSince1970 * 1000,
+                brokerURL: "http://127.0.0.1:43110",
+                webURL: "http://127.0.0.1:32102"
+            )
+            ScoutWeb.invalidateBaseURLCache()
+            XCTAssertEqual(ScoutWeb.baseURL().port, 32102)
+        }
+    }
 }
 
 private let endpointEnvironmentKeys = [
@@ -279,8 +320,11 @@ private func withEndpointEnvironment(
     for (key, value) in values {
         setenv(key, value, 1)
     }
+    // Process-global memo of disk-resolved base URL must not leak across cases.
+    ScoutWeb.invalidateBaseURLCache()
 
     defer {
+        ScoutWeb.invalidateBaseURLCache()
         for key in endpointEnvironmentKeys {
             if case .some(.some(let value)) = previous[key] {
                 setenv(key, value, 1)

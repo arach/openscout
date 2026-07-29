@@ -32,15 +32,24 @@ public struct ScoutCommsClient: Sendable {
         return try await ScoutHTTP.fetch([ScoutAgent].self, from: url)
     }
 
-    public func fetchMessages(cId: String, limit: Int) async throws -> [ScoutMessage] {
+    public func fetchMessages(
+        cId: String,
+        limit: Int,
+        beforeMessageId: String? = nil
+    ) async throws -> [ScoutMessage] {
+        var queryItems = [
+            URLQueryItem(name: "chatId", value: cId),
+            URLQueryItem(name: "cId", value: cId),
+            URLQueryItem(name: "conversationId", value: cId),
+            URLQueryItem(name: "limit", value: "\(limit)"),
+        ]
+        if let beforeMessageId = beforeMessageId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !beforeMessageId.isEmpty {
+            queryItems.append(URLQueryItem(name: "beforeMessageId", value: beforeMessageId))
+        }
         let url = ScoutWeb.baseURL()
             .appending(path: "api/messages")
-            .appending(queryItems: [
-                URLQueryItem(name: "chatId", value: cId),
-                URLQueryItem(name: "cId", value: cId),
-                URLQueryItem(name: "conversationId", value: cId),
-                URLQueryItem(name: "limit", value: "\(limit)"),
-            ])
+            .appending(queryItems: queryItems)
         return try await ScoutHTTP.fetch([ScoutMessage].self, from: url)
             .sorted { $0.createdAt < $1.createdAt }
     }

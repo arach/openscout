@@ -47,7 +47,42 @@ struct MissionControlSurface: View {
             }
         }
 
+        /// Whether this kind's bundled page actually renders the fleet's data.
+        /// Deck ships its own app and Lanes mounts the firehose renderer, so both
+        /// draw real work. Dispatch's bundle mounts only the shared local-surface
+        /// shell with no renderer attached, so it can never draw the broker feed —
+        /// only a scaffold card. Until that bundle carries a renderer, the paired
+        /// host's `/embed/dispatch` is the sole real Dispatch on iPad.
+        var localSurfaceRendersFleetData: Bool {
+            switch self {
+            case .deck, .lanes: return true
+            case .dispatch: return false
+            }
+        }
+
         var isDeck: Bool { self == .deck }
+    }
+
+    /// A single, honest way forward out of a degraded surface. Pairing problems
+    /// get Connect; a page that failed to load gets Retry. Never both, never a
+    /// dead-end sentence.
+    private struct SurfaceRecovery {
+        let title: String
+        let icon: String
+        let run: () -> Void
+    }
+
+    /// A real steer destination: an agent the paired Mac reports, carrying the
+    /// broker conversation the message lands in. Agents whose `conversationId`
+    /// is absent never enter this list — a target that cannot receive is not a
+    /// target, and offering one would be an affordance with nothing behind it.
+    private struct SteerTarget: Identifiable, Equatable {
+        let id: String
+        let name: String
+        let project: String?
+        let conversationId: String
+        let needsAttention: Bool
+        let lastActiveAt: Date?
     }
 
     let model: AppModel
@@ -55,6 +90,11 @@ struct MissionControlSurface: View {
     let isActive: Bool
     let onOpenLanes: (() -> Void)?
     let onOpenDeck: (() -> Void)?
+    let onConnect: (() -> Void)?
+    /// Hands a draft to the New surface, which owns session creation end to end.
+    /// Dispatch's create affordance routes there rather than growing a second
+    /// creation path beside it.
+    let onCompose: ((NewSessionSeed) -> Void)?
 
     @State private var webState = HudWebViewState()
     @State private var reloadGeneration = 0
@@ -68,21 +108,31 @@ struct MissionControlSurface: View {
     @State private var isSending = false
     @StateObject private var entrance = CockpitEntrancePhase()
     @FocusState private var composerFocused: Bool
+    /// Dispatch's steer dock: the agents that can actually receive, and the one
+    /// this draft is addressed to.
+    @State private var steerTargets: [SteerTarget] = []
+    @State private var steerTargetId: String?
+    @State private var steerNotice: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.scoutLayout) private var layout
 
     init(
         model: AppModel,
         kind: Kind,
         isActive: Bool,
         onOpenLanes: (() -> Void)? = nil,
-        onOpenDeck: (() -> Void)? = nil
+        onOpenDeck: (() -> Void)? = nil,
+        onConnect: (() -> Void)? = nil,
+        onCompose: ((NewSessionSeed) -> Void)? = nil
     ) {
         self.model = model
         self.kind = kind
         self.isActive = isActive
         self.onOpenLanes = onOpenLanes
         self.onOpenDeck = onOpenDeck
+        self.onConnect = onConnect
+        self.onCompose = onCompose
         let initialMachineIds = Set(
             model.webSurfaceMachines().filter(\.isOnline).map(\.machineId)
         )
@@ -96,6 +146,11 @@ struct MissionControlSurface: View {
     }
 
     private var usesLocalBundledPage: Bool {
+        // A bundled page only earns the surface when it renders the fleet's real
+        // work. Dispatch's bundle has no renderer behind the shell, so choosing it
+        // would put scaffolding where the broker feed belongs — the paired host's
+        // embed is the only real Dispatch, in every build.
+        guard kind.localSurfaceRendersFleetData else { return false }
         // Deck's native host picker and composer depend on the signed page's
         // bridge messages. A host-served Lanes page cannot drive those native
         // controls, so Deck always uses its bundled surface in every build.
@@ -159,7 +214,11 @@ struct MissionControlSurface: View {
                     .id(reloadGeneration)
                     .overlay {
                         if let message = webState.errorMessage {
-                            unavailable(title: "Couldn’t load local \(kind.rawValue)", detail: message)
+                            unavailable(
+                                title: "Couldn’t load \(kind.rawValue)",
+                                detail: message,
+                                recovery: retryRecovery
+                            )
                         }
                     }
                 } else if let sourceURL {
@@ -182,22 +241,38 @@ struct MissionControlSurface: View {
                     .id(reloadGeneration)
                     .overlay {
                         if let message = webState.errorMessage {
-                            unavailable(title: "Couldn’t load \(kind.rawValue)", detail: message)
+                            unavailable(
+                                title: "Couldn’t reach \(kind.rawValue)",
+                                detail: message,
+                                recovery: hasOnlinePairedMac ? retryRecovery : connectRecovery
+                            )
                         }
                     }
                 } else {
                     unavailable(
-                        title: "\(kind.rawValue) unavailable",
-                        detail: "Connect this iPad to a paired Mac over LAN or Tailnet."
+                        title: "\(kind.rawValue) needs a paired Mac",
+                        detail: "This view reads live work from a Mac on your LAN or Tailnet.",
+                        recovery: connectRecovery
                     )
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(HudPalette.bg)
             .cockpitEntrance(index: 1, phase: entrance)
+
+            // The feed reads; the dock acts. Dispatch is where you watch the
+            // fleet's traffic, so the reply belongs at its foot rather than a
+            // surface away.
+            if kind == .dispatch {
+                steerDock
+                    .cockpitEntrance(index: 2, phase: entrance)
+            }
         }
         .task(id: isActive) {
             await entrance.reveal(when: isActive, animated: !reduceMotion)
+        }
+        .task(id: steerRosterKey) {
+            await loadSteerTargets()
         }
         .onAppear {
             installLaneSelectionHandler(on: localBridge)
@@ -229,10 +304,12 @@ struct MissionControlSurface: View {
         HStack(spacing: HudSpacing.md) {
             HudSectionLabel(kind.rawValue, tint: ScoutInk.muted)
             if usesLocalBundledPage {
+                // Provenance, not signal: emerald stays reserved for connection
+                // and selection state, the same rationing Deck's header uses.
                 Text("LOCAL · SIGNED")
                     .font(HudFont.mono(HudTextSize.micro, weight: .medium))
                     .tracking(0.5)
-                    .foregroundStyle(HudPalette.accent)
+                    .foregroundStyle(ScoutInk.dim)
             } else if let host = sourceURL?.host {
                 Text(host.uppercased())
                     .font(HudFont.mono(HudTextSize.micro, weight: .medium))
@@ -244,6 +321,12 @@ struct MissionControlSurface: View {
             if kind == .lanes, let onOpenDeck {
                 missionControlLink("Open Deck", glyph: .dispatch, action: onOpenDeck)
             }
+            // Steering an agent already at work and starting a new one are the
+            // two moves this surface implies. The dock does the first; this
+            // hands the second — with whatever is drafted — to the New surface.
+            if kind == .dispatch, onCompose != nil {
+                missionControlLink("New", glyph: .plus, action: startNewSession)
+            }
             if webState.isLoading {
                 ProgressView()
                     .controlSize(.small)
@@ -254,7 +337,10 @@ struct MissionControlSurface: View {
                 reloadGeneration += 1
             }
             .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-            .foregroundStyle(HudPalette.accent)
+            // Muted, matching Deck's header — utility controls recede so the
+            // accent is free for the connection and selection state the feed
+            // below actually reports.
+            .foregroundStyle(ScoutInk.muted)
             .buttonStyle(.plain)
         }
         .padding(.horizontal, HudSpacing.xxl)
@@ -325,6 +411,21 @@ struct MissionControlSurface: View {
         }
     }
 
+    /// A header action, in this toolbar's own grammar: the glyph in the shared
+    /// `Glyphic` family, the label in the same mono/micro/semibold face as
+    /// `Reload` sitting beside it, muted ink, no plate.
+    ///
+    /// What this replaced was a tinted capsule — emerald text on an emerald wash
+    /// inside an emerald rim — invented here and used nowhere else in the app.
+    /// It broke two house rules at once. It was a NEW shape in a row that already
+    /// had an action grammar (`Reload`, one line away, is a plain text button),
+    /// and it spent the surface's one accent on navigation. The masthead
+    /// complications state the rule outright: "Never the accent." A control that
+    /// takes you somewhere is not a signal, and the brightest thing on a screen
+    /// full of live delivery states should not be a link.
+    ///
+    /// One helper, so Lanes' "Open Deck", Deck's "Lanes" and Dispatch's "New" are
+    /// visibly the same kind of thing.
     private func missionControlLink(
         _ title: String,
         glyph: GlyphShape.Kind,
@@ -337,17 +438,9 @@ struct MissionControlSurface: View {
             }
             .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
             .tracking(0.45)
-            .foregroundStyle(HudPalette.accent)
-            .padding(.horizontal, HudSpacing.sm)
+            .foregroundStyle(ScoutInk.muted)
             .padding(.vertical, HudSpacing.xs)
-            .background(
-                RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
-                    .fill(HudPalette.accent.opacity(0.08))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
-                    .stroke(HudPalette.accent.opacity(0.32), lineWidth: HudStrokeWidth.thin)
-            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
@@ -542,6 +635,213 @@ struct MissionControlSurface: View {
         }
     }
 
+    // MARK: - Dispatch steer dock
+
+    /// The reply to the feed. Same composer component as Home's front door, the
+    /// New dock, and every conversation — pill idiom, one line at rest — held to
+    /// the iPad reading measure so it reads as furniture on the desk rather than
+    /// a stretched phone field. The target readout sits above it, because who a
+    /// message is addressed to must be legible before it is sent.
+    private var steerDock: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.xs) {
+            steerTargetPicker
+            ScoutMessageComposer(
+                text: $composerText,
+                placeholder: steerPlaceholder,
+                rows: 1,
+                onSend: sendSteerMessage,
+                canSend: canSteer,
+                sending: isSending,
+                disabled: steerTargets.isEmpty,
+                error: composerError,
+                notice: steerNotice.map { ScoutComposerNotice($0) },
+                density: .compact,
+                appearance: .pill
+            )
+        }
+        .frame(maxWidth: layout.contentWidth, alignment: .leading)
+        .frame(maxWidth: .infinity)
+        .padding(.top, HudSpacing.sm)
+        .padding(.bottom, HudSpacing.sm)
+        .background(
+            LinearGradient(
+                colors: [ScoutSignalSurface.top, ScoutSignalSurface.bottom],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+        .overlay(alignment: .top) {
+            Rectangle().fill(HudHairline.standard).frame(height: HudStrokeWidth.thin)
+        }
+    }
+
+    /// Addressing is a pick from what the Mac reports, never a free-text field:
+    /// the app can only deliver to a conversation it already knows about, so the
+    /// picker offers exactly those and nothing more.
+    private var steerTargetPicker: some View {
+        Menu {
+            ForEach(steerTargets) { target in
+                Button {
+                    steerTargetId = target.id
+                    steerNotice = nil
+                    composerError = nil
+                } label: {
+                    Text(steerMenuLabel(target))
+                }
+            }
+        } label: {
+            // The runtime chip's seat — card fill, hairline rim, trailing
+            // chevron — which is the app's settled grammar for "a token you tap
+            // to change what this composer is pointed at". Home's accessory
+            // pills name it as such, and the composer's own model token wears it
+            // two rows below. A bare dot-and-caption, which is what this was,
+            // reads as a status line: it said who the message was addressed to
+            // without saying that you could change it.
+            HStack(spacing: HudSpacing.xs) {
+                HudStatusDot(
+                    color: steerTarget == nil ? ScoutInk.dim : HudPalette.accent,
+                    size: 5
+                )
+                Text(steerTargetLabel)
+                    .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
+                    .tracking(0.45)
+                    .foregroundStyle(steerTarget == nil ? ScoutInk.muted : HudPalette.ink)
+                    .lineLimit(1)
+                if let project = steerTarget?.project {
+                    Text(project.uppercased())
+                        .font(HudFont.mono(HudTextSize.micro, weight: .medium))
+                        .tracking(0.5)
+                        .foregroundStyle(ScoutInk.dim)
+                        .lineLimit(1)
+                }
+                if !steerTargets.isEmpty {
+                    Glyphic.chevron(.bottom, size: 9)
+                        .foregroundStyle(ScoutInk.dim)
+                }
+            }
+            .padding(.horizontal, HudSpacing.md)
+            .padding(.vertical, 3)
+            .background(steerSeat.fill(ScoutSurface.card))
+            .overlay(steerSeat.stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin))
+            .contentShape(steerSeat)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .disabled(steerTargets.isEmpty)
+        .accessibilityLabel("Steer target")
+    }
+
+    /// A real capsule at this height, matching the runtime chip's resting shape.
+    private var steerSeat: Capsule { Capsule(style: .continuous) }
+
+    private var steerTarget: SteerTarget? {
+        guard let steerTargetId else { return nil }
+        return steerTargets.first { $0.id == steerTargetId }
+    }
+
+    private var steerTargetLabel: String {
+        if let steerTarget { return steerTarget.name.uppercased() }
+        return steerTargets.isEmpty ? "NO CONVERSATION TO STEER YET" : "CHOOSE AN AGENT"
+    }
+
+    private var steerPlaceholder: String {
+        guard !steerTargets.isEmpty else { return "Nothing to steer from this Mac yet." }
+        guard let steerTarget else { return "Choose an agent to steer…" }
+        return "Steer \(steerTarget.name)…"
+    }
+
+    private var canSteer: Bool {
+        steerTarget != nil
+            && !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !isSending
+    }
+
+    private func steerMenuLabel(_ target: SteerTarget) -> String {
+        var label = target.name
+        if let project = target.project, !project.isEmpty { label += " · \(project)" }
+        if target.needsAttention { label += " · needs you" }
+        return label
+    }
+
+    /// Reload whenever the surface becomes the page or the fleet changes shape.
+    private var steerRosterKey: String {
+        "\(kind.rawValue)|\(isActive)|\(model.fleetRevision)"
+    }
+
+    /// One real broker read — the same `listAgents` call Home and the shell
+    /// counters make. Attention first, then recency: the agents an operator
+    /// reaches for, not a roster.
+    private func loadSteerTargets() async {
+        guard kind == .dispatch, isActive else { return }
+        guard let rows = try? await model.client.listAgents(query: nil, limit: 200) else { return }
+        let targets = rows
+            .compactMap { agent -> SteerTarget? in
+                guard let conversationId = agent.conversationId, !conversationId.isEmpty else { return nil }
+                return SteerTarget(
+                    id: agent.id,
+                    name: agent.title,
+                    project: agent.projectName,
+                    conversationId: conversationId,
+                    needsAttention: agent.needsAttention,
+                    lastActiveAt: agent.lastActiveAt
+                )
+            }
+            .sorted { lhs, rhs in
+                if lhs.needsAttention != rhs.needsAttention { return lhs.needsAttention }
+                return (lhs.lastActiveAt ?? .distantPast) > (rhs.lastActiveAt ?? .distantPast)
+            }
+        steerTargets = Array(targets.prefix(12))
+        if let steerTargetId, !steerTargets.contains(where: { $0.id == steerTargetId }) {
+            self.steerTargetId = nil
+        }
+    }
+
+    /// The same write the conversation surface makes: `mobile/comms/send` into a
+    /// real conversation id. A recoverable delivery is reported as such — the
+    /// message is recorded, the routing needs another move — and a thrown error
+    /// gives the draft back rather than swallowing it.
+    private func sendSteerMessage() {
+        let text = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let target = steerTarget, !text.isEmpty, !isSending else { return }
+        composerText = ""
+        composerError = nil
+        steerNotice = nil
+        isSending = true
+        Task {
+            do {
+                let result = try await model.client.send(
+                    PromptSpec(
+                        conversationId: target.conversationId,
+                        text: text,
+                        clientMessageId: "ios-\(UUID().uuidString)"
+                    )
+                )
+                if result.delivery?.state == .recoverable {
+                    steerNotice = result.delivery?.detail ?? "Recorded, but delivery needs another move."
+                } else {
+                    steerNotice = "Sent to \(target.name)."
+                }
+                isSending = false
+            } catch {
+                composerText = text
+                composerError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                isSending = false
+            }
+        }
+    }
+
+    /// The draft travels to the New surface rather than being retyped there —
+    /// and leaves no copy behind that could be sent twice.
+    private func startNewSession() {
+        guard let onCompose else { return }
+        let draft = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        composerText = ""
+        composerError = nil
+        steerNotice = nil
+        composerFocused = false
+        onCompose(NewSessionSeed(prompt: draft))
+    }
+
     private var webSurfaceMachines: [AppModel.WebSurfaceMachine] {
         model.webSurfaceMachines()
     }
@@ -673,11 +973,64 @@ struct MissionControlSurface: View {
         }
     }
 
-    private func unavailable(title: String, detail: String) -> some View {
-        HudEmptyState(title: title, subtitle: detail, icon: "rectangle.connected.to.line.below")
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(HudSpacing.xxl)
-            .background(HudPalette.bg)
+    private var hasOnlinePairedMac: Bool {
+        model.pairedMachines.contains(where: \.isOnline)
+    }
+
+    /// Pairing is the only thing that can fix an unreachable surface, and the app
+    /// already owns that route — the same sheet Home's Connect card opens.
+    private var connectRecovery: SurfaceRecovery? {
+        guard let onConnect else { return nil }
+        return SurfaceRecovery(title: "Connect", icon: "link", run: onConnect)
+    }
+
+    private var retryRecovery: SurfaceRecovery {
+        SurfaceRecovery(title: "Retry", icon: "arrow.clockwise", run: reloadSurface)
+    }
+
+    /// The degraded state stays honest: it never draws a stand-in feed, it names
+    /// what is missing, and it carries the one action that can resolve it.
+    private func unavailable(
+        title: String,
+        detail: String,
+        recovery: SurfaceRecovery? = nil
+    ) -> some View {
+        VStack(spacing: HudSpacing.md) {
+            Image(systemName: "macbook.and.iphone")
+                .font(.system(size: 24, weight: .light))
+                .foregroundStyle(ScoutInk.dim)
+                .accessibilityHidden(true)
+            Text(title)
+                .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                .tracking(0.5)
+                .foregroundStyle(ScoutInk.muted)
+                .multilineTextAlignment(.center)
+            Text(detail)
+                .font(HudFont.mono(HudTextSize.xxs))
+                .foregroundStyle(ScoutInk.dim)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 320)
+            if let recovery {
+                Button(action: recovery.run) {
+                    HStack(spacing: HudSpacing.xs) {
+                        Image(systemName: recovery.icon)
+                        Text(recovery.title)
+                    }
+                    .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                    .foregroundStyle(HudPalette.bg)
+                    .padding(.horizontal, HudSpacing.lg)
+                    .padding(.vertical, HudSpacing.sm)
+                    .background(Capsule().fill(HudPalette.accent))
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(recovery.title)
+                .padding(.top, HudSpacing.xs)
+            }
+        }
+        .padding(HudSpacing.xxl)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(HudPalette.bg)
     }
 }
 

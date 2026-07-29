@@ -1,6 +1,6 @@
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import {
   buildScoutReturnAddress as buildScoutReturnAddressRecord,
@@ -433,6 +433,7 @@ export type ScoutAskResult = {
   messageId?: string;
   bindingRef?: string;
   sessionAlias?: string;
+  executionResolution?: import("@openscout/protocol").ScoutExecutionResolution;
   workItem?: ScoutTrackedWorkItem;
   unresolvedTarget?: string;
   targetDiagnostic?: ScoutAskTargetDiagnostic;
@@ -517,6 +518,19 @@ export type ScoutDirectMessageResult = {
   messageId: string;
   flight?: ScoutFlightRecord;
 };
+
+export class ScoutDirectDeliveryUnavailableError extends Error {
+  readonly delivery: Exclude<ScoutDeliverResponse, { kind: "delivery" }>;
+
+  constructor(delivery: Exclude<ScoutDeliverResponse, { kind: "delivery" }>) {
+    const detail = delivery.kind === "question"
+      ? delivery.question.detail
+      : delivery.rejection.detail;
+    super(detail);
+    this.name = "ScoutDirectDeliveryUnavailableError";
+    this.delivery = delivery;
+  }
+}
 
 export type ScoutWatchOptions = {
   channel?: string;
@@ -729,6 +743,19 @@ function clientMessageMetadata(
   const normalized =
     typeof clientMessageId === "string" ? clientMessageId.trim() : "";
   return normalized ? { clientMessageId: normalized } : {};
+}
+
+function deliveryRequestId(
+  clientMessageId: string | null | undefined,
+  createdAt: number,
+): string {
+  const normalized =
+    typeof clientMessageId === "string" ? clientMessageId.trim() : "";
+  if (!normalized) {
+    return `deliver-${createdAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+  const digest = createHash("sha256").update(normalized).digest("hex").slice(0, 32);
+  return `deliver-client-${digest}`;
 }
 
 function metadataStringList(
@@ -3720,23 +3747,15 @@ export async function sendScoutDirectMessage(input: {
   deviceId?: string;
 }): Promise<ScoutDirectMessageResult> {
   const broker = await requireScoutBrokerContext();
+  const createdAt = Date.now();
   const source = input.source?.trim() || "scout-mobile";
-  const targetEndpoints = Object.values(broker.snapshot.endpoints ?? {})
-    .filter((endpoint) => endpoint.agentId === input.agentId);
-  const targetIsSuperseded = isSupersededBrokerAgent(broker.snapshot, input.agentId)
-    || (
-      targetEndpoints.length > 0
-      && targetEndpoints.every((endpoint) => (
-        metadataBoolean(endpoint.metadata, "retiredFromFleet")
-        || metadataBoolean(endpoint.metadata, "staleLocalRegistration")
-      ))
-    );
-  if (targetIsSuperseded) {
-    throw new Error(
-      `${displayNameForBrokerActor(broker.snapshot, input.agentId)} is a superseded local registration. Start the current project session from Workspaces before sending.`,
-    );
-  }
+  const attachments = normalizeOutgoingAttachments(input.attachments);
+  // The bridge accepts attachment-only posts, while `/v1/deliver` requires a
+  // non-empty consult body. Preserve the attachment and supply the invocation
+  // task instead of surfacing a raw invalid_request after upload.
+  const body = input.body.trim() || (attachments?.length ? "Review the attached message." : "");
   const delivery = await brokerPostDeliver(broker.baseUrl, {
+    id: deliveryRequestId(input.clientMessageId, createdAt),
     caller: {
       actorId: OPERATOR_ID,
       nodeId: broker.node.id,
@@ -3748,8 +3767,8 @@ export async function sendScoutDirectMessage(input: {
       agentId: input.agentId,
     },
     targetAgentId: input.agentId,
-    body: input.body.trim(),
-    attachments: normalizeOutgoingAttachments(input.attachments),
+    body,
+    attachments,
     intent: "consult",
     replyToMessageId: input.replyToMessageId ?? undefined,
     execution: {
@@ -3757,6 +3776,7 @@ export async function sendScoutDirectMessage(input: {
       session: "new",
     },
     ensureAwake: true,
+    createdAt,
     messageMetadata: {
       source,
       destinationKind: "direct",
@@ -3773,9 +3793,7 @@ export async function sendScoutDirectMessage(input: {
     },
   });
   if (delivery.kind !== "delivery") {
-    throw new Error(
-      delivery.kind === "question" ? delivery.question.detail : delivery.rejection.detail,
-    );
+    throw new ScoutDirectDeliveryUnavailableError(delivery);
   }
 
   return {
@@ -3794,6 +3812,9 @@ export async function askScoutAgentById(input: {
   shouldSpeak?: boolean;
   createdAtMs?: number;
   executionHarness?: AgentHarness;
+  executionModel?: string;
+  executionReasoningEffort?: string;
+  executionSource?: ScoutDeliverRequest["executionSource"];
   executionSession?: "new" | "existing" | "any";
   workspace?: ScoutAskWorkspace;
   senderContext?: ScoutAskSenderContext;
@@ -3816,6 +3837,9 @@ export async function askScoutAgentById(input: {
     shouldSpeak: input.shouldSpeak,
     createdAtMs: input.createdAtMs,
     executionHarness: input.executionHarness,
+    executionModel: input.executionModel,
+    executionReasoningEffort: input.executionReasoningEffort,
+    executionSource: input.executionSource,
     executionSession: input.executionSession,
     workspace: input.workspace,
     senderContext: input.senderContext,
@@ -3941,6 +3965,9 @@ export async function deliverScoutAsk(input: {
   shouldSpeak?: boolean;
   createdAtMs?: number;
   executionHarness?: AgentHarness;
+  executionModel?: string;
+  executionReasoningEffort?: string;
+  executionSource?: ScoutDeliverRequest["executionSource"];
   executionSession?: "new" | "existing" | "any";
   workspace?: ScoutAskWorkspace;
   senderContext?: ScoutAskSenderContext;
@@ -4016,9 +4043,14 @@ export async function deliverScoutAsk(input: {
     ...(deliveryWorkItem ? { collaborationRecordId: workRecordId, workItem: deliveryWorkItem } : {}),
     execution: {
       ...(input.executionHarness ? { harness: input.executionHarness } : {}),
+      ...(input.executionModel?.trim() ? { model: input.executionModel.trim() } : {}),
+      ...(input.executionReasoningEffort?.trim()
+        ? { reasoningEffort: input.executionReasoningEffort.trim() }
+        : {}),
       ...(targetSessionId ? { targetSessionId } : {}),
       session: input.executionSession ?? defaultAskExecutionSession(input.target),
     },
+    ...(input.executionSource ? { executionSource: input.executionSource } : {}),
     ...(input.projectAgent ? { projectAgent: input.projectAgent } : {}),
     ensureAwake: true,
     ...(labels ? { labels } : {}),
@@ -4054,6 +4086,7 @@ export async function deliverScoutAsk(input: {
     messageId: delivery.message.id,
     bindingRef: delivery.receipt?.bindingRef ?? delivery.bindingRef,
     sessionAlias: delivery.receipt?.sessionAlias ?? delivery.sessionAlias,
+    executionResolution: delivery.receipt.executionResolution,
     workItem,
   };
 }
@@ -4069,6 +4102,8 @@ export async function askScoutQuestion(input: {
   shouldSpeak?: boolean;
   createdAtMs?: number;
   executionHarness?: AgentHarness;
+  executionModel?: string;
+  executionReasoningEffort?: string;
   executionSession?: "new" | "existing" | "any";
   workspace?: ScoutAskWorkspace;
   senderContext?: ScoutAskSenderContext;
@@ -4093,6 +4128,8 @@ export async function askScoutQuestion(input: {
     shouldSpeak: input.shouldSpeak,
     createdAtMs: input.createdAtMs,
     executionHarness: input.executionHarness,
+    executionModel: input.executionModel,
+    executionReasoningEffort: input.executionReasoningEffort,
     executionSession: input.executionSession,
     workspace: input.workspace,
     senderContext: input.senderContext,

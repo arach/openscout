@@ -458,6 +458,19 @@ export function renderScoutRuntimesReport(report: ScoutRuntimesReport): string {
     }
   }
 
+  lines.push("", "Exact runtime capabilities:");
+  for (const harness of report.runtimeCapabilities.harnesses) {
+    const models = report.runtimeCapabilities.models
+      .filter((model) => model.harnesses.includes(harness.id))
+      .map((model) => model.id);
+    const efforts = report.runtimeCapabilities.efforts
+      .filter((effort) => effort.harnesses.includes(harness.id))
+      .map((effort) => effort.id);
+    lines.push(`  - ${harness.id}`);
+    lines.push(`    Models: ${models.join(", ") || "not selectable"}`);
+    lines.push(`    Efforts: ${efforts.join(", ") || "not selectable"}`);
+  }
+
   lines.push("", ...renderCapabilitySnapshotSummary(report.capabilities));
 
   return lines.join("\n");

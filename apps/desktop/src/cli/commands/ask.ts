@@ -26,7 +26,7 @@ const DEFAULT_ASK_DISPATCH_SETTLE_MS = 4_000;
 
 export function renderAskCommandHelp(): string {
   return [
-    "Usage: scout ask [(--to <existing-target> | --ref <ref> | --project <path> | --profile <runtime-profile>)] [--alias-project <path>] [--alias-host <node>] [--as <sender>] [--channel <name>] [--label <label>] [--timeout <seconds>] [--reply-mode inline|notify|none] [--no-wait] [--harness <runtime>] [--new] [--prompt-file <path> | <message>]",
+    "Usage: scout ask [(--to <existing-target> | --ref <ref> | --project <path> | --profile <runtime-profile>)] [--runtime <harness/model/effort>] [--harness <runtime>] [--model <model>] [--effort <level>] [--new] [--prompt-file <path> | <message>]",
     "",
     "Ask one agent to do work or return a concrete answer.",
     "",
@@ -42,6 +42,9 @@ export function renderAskCommandHelp(): string {
     "  --to alias:<name>                  -> explicit broker route alias; use --alias-project/--alias-host for cross-scope routing",
     "  --project <path>                   -> ask by repo/workspace path; Scout resolves the concrete worker",
     "  --project <path> --harness <rt>     -> capability request; broker chooses/creates worker",
+    "  --runtime <harness/model/effort>    -> exact shell-safe runtime; fixed slash positions",
+    "  codex/gpt-5.6-sol/xhigh to ...      -> natural RuntimeSpec form for the current project",
+    "  --model/--effort                    -> exact dimensions; legal with --harness or as profile overrides",
     "  --harness <runtime> with no target  -> ask a compatible worker for the current project",
     "  '>> project:<path> ...'             -> composer route form for the same project-path ask",
     "",
@@ -50,6 +53,10 @@ export function renderAskCommandHelp(): string {
     `Default inline mode returns once the target has acknowledged, completed immediately, or stays unacknowledged for ${DEFAULT_ASK_ACK_TIMEOUT_SECONDS}s.`,
     "Use the returned ref/flight id/conversation/session handle for follow-up.",
     "Agent-card targets are fresh-session requests. Use a session id only when you intend to keep exact prior context.",
+    "Exact runtime asks use: explicit flag/literal > profile preset > endpoint > harness config > default.",
+    "Exact runtime on a named agent spawns an isolated session. An exact session id must already have matching observed runtime evidence.",
+    "Bare target priority: profile id, then harness id; model names are never bare agent targets.",
+    "Conflicting overlapping runtime values fail; a redundant same-value flag is accepted.",
     "Use --project when you know the project path but do not want to look up or pin an agent id first.",
     "Do not guess generic names like claude.main; let the broker route, then pin/name a good worker later.",
     "Use --harness without a target when the current project should be handled by that runtime.",
@@ -70,6 +77,8 @@ export function renderAskCommandHelp(): string {
     '  scout ask --ref 7f3a9c21 "continue from that result"',
     '  scout ask --project ../talkie "how did you handle auth?"',
     '  scout ask --harness codex "review this from a fresh Codex session"',
+    '  scout ask --project ../talkie --harness codex --model gpt-5.6-sol --effort xhigh "review auth"',
+    '  scout ask codex/gpt-5.6-sol/xhigh to review the diff',
     '  scout ask --project ../talkie --harness claude "review Talkie from Claude"',
     "  scout ask '>> project:../talkie compare auth against this branch'",
     "  scout ask --to hudson --prompt-file ./handoff.md",
@@ -327,10 +336,13 @@ export async function runAskWithOptions(
   const target:
     | { to: string; projectPath?: never; runtimeProfile?: never; existingHandle?: never }
     | { to?: never; projectPath: string; runtimeProfile?: never; existingHandle?: never }
-    | { to?: never; projectPath?: never; runtimeProfile: string; existingHandle?: never }
+    | { to?: never; projectPath?: string; runtimeProfile: string; existingHandle?: never }
     | { to?: never; projectPath?: never; runtimeProfile?: never; existingHandle: string } =
     options.runtimeProfile
-      ? { runtimeProfile: options.runtimeProfile }
+      ? {
+          runtimeProfile: options.runtimeProfile,
+          ...(options.projectPath ? { projectPath: options.projectPath } : {}),
+        }
       : options.existingTargetHandle
       ? { existingHandle: options.existingTargetHandle }
       : options.projectPath
@@ -343,7 +355,10 @@ export async function runAskWithOptions(
     body,
     channel: options.channel,
     harness: parseScoutHarness(options.harness),
+    model: options.model,
     reasoningEffort: options.reasoningEffort,
+    runtimeLiteral: options.runtimeLiteral,
+    executionSource: options.executionSource,
     session: options.session,
     labels: options.labels,
     replyMode,

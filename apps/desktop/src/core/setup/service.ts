@@ -7,7 +7,13 @@ import {
   resolveConfiguredScoutWebHostname,
   resolveScoutWebNamedHostname,
 } from "@openscout/runtime/local-config";
-import type { ScoutCapabilityMatrixSnapshot } from "@openscout/protocol";
+import {
+  SCOUT_LAUNCHABLE_HARNESSES,
+  SCOUT_RUNTIME_EFFORT_CATALOG,
+  SCOUT_RUNTIME_MODEL_CATALOG,
+  type ScoutCapabilityMatrixSnapshot,
+  type ScoutRuntimeCapabilityCatalog,
+} from "@openscout/protocol";
 import { resolveOpenScoutLocalEdgeConfig } from "@openscout/runtime/local-edge";
 import {
   loadResolvedRelayAgents,
@@ -97,6 +103,7 @@ export type ScoutRuntimesReport = {
   harnessCatalogPath: string;
   catalog: Awaited<ReturnType<typeof loadHarnessCatalogSnapshot>>;
   capabilities: ScoutCapabilityMatrixSnapshot | null;
+  runtimeCapabilities: ScoutRuntimeCapabilityCatalog;
 };
 
 export type ScoutProjectInventoryEntry = ProjectInventoryEntry;
@@ -280,10 +287,35 @@ export async function runScoutSetup(input: {
 }
 
 export async function loadScoutRuntimesReport(currentDirectory: string): Promise<ScoutRuntimesReport> {
-  return withScoutCoreCommandLock("runtimes", async () => ({
-    currentDirectory,
-    harnessCatalogPath: resolveOpenScoutSupportPaths().harnessCatalogPath,
-    catalog: await loadHarnessCatalogSnapshot(),
-    capabilities: await readScoutCapabilityMatrix(),
-  }));
+  return withScoutCoreCommandLock("runtimes", async () => {
+    const catalog = await loadHarnessCatalogSnapshot();
+    return {
+      currentDirectory,
+      harnessCatalogPath: resolveOpenScoutSupportPaths().harnessCatalogPath,
+      catalog,
+      capabilities: await readScoutCapabilityMatrix(),
+      runtimeCapabilities: {
+        schemaVersion: "openscout.runtime-capabilities.v1",
+        generatedAt: Date.now(),
+        scope: "global",
+        harnesses: catalog.entries
+          .filter((entry) => SCOUT_LAUNCHABLE_HARNESSES.includes(entry.harness as (typeof SCOUT_LAUNCHABLE_HARNESSES)[number]))
+          .map((entry) => ({
+            id: entry.harness as (typeof SCOUT_LAUNCHABLE_HARNESSES)[number],
+            name: entry.name,
+            label: entry.label,
+            description: entry.description,
+            state: entry.readinessReport.state,
+            ready: entry.readinessReport.ready,
+            detail: entry.readinessReport.detail,
+          })),
+        models: SCOUT_RUNTIME_MODEL_CATALOG.map((model) => ({ ...model, harnesses: [...model.harnesses] })),
+        efforts: SCOUT_RUNTIME_EFFORT_CATALOG.map((effort) => ({
+          ...effort,
+          harnesses: [...effort.harnesses],
+          ...(effort.models ? { models: [...effort.models] } : {}),
+        })),
+      },
+    };
+  });
 }
