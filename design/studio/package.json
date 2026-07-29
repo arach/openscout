@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "next dev --port 43140",
     "build": "next build --webpack",
-    "start": "next start --port 43140"
+    "start": "next start --port 43140",
+    "ds": "bun scripts/ds.ts"
   },
   "dependencies": {
     "@arach/arc": "0.4.1",
