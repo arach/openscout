@@ -281,6 +281,47 @@ describe("SQLiteControlPlaneStore", () => {
     }
   });
 
+  test("advances endpoint recency from lifecycle evidence without refreshing projection replay", () => {
+    const { store, dbPath } = createStoreWithPath();
+    const db = new Database(dbPath, { readonly: true });
+    const endpoint = {
+      id: "endpoint-recency",
+      agentId: "agent-1",
+      nodeId: "node-1",
+      harness: "codex" as const,
+      transport: "codex_app_server" as const,
+      state: "active" as const,
+      sessionId: "session-recency",
+      metadata: { lastStartedAt: 1_000 },
+    };
+    const updatedAt = () => (db.query(
+      "SELECT updated_at FROM agent_endpoints WHERE id = ?1",
+    ).get(endpoint.id) as { updated_at: number }).updated_at;
+
+    try {
+      seedAgent(store);
+      store.upsertEndpoint(endpoint);
+      expect(updatedAt()).toBe(1_000);
+
+      store.upsertEndpoint({
+        ...endpoint,
+        state: "idle",
+        metadata: { ...endpoint.metadata, lastCompletedAt: 2_000 },
+      });
+      expect(updatedAt()).toBe(2_000);
+
+      store.upsertEndpoint({
+        ...endpoint,
+        state: "waiting",
+        metadata: {},
+      });
+      expect(updatedAt()).toBe(2_000);
+    } finally {
+      db.close();
+      store.close();
+    }
+  });
+
   test("creates dashboard read indexes on fresh databases", () => {
     const { store, dbPath } = createStoreWithPath();
     const db = new Database(dbPath, { readonly: true });

@@ -19,6 +19,7 @@ import {
   loadResolvedRelayAgents,
   type ClaudeStatuslineInstallReport,
   type ProjectInventoryEntry,
+  type ProjectInventoryError,
   type SetupResult,
   type ScoutSkillInstallReport,
 } from "@openscout/runtime/setup";
@@ -113,6 +114,7 @@ export async function loadScoutDoctorReport(input: {
   repoRoot: string;
   env?: NodeJS.ProcessEnv;
   onProjectInventoryEntry?: (entry: ProjectInventoryEntry) => void | Promise<void>;
+  onProjectInventoryError?: (error: ProjectInventoryError) => void | Promise<void>;
 }): Promise<ScoutDoctorReport> {
   return withScoutCoreCommandLock("doctor", async () => {
     const [broker, localEdge, terminalPty, systemProbes, setup, catalog, capabilities] = await Promise.all([
@@ -123,6 +125,7 @@ export async function loadScoutDoctorReport(input: {
       loadResolvedRelayAgents({
         currentDirectory: input.currentDirectory,
         onProjectInventoryEntry: input.onProjectInventoryEntry,
+        onProjectInventoryError: input.onProjectInventoryError,
       }),
       loadHarnessCatalogSnapshot(),
       readScoutCapabilityMatrix(),

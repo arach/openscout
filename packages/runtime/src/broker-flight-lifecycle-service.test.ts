@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type {
   AgentDefinition,
   AgentEndpoint,
+  DeliveryAttempt,
   DeliveryIntent,
   FlightRecord,
   InvocationRequest,
@@ -115,6 +116,17 @@ function testDelivery(input: Partial<DeliveryIntent> = {}): DeliveryIntent {
   };
 }
 
+function testDeliveryAttempt(input: Partial<DeliveryAttempt> = {}): DeliveryAttempt {
+  return {
+    id: "attempt-1",
+    deliveryId: "delivery-1",
+    attempt: 1,
+    status: "sent",
+    createdAt: 1_000,
+    ...input,
+  };
+}
+
 function testSnapshot(input: {
   agents?: Record<string, AgentDefinition>;
   endpoints?: Record<string, AgentEndpoint>;
@@ -140,6 +152,7 @@ function testSnapshot(input: {
 function createHarness(input: {
   snapshot?: RuntimeSnapshot;
   deliveries?: DeliveryIntent[];
+  deliveryAttempts?: Record<string, DeliveryAttempt[]>;
   invocation?: InvocationRequest;
   activeInvocationIds?: string[];
   now?: number;
@@ -178,6 +191,7 @@ function createHarness(input: {
     },
     journal: {
       listDeliveries: () => input.deliveries ?? [],
+      listDeliveryAttempts: (deliveryId) => input.deliveryAttempts?.[deliveryId] ?? [],
     },
     durableStore: {
       async runWrite(work) {
@@ -406,6 +420,51 @@ describe("broker flight lifecycle helpers", () => {
       now: now + STALE_LOCAL_DELIVERY_GRACE_MS,
     })).toBe("endpoint endpoint-1 is offline");
 
+    await harness.service.reconcileStaleLocalDeliveries();
+    expect(harness.updatedDeliveries).toEqual([]);
+  });
+
+  test("uses the fresh invocation age when an old message is dispatched again", () => {
+    const endpoint = testEndpoint({ metadata: {}, state: "offline" });
+    const now = 500_000;
+    const delivery = testDelivery();
+    const snapshot = testSnapshot({
+      agents: { "agent-1": testAgent() },
+      endpoints: { [endpoint.id]: endpoint },
+      messages: {
+        "message-1": testMessage({ createdAt: now - STALE_LOCAL_DELIVERY_GRACE_MS - 1 }),
+      },
+      invocations: {
+        "invocation-1": testInvocation({ createdAt: now - 50 }),
+      },
+    });
+
+    expect(staleLocalDeliveryReason(snapshot, delivery, { now })).toBeNull();
+    expect(staleLocalDeliveryReason(snapshot, delivery, {
+      now: now + STALE_LOCAL_DELIVERY_GRACE_MS,
+    })).toBe("endpoint endpoint-1 is offline");
+  });
+
+  test("uses the latest delivery attempt when source records are absent from the snapshot", async () => {
+    const endpoint = testEndpoint({ metadata: {}, state: "offline" });
+    const now = 600_000;
+    const delivery = testDelivery({ messageId: undefined, invocationId: undefined });
+    const attempt = testDeliveryAttempt({ createdAt: now - 50 });
+    const snapshot = testSnapshot({
+      agents: { "agent-1": testAgent() },
+      endpoints: { [endpoint.id]: endpoint },
+    });
+    const harness = createHarness({
+      snapshot,
+      deliveries: [delivery],
+      deliveryAttempts: { [delivery.id]: [attempt] },
+      now,
+    });
+
+    expect(staleLocalDeliveryReason(snapshot, delivery, {
+      now,
+      latestAttemptAt: attempt.createdAt,
+    })).toBeNull();
     await harness.service.reconcileStaleLocalDeliveries();
     expect(harness.updatedDeliveries).toEqual([]);
   });

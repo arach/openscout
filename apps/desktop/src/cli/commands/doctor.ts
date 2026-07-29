@@ -47,6 +47,9 @@ export async function runDoctorCommand(context: ScoutCommandContext, args: strin
       onProjectInventoryEntry: (entry) => {
         context.output.writeText(formatScoutDoctorStreamedProjectEntry(entry));
       },
+      onProjectInventoryError: (error) => {
+        context.output.writeText(`  ! ${error.relativePath}: ${error.message}\n`);
+      },
     });
     const native = await loadNativeScoutdDoctorReport({
       fix: options.fix,
@@ -76,6 +79,9 @@ export async function runDoctorCommand(context: ScoutCommandContext, args: strin
     env: context.env,
     onProjectInventoryEntry: (entry) => {
       writeDoctorJsonLine(context, { phase: "project", project: entry });
+    },
+    onProjectInventoryError: (error) => {
+      writeDoctorJsonLine(context, { phase: "project_error", error });
     },
   });
 
