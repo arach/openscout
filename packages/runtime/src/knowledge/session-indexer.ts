@@ -924,7 +924,7 @@ async function storeSessionCollection(
     facets,
   };
   const existing = store.getCollection(id);
-  if (!force && existing?.contentHash === collection.contentHash) {
+  if (!force && existing?.status === "ready" && existing.contentHash === collection.contentHash) {
     return {
       collectionId: id,
       title,
@@ -945,7 +945,11 @@ async function storeSessionCollection(
   writeQmdCollection(collection, documents, parse, file);
 
   store.deleteCollection(id);
-  store.upsertCollection(collection);
+  // Publish as "building" with no content hash first; the ready row carrying
+  // the final hash lands only after every chunk batch below has committed.
+  // If the process dies mid-index the leftover row can never satisfy the
+  // hash skip above, so the next run re-indexes instead of trusting it.
+  store.upsertCollection({ ...collection, status: "building", contentHash: "" });
 
   let chunks = 0;
   for (const extracted of documents) {
@@ -989,6 +993,8 @@ async function storeSessionCollection(
     // Big transcripts produce hundreds of documents; keep the process responsive.
     await yieldToEventLoop();
   }
+
+  store.upsertCollection({ ...collection, updatedAt: Date.now() });
 
   return {
     collectionId: id,

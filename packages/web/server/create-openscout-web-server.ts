@@ -549,26 +549,42 @@ function addKnowledgeFacetValue(facets: KnowledgeFacets, key: string, rawValue: 
 
 type SessionKnowledgeIndexOutcome = {
   ok: boolean;
+  busy?: boolean;
   result?: unknown;
   status?: unknown;
   error?: string;
+};
+
+type SessionKnowledgeIndexInput = {
+  days: number;
+  limit: number;
+  force: boolean;
 };
 
 // Session indexing runs in a child process: it parses hundreds of MB of
 // transcripts and performs heavy SQLite/FTS writes, which froze every web
 // request when it ran on the server's event loop (a worker thread still
 // shares the process heap and took the server down under a full rebuild).
-// Concurrent callers share the in-flight run instead of stacking writers.
+// Concurrent callers with identical parameters share the in-flight run
+// instead of stacking writers; different parameters get 409 from the route.
 const SESSION_KNOWLEDGE_INDEX_TIMEOUT_MS = 15 * 60 * 1000;
 
-let activeSessionKnowledgeIndex: Promise<SessionKnowledgeIndexOutcome> | null = null;
+let activeSessionKnowledgeIndex: {
+  input: SessionKnowledgeIndexInput;
+  promise: Promise<SessionKnowledgeIndexOutcome>;
+} | null = null;
 
-function runSessionKnowledgeIndex(input: {
-  days: number;
-  limit: number;
-  force: boolean;
-}): Promise<SessionKnowledgeIndexOutcome> {
-  activeSessionKnowledgeIndex ??= (async () => {
+function sameSessionKnowledgeIndexInput(a: SessionKnowledgeIndexInput, b: SessionKnowledgeIndexInput): boolean {
+  return a.days === b.days && a.limit === b.limit && a.force === b.force;
+}
+
+function startSessionKnowledgeIndex(input: SessionKnowledgeIndexInput): Promise<SessionKnowledgeIndexOutcome> {
+  if (activeSessionKnowledgeIndex) {
+    return sameSessionKnowledgeIndexInput(activeSessionKnowledgeIndex.input, input)
+      ? activeSessionKnowledgeIndex.promise
+      : Promise.resolve({ ok: false, busy: true, error: "session knowledge index already running" });
+  }
+  const promise = (async () => {
     try {
       // Dev serves this file's TS source; packaged builds bundle the child as
       // a sibling .mjs (see build:server). Prefer whichever exists.
@@ -602,7 +618,8 @@ function runSessionKnowledgeIndex(input: {
       activeSessionKnowledgeIndex = null;
     }
   })();
-  return activeSessionKnowledgeIndex;
+  activeSessionKnowledgeIndex = { input, promise };
+  return promise;
 }
 
 function parseKnowledgeSearchParams(rawUrl: string): {
@@ -4658,7 +4675,10 @@ export async function createOpenScoutWebServer(
       ? body.limit
       : 220;
     const force = body.force === true;
-    const outcome = await runSessionKnowledgeIndex({ days, limit, force });
+    const outcome = await startSessionKnowledgeIndex({ days, limit, force });
+    if (outcome.busy) {
+      return c.json({ error: outcome.error ?? "session knowledge index already running" }, 409);
+    }
     if (!outcome.ok) {
       return c.json({ error: outcome.error ?? "session indexing failed" }, 500);
     }

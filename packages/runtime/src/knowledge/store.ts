@@ -196,6 +196,10 @@ function nowMs(): number {
   return Date.now();
 }
 
+// Active index jobs heartbeat via updated_at on every progress write; a job
+// untouched for this long means its indexer process is gone.
+const STALE_INDEX_JOB_MS = 10 * 60 * 1000;
+
 function normalizedLimit(value: number | undefined, fallback = 20, max = 100): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
     return fallback;
@@ -361,6 +365,36 @@ function insertSourceRefs(db: Database, collectionId: string, chunkId: string | 
   });
 }
 
+/**
+ * Open a read-only connection for search/status endpoints: no schema exec,
+ * no migrations, no journal-mode changes — WAL gives snapshot reads that
+ * never block or get blocked by the index writer. A missing or
+ * never-initialized database is served from an empty in-memory schema
+ * instead of falling back to a writable connection running DDL on a GET.
+ */
+function openReadonlyKnowledgeDatabase(sqlitePath: string): Database {
+  if (existsSync(sqlitePath)) {
+    const candidate = new Database(sqlitePath, { readonly: true, create: false } as {
+      create?: boolean;
+      strict?: boolean;
+    });
+    const initialized = candidate
+      .query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'collections'")
+      .get() !== null;
+    if (initialized) {
+      candidate.exec("PRAGMA busy_timeout = 1000;");
+      candidate.exec("PRAGMA query_only = ON;");
+      return candidate;
+    }
+    candidate.close();
+  }
+  const memory = new Database(":memory:");
+  memory.exec(KNOWLEDGE_SQLITE_SCHEMA);
+  memory.exec("PRAGMA busy_timeout = 1000;");
+  memory.exec("PRAGMA query_only = ON;");
+  return memory;
+}
+
 export class SQLiteKnowledgeStore {
   private readonly db: Database;
   private readonly paths: OpenScoutKnowledgePaths;
@@ -369,13 +403,8 @@ export class SQLiteKnowledgeStore {
     const resolvedPaths = paths ?? resolveOpenScoutKnowledgePaths();
     const sqlitePath = dbPath ?? resolvedPaths.sqlitePath;
     this.paths = { ...resolvedPaths, sqlitePath };
-    if (options?.readonly && existsSync(sqlitePath)) {
-      // Read-only readers (search/status endpoints): no schema exec, no
-      // migrations, no journal-mode changes — WAL gives snapshot reads that
-      // never block or get blocked by the index writer.
-      this.db = new Database(sqlitePath, { readonly: true, create: false } as { create?: boolean; strict?: boolean });
-      this.db.exec("PRAGMA busy_timeout = 1000;");
-      this.db.exec("PRAGMA query_only = ON;");
+    if (options?.readonly) {
+      this.db = openReadonlyKnowledgeDatabase(sqlitePath);
       return;
     }
     mkdirSync(dirname(sqlitePath), { recursive: true });
@@ -684,6 +713,14 @@ export class SQLiteKnowledgeStore {
 
   createIndexJob(request: KnowledgeIndexRequest, id = `knowledge-job-${randomUUID()}`): KnowledgeIndexJob {
     const now = nowMs();
+    // A job whose indexer died (SIGKILL/OOM/timeout) never leaves the active
+    // states on its own; fail stale ones for this source so they neither
+    // block nor clutter status forever.
+    this.db.query(
+      `UPDATE index_jobs
+       SET state = 'failed', error = ?2, completed_at = ?3, updated_at = ?3
+       WHERE source = ?1 AND state IN ('queued', 'running', 'waiting') AND updated_at < ?4`,
+    ).run(request.source, "indexer exited before completion", now, now - STALE_INDEX_JOB_MS);
     const job: KnowledgeIndexJob = {
       id,
       source: request.source,
@@ -753,9 +790,10 @@ export class SQLiteKnowledgeStore {
     const rows = this.db.query(
       `SELECT * FROM index_jobs
        WHERE state IN ('queued', 'running', 'waiting')
+         AND updated_at >= ?1
        ORDER BY updated_at DESC
        LIMIT 50`,
-    ).all() as JobRow[];
+    ).all(nowMs() - STALE_INDEX_JOB_MS) as JobRow[];
     return rows.map(jobFromRow);
   }
 
