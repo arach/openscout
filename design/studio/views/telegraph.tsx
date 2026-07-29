@@ -102,13 +102,13 @@ export default function TelegraphPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-6 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · telegraph
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Telegraph
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           A single horizontal lane the fleet scrolls past, glyph by glyph.
           The <em>thin</em> temporal view to{" "}
           <a
@@ -134,7 +134,7 @@ export default function TelegraphPage() {
           abstract so the eye lands on the tape. */}
       <section className="mt-12">
         <SectionHeading label="· in context" />
-        <p className="mt-2 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-2 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
           Lives at the bottom of an ops monitor. Always on, always slow.
           Glance up between tasks; the rhythm tells you what kind of
           minute it was.
@@ -150,7 +150,7 @@ export default function TelegraphPage() {
       {/* Decoded — frozen last-6, mono list. */}
       <section className="mt-12 max-w-prose">
         <SectionHeading label="· decoded" />
-        <p className="mt-2 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-2 font-sans text-lg leading-relaxed text-studio-ink-faint">
           The last six events, frozen. When the rhythm catches your ear
           and you actually want to read.
         </p>
@@ -160,7 +160,7 @@ export default function TelegraphPage() {
             {DECODED.map((e) => (
               <li
                 key={e.id}
-                className="flex items-baseline gap-3 px-4 py-2.5 font-mono text-[11px]"
+                className="flex items-baseline gap-3 px-4 py-2.5 font-mono text-sm"
               >
                 <span className="text-studio-ink tabular-nums">{e.time}</span>
                 <span className="text-studio-ink-faint">·</span>
@@ -171,7 +171,7 @@ export default function TelegraphPage() {
                   @{e.agent}
                 </span>
                 <span className="text-studio-ink-faint">·</span>
-                <span className="text-[9.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+                <span className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
                   {KIND_LABEL[e.kind]}
                 </span>
                 <span className="text-studio-ink-faint">·</span>
@@ -185,7 +185,7 @@ export default function TelegraphPage() {
       {/* Why this exists. */}
       <section className="mt-12 max-w-prose">
         <SectionHeading label="· why this exists" />
-        <p className="mt-2 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-2 font-sans text-lg leading-relaxed text-studio-ink-faint">
           Most fleet surfaces fight for attention. Telegraph doesn&apos;t.
           It sits at the periphery and gives the operator a felt sense
           of fleet tempo — busy stretches read as dense glyph runs,
@@ -201,7 +201,7 @@ export default function TelegraphPage() {
 // ── Section heading — matches sibling studies. ─────────────────────
 function SectionHeading({ label }: { label: string }) {
   return (
-    <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+    <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
       {label}
     </div>
   );
@@ -216,7 +216,7 @@ function Legend() {
     { kind: "artifact", label: "dotted = artifact" },
   ];
   return (
-    <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-[10px] text-studio-ink-faint">
+    <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-xs text-studio-ink-faint">
       {items.map((it) => (
         <span key={it.kind} className="inline-flex items-center gap-1.5">
           <LegendGlyph kind={it.kind} />

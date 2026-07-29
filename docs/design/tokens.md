@@ -36,15 +36,19 @@ per-`.tsx`). That ordering lets component CSS win as a contextual override.
 stays the default for HudsonKit chrome.
 
 ### Font size — `--text-*` (whole pixels only — no 9.5/10.5/11.5/12.5)
-`2xs=9, xs=10, sm=11, md=12, lg=13, xl=14, 2xl=16, 3xl=18, 4xl=20, 5xl=24,
-6xl=28, 7xl=34, 8xl=44, 9xl=52`
+`3xs=8, 2xs=9, xs=10, sm=11, md=12, lg=13, xl=14, 2xl=15, 3xl=17, 4xl=19,
+5xl=22, 6xl=26, 7xl=30, 8xl=40, 9xl=48`
+
+Body rungs (3xs–xl) are dense ops chrome; display rungs (2xl+) are one step
+quieter than the original ladder. Studio Tailwind `fontSize` and CSS modules
+mirror the same names via `design/studio/app/theme-aliases.css`.
 
 ### Display type — `--display-*`
 Fluid display aliases use `clamp(min, preferred, max)` so large headings can
 scale between mobile and desktop without inventing off-grid literals. The min
 and max endpoints stay on the whole-pixel `--text-*` scale.
 
-`xs=24→28, sm=28→34, md=34→52`
+`xs=22→26, sm=26→30, md=30→48`
 
 ### Tracking — `--tracking-*` (letter-spacing)
 `xs=0.02em, sm=0.04em, md=0.08em, lg=0.12em, xl=0.18em`
@@ -116,8 +120,9 @@ Round **up** for interactive padding (preserve touch targets); **to-nearest**
 | 18 | `3xl` (20) | `2xl` (16)|
 | 22 | `4xl` (24) | `4xl` (24)|
 
-Type snapping: fractional sizes → nearest `--text-*` (9.5→9, 10.5→11, 11.5→11,
-12.5→12, 15→16). Display headings use `--display-*` instead of ad-hoc 22/28/34+
+Type snapping: fractional sizes → nearest `--text-*`, ties down (7.5→8,
+8.5→9, 9.5→9, 10.5→11, 11.5→11, 12.5→12, 13.5→13, 16→15, 18→17, 20→19,
+24→22, 28→26). Display headings use `--display-*` instead of ad-hoc
 literals. Letter-spacing → nearest `--tracking-*` (0.06→0.04 or 0.08,
 0.1→0.08, 0.14→0.12, 0.16→0.18); display letter-spacing stays `0`.
 Line-height → nearest `--leading-*` (ties → snug; display → `--leading-display`).
@@ -138,7 +143,7 @@ tracks, and `border-radius: 50%` (circles). Plus the layout constants.
 Compose a base class + tone + modifiers.
 
 ### `.label-*` — uppercase-mono eyebrows
-`.label-xs` (9/.18em) · `.label-sm` (10/.08em) · `.label-md` (11/.12em) ·
+`.label-xs` (8/.18em) · `.label-sm` (9/.08em) · `.label-md` (10/.12em) ·
 `.label-lg` (11/.18em). All `font-mono`, uppercase, `leading-none`, weight 600.
 Pair with a color (`--muted`/`--dim`). For new code, use these instead of
 hand-rolling `font-family/size/letter-spacing/text-transform`.

@@ -153,7 +153,7 @@ export default function MessageComposerAtomPage() {
           params={`density="thread" · placeholder · showAttach · tools`}
         >
           <div className="rounded-md border border-studio-edge bg-studio-canvas">
-            <div className="px-4 py-8 text-center font-mono text-[11px] text-studio-ink-faint">
+            <div className="px-4 py-8 text-center font-mono text-sm text-studio-ink-faint">
               · transcript ·
             </div>
             <MessageComposer
@@ -162,7 +162,7 @@ export default function MessageComposerAtomPage() {
               density="thread"
               showAttach
               tools={
-                <span className="font-mono text-[10px] text-studio-ink-faint">
+                <span className="font-mono text-xs text-studio-ink-faint">
                   / commands · @ agents
                 </span>
               }
@@ -173,10 +173,10 @@ export default function MessageComposerAtomPage() {
 
       <div className="mt-12 grid max-w-4xl gap-8 border-t border-studio-edge pt-6 md:grid-cols-2">
         <div>
-          <div className="mb-2 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="mb-2 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
             · the contract
           </div>
-          <pre className="overflow-x-auto font-mono text-[11.5px] leading-relaxed text-studio-ink">
+          <pre className="overflow-x-auto font-mono text-sm leading-relaxed text-studio-ink">
 {`// draft            Swift
 value?             String
 defaultValue?      String     // non-empty = armed
@@ -201,7 +201,7 @@ density?           enum panel | thread | compact
 appearance?        enum panel | pill
 className?         web only — the port drops it`}
           </pre>
-          <p className="mt-3 font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+          <p className="mt-3 font-sans text-md leading-relaxed text-studio-ink-faint">
             No <code className="font-mono">armed</code> or{" "}
             <code className="font-mono">focused</code> prop, by design: state
             derives from the draft and from real focus, so a study can never
@@ -209,10 +209,10 @@ className?         web only — the port drops it`}
           </p>
         </div>
         <div>
-          <div className="mb-2 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="mb-2 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
             · behavior
           </div>
-          <ul className="space-y-2 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+          <ul className="space-y-2 font-sans text-lg leading-relaxed text-studio-ink-faint">
             <li>
               <strong className="text-studio-ink">Mic</strong> — start or stop
               recording. Live = speech-shaped waveform in the body (mic RMS or
@@ -256,21 +256,21 @@ function RuntimeTriplet() {
 
 function ContractStrip() {
   return (
-    <div className="grid gap-2 rounded-md border border-studio-edge bg-studio-surface p-4 font-mono text-[11px] text-studio-ink-faint sm:grid-cols-3">
+    <div className="grid gap-2 rounded-md border border-studio-edge bg-studio-surface p-4 font-mono text-sm text-studio-ink-faint sm:grid-cols-3">
       <div>
-        <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-studio-ink">
+        <div className="text-2xs font-semibold uppercase tracking-[0.14em] text-studio-ink">
           Top
         </div>
         <div className="mt-1">header · reply annotation</div>
       </div>
       <div>
-        <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-studio-ink">
+        <div className="text-2xs font-semibold uppercase tracking-[0.14em] text-studio-ink">
           Middle
         </div>
         <div className="mt-1">input · waveform while recording</div>
       </div>
       <div>
-        <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-studio-ink">
+        <div className="text-2xs font-semibold uppercase tracking-[0.14em] text-studio-ink">
           Base
         </div>
         <div className="mt-1">attach left · model+mic+Send flush right</div>
@@ -321,7 +321,7 @@ function InteractiveCanonical() {
         }
       />
       {last ? (
-        <div className="font-mono text-[11px] text-studio-ink-faint">
+        <div className="font-mono text-sm text-studio-ink-faint">
           last → <span className="text-studio-ink">{last}</span>
         </div>
       ) : null}
@@ -347,8 +347,8 @@ function InteractiveWithHeader() {
         />
       }
       header={
-        <div className="flex items-center gap-2 font-sans text-[12px] text-studio-ink-faint">
-          <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-emerald-400">
+        <div className="flex items-center gap-2 font-sans text-md text-studio-ink-faint">
+          <span className="font-mono text-2xs font-semibold uppercase tracking-[0.12em] text-emerald-400">
             Reply
           </span>
           <span className="truncate">
@@ -385,14 +385,14 @@ function InteractiveVoice() {
         demoUtterance={phrase}
         placeholder="Hit mic — bars track the phrase, not a CSS loop"
       />
-      <p className="font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+      <p className="font-sans text-md leading-relaxed text-studio-ink-faint">
         Studio speaks a real line. Bar heights follow vowel/pause energy along
         that utterance (and the caption reveals the words). Production uses
         live mic RMS when the browser has a stream, or the same speech-proxy
         idea from partials when native dictation has no analyser.
       </p>
       {last ? (
-        <div className="font-mono text-[11px] text-studio-ink-faint">
+        <div className="font-mono text-sm text-studio-ink-faint">
           sent → <span className="text-studio-ink">{last}</span>
         </div>
       ) : null}
@@ -413,10 +413,10 @@ function Panel({
 }) {
   return (
     <div>
-      <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         · {title}
       </div>
-      <div className="mb-2 mt-1 overflow-x-auto whitespace-nowrap font-mono text-[10px] text-studio-ink-muted">
+      <div className="mb-2 mt-1 overflow-x-auto whitespace-nowrap font-mono text-xs text-studio-ink-muted">
         {params}
       </div>
       <div className="rounded-md border border-studio-edge bg-studio-canvas p-4">

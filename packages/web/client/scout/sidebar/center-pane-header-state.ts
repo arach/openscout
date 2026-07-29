@@ -7,15 +7,15 @@ import { primaryAreaForRoute } from "../primary-areas.ts";
 import { areaSubNavForRoute } from "../nav-destinations.ts";
 
 /**
- * Which secondary-nav strip (Ops / Chat) the title bar owns for a route.
- * Null when the area has no in-title secondary strip.
+ * Which secondary-nav strip the title bar owns for a route. Only Ops remains:
+ * route unification collapsed the Chat DM/Channels split onto one conversation
+ * route, so Chat has no strip — do not reintroduce a "chat" kind here.
  */
 export function secondaryNavKindForRoute(
   route: Route,
-): "ops" | "chat" | null {
+): "ops" | null {
   const areaId = primaryAreaForRoute(route);
   if (areaId === "ops") return "ops";
-  if (areaId === "chat") return "chat";
   return null;
 }
 

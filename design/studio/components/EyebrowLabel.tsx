@@ -4,10 +4,10 @@
  * font / tracking / weight / bullet so a single tweak ripples
  * everywhere.
  *
- * Three sizes match the existing usage:
- *   xs  → 8.5px tracking-eyebrow  (sidebar surface sub-labels)
- *   sm  → 9px   tracking-eyebrow   (default — page kickers, sidebar section titles, study eyebrows)
- *   md  → 10.5px tracking-eyebrow  (page-strip breadcrumb segments)
+ * Three sizes on the studio type ladder (`--text-*`):
+ *   xs  → 3xs (8px)  sidebar surface sub-labels
+ *   sm  → 2xs (9px)  default — page kickers, section titles, study eyebrows
+ *   md  → xs  (10px) page-strip breadcrumb segments
  *
  * Tones:
  *   default → studio-ink-faint
@@ -21,9 +21,9 @@ export type EyebrowSize = "xs" | "sm" | "md";
 export type EyebrowTone = "default" | "muted" | "ink";
 
 const SIZE_CLASS: Record<EyebrowSize, string> = {
-  xs: "text-2xs tracking-eyebrow",
+  xs: "text-3xs tracking-eyebrow",
   sm: "text-2xs tracking-eyebrow",
-  md: "text-sm tracking-eyebrow",
+  md: "text-xs tracking-eyebrow",
 };
 
 const TONE_CLASS: Record<EyebrowTone, string> = {
@@ -65,7 +65,11 @@ export function EyebrowLabel({
         .filter(Boolean)
         .join(" ")}
     >
-      {bullet ? <span aria-hidden>· </span> : null}
+      {bullet ? (
+        <span className="text-scout-accent" aria-hidden>
+          ·{" "}
+        </span>
+      ) : null}
       {children}
     </Tag>
   );

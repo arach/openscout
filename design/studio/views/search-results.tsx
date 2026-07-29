@@ -70,11 +70,11 @@ function SectionTitle({
   return (
     <div className={`mb-5 border-b border-studio-edge/60 pb-2 ${className}`}>
       <div className="flex items-baseline justify-between gap-4">
-        <h2 className="font-display text-[17px] font-medium tracking-tight text-studio-ink">
+        <h2 className="font-display text-3xl font-medium tracking-tight text-studio-ink">
           {children}
         </h2>
         {hint && (
-          <span className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="font-mono text-xs uppercase tracking-eyebrow text-studio-ink-faint">
             {hint}
           </span>
         )}
@@ -86,7 +86,7 @@ function SectionTitle({
 function Pips({ level, tone = "accent" }: { level: 1 | 2 | 3 | 4; tone?: "accent" | "warm" }) {
   const onColor = tone === "warm" ? "var(--status-warn-fg)" : "var(--scout-accent)";
   return (
-    <span className="tracking-[2px] text-[10px]">
+    <span className="tracking-[2px] text-xs">
       {[1, 2, 3, 4].map((i) => (
         <span key={i} style={{ color: i <= level ? onColor : "var(--studio-edge-strong)" }}>
           {i <= level ? "●" : "○"}
@@ -99,7 +99,7 @@ function Pips({ level, tone = "accent" }: { level: 1 | 2 | 3 | 4; tone?: "accent
 function Chip({ children, primary = false }: { children: ReactNode; primary?: boolean }) {
   return (
     <span
-      className="inline-flex items-center gap-1 rounded-[5px] border px-2 py-1 text-[11px]"
+      className="inline-flex items-center gap-1 rounded-[5px] border px-2 py-1 text-sm"
       style={
         primary
           ? { borderColor: "color-mix(in oklab, var(--scout-accent) 45%, transparent)", background: "color-mix(in oklab, var(--scout-accent) 16%, transparent)", color: "var(--studio-ink)" }
@@ -114,7 +114,7 @@ function Chip({ children, primary = false }: { children: ReactNode; primary?: bo
 function CalloutDot({ letter }: { letter: string }) {
   return (
     <span
-      className="inline-grid h-[15px] w-[15px] flex-none place-items-center rounded-full font-mono text-[9px] font-bold"
+      className="inline-grid h-[15px] w-[15px] flex-none place-items-center rounded-full font-mono text-2xs font-bold"
       style={{ background: "var(--scout-accent)", color: "oklch(0.2 0.05 145)" }}
     >
       {letter}
@@ -132,21 +132,21 @@ function BeforeCard() {
       className="rounded-md border border-studio-edge p-3 text-studio-ink-muted"
       style={{ background: "var(--studio-canvas-alt)" }}
     >
-      <div className="mb-1.5 flex items-center gap-2 font-mono text-[11px] text-studio-ink-faint">
+      <div className="mb-1.5 flex items-center gap-2 font-mono text-sm text-studio-ink-faint">
         <span>📄</span>
         <strong className="font-semibold text-studio-ink">Events window 3</strong>
       </div>
-      <p className="m-0 mb-2 font-mono text-[11.5px] leading-relaxed text-studio-ink-faint">
+      <p className="m-0 mb-2 font-mono text-sm leading-relaxed text-studio-ink-faint">
         - [0313] `command_or_tool` (tool_use) - we should embed selected QMD chunks, not raw
         source files {"{"}"provider":"…"{"}"}
       </p>
-      <div className="text-[11px] text-studio-ink-faint">Matched 2 query terms in indexed QMD</div>
-      <div className="mt-1.5 flex flex-wrap gap-2 font-mono text-[10.5px] text-studio-ink-faint">
+      <div className="text-sm text-studio-ink-faint">Matched 2 query terms in indexed QMD</div>
+      <div className="mt-1.5 flex flex-wrap gap-2 font-mono text-xs text-studio-ink-faint">
         <span>openscout</span>
         <span>claude</span>
         <span>records 312..340</span>
       </div>
-      <code className="mt-1.5 block font-mono text-[10px] text-studio-ink-faint">
+      <code className="mt-1.5 block font-mono text-xs text-studio-ink-faint">
         ~/.../3f9c…session.jsonl
       </code>
     </div>
@@ -200,33 +200,33 @@ function SessionCard({
       className="rounded-md border border-studio-edge p-3 text-studio-ink"
       style={selected ? { ...PANEL, ...SELECTED_CARD } : PANEL}
     >
-      <div className="mb-1.5 flex items-center gap-2 text-[11.5px] text-studio-ink-muted">
+      <div className="mb-1.5 flex items-center gap-2 text-sm text-studio-ink-muted">
         <span>{glyph}</span>
         <strong className="font-semibold text-studio-ink">{harness}</strong>
         <span className="text-studio-ink-faint">·</span>
         <span>{collection}</span>
-        <span className="ml-auto font-mono text-[11px] text-studio-ink-faint">{fresh}</span>
+        <span className="ml-auto font-mono text-sm text-studio-ink-faint">{fresh}</span>
       </div>
-      <p className="m-0 mb-1.5 text-[14.5px] font-semibold leading-snug text-studio-ink">{title}</p>
-      <p className="m-0 mb-2 text-[13px] leading-relaxed text-studio-ink-muted">{quote}</p>
-      <div className="flex items-center gap-2 text-[12px] text-studio-ink-muted">
+      <p className="m-0 mb-1.5 text-xl font-semibold leading-snug text-studio-ink">{title}</p>
+      <p className="m-0 mb-2 text-lg leading-relaxed text-studio-ink-muted">{quote}</p>
+      <div className="flex items-center gap-2 text-md text-studio-ink-muted">
         <span>
           Matched <strong className="font-semibold text-studio-ink">“{reasonTerm}”</strong> in {reasonRole}
         </span>
-        <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] text-studio-ink-faint">
+        <span className="ml-auto inline-flex items-center gap-1.5 text-sm text-studio-ink-faint">
           {strength} <Pips level={level} tone={tone} />
         </span>
       </div>
 
       {moments && moments.length > 0 && (
         <>
-          <div className="mt-2 text-[12px] text-scout-accent">
+          <div className="mt-2 text-md text-scout-accent">
             {expanded ? "▾" : "▸"} {moments.length} matches in this session
           </div>
           {expanded && (
             <div className="mt-2 flex flex-col gap-1.5 border-t border-dashed border-studio-edge pt-2">
               {moments.map((m) => (
-                <div key={m.idx} className="flex items-center gap-2.5 text-[12px]">
+                <div key={m.idx} className="flex items-center gap-2.5 text-md">
                   <span className="font-mono text-studio-ink-faint">{m.idx}</span>
                   <span className="min-w-[104px] font-mono text-studio-ink">{m.kind}</span>
                   <span className="flex-1 truncate text-studio-ink-muted">{m.quote}</span>
@@ -270,16 +270,16 @@ function Turn({
       : "color-mix(in oklab, var(--scout-accent) 45%, var(--studio-edge))";
   return (
     <div className="pl-3" style={{ borderLeft: `2px solid ${edge}` }}>
-      <div className="mb-1 flex items-center gap-2 font-mono text-[11px] text-studio-ink-muted">
+      <div className="mb-1 flex items-center gap-2 font-mono text-sm text-studio-ink-muted">
         <span className="font-semibold text-studio-ink">{role}</span>
         <span className="text-studio-ink-faint">{id}</span>
         {matched && (
-          <span className="ml-auto inline-flex items-center gap-1 text-[10.5px] text-scout-accent">
+          <span className="ml-auto inline-flex items-center gap-1 text-xs text-scout-accent">
             ● matched
           </span>
         )}
       </div>
-      <div className="text-[13.5px] leading-relaxed text-studio-ink">{children}</div>
+      <div className="text-lg leading-relaxed text-studio-ink">{children}</div>
     </div>
   );
 }
@@ -287,7 +287,7 @@ function Turn({
 function ToolFold() {
   return (
     <div
-      className="flex items-center gap-2 rounded-md border border-studio-edge px-2.5 py-2 font-mono text-[12px] text-studio-ink-faint"
+      className="flex items-center gap-2 rounded-md border border-studio-edge px-2.5 py-2 font-mono text-md text-studio-ink-faint"
       style={{ background: "var(--studio-canvas-alt)" }}
     >
       ▸ 3 tool steps&nbsp;&nbsp;(Read, Bash, Edit)
@@ -312,11 +312,11 @@ function Disclosure({
       style={{ background: "var(--studio-canvas-alt)" }}
     >
       <div
-        className={`flex items-center gap-2 px-3 py-2.5 text-[12.5px] text-studio-ink ${open ? "border-b border-studio-edge" : ""}`}
+        className={`flex items-center gap-2 px-3 py-2.5 text-md text-studio-ink ${open ? "border-b border-studio-edge" : ""}`}
       >
         <span>{open ? "▾" : "▸"}</span>
         <span>{summary}</span>
-        {meta && <span className="ml-auto font-mono text-[11.5px] text-studio-ink-faint">{meta}</span>}
+        {meta && <span className="ml-auto font-mono text-sm text-studio-ink-faint">{meta}</span>}
       </div>
       {open && <div className="px-3 py-3">{children}</div>}
     </div>
@@ -336,7 +336,7 @@ function Inspector() {
     <div className="overflow-hidden rounded-lg border border-studio-edge" style={PANEL}>
       {/* head */}
       <div className="border-b border-studio-edge px-4 py-3">
-        <div className="mb-1.5 flex items-center gap-2 font-mono text-[11px] text-studio-ink-muted">
+        <div className="mb-1.5 flex items-center gap-2 font-mono text-sm text-studio-ink-muted">
           <span>◆ claude</span>
           <span className="text-studio-ink-faint">·</span>
           <span>openscout</span>
@@ -346,32 +346,32 @@ function Inspector() {
             ✕
           </span>
         </div>
-        <h3 className="mb-2.5 text-[16px] font-semibold text-studio-ink">
+        <h3 className="mb-2.5 text-2xl font-semibold text-studio-ink">
           Designing the QMD knowledge search index
         </h3>
         <div className="flex flex-wrap items-center gap-1.5">
           <span
-            className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[12.5px] font-semibold"
+            className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-md font-semibold"
             style={PRIMARY_BTN}
           >
             ▸ Open conversation
           </span>
-          <span className="inline-flex items-center gap-1.5 rounded-md border border-studio-edge px-3 py-1.5 text-[12.5px] text-studio-ink" style={{ background: "var(--studio-canvas-alt)" }}>
+          <span className="inline-flex items-center gap-1.5 rounded-md border border-studio-edge px-3 py-1.5 text-md text-studio-ink" style={{ background: "var(--studio-canvas-alt)" }}>
             ⤴ Fork from here
           </span>
-          <span className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12.5px] text-studio-ink-muted">
+          <span className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-md text-studio-ink-muted">
             ⧉ Copy ref
           </span>
-          <span className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12.5px] text-studio-ink-muted">
+          <span className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-md text-studio-ink-muted">
             ⤓ Raw
           </span>
         </div>
       </div>
 
       {/* conversation excerpt */}
-      <div className="flex items-center gap-2 px-4 pb-1.5 pt-3 font-mono text-[10.5px] uppercase tracking-eyebrow text-scout-accent">
+      <div className="flex items-center gap-2 px-4 pb-1.5 pt-3 font-mono text-xs uppercase tracking-eyebrow text-scout-accent">
         Conversation
-        <span className="ml-auto font-mono text-[10.5px] normal-case tracking-normal text-studio-ink-faint">
+        <span className="ml-auto font-mono text-xs normal-case tracking-normal text-studio-ink-faint">
           records 308–340
         </span>
       </div>
@@ -398,13 +398,13 @@ function Inspector() {
       </div>
 
       {/* provenance footer */}
-      <div className="mx-4 mb-3.5 border-t border-studio-edge pt-2.5 text-[11.5px] text-studio-ink-faint">
+      <div className="mx-4 mb-3.5 border-t border-studio-edge pt-2.5 text-sm text-studio-ink-faint">
         <div className="mb-1.5 flex flex-wrap items-center gap-2">
-          <span className="rounded-[5px] border border-studio-edge px-1.5 py-0.5 font-mono text-[10.5px] text-studio-ink-muted">derived</span>
-          <span className="rounded-[5px] border border-studio-edge px-1.5 py-0.5 font-mono text-[10.5px] text-studio-ink-muted">observed source</span>
+          <span className="rounded-[5px] border border-studio-edge px-1.5 py-0.5 font-mono text-xs text-studio-ink-muted">derived</span>
+          <span className="rounded-[5px] border border-studio-edge px-1.5 py-0.5 font-mono text-xs text-studio-ink-muted">observed source</span>
           <span>indexed 2d ago · mechanical extraction</span>
         </div>
-        <div className="flex items-center gap-2 font-mono text-[11px] text-studio-ink-muted">
+        <div className="flex items-center gap-2 font-mono text-sm text-studio-ink-muted">
           ~/.claude/projects/openscout/3f9c…session.jsonl
           <span className="ml-auto cursor-default text-studio-ink-faint">⧉ copy</span>
         </div>
@@ -419,13 +419,13 @@ export default function SearchResultsStudy() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-10 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · search results
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Search results
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           The shipped Search surface reads like an index dump — chunk titles, raw event-window
           snippets, “index rank 0.000”, a wall of JSONL. This study commits to one idea: a
           result is <em className="text-studio-ink">a moment in a conversation</em>, not a chunk
@@ -440,11 +440,11 @@ export default function SearchResultsStudy() {
       <SectionTitle hint="Same hit, two framings">Before → after</SectionTitle>
       <div className="mb-16 grid gap-5 lg:grid-cols-2">
         <div>
-          <div className="mb-2 font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="mb-2 font-mono text-xs uppercase tracking-eyebrow text-studio-ink-faint">
             today — the index shows through
           </div>
           <BeforeCard />
-          <p className="mt-2.5 max-w-prose font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+          <p className="mt-2.5 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
             The chunk title is the document H1. The snippet is raw event-window text with{" "}
             <code className="text-studio-ink-muted">[0313] command_or_tool</code> markers. The
             reason speaks index-ese. Four near-identical chunk hits from one session stack as
@@ -452,7 +452,7 @@ export default function SearchResultsStudy() {
           </p>
         </div>
         <div>
-          <div className="mb-2 font-mono text-[10px] uppercase tracking-eyebrow text-scout-accent">
+          <div className="mb-2 font-mono text-xs uppercase tracking-eyebrow text-scout-accent">
             redesign — the conversation shows through
           </div>
           <SessionCard
@@ -480,7 +480,7 @@ export default function SearchResultsStudy() {
             expanded
             showActions
           />
-          <p className="mt-2.5 max-w-prose font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+          <p className="mt-2.5 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
             One card per session. Headline is the session, not the chunk. The match is a clean
             rendered quote; the reason names the term and the role; rank becomes a qualitative
             strength. The four chunk hits collapse into three labelled moments.
@@ -513,7 +513,7 @@ export default function SearchResultsStudy() {
           ]}
           showActions
         />
-        <ol className="flex list-none flex-col gap-3 text-[12.5px] leading-relaxed text-studio-ink-muted">
+        <ol className="flex list-none flex-col gap-3 text-md leading-relaxed text-studio-ink-muted">
           {[
             ["A", "Identity row", "harness glyph · project · collection, freshness right-aligned. Muted — context, not headline."],
             ["B", "Headline = session title", "New sessionTitle field (AI title → first user prompt → project·topic). Never the chunk H1."],
@@ -536,7 +536,7 @@ export default function SearchResultsStudy() {
       <SectionTitle hint="Frozen frames, side by side">Card states</SectionTitle>
       <div className="mb-16 grid gap-4 lg:grid-cols-3">
         <div>
-          <div className="mb-2 font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">collapsed · multi-moment</div>
+          <div className="mb-2 font-mono text-xs uppercase tracking-eyebrow text-studio-ink-faint">collapsed · multi-moment</div>
           <SessionCard
             harness="codex" glyph="◇" collection="openscout · runtime" fresh="4d ago"
             title="Vector store choice for local semantic search"
@@ -549,7 +549,7 @@ export default function SearchResultsStudy() {
           />
         </div>
         <div>
-          <div className="mb-2 font-mono text-[10px] uppercase tracking-eyebrow text-scout-accent">selected · expanded · hover</div>
+          <div className="mb-2 font-mono text-xs uppercase tracking-eyebrow text-scout-accent">selected · expanded · hover</div>
           <SessionCard
             harness="claude" glyph="◆" collection="openscout · knowledge index" fresh="2d ago"
             title="Designing the QMD knowledge search index"
@@ -563,7 +563,7 @@ export default function SearchResultsStudy() {
           />
         </div>
         <div>
-          <div className="mb-2 font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">single moment · no toggle</div>
+          <div className="mb-2 font-mono text-xs uppercase tracking-eyebrow text-studio-ink-faint">single moment · no toggle</div>
           <SessionCard
             harness="claude" glyph="◆" collection="dewey · docs" fresh="6d ago"
             title="Opt-in policy for embedding cost"
@@ -575,7 +575,7 @@ export default function SearchResultsStudy() {
 
       {/* 4 — the inspector */}
       <SectionTitle hint="Conversation first, machinery folded">The selected-result inspector</SectionTitle>
-      <p className="mb-6 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+      <p className="mb-6 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
         Reads top-to-bottom as a conversation with zero clicks. Header carries the session title
         and the next-action bar; the body is the rendered slice around the match with tool steps
         folded; “Why this matched” and “Raw evidence” sit collapsed beneath; a quiet provenance
@@ -589,7 +589,7 @@ export default function SearchResultsStudy() {
       <SectionTitle hint="One record, two renderings">Rendered vs. raw JSONL</SectionTitle>
       <div className="mb-16 grid gap-5 lg:grid-cols-2">
         <div>
-          <div className="mb-2 font-mono text-[10px] uppercase tracking-eyebrow text-scout-accent">default — rendered</div>
+          <div className="mb-2 font-mono text-xs uppercase tracking-eyebrow text-scout-accent">default — rendered</div>
           <div className="flex flex-col gap-3 rounded-lg border border-studio-edge p-4" style={PANEL}>
             <Turn role="user" id="0312">how should we store <Mark>embeddings</Mark> for the chunks?</Turn>
             <Turn role="assistant" id="0313" matched>
@@ -598,20 +598,20 @@ export default function SearchResultsStudy() {
             </Turn>
             <ToolFold />
           </div>
-          <p className="mt-2.5 max-w-prose font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+          <p className="mt-2.5 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
             Role-labelled turns from <code className="text-studio-ink-muted">renderedText</code>;
             matched turn highlighted and auto-scrolled; tool/process records folded, never
             inline-equal.
           </p>
         </div>
         <div>
-          <div className="mb-2 font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">one click deep — raw evidence (advanced)</div>
+          <div className="mb-2 font-mono text-xs uppercase tracking-eyebrow text-studio-ink-faint">one click deep — raw evidence (advanced)</div>
           <Disclosure
             summary={<>Raw evidence <span className="text-studio-ink-faint">(advanced)</span></>}
             meta="records 308–344"
             open
           >
-            <div className="font-mono text-[11px]">
+            <div className="font-mono text-sm">
               <div className="flex items-center gap-2 border-b border-studio-edge py-1.5 text-studio-ink-faint">
                 <span>0312</span><span className="min-w-[72px] text-studio-ink">user</span>
                 <span className="truncate">how should we store embeddings…</span>
@@ -622,7 +622,7 @@ export default function SearchResultsStudy() {
                   <span className="min-w-[72px] text-scout-accent">assistant</span>
                   <span className="truncate text-studio-ink-muted">We should embed selected QMD chunks…</span>
                 </div>
-                <pre className="mt-1.5 overflow-x-auto rounded-md border border-studio-edge p-2.5 text-[10.5px] leading-relaxed text-studio-ink-muted" style={{ background: "var(--studio-canvas)" }}>{RAW_ASSISTANT}</pre>
+                <pre className="mt-1.5 overflow-x-auto rounded-md border border-studio-edge p-2.5 text-xs leading-relaxed text-studio-ink-muted" style={{ background: "var(--studio-canvas)" }}>{RAW_ASSISTANT}</pre>
               </div>
               <div className="flex items-center gap-2 py-1.5 text-studio-ink-faint">
                 <span>0314</span><span className="min-w-[72px] text-studio-ink">tool_use</span>
@@ -630,7 +630,7 @@ export default function SearchResultsStudy() {
               </div>
             </div>
           </Disclosure>
-          <p className="mt-2.5 max-w-prose font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+          <p className="mt-2.5 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
             The existing record window, kept verbatim for trust — but behind one deliberate
             disclosure, with the matched record auto-open. Never the default lower half.
           </p>
@@ -641,24 +641,24 @@ export default function SearchResultsStudy() {
       <SectionTitle hint="Plain language up top, numbers under details">Why this matched</SectionTitle>
       <div className="mb-16 grid gap-5 lg:grid-cols-2">
         <div>
-          <div className="mb-2 font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">collapsed</div>
+          <div className="mb-2 font-mono text-xs uppercase tracking-eyebrow text-studio-ink-faint">collapsed</div>
           <Disclosure summary="Why this matched" meta="Strong · exact words" />
         </div>
         <div>
-          <div className="mb-2 font-mono text-[10px] uppercase tracking-eyebrow text-scout-accent">expanded</div>
+          <div className="mb-2 font-mono text-xs uppercase tracking-eyebrow text-scout-accent">expanded</div>
           <Disclosure summary="Why this matched" meta="Strong · exact words" open>
-            <div className="grid grid-cols-[120px_1fr] gap-x-3.5 gap-y-2 text-[12.5px]">
-              <span className="font-mono text-[11.5px] text-studio-ink-faint">Relevance</span>
+            <div className="grid grid-cols-[120px_1fr] gap-x-3.5 gap-y-2 text-md">
+              <span className="font-mono text-sm text-studio-ink-faint">Relevance</span>
               <span className="text-studio-ink">Strong <span className="ml-1"><Pips level={3} /></span></span>
-              <span className="font-mono text-[11.5px] text-studio-ink-faint">Found in</span>
+              <span className="font-mono text-sm text-studio-ink-faint">Found in</span>
               <span className="text-studio-ink">assistant reply (2×) · session title</span>
-              <span className="font-mono text-[11.5px] text-studio-ink-faint">Match type</span>
+              <span className="font-mono text-sm text-studio-ink-faint">Match type</span>
               <span className="text-studio-ink">Exact words: “embeddings”, “QMD”</span>
-              <span className="font-mono text-[11.5px] text-studio-ink-faint">details</span>
-              <span className="font-mono text-[11.5px] text-studio-ink-faint">bm25 −8.42 · fts over title + body</span>
+              <span className="font-mono text-sm text-studio-ink-faint">details</span>
+              <span className="font-mono text-sm text-studio-ink-faint">bm25 −8.42 · fts over title + body</span>
             </div>
           </Disclosure>
-          <p className="mt-2.5 max-w-prose font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+          <p className="mt-2.5 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
             Field names humanised (“session title”, “assistant reply”), not “QMD title/body”. For
             vector/hybrid this line becomes “Similar in meaning (not exact words)”.
           </p>
@@ -669,13 +669,13 @@ export default function SearchResultsStudy() {
       <SectionTitle hint="The fix for “what do I do now?”">Next actions</SectionTitle>
       <div className="mb-16 grid gap-6 lg:grid-cols-[minmax(0,520px)_1fr]">
         <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-studio-edge p-4" style={PANEL}>
-          <span className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[12.5px] font-semibold" style={PRIMARY_BTN}>▸ Open conversation</span>
-          <span className="inline-flex items-center gap-1.5 rounded-md border border-studio-edge px-3 py-1.5 text-[12.5px] text-studio-ink" style={{ background: "var(--studio-canvas-alt)" }}>⤴ Fork from here</span>
-          <span className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12.5px] text-studio-ink-muted">⧉ Copy ref</span>
-          <span className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12.5px] text-studio-ink-muted">⤓ Raw</span>
-          <span className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12.5px] text-studio-ink-muted">⋯</span>
+          <span className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-md font-semibold" style={PRIMARY_BTN}>▸ Open conversation</span>
+          <span className="inline-flex items-center gap-1.5 rounded-md border border-studio-edge px-3 py-1.5 text-md text-studio-ink" style={{ background: "var(--studio-canvas-alt)" }}>⤴ Fork from here</span>
+          <span className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-md text-studio-ink-muted">⧉ Copy ref</span>
+          <span className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-md text-studio-ink-muted">⤓ Raw</span>
+          <span className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-md text-studio-ink-muted">⋯</span>
         </div>
-        <ul className="flex list-none flex-col gap-2 text-[12.5px] leading-relaxed text-studio-ink-muted">
+        <ul className="flex list-none flex-col gap-2 text-md leading-relaxed text-studio-ink-muted">
           <li><strong className="text-studio-ink">Open conversation</strong> (primary) — deep-link into the existing tail view at the matched record. Today’s only action (“Open file”) dumps raw JSONL; this is the move people expect.</li>
           <li><strong className="text-studio-ink">Fork from here</strong> — seed a new session from this context (sco-049 / sco-062). Stub allowed; the affordance sets direction.</li>
           <li><strong className="text-studio-ink">Copy ref</strong> · <strong className="text-studio-ink">Raw</strong> · overflow holds Open transcript file & Search-within-session.</li>
@@ -685,10 +685,10 @@ export default function SearchResultsStudy() {
 
       {/* how to read */}
       <section className="max-w-prose">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · how to read this study
         </div>
-        <p className="font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+        <p className="font-sans text-md leading-relaxed text-studio-ink-faint">
           Every frame is static — frozen so the redesign reads against the “before” without
           motion. The only required backend addition is a human{" "}
           <code className="text-studio-ink-muted">sessionTitle</code> on the hit plus a

@@ -67,6 +67,8 @@ export type MessageComposerProps = {
    * the primary action is ambiguous (e.g. Steer alongside Queue).
    */
   secondaryAction?: ReactNode;
+  /** Toolbar tools on the left (commands, context controls, etc.). */
+  leadingTools?: ReactNode;
   /**
    * Toolbar tools on the right, before mic/Send (model picker, harness, etc.).
    * Attach stays on the left.
@@ -214,6 +216,7 @@ export function MessageComposer({
   dropHandlers,
   dragActive = false,
   secondaryAction,
+  leadingTools,
   tools,
   footer,
   header,
@@ -425,8 +428,9 @@ export function MessageComposer({
           .filter(Boolean)
           .join(" ")}
       >
-        {/* Left: attach only */}
+        {/* Left: contextual tools, then attach when the surface supports it. */}
         <div className="s-msg-compose-toolbar-start">
+          {leadingTools}
           {showAttach ? (
             <button
               type="button"
@@ -438,9 +442,9 @@ export function MessageComposer({
             >
               <AttachIcon />
             </button>
-          ) : (
+          ) : !leadingTools ? (
             <span className="s-msg-compose-toolbar-spacer" aria-hidden="true" />
-          )}
+          ) : null}
         </div>
 
         {/* Right: model/tools · mic · Send (flush end) */}

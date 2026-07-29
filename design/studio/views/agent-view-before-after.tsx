@@ -193,13 +193,13 @@ export default function AgentViewBeforeAfterPage() {
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-7 grid gap-6 border-b border-studio-edge pb-7 xl:grid-cols-[minmax(0,1fr)_420px]">
         <div className="max-w-[880px]">
-          <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             studies / web / agent-view-before-after
           </div>
-          <h1 className="mt-2 font-display text-[34px] font-medium leading-tight text-studio-ink">
+          <h1 className="mt-2 font-display text-6xl font-medium leading-tight text-studio-ink">
             Agent view before / after
           </h1>
-          <p className="mt-3 max-w-[72ch] font-sans text-[14px] leading-relaxed text-studio-ink-faint">
+          <p className="mt-3 max-w-[72ch] font-sans text-xl leading-relaxed text-studio-ink-faint">
             A Studio clone of the Scout Agents board for rapid comparison. The
             before view keeps the current project-card model. The after view
             treats the same data as controlled insertion regions that can be
@@ -251,10 +251,10 @@ function ModeToggle({
     <div className="rounded-md border border-studio-edge bg-studio-surface p-3">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
             compare
           </div>
-          <div className="mt-1 font-sans text-[12px] text-studio-ink-muted">
+          <div className="mt-1 font-sans text-md text-studio-ink-muted">
             {peeking ? `Option held: showing ${renderedMode}` : "Toggle or hold Option"}
           </div>
         </div>
@@ -264,7 +264,7 @@ function ModeToggle({
               key={item}
               type="button"
               className={[
-                "h-8 px-4 font-mono text-[10px] uppercase tracking-ch transition-colors",
+                "h-8 px-4 font-mono text-xs uppercase tracking-ch transition-colors",
                 item === mode
                   ? "bg-scout-accent-soft text-scout-accent"
                   : "bg-transparent text-studio-ink-faint hover:bg-studio-canvas-alt hover:text-studio-ink",
@@ -300,10 +300,10 @@ function StudyFrame({
   return (
     <div className="overflow-hidden rounded-md border border-studio-edge bg-studio-canvas shadow-2xl">
       <div className="flex items-center justify-between border-b border-studio-edge bg-studio-surface px-4 py-2">
-        <div className="font-mono text-[10px] uppercase tracking-ch text-studio-ink-faint">
+        <div className="font-mono text-xs uppercase tracking-ch text-studio-ink-faint">
           Scout / Agents / {mode}
         </div>
-        <div className="flex items-center gap-2 font-mono text-[10px] text-studio-ink-faint">
+        <div className="flex items-center gap-2 font-mono text-xs text-studio-ink-faint">
           <span className="h-2 w-2 rounded-full bg-status-warn-fg" />
           studio clone
         </div>
@@ -325,13 +325,13 @@ function BeforeAgentDirectory() {
       <AnchorFrame label="agent.directory.header">
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div>
-            <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+            <div className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
               Agents
             </div>
-            <h2 className="mt-1 font-display text-[30px] leading-none text-studio-ink">
+            <h2 className="mt-1 font-display text-6xl leading-none text-studio-ink">
               Board
             </h2>
-            <div className="mt-2 font-sans text-[13px] text-studio-ink-faint">
+            <div className="mt-2 font-sans text-lg text-studio-ink-faint">
               {summary.agents}/{summary.agents} agents - {PROJECTS.length}/{PROJECTS.length} projects
             </div>
           </div>
@@ -342,12 +342,12 @@ function BeforeAgentDirectory() {
       <AnchorFrame label="agent.directory.filters" className="mt-4">
         <div className="flex flex-wrap items-center gap-3">
           <label className="flex h-9 min-w-[280px] flex-1 items-center gap-2 rounded border border-studio-edge bg-studio-surface px-3">
-            <span className="font-mono text-[13px] text-studio-ink-faint">/</span>
+            <span className="font-mono text-lg text-studio-ink-faint">/</span>
             <input
               readOnly
               value=""
               placeholder="Search agents, projects, sessions"
-              className="h-full min-w-0 flex-1 bg-transparent font-sans text-[13px] text-studio-ink outline-none placeholder:text-studio-ink-faint"
+              className="h-full min-w-0 flex-1 bg-transparent font-sans text-lg text-studio-ink outline-none placeholder:text-studio-ink-faint"
             />
           </label>
           <Segment values={["Board", "List"]} active="Board" />
@@ -359,7 +359,7 @@ function BeforeAgentDirectory() {
 
       <AnchorFrame label="agent.active-strip" className="mt-4">
         <div className="flex items-center gap-3 overflow-x-auto">
-          <div className="shrink-0 font-mono text-[10px] uppercase tracking-ch text-studio-ink-faint">
+          <div className="shrink-0 font-mono text-xs uppercase tracking-ch text-studio-ink-faint">
             Working now <strong className="text-studio-ink">{workingAgents.length}</strong>
           </div>
           {workingAgents.map((agent) => (
@@ -370,14 +370,14 @@ function BeforeAgentDirectory() {
             >
               <StateDot state={agent.state} />
               <span className="min-w-0 flex-1">
-                <span className="block truncate font-sans text-[13px] font-medium text-studio-ink">
+                <span className="block truncate font-sans text-lg font-medium text-studio-ink">
                   {agent.name}
                 </span>
-                <span className="block truncate font-sans text-[12px] text-studio-ink-faint">
+                <span className="block truncate font-sans text-md text-studio-ink-faint">
                   {agent.task}
                 </span>
               </span>
-              <span className="font-mono text-[10px] text-studio-ink-faint">{agent.last}</span>
+              <span className="font-mono text-xs text-studio-ink-faint">{agent.last}</span>
             </button>
           ))}
         </div>
@@ -391,7 +391,7 @@ function BeforeAgentDirectory() {
         </div>
       </AnchorFrame>
 
-      <div className="mt-4 flex flex-wrap gap-3 border-t border-studio-edge pt-3 font-mono text-[10px] uppercase tracking-ch text-studio-ink-faint">
+      <div className="mt-4 flex flex-wrap gap-3 border-t border-studio-edge pt-3 font-mono text-xs uppercase tracking-ch text-studio-ink-faint">
         <span>{PROJECTS.length} / {PROJECTS.length} projects</span>
         <span>{summary.offline} not ready</span>
         <span>{summary.nativeSessions} harness sessions</span>
@@ -409,13 +409,13 @@ function AfterAgentDirectory({ selectedAgent }: { selectedAgent: AgentFixture })
         <AnchorFrame label="agent.directory.header">
           <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_420px]">
             <div>
-              <div className="font-mono text-[9px] uppercase tracking-eyebrow text-scout-accent">
+              <div className="font-mono text-2xs uppercase tracking-eyebrow text-scout-accent">
                 Agents
               </div>
-              <h2 className="mt-1 font-display text-[30px] leading-none text-studio-ink">
+              <h2 className="mt-1 font-display text-6xl leading-none text-studio-ink">
                 Project command center
               </h2>
-              <p className="mt-2 max-w-[64ch] font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+              <p className="mt-2 max-w-[64ch] font-sans text-lg leading-relaxed text-studio-ink-faint">
                 Same agent data, but the operator scans from active pressure to
                 project lanes to one pinned detail preview.
               </p>
@@ -440,7 +440,7 @@ function AfterAgentDirectory({ selectedAgent }: { selectedAgent: AgentFixture })
             </div>
             <button
               type="button"
-              className="h-8 rounded border border-studio-edge px-3 font-mono text-[10px] uppercase tracking-ch text-studio-ink-faint"
+              className="h-8 rounded border border-studio-edge px-3 font-mono text-xs uppercase tracking-ch text-studio-ink-faint"
             >
               saved view: agent ops
             </button>
@@ -487,22 +487,22 @@ function BeforeProjectCard({ project }: { project: ProjectFixture }) {
   return (
     <section className="rounded-md border border-studio-edge bg-studio-surface p-4">
       <button type="button" className="block w-full text-left">
-        <span className="inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-ch text-studio-ink-faint">
+        <span className="inline-flex items-center gap-2 font-mono text-xs uppercase tracking-ch text-studio-ink-faint">
           <StateDot state={status} />
           {STATE_LABEL[status]}
         </span>
-        <span className="mt-3 block truncate font-sans text-[18px] font-semibold text-studio-ink">
+        <span className="mt-3 block truncate font-sans text-3xl font-semibold text-studio-ink">
           {project.title}
         </span>
-        <span className="mt-1 block truncate font-mono text-[10px] text-studio-ink-faint">
+        <span className="mt-1 block truncate font-mono text-xs text-studio-ink-faint">
           {project.root}
         </span>
-        <span className="mt-4 block min-h-[38px] font-sans text-[13px] leading-snug text-studio-ink-muted">
+        <span className="mt-4 block min-h-[38px] font-sans text-lg leading-snug text-studio-ink-muted">
           {project.signal}
         </span>
       </button>
 
-      <div className="mt-4 flex flex-wrap gap-2 font-mono text-[10px] text-studio-ink-faint">
+      <div className="mt-4 flex flex-wrap gap-2 font-mono text-xs text-studio-ink-faint">
         {working > 0 && <MetricPill label={`${working} working`} tone="warn" />}
         {ready > 0 && <MetricPill label={`${ready} ready`} tone="ok" />}
         <MetricPill label={`${project.agents.length} agents`} />
@@ -514,7 +514,7 @@ function BeforeProjectCard({ project }: { project: ProjectFixture }) {
           <button
             key={agent.id}
             type="button"
-            className="inline-flex h-7 items-center gap-2 rounded border border-studio-edge bg-studio-canvas-alt px-2 font-sans text-[12px] text-studio-ink-muted"
+            className="inline-flex h-7 items-center gap-2 rounded border border-studio-edge bg-studio-canvas-alt px-2 font-sans text-md text-studio-ink-muted"
           >
             <StateDot state={agent.state} />
             {agent.name}
@@ -545,14 +545,14 @@ function AfterProjectLane({
       <div className="min-w-0 border-b border-studio-edge pb-3 lg:border-b-0 lg:border-r lg:pb-0 lg:pr-3">
         <div className="flex items-center gap-2">
           <StateDot state={projectState} />
-          <span className="truncate font-sans text-[15px] font-semibold text-studio-ink">
+          <span className="truncate font-sans text-2xl font-semibold text-studio-ink">
             {project.title}
           </span>
         </div>
-        <div className="mt-1 truncate font-mono text-[10px] text-studio-ink-faint">
+        <div className="mt-1 truncate font-mono text-xs text-studio-ink-faint">
           {project.root}
         </div>
-        <div className="mt-3 font-sans text-[12px] leading-snug text-studio-ink-muted">
+        <div className="mt-3 font-sans text-md leading-snug text-studio-ink-muted">
           {project.signal}
         </div>
       </div>
@@ -571,14 +571,14 @@ function AfterProjectLane({
           >
             <StateDot state={agent.state} />
             <span className="min-w-0">
-              <span className="block truncate font-sans text-[13px] font-medium">
+              <span className="block truncate font-sans text-lg font-medium">
                 {agent.name} <span className="text-studio-ink-faint">{agent.handle}</span>
               </span>
-              <span className="block truncate font-sans text-[12px] text-studio-ink-faint">
+              <span className="block truncate font-sans text-md text-studio-ink-faint">
                 {agent.task}
               </span>
             </span>
-            <span className="justify-self-end font-mono text-[10px] text-studio-ink-faint">
+            <span className="justify-self-end font-mono text-xs text-studio-ink-faint">
               {agent.sessionCount} sessions
             </span>
           </button>
@@ -590,7 +590,7 @@ function AfterProjectLane({
         <MetricPill label={`${project.nativeSessions} native`} />
         <button
           type="button"
-          className="mt-auto h-8 rounded bg-scout-accent-soft px-3 font-mono text-[10px] uppercase tracking-ch text-scout-accent"
+          className="mt-auto h-8 rounded bg-scout-accent-soft px-3 font-mono text-xs uppercase tracking-ch text-scout-accent"
         >
           open lane
         </button>
@@ -618,15 +618,15 @@ function ActionQueueItem({ agent }: { agent: AgentFixture }) {
       />
       <span className="min-w-0 p-3">
         <span className="flex items-center justify-between gap-3">
-          <span className="font-mono text-[10px] uppercase tracking-ch text-studio-ink-faint">
+          <span className="font-mono text-xs uppercase tracking-ch text-studio-ink-faint">
             {STATE_LABEL[agent.state]}
           </span>
-          <span className="font-mono text-[10px] text-studio-ink-faint">{agent.last}</span>
+          <span className="font-mono text-xs text-studio-ink-faint">{agent.last}</span>
         </span>
-        <span className="mt-2 block truncate font-sans text-[15px] font-semibold text-studio-ink">
+        <span className="mt-2 block truncate font-sans text-2xl font-semibold text-studio-ink">
           {agent.name} - {agent.role}
         </span>
-        <span className="mt-1 block font-sans text-[13px] leading-snug text-studio-ink-muted">
+        <span className="mt-1 block font-sans text-lg leading-snug text-studio-ink-muted">
           {agent.task}
         </span>
       </span>
@@ -639,13 +639,13 @@ function AgentPreview({ agent }: { agent: AgentFixture }) {
     <div className="flex h-full min-h-[620px] flex-col">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
             pinned agent
           </div>
-          <h3 className="mt-2 font-display text-[24px] leading-none text-studio-ink">
+          <h3 className="mt-2 font-display text-5xl leading-none text-studio-ink">
             {agent.name}
           </h3>
-          <div className="mt-1 font-mono text-[10px] text-studio-ink-faint">
+          <div className="mt-1 font-mono text-xs text-studio-ink-faint">
             {agent.handle}
           </div>
         </div>
@@ -661,28 +661,28 @@ function AgentPreview({ agent }: { agent: AgentFixture }) {
       </div>
 
       <section className="mt-5 border-t border-studio-edge pt-4">
-        <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           current work
         </div>
-        <p className="mt-2 font-sans text-[13px] leading-relaxed text-studio-ink-muted">
+        <p className="mt-2 font-sans text-lg leading-relaxed text-studio-ink-muted">
           {agent.task}
         </p>
       </section>
 
       <section className="mt-5 border-t border-studio-edge pt-4">
-        <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           insertion target
         </div>
-        <code className="mt-2 block rounded border border-studio-edge bg-studio-canvas-alt px-3 py-2 font-mono text-[11px] text-scout-accent">
+        <code className="mt-2 block rounded border border-studio-edge bg-studio-canvas-alt px-3 py-2 font-mono text-sm text-scout-accent">
           agent.detail-preview
         </code>
       </section>
 
       <div className="mt-auto grid grid-cols-2 gap-2 pt-6">
-        <button className="h-9 rounded border border-studio-edge font-mono text-[10px] uppercase tracking-ch text-studio-ink-muted">
+        <button className="h-9 rounded border border-studio-edge font-mono text-xs uppercase tracking-ch text-studio-ink-muted">
           observe
         </button>
-        <button className="h-9 rounded bg-scout-accent-soft font-mono text-[10px] uppercase tracking-ch text-scout-accent">
+        <button className="h-9 rounded bg-scout-accent-soft font-mono text-xs uppercase tracking-ch text-scout-accent">
           message
         </button>
       </div>
@@ -713,12 +713,12 @@ function RefactorMetric({
   return (
     <div className="border-r border-studio-edge px-3 py-2 last:border-r-0">
       <div
-        className="font-sans text-[20px] font-semibold leading-none"
+        className="font-sans text-4xl font-semibold leading-none"
         style={{ color: `var(--status-${tone}-fg)` }}
       >
         {value}
       </div>
-      <div className="mt-1 truncate font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint">
+      <div className="mt-1 truncate font-mono text-2xs uppercase tracking-ch text-studio-ink-faint">
         {label}
       </div>
     </div>
@@ -745,7 +745,7 @@ function AnchorFrame({
       ].join(" ")}
       data-studio-anchor={label}
     >
-      <div className="pointer-events-none absolute right-2 top-2 z-10 rounded bg-studio-canvas px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-ch text-studio-ink-faint">
+      <div className="pointer-events-none absolute right-2 top-2 z-10 rounded bg-studio-canvas px-1.5 py-0.5 font-mono text-3xs uppercase tracking-ch text-studio-ink-faint">
         {label}
       </div>
       {children}
@@ -757,19 +757,19 @@ function AnchorInventory() {
   return (
     <div className="space-y-5">
       <section className="rounded-md border border-studio-edge bg-studio-surface p-4">
-        <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           registered host point
         </div>
         <div className="mt-3 space-y-2">
           <div className="grid grid-cols-[1fr_72px] gap-3 border-b border-studio-edge pb-2">
-            <code className="truncate font-mono text-[11px] text-studio-ink-muted">
+            <code className="truncate font-mono text-sm text-studio-ink-muted">
               {HOST_INSERTION_POINT?.id ?? HOST_ANCHOR}
             </code>
-            <span className="justify-self-end rounded bg-studio-canvas-alt px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint">
+            <span className="justify-self-end rounded bg-studio-canvas-alt px-1.5 py-0.5 font-mono text-2xs uppercase tracking-ch text-studio-ink-faint">
               {HOST_INSERTION_POINT?.scope ?? "page"}
             </span>
           </div>
-          <div className="font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+          <div className="font-sans text-md leading-relaxed text-studio-ink-faint">
             {HOST_STUDY?.label ?? "Agent View Before / After"} ·{" "}
             {HOST_STUDY?.target?.mode ?? "replace"}
           </div>
@@ -777,7 +777,7 @@ function AnchorInventory() {
       </section>
 
       <section className="rounded-md border border-studio-edge bg-studio-surface p-4">
-        <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           candidate section points
         </div>
         <div className="mt-3 space-y-2">
@@ -786,10 +786,10 @@ function AnchorInventory() {
               key={anchor.id}
               className="grid grid-cols-[1fr_72px] gap-3 border-b border-studio-edge pb-2 last:border-b-0 last:pb-0"
             >
-              <code className="truncate font-mono text-[11px] text-studio-ink-muted">
+              <code className="truncate font-mono text-sm text-studio-ink-muted">
                 {anchor.id}
               </code>
-              <span className="justify-self-end rounded bg-studio-canvas-alt px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint">
+              <span className="justify-self-end rounded bg-studio-canvas-alt px-1.5 py-0.5 font-mono text-2xs uppercase tracking-ch text-studio-ink-faint">
                 {anchor.scope}
               </span>
             </div>
@@ -815,10 +815,10 @@ function ComparisonNotes({ mode }: { mode: StudyMode }) {
 
   return (
     <section className="rounded-md border border-studio-edge bg-studio-surface p-4">
-      <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         {mode} read
       </div>
-      <ul className="mt-3 space-y-2 font-sans text-[13px] leading-relaxed text-studio-ink-muted">
+      <ul className="mt-3 space-y-2 font-sans text-lg leading-relaxed text-studio-ink-muted">
         {notes.map((note) => (
           <li key={note} className="border-l border-studio-edge pl-3">
             {note}
@@ -837,7 +837,7 @@ function Segment({ values, active }: { values: string[]; active: string }) {
           key={value}
           type="button"
           className={[
-            "border-r border-studio-edge px-3 font-mono text-[10px] uppercase tracking-ch last:border-r-0",
+            "border-r border-studio-edge px-3 font-mono text-xs uppercase tracking-ch last:border-r-0",
             value === active
               ? "bg-scout-accent-soft text-scout-accent"
               : "text-studio-ink-faint",
@@ -854,7 +854,7 @@ function GhostSelect({ label }: { label: string }) {
   return (
     <button
       type="button"
-      className="h-9 rounded border border-studio-edge bg-studio-surface px-3 font-mono text-[10px] uppercase tracking-ch text-studio-ink-faint"
+      className="h-9 rounded border border-studio-edge bg-studio-surface px-3 font-mono text-xs uppercase tracking-ch text-studio-ink-faint"
     >
       {label}
     </button>
@@ -874,7 +874,7 @@ function FilterChip({
     <button
       type="button"
       className={[
-        "inline-flex h-8 items-center gap-2 rounded border px-3 font-mono text-[10px] uppercase tracking-ch",
+        "inline-flex h-8 items-center gap-2 rounded border px-3 font-mono text-xs uppercase tracking-ch",
         active
           ? "border-scout-accent bg-scout-accent-soft text-scout-accent"
           : "border-studio-edge bg-studio-surface text-studio-ink-faint",
@@ -897,7 +897,7 @@ function MetricPill({
 }) {
   return (
     <span
-      className="inline-flex h-6 items-center rounded border border-studio-edge px-2 font-mono text-[10px]"
+      className="inline-flex h-6 items-center rounded border border-studio-edge px-2 font-mono text-xs"
       style={{
         color: `var(--status-${tone}-fg)`,
         background: `var(--status-${tone}-bg)`,
@@ -911,10 +911,10 @@ function MetricPill({
 function PreviewRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid grid-cols-[80px_minmax(0,1fr)] gap-3 border-b border-studio-edge pb-2 last:border-b-0">
-      <div className="font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint">
+      <div className="font-mono text-2xs uppercase tracking-ch text-studio-ink-faint">
         {label}
       </div>
-      <div className="truncate font-sans text-[13px] text-studio-ink-muted">
+      <div className="truncate font-sans text-lg text-studio-ink-muted">
         {value}
       </div>
     </div>

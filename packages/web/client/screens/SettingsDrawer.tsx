@@ -1,1 +1,1 @@
-export { SettingsDrawer } from "./settings/SettingsDrawer.tsx";
+export { SettingsDrawer, SettingsPage } from "./settings/SettingsDrawer.tsx";

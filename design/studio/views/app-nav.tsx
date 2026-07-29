@@ -689,13 +689,13 @@ export default function AppNavStudy() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-6 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · shell · app-nav
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           App nav · shell chrome &amp; structure
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           Scout is an overview-first platform — not an IDE or ADE replacement. Two levels of the nav
           question live here. <b className="text-studio-ink-muted">Part 1 · the shell chrome</b> — where the
           top-left corner belongs and how the rails collapse — three layout options (A · Anchored L,

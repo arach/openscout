@@ -22,7 +22,7 @@ export default async function EngDocPage({
 
   return (
     <main className="mx-auto max-w-[820px] px-7 pt-4 pb-20">
-      <nav className="mb-2 font-mono text-[10px] text-studio-ink-faint">
+      <nav className="mb-2 font-mono text-xs text-studio-ink-faint">
         <Link
           href="/eng"
           className="hover:text-studio-ink transition-colors"

@@ -65,10 +65,10 @@ export default function CommsMobileStudy() {
   return (
     <div className="px-6 py-6">
       <header className="mb-6 max-w-[70ch]">
-        <h1 className="font-sans text-[19px] font-semibold tracking-tight text-studio-ink">
+        <h1 className="font-sans text-4xl font-semibold tracking-tight text-studio-ink">
           Comms Mobile — one list, less green
         </h1>
-        <p className="mt-1.5 font-sans text-[13px] leading-relaxed text-studio-ink-muted">
+        <p className="mt-1.5 font-sans text-lg leading-relaxed text-studio-ink-muted">
           No avatar; single-line by default. Channels and DMs fold into one
           recency feed — a muted <span className="font-mono">#</span> is the only
           tell, so the split is implicit, not two stacked lists. The accent stops
@@ -129,14 +129,14 @@ function TitleBar() {
   return (
     <div className="flex items-center justify-between px-5 pt-3 pb-3">
       <div className="flex items-baseline gap-2">
-        <span className="font-sans text-[20px] font-semibold tracking-tight text-white">Scout</span>
-        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--scout-accent)]">Next</span>
+        <span className="font-sans text-4xl font-semibold tracking-tight text-white">Scout</span>
+        <span className="font-mono text-xs font-bold uppercase tracking-[0.2em] text-[var(--scout-accent)]">Next</span>
       </div>
       <div className="flex items-center gap-2.5">
-        <span className="flex items-center gap-1 rounded-[5px] border border-[color-mix(in_oklab,var(--scout-accent)_40%,transparent)] px-1.5 py-[3px] font-mono text-[9px] font-semibold tracking-wide text-[var(--scout-accent)]">
+        <span className="flex items-center gap-1 rounded-[5px] border border-[color-mix(in_oklab,var(--scout-accent)_40%,transparent)] px-1.5 py-[3px] font-mono text-2xs font-semibold tracking-wide text-[var(--scout-accent)]">
           <span className="h-1.5 w-1.5 rounded-full bg-[var(--scout-accent)]" /> LAN
         </span>
-        <span className="text-[14px] text-white/60">⚙</span>
+        <span className="text-xl text-white/60">⚙</span>
       </div>
     </div>
   );
@@ -146,8 +146,8 @@ function SearchField() {
   return (
     <div className="px-4 pb-2">
       <div className="flex items-center gap-2 rounded-[10px] border border-white/[0.06] bg-white/[0.025] px-3 py-2">
-        <span className="text-[12px] text-white/30">⌕</span>
-        <span className="font-mono text-[12px] text-white/30">Search conversations</span>
+        <span className="text-md text-white/30">⌕</span>
+        <span className="font-mono text-md text-white/30">Search conversations</span>
       </div>
     </div>
   );
@@ -161,13 +161,13 @@ function TabBar() {
         <div key={label} className="flex flex-col items-center gap-1">
           <span
             className={[
-              "grid h-6 w-10 place-items-center rounded-full text-[12px]",
+              "grid h-6 w-10 place-items-center rounded-full text-md",
               i === 2 ? "bg-[color-mix(in_oklab,var(--scout-accent)_18%,transparent)] text-[var(--scout-accent)]" : "text-white/45",
             ].join(" ")}
           >
             {["▦", "○", "▣", "›", "+"][i]}
           </span>
-          <span className={["font-sans text-[9px]", i === 2 ? "text-white/85" : "text-white/45"].join(" ")}>
+          <span className={["font-sans text-2xs", i === 2 ? "text-white/85" : "text-white/45"].join(" ")}>
             {label}
           </span>
         </div>
@@ -197,10 +197,10 @@ function BeforeCard({ c }: { c: Convo }) {
       <AvatarGlyph c={c} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
-          <span className="truncate font-sans text-[14px] font-semibold text-white">{c.title}</span>
-          <span className="shrink-0 font-mono text-[10px] text-white/40">{c.age}</span>
+          <span className="truncate font-sans text-xl font-semibold text-white">{c.title}</span>
+          <span className="shrink-0 font-mono text-xs text-white/40">{c.age}</span>
         </div>
-        <p className="truncate font-sans text-[12px] text-white/45">
+        <p className="truncate font-sans text-md text-white/45">
           {speakerOf(c) ? `${speakerOf(c)}: ` : ""}{c.preview}
         </p>
       </div>
@@ -222,16 +222,16 @@ function CompactList() {
             className={["relative flex items-center gap-2 px-4 py-[7px]", unread ? "bg-white/[0.035]" : ""].join(" ")}
           >
             <span
-              className={["shrink-0 truncate font-sans text-[13px] tracking-tight", unread ? "font-semibold text-white" : "font-medium text-white/85"].join(" ")}
+              className={["shrink-0 truncate font-sans text-lg tracking-tight", unread ? "font-semibold text-white" : "font-medium text-white/85"].join(" ")}
               style={{ maxWidth: 116 }}
             >
               {c.kind === "channel" ? <span className="font-mono text-white/35">#&thinsp;</span> : null}
               {c.title}
             </span>
-            <span className="min-w-0 flex-1 truncate font-sans text-[12px] text-white/40">
+            <span className="min-w-0 flex-1 truncate font-sans text-md text-white/40">
               {speaker ? <span className="text-white/30">{speaker}: </span> : null}{cleanPreview(c.preview)}
             </span>
-            <span className="shrink-0 font-mono text-[9px] text-white/35">{c.age}</span>
+            <span className="shrink-0 font-mono text-2xs text-white/35">{c.age}</span>
             {unread ? <CountPill n={c.unread!} /> : null}
             {i < CONVOS.length - 1 ? <span className="absolute bottom-0 right-0 left-4 h-px bg-white/[0.05]" /> : null}
           </div>
@@ -257,14 +257,14 @@ function BareRow({ c, divider }: { c: Convo; divider: boolean }) {
   return (
     <div className={["relative px-4 py-[7px]", unread ? "bg-white/[0.035]" : ""].join(" ")}>
       <div className="flex items-baseline justify-between gap-2">
-        <span className={["truncate font-sans text-[14px] tracking-tight", unread ? "font-semibold text-white" : "font-medium text-white/90"].join(" ")}>
+        <span className={["truncate font-sans text-xl tracking-tight", unread ? "font-semibold text-white" : "font-medium text-white/90"].join(" ")}>
           {c.kind === "channel" ? <span className="font-mono text-white/35">#&thinsp;</span> : null}
           {c.title}
         </span>
-        <span className="shrink-0 font-mono text-[10px] text-white/35">{c.age}</span>
+        <span className="shrink-0 font-mono text-xs text-white/35">{c.age}</span>
       </div>
       <div className="mt-[2px] flex items-center justify-between gap-2">
-        <p className="truncate font-sans text-[12px] leading-snug text-white/42">
+        <p className="truncate font-sans text-md leading-snug text-white/42">
           {speaker ? <span className="text-white/30">{speaker}: </span> : null}{cleanPreview(c.preview)}
         </p>
         {unread ? <CountPill n={c.unread!} /> : null}
@@ -286,14 +286,14 @@ function tint(name: string): string {
 function AvatarGlyph({ c }: { c: Convo }) {
   if (c.kind === "channel") {
     return (
-      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-white/[0.07] font-mono text-[15px] font-bold text-white/45">
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-white/[0.07] font-mono text-2xl font-bold text-white/45">
         #
       </span>
     );
   }
   return (
     <span
-      className="grid h-9 w-9 shrink-0 place-items-center rounded-full font-sans text-[14px] font-semibold"
+      className="grid h-9 w-9 shrink-0 place-items-center rounded-full font-sans text-xl font-semibold"
       style={{ background: tint(c.title), color: "#0a0a0a" }}
     >
       {c.title[0]}
@@ -304,7 +304,7 @@ function AvatarGlyph({ c }: { c: Convo }) {
 /* The one place green is allowed: an unread count. Quieter than before. */
 function CountPill({ n }: { n: number }) {
   return (
-    <span className="shrink-0 rounded-full bg-[color-mix(in_oklab,var(--scout-accent)_85%,#0a0a0a)] px-1.5 text-[9px] font-bold leading-[15px] text-black tabular-nums">
+    <span className="shrink-0 rounded-full bg-[color-mix(in_oklab,var(--scout-accent)_85%,#0a0a0a)] px-1.5 text-2xs font-bold leading-[15px] text-black tabular-nums">
       {n}
     </span>
   );
@@ -312,7 +312,7 @@ function CountPill({ n }: { n: number }) {
 
 function Eyebrow({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={["pb-1 font-mono text-[9.5px] font-semibold uppercase tracking-[0.14em] text-white/40", className].join(" ")}>
+    <div className={["pb-1 font-mono text-2xs font-semibold uppercase tracking-[0.14em] text-white/40", className].join(" ")}>
       {children}
     </div>
   );
@@ -332,10 +332,10 @@ function Labeled({
   return (
     <div className="flex flex-col gap-2.5">
       <div className="flex items-baseline gap-2">
-        <span className={["font-sans text-[13px] font-semibold tracking-tight", accent ? "text-[var(--scout-accent)]" : "text-studio-ink"].join(" ")}>
+        <span className={["font-sans text-lg font-semibold tracking-tight", accent ? "text-[var(--scout-accent)]" : "text-studio-ink"].join(" ")}>
           {label}
         </span>
-        <span className="font-mono text-[10px] text-studio-ink-faint">{sub}</span>
+        <span className="font-mono text-xs text-studio-ink-faint">{sub}</span>
       </div>
       {children}
     </div>
@@ -432,10 +432,10 @@ function SemanticGlyphSection() {
   return (
     <section className="mt-9">
       <div className="mb-4 max-w-[68ch]">
-        <h2 className="font-sans text-[15px] font-semibold tracking-tight text-studio-ink">
+        <h2 className="font-sans text-2xl font-semibold tracking-tight text-studio-ink">
           Semantic glyphs — type + live status
         </h2>
-        <p className="mt-1 font-sans text-[12.5px] leading-relaxed text-studio-ink-muted">
+        <p className="mt-1 font-sans text-md leading-relaxed text-studio-ink-muted">
           Two axes, drawn small. Left = what kind of conversation (the dot count
           for dm→group even reads as headcount). Right = live status, which
           re-encodes the <span className="font-mono">[ask:f-…]</span> token we
@@ -469,14 +469,14 @@ function SepList() {
           <span className="grid h-[15px] w-[15px] shrink-0 place-items-center text-white/40">
             <TypeGlyph kind={c.kind} />
           </span>
-          <span className="shrink-0 truncate font-sans text-[14px] font-medium tracking-tight text-white" style={{ maxWidth: 118 }}>
+          <span className="shrink-0 truncate font-sans text-xl font-medium tracking-tight text-white" style={{ maxWidth: 118 }}>
             {c.title}
           </span>
-          <span className="grid w-[18px] shrink-0 place-items-center text-[12px] leading-none">
+          <span className="grid w-[18px] shrink-0 place-items-center text-md leading-none">
             <SepGlyph state={c.state} />
           </span>
-          <span className="min-w-0 flex-1 truncate font-sans text-[12px] text-white/45">{c.preview}</span>
-          <span className="shrink-0 font-mono text-[10px] text-white/35">{c.age}</span>
+          <span className="min-w-0 flex-1 truncate font-sans text-md text-white/45">{c.preview}</span>
+          <span className="shrink-0 font-mono text-xs text-white/35">{c.age}</span>
           {i < SEM.length - 1 ? <span className="absolute bottom-0 right-0 left-[42px] h-px bg-white/[0.05]" /> : null}
         </div>
       ))}
@@ -499,14 +499,14 @@ function SemList() {
           <span className="grid h-[15px] w-[15px] shrink-0 place-items-center text-white/40">
             <TypeGlyph kind={c.kind} />
           </span>
-          <span className="shrink-0 truncate font-sans text-[14px] font-medium tracking-tight text-white" style={{ maxWidth: 116 }}>
+          <span className="shrink-0 truncate font-sans text-xl font-medium tracking-tight text-white" style={{ maxWidth: 116 }}>
             {c.title}
           </span>
-          <span className="min-w-0 flex-1 truncate font-sans text-[12px] text-white/45">{c.preview}</span>
-          <span className="grid w-4 shrink-0 place-items-center text-[12px] leading-none">
+          <span className="min-w-0 flex-1 truncate font-sans text-md text-white/45">{c.preview}</span>
+          <span className="grid w-4 shrink-0 place-items-center text-md leading-none">
             <StatusGlyph state={c.state} />
           </span>
-          <span className="shrink-0 font-mono text-[10px] text-white/35">{c.age}</span>
+          <span className="shrink-0 font-mono text-xs text-white/35">{c.age}</span>
           {i < SEM.length - 1 ? <span className="absolute bottom-0 right-0 left-[42px] h-px bg-white/[0.05]" /> : null}
         </div>
       ))}
@@ -536,15 +536,15 @@ function GlyphLegend() {
         {types.map(([k, , label]) => (
           <div key={k} className="flex items-center gap-3">
             <span className="grid h-[15px] w-[15px] shrink-0 place-items-center text-studio-ink"><TypeGlyph kind={k} /></span>
-            <span className="font-sans text-[12px] text-studio-ink-muted">{label}</span>
+            <span className="font-sans text-md text-studio-ink-muted">{label}</span>
           </div>
         ))}
       </LegendBlock>
       <LegendBlock title="Right · status">
         {states.map(([g, label, accent]) => (
           <div key={label} className="flex items-center gap-3">
-            <span className={["grid w-[28px] shrink-0 place-items-center font-mono text-[12px]", accent ? "text-[var(--scout-accent)]" : "text-studio-ink"].join(" ")}>{g}</span>
-            <span className="font-sans text-[12px] text-studio-ink-muted">{label}</span>
+            <span className={["grid w-[28px] shrink-0 place-items-center font-mono text-md", accent ? "text-[var(--scout-accent)]" : "text-studio-ink"].join(" ")}>{g}</span>
+            <span className="font-sans text-md text-studio-ink-muted">{label}</span>
           </div>
         ))}
       </LegendBlock>
@@ -555,7 +555,7 @@ function GlyphLegend() {
 function LegendBlock({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <div className="mb-2 font-mono text-[9.5px] font-semibold uppercase tracking-[0.14em] text-studio-ink-faint">{title}</div>
+      <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-[0.14em] text-studio-ink-faint">{title}</div>
       <div className="grid gap-1.5">{children}</div>
     </div>
   );
@@ -571,14 +571,14 @@ function Notes() {
   ];
   return (
     <section className="mt-8 max-w-[74ch]">
-      <h2 className="mb-3 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-studio-ink-faint">
+      <h2 className="mb-3 font-mono text-xs font-semibold uppercase tracking-[0.12em] text-studio-ink-faint">
         What changed
       </h2>
       <dl className="grid gap-px overflow-hidden rounded-[8px] border border-studio-edge bg-studio-edge">
         {rows.map(([k, v]) => (
           <div key={k} className="grid grid-cols-[190px_1fr] gap-4 bg-studio-canvas px-4 py-3">
-            <dt className="font-sans text-[12.5px] font-semibold text-studio-ink">{k}</dt>
-            <dd className="font-sans text-[12.5px] leading-relaxed text-studio-ink-muted">{v}</dd>
+            <dt className="font-sans text-md font-semibold text-studio-ink">{k}</dt>
+            <dd className="font-sans text-md leading-relaxed text-studio-ink-muted">{v}</dd>
           </div>
         ))}
       </dl>

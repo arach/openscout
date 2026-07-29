@@ -85,10 +85,10 @@ export function FileExplorerWorkspace({
       >
         <div className="flex flex-col gap-2 border-b border-studio-edge px-3 py-2.5">
           <div className="flex items-baseline justify-between gap-2">
-            <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+            <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
               Files
             </span>
-            <span className="font-mono text-[9.5px] tabular-nums text-studio-ink-faint">
+            <span className="font-mono text-2xs tabular-nums text-studio-ink-faint">
               {countLeaves(initialTree)}
             </span>
           </div>
@@ -97,7 +97,7 @@ export function FileExplorerWorkspace({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Filter…"
-            className="w-full rounded-[3px] border border-studio-edge bg-studio-canvas px-2 py-1 font-mono text-[11px] text-studio-ink placeholder:text-studio-ink-faint focus:border-studio-edge-strong focus:outline-none"
+            className="w-full rounded-[3px] border border-studio-edge bg-studio-canvas px-2 py-1 font-mono text-sm text-studio-ink placeholder:text-studio-ink-faint focus:border-studio-edge-strong focus:outline-none"
           />
         </div>
         <div className="flex-1 overflow-auto py-1">
@@ -129,9 +129,9 @@ export function FileExplorerWorkspace({
         ) : (
           <div className="flex-1 overflow-auto p-5">
             <DirSummary tree={initialTree} />
-            <p className="mt-4 font-sans text-[12px] italic text-studio-ink-faint">
+            <p className="mt-4 font-sans text-md italic text-studio-ink-faint">
               Select a file from the tree to see its excerpt + outline.{" "}
-              <span className="font-mono text-[11px] text-studio-ink-faint">
+              <span className="font-mono text-sm text-studio-ink-faint">
                 {rootRel}
               </span>
             </p>
@@ -167,7 +167,7 @@ function FileDetail({
         {/* Body */}
         <div className="min-w-0 flex-1 overflow-auto p-5">
           {error ? (
-            <div className="rounded-md border border-status-error-fg/30 bg-status-error-bg/60 px-4 py-3 font-mono text-[11.5px] text-status-error-fg">
+            <div className="rounded-md border border-status-error-fg/30 bg-status-error-bg/60 px-4 py-3 font-mono text-sm text-status-error-fg">
               Failed to load: {error}
             </div>
           ) : loading || !data ? (
@@ -188,7 +188,7 @@ function FileDetail({
           {data ? (
             <SymbolOutline content={data.excerpt} language={data.language} />
           ) : (
-            <div className="rounded-md border border-studio-edge bg-studio-surface px-3 py-2 font-mono text-[10px] italic text-studio-ink-faint">
+            <div className="rounded-md border border-studio-edge bg-studio-surface px-3 py-2 font-mono text-xs italic text-studio-ink-faint">
               {loading ? "Loading outline…" : "—"}
             </div>
           )}
@@ -209,23 +209,23 @@ function StatRow({
 }) {
   if (loading && !data) {
     return (
-      <div className="flex items-baseline gap-3 font-mono text-[10px] text-studio-ink-faint">
+      <div className="flex items-baseline gap-3 font-mono text-xs text-studio-ink-faint">
         <span>Loading…</span>
       </div>
     );
   }
   if (!data) {
     return (
-      <div className="flex items-baseline gap-3 font-mono text-[10px] text-studio-ink-faint">
+      <div className="flex items-baseline gap-3 font-mono text-xs text-studio-ink-faint">
         <span className="text-studio-ink-faint">{relPath}</span>
       </div>
     );
   }
   const { stat, language, truncated } = data;
   return (
-    <div className="flex flex-wrap items-baseline gap-3 font-mono text-[10px] text-studio-ink-faint">
+    <div className="flex flex-wrap items-baseline gap-3 font-mono text-xs text-studio-ink-faint">
       <span
-        className="rounded-[2px] px-1 py-px font-mono text-[8.5px] font-semibold uppercase tracking-[0.18em]"
+        className="rounded-[2px] px-1 py-px font-mono text-3xs font-semibold uppercase tracking-[0.18em]"
         style={{
           color: langAccent(language),
           background: "var(--studio-canvas-alt)",
@@ -252,7 +252,7 @@ function StatRow({
         <>
           <Sep />
           <span
-            className="rounded-[3px] px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-[0.18em]"
+            className="rounded-[3px] px-1.5 py-0.5 font-mono text-2xs font-semibold tracking-[0.18em]"
             style={{
               color: "var(--status-warn-fg)",
               background: "var(--status-warn-bg)",

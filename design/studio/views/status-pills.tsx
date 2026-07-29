@@ -63,24 +63,24 @@ export default function StatusPillsPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-8 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · pills
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Status pills
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           Five status tones × three pill forms. All swatches read from{" "}
-          <code className="font-mono text-[11px] text-studio-ink">--status-*</code>{" "}
+          <code className="font-mono text-sm text-studio-ink">--status-*</code>{" "}
           CSS vars defined in{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
+          <code className="font-mono text-sm text-studio-ink">
             app/globals.css
           </code>
           ; flip the sidebar toggle to compare against the other theme.
         </p>
       </header>
 
-      <div className="mb-1 grid grid-cols-[140px_140px_140px_140px_1fr] gap-4 border-b border-studio-edge pb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="mb-1 grid grid-cols-[140px_140px_140px_140px_1fr] gap-4 border-b border-studio-edge pb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         <div>Studio status</div>
         <div>Filled</div>
         <div>Outlined</div>
@@ -95,17 +95,17 @@ export default function StatusPillsPage() {
             className="grid grid-cols-[140px_140px_140px_140px_1fr] items-center gap-4 py-3.5"
           >
             <div>
-              <div className="font-sans text-[13px] font-medium text-studio-ink">
+              <div className="font-sans text-lg font-medium text-studio-ink">
                 {row.studioStatus}
               </div>
-              <div className="mt-0.5 font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+              <div className="mt-0.5 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
                 tone: {row.tone}
               </div>
             </div>
 
             <div>
               <span
-                className="inline-block rounded-[3px] px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-[0.18em]"
+                className="inline-block rounded-[3px] px-1.5 py-0.5 font-mono text-2xs font-semibold tracking-[0.18em]"
                 style={{
                   color: `var(${row.fgVar})`,
                   background: `var(${row.bgVar})`,
@@ -117,7 +117,7 @@ export default function StatusPillsPage() {
 
             <div>
               <span
-                className="inline-block rounded-[3px] border px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-[0.18em]"
+                className="inline-block rounded-[3px] border px-1.5 py-0.5 font-mono text-2xs font-semibold tracking-[0.18em]"
                 style={{
                   color: `var(${row.fgVar})`,
                   borderColor: `var(${row.fgVar})`,
@@ -129,14 +129,14 @@ export default function StatusPillsPage() {
 
             <div>
               <span
-                className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em]"
+                className="font-mono text-xs font-semibold uppercase tracking-[0.18em]"
                 style={{ color: `var(${row.fgVar})` }}
               >
                 {row.label}
               </span>
             </div>
 
-            <div className="flex flex-col gap-0.5 font-mono text-[10px] text-studio-ink-faint">
+            <div className="flex flex-col gap-0.5 font-mono text-xs text-studio-ink-faint">
               <code>{row.fgVar}</code>
               <code>{row.bgVar}</code>
             </div>
@@ -145,10 +145,10 @@ export default function StatusPillsPage() {
       </div>
 
       <section className="mt-12 max-w-prose">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · usage
         </div>
-        <pre className="overflow-x-auto rounded-md border border-studio-edge bg-studio-canvas-alt p-4 font-mono text-[12px] leading-[1.6] text-studio-ink">
+        <pre className="overflow-x-auto rounded-md border border-studio-edge bg-studio-canvas-alt p-4 font-mono text-md leading-[1.6] text-studio-ink">
 {`import { StatusPill } from "@/components/StatusPill";
 
 <StatusPill status="shipped" />              // filled (default)

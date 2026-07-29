@@ -226,7 +226,7 @@ export function ScoutbotMarkdown({ text }: { text: string }) {
     return null;
   }
   return (
-    <div className="flex flex-col gap-1.5 text-[11px] leading-relaxed text-[var(--scout-chrome-ink)]">
+    <div className="flex flex-col gap-1.5 text-sm leading-relaxed text-[var(--scout-chrome-ink)]">
       {blocks.map((block, index) => (
         <BlockNode key={index} block={block} />
       ))}
@@ -259,7 +259,7 @@ function BlockNode({ block }: { block: Block }) {
       );
     case "code":
       return (
-        <pre className="overflow-x-auto rounded border border-[var(--scout-chrome-border-soft)] bg-black/25 px-2 py-1.5 text-[10px] leading-relaxed text-lime-100/90">
+        <pre className="overflow-x-auto rounded border border-[var(--scout-chrome-border-soft)] bg-black/25 px-2 py-1.5 text-xs leading-relaxed text-lime-100/90">
           {block.body}
         </pre>
       );
@@ -267,20 +267,20 @@ function BlockNode({ block }: { block: Block }) {
       const baseClass = "font-mono text-[var(--scout-chrome-ink-strong)] mt-2 first:mt-0";
       if (block.level === 1) {
         return (
-          <h2 className={`${baseClass} text-[13px] font-bold uppercase tracking-[0.12em]`}>
+          <h2 className={`${baseClass} text-lg font-bold uppercase tracking-[0.12em]`}>
             <InlineNodes tokens={block.tokens} />
           </h2>
         );
       }
       if (block.level === 2) {
         return (
-          <h3 className={`${baseClass} text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--scout-chrome-ink)]`}>
+          <h3 className={`${baseClass} text-sm font-bold uppercase tracking-[0.14em] text-[var(--scout-chrome-ink)]`}>
             <InlineNodes tokens={block.tokens} />
           </h3>
         );
       }
       return (
-        <h4 className={`${baseClass} text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--scout-chrome-ink-faint)]`}>
+        <h4 className={`${baseClass} text-xs font-bold uppercase tracking-[0.16em] text-[var(--scout-chrome-ink-faint)]`}>
           <InlineNodes tokens={block.tokens} />
         </h4>
       );
@@ -299,7 +299,7 @@ function InlineNodes({ tokens }: { tokens: InlineToken[] }): ReactNode {
             return (
               <code
                 key={index}
-                className="rounded bg-black/25 px-1 text-[10px] text-lime-100/90"
+                className="rounded bg-black/25 px-1 text-xs text-lime-100/90"
               >
                 {token.body}
               </code>
@@ -340,7 +340,7 @@ function FilePathChip({ path }: { path: string }) {
         type="button"
         onClick={() => openFilePreview(path)}
         title={`Preview ${path} in Scout`}
-        className="inline-flex items-center gap-1 rounded border border-lime-300/30 bg-lime-300/[0.05] px-1.5 py-[1px] font-mono text-[10px] text-lime-200 transition-colors hover:bg-lime-300/[0.12] hover:text-lime-100"
+        className="inline-flex items-center gap-1 rounded border border-lime-300/30 bg-lime-300/[0.05] px-1.5 py-[1px] font-mono text-xs text-lime-200 transition-colors hover:bg-lime-300/[0.12] hover:text-lime-100"
       >
         <span className="truncate">{display}</span>
       </button>

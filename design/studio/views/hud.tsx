@@ -51,7 +51,7 @@ export default function HudStudyPage() {
 
 function Research() {
   return (
-    <section className="mt-20 w-full max-w-[920px] font-sans text-[13px] leading-relaxed text-studio-ink-muted">
+    <section className="mt-20 w-full max-w-[920px] font-sans text-lg leading-relaxed text-studio-ink-muted">
       <ResearchHeader surface="hud · macos · interactive" />
 
       <ResearchBlock eyebrow="engage preview matrix">
@@ -93,38 +93,38 @@ function Research() {
       <ResearchBlock eyebrow="tier transitions">
         <p className="mb-3">
           The panel resizes between tiers, it does not pop. Switching{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
+          <code className="font-mono text-sm text-studio-ink">
             compact
           </code>{" "}
           ↔{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
+          <code className="font-mono text-sm text-studio-ink">
             medium
           </code>{" "}
           ↔{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
+          <code className="font-mono text-sm text-studio-ink">
             large
           </code>{" "}
           animates the outer frame&rsquo;s width and height over{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
+          <code className="font-mono text-sm text-studio-ink">
             220ms
           </code>{" "}
           with{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
+          <code className="font-mono text-sm text-studio-ink">
             cubic-bezier(0.42, 0, 0.58, 1)
           </code>{" "}
           — literal ease-in-out, mirroring the native HUD&rsquo;s{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
+          <code className="font-mono text-sm text-studio-ink">
             NSAnimationContext
           </code>{" "}
           cadence.
         </p>
         <p>
           The body content cross-fades on the same gesture (
-          <code className="font-mono text-[11px] text-studio-ink">
+          <code className="font-mono text-sm text-studio-ink">
             180ms ease-out
           </code>
           , keyed on{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
+          <code className="font-mono text-sm text-studio-ink">
             `${"{tab}"}-${"{size}"}`
           </code>
           ) so the new layout lands already lit. Tab switches inherit the
@@ -142,7 +142,7 @@ function Research() {
           <li>
             <span className="text-studio-ink">Accent:</span> single lime
             (
-            <code className="font-mono text-[11px] text-studio-ink">
+            <code className="font-mono text-sm text-studio-ink">
               --scout-accent
             </code>
             ) carries live · attention · selected. No per-kind hue. No
@@ -150,7 +150,7 @@ function Research() {
           </li>
           <li>
             <span className="text-studio-ink">Hairlines:</span> solid{" "}
-            <code className="font-mono text-[11px] text-studio-ink">
+            <code className="font-mono text-sm text-studio-ink">
               border-studio-edge
             </code>
             . No gradients. No paper grain. No glass specular.
@@ -165,7 +165,7 @@ function Research() {
             row to reveal detail. Esc closes. Clicking another row
             swaps the detail without closing. Identical pattern across
             all four tabs via{" "}
-            <code className="font-mono text-[11px] text-studio-ink">
+            <code className="font-mono text-sm text-studio-ink">
               useHudEngage()
             </code>
             .
@@ -237,7 +237,7 @@ function Research() {
       <ResearchBlock eyebrow="references">
         <p>
           Lattices type system at{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
+          <code className="font-mono text-sm text-studio-ink">
             /Users/arach/dev/lattices/apps/mac/Sources/UI/Theme.swift
           </code>{" "}
           — same Inter + JBM ladder; informed the size-collapse to
@@ -304,16 +304,16 @@ const MATRIX_ROWS: {
 function EngageMatrix() {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-left text-[12px]">
+      <table className="w-full border-collapse text-left text-md">
         <thead>
           <tr className="border-b border-studio-edge">
-            <th className="w-[90px] py-2 align-bottom font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+            <th className="w-[90px] py-2 align-bottom font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
               · entity
             </th>
             {MATRIX_COLS.map((c) => (
               <th
                 key={c.size}
-                className="py-2 align-bottom font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint"
+                className="py-2 align-bottom font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint"
               >
                 <div className="text-studio-ink">{c.label}</div>
                 <div className="mt-0.5 font-normal normal-case tracking-normal text-studio-ink-faint">
@@ -329,7 +329,7 @@ function EngageMatrix() {
               key={row.tab}
               className="border-b border-studio-edge align-top"
             >
-              <td className="py-3 pr-3 font-sans text-[13px] font-semibold text-studio-ink">
+              <td className="py-3 pr-3 font-sans text-lg font-semibold text-studio-ink">
                 {row.label}
               </td>
               {row.cells.map((cell, i) => (

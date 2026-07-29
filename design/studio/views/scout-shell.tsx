@@ -430,15 +430,15 @@ export default function ScoutShellPage() {
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div className="max-w-prose">
-          <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             · studies · scout · design system
           </div>
-          <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+          <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
             Scout — Design System
           </h1>
-          <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
-            One token set (<code className="font-mono text-[11px] text-studio-ink">--s-*</code>, the exact
-            sRGB of native <code className="font-mono text-[11px] text-studio-ink">ScoutThemeColors</code>),
+          <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
+            One token set (<code className="font-mono text-sm text-studio-ink">--s-*</code>, the exact
+            sRGB of native <code className="font-mono text-sm text-studio-ink">ScoutThemeColors</code>),
             then the whole shell rebuilt from it — every nav surface as a window. The default skin is the{" "}
             <strong className="font-semibold text-studio-ink">live app theme</strong> right now: juniper · light · indigo.
           </p>
@@ -453,11 +453,11 @@ export default function ScoutShellPage() {
                 skin === s.id ? "bg-studio-surface text-studio-ink" : "text-studio-ink-faint hover:text-studio-ink"
               }`}
             >
-              <div className="flex items-center gap-1.5 font-mono text-[11px] font-semibold">
+              <div className="flex items-center gap-1.5 font-mono text-sm font-semibold">
                 {s.label}
                 {s.current ? <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" title="current app theme" /> : null}
               </div>
-              <div className="font-mono text-[8.5px] uppercase tracking-eyebrow opacity-70">{s.tone}</div>
+              <div className="font-mono text-3xs uppercase tracking-eyebrow opacity-70">{s.tone}</div>
             </button>
           ))}
         </div>

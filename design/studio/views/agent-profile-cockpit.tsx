@@ -86,7 +86,7 @@ function Dot({ live = false, size = 6 }: { live?: boolean; size?: number }) {
 
 function Eyebrow({ children }: { children: React.ReactNode }) {
   return (
-    <span className="font-mono text-[7.5px] font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">
+    <span className="font-mono text-3xs font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">
       {children}
     </span>
   );
@@ -122,14 +122,14 @@ function ContextGauge({ pct }: { pct: number }) {
     <div className="flex flex-col gap-2">
       <div className="flex items-baseline justify-between">
         <Eyebrow>Context load</Eyebrow>
-        <span className="font-mono text-[9px] tabular-nums text-studio-ink-faint">
+        <span className="font-mono text-2xs tabular-nums text-studio-ink-faint">
           0 turns · last activity now
         </span>
       </div>
       <div className="flex items-center gap-3">
-        <span className="font-mono text-[26px] leading-none tabular-nums" style={{ color: INK_TXT }}>
+        <span className="font-mono text-6xl leading-none tabular-nums" style={{ color: INK_TXT }}>
           {pct}
-          <span className="ml-0.5 text-[12px] text-studio-ink-faint">%</span>
+          <span className="ml-0.5 text-md text-studio-ink-faint">%</span>
         </span>
         <div className="relative h-[5px] flex-1 overflow-hidden rounded-full" style={{ background: INK.edgeSoft }}>
           {filled > 0 ? (
@@ -139,7 +139,7 @@ function ContextGauge({ pct }: { pct: number }) {
             <span className="absolute left-0 top-0 h-full w-[2px] rounded-full" style={{ background: ACCENT, opacity: 0.85 }} />
           )}
         </div>
-        <span className="font-mono text-[8px] uppercase tracking-[0.14em] text-studio-ink-faint">
+        <span className="font-mono text-3xs uppercase tracking-[0.14em] text-studio-ink-faint">
           full headroom
         </span>
       </div>
@@ -164,16 +164,16 @@ function LiveBand() {
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
-            <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: ACCENT }}>
+            <span className="font-mono text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: ACCENT }}>
               Ready
             </span>
-            <span className="font-mono text-[9px] text-studio-ink-faint">· idle, holding · updated 2m ago</span>
+            <span className="font-mono text-2xs text-studio-ink-faint">· idle, holding · updated 2m ago</span>
           </div>
           {/* resting-state headline — confident, not a void */}
-          <div className="mt-2 text-[15px] leading-snug" style={{ color: INK_TXT }}>
+          <div className="mt-2 text-2xl leading-snug" style={{ color: INK_TXT }}>
             Idle and ready for the next task.
           </div>
-          <div className="mt-1 font-mono text-[10px] text-studio-ink-faint">
+          <div className="mt-1 font-mono text-xs text-studio-ink-faint">
             Last shipped{" "}
             <span style={{ color: INK_MUTED }}>“Wire scoutd repo-watch signing”</span> · 12m ago
           </div>
@@ -185,10 +185,10 @@ function LiveBand() {
           style={{ border: `1px solid ${INK.edgeSoft}` }}
         >
           <Eyebrow>Conversation</Eyebrow>
-          <span className="font-mono text-[11px]" style={{ color: INK_MUTED }}>
+          <span className="font-mono text-sm" style={{ color: INK_MUTED }}>
             scoutd · repo-watch
           </span>
-          <span className="font-mono text-[8px] text-studio-ink-faint">open thread →</span>
+          <span className="font-mono text-3xs text-studio-ink-faint">open thread →</span>
         </button>
       </div>
 
@@ -207,7 +207,7 @@ function RecentWork() {
     <div>
       <div className="mb-2.5 flex items-baseline justify-between">
         <Eyebrow>Recent work</Eyebrow>
-        <span className="font-mono text-[8.5px] text-studio-ink-faint">last 3h</span>
+        <span className="font-mono text-3xs text-studio-ink-faint">last 3h</span>
       </div>
       <div className="flex flex-col">
         {RECENT.map((r, i) => (
@@ -218,13 +218,13 @@ function RecentWork() {
             style={{ borderTop: i ? `1px solid ${INK.edgeSoft}` : undefined }}
           >
             <span className="h-1.5 w-1.5 flex-none rounded-full" style={{ background: INK.edge }} />
-            <span className="min-w-0 flex-1 truncate text-[12px]" style={{ color: INK_MUTED }}>
+            <span className="min-w-0 flex-1 truncate text-md" style={{ color: INK_MUTED }}>
               {r.title}
             </span>
-            <span className="flex-none rounded-[3px] px-1.5 py-[1px] font-mono text-[7.5px] font-semibold uppercase tracking-[0.1em] text-studio-ink-faint" style={{ border: `1px solid ${INK.edge}` }}>
+            <span className="flex-none rounded-[3px] px-1.5 py-[1px] font-mono text-3xs font-semibold uppercase tracking-[0.1em] text-studio-ink-faint" style={{ border: `1px solid ${INK.edge}` }}>
               done
             </span>
-            <span className="flex-none font-mono text-[9px] tabular-nums text-studio-ink-faint">{r.ago}</span>
+            <span className="flex-none font-mono text-2xs tabular-nums text-studio-ink-faint">{r.ago}</span>
           </button>
         ))}
       </div>
@@ -243,10 +243,10 @@ function IdentityStrip() {
           <Eyebrow>agent · claude</Eyebrow>
         </div>
         <div className="mt-1 flex items-baseline gap-2">
-          <span className="font-display text-[19px] leading-none" style={{ color: INK_TXT }}>
+          <span className="font-display text-4xl leading-none" style={{ color: INK_TXT }}>
             Openscout Card 0
           </span>
-          <span className="font-mono text-[10px]" style={{ color: "oklch(0.7 0.08 200)" }}>
+          <span className="font-mono text-xs" style={{ color: "oklch(0.7 0.08 200)" }}>
             @openscout-card-0-lxrq1a
           </span>
         </div>
@@ -254,8 +254,8 @@ function IdentityStrip() {
       {/* repo / branch lives in the header — it's identity, not live signal */}
       <div className="hidden flex-none flex-col items-end gap-0.5 sm:flex">
         <Eyebrow>Repo · branch</Eyebrow>
-        <span className="font-mono text-[10px]" style={{ color: INK_MUTED }}>openscout</span>
-        <span className="font-mono text-[8.5px] text-studio-ink-faint">codex/sign-scoutd-repo-watch</span>
+        <span className="font-mono text-xs" style={{ color: INK_MUTED }}>openscout</span>
+        <span className="font-mono text-3xs text-studio-ink-faint">codex/sign-scoutd-repo-watch</span>
       </div>
     </div>
   );
@@ -273,14 +273,14 @@ function FactsBand() {
       >
         {FACTS.map((f) => (
           <div key={f.k} className="min-w-0" style={{ gridColumn: f.wide ? "span 2" : undefined }}>
-            <div className="font-mono text-[7.5px] font-semibold uppercase tracking-[0.14em] text-studio-ink-faint">
+            <div className="font-mono text-3xs font-semibold uppercase tracking-[0.14em] text-studio-ink-faint">
               {f.k}
             </div>
-            <div className="mt-1 truncate font-mono text-[10.5px]" style={{ color: INK_MUTED }}>
+            <div className="mt-1 truncate font-mono text-xs" style={{ color: INK_MUTED }}>
               {f.v}
             </div>
             {f.sub ? (
-              <div className="mt-0.5 truncate font-mono text-[8.5px] text-studio-ink-faint">{f.sub}</div>
+              <div className="mt-0.5 truncate font-mono text-3xs text-studio-ink-faint">{f.sub}</div>
             ) : null}
           </div>
         ))}
@@ -309,8 +309,8 @@ function RailSection({ label, count, children }: { label: string; count?: React.
   return (
     <div>
       <div className="mb-2 flex items-baseline justify-between">
-        <span className="font-mono text-[8px] font-semibold uppercase tracking-[0.18em] text-studio-ink-faint">{label}</span>
-        {count != null ? <span className="font-mono text-[8.5px] tabular-nums text-studio-ink-faint">{count}</span> : null}
+        <span className="font-mono text-3xs font-semibold uppercase tracking-[0.18em] text-studio-ink-faint">{label}</span>
+        {count != null ? <span className="font-mono text-3xs tabular-nums text-studio-ink-faint">{count}</span> : null}
       </div>
       {children}
     </div>
@@ -346,8 +346,8 @@ function PeerRow({ name, state, live }: { name: string; state: string; live: boo
   return (
     <div className="flex items-center gap-2 py-[3px]">
       <Dot live={live} />
-      <span className="flex-1 truncate font-mono text-[10px]" style={{ color: live ? INK_TXT : INK_MUTED }}>{name}</span>
-      <span className="font-mono text-[8px] uppercase tracking-[0.1em] text-studio-ink-faint">{state}</span>
+      <span className="flex-1 truncate font-mono text-xs" style={{ color: live ? INK_TXT : INK_MUTED }}>{name}</span>
+      <span className="font-mono text-3xs uppercase tracking-[0.1em] text-studio-ink-faint">{state}</span>
     </div>
   );
 }
@@ -356,7 +356,7 @@ function Caps() {
   return (
     <div className="flex flex-wrap gap-1">
       {CAPS.map((c) => (
-        <span key={c} className="rounded-[3px] px-1.5 py-[2px] font-mono text-[8px]" style={{ background: INK.module, color: INK_MUTED }}>
+        <span key={c} className="rounded-[3px] px-1.5 py-[2px] font-mono text-3xs" style={{ background: INK.module, color: INK_MUTED }}>
           {c}
         </span>
       ))}
@@ -369,11 +369,11 @@ function SessionCard() {
     <div className="rounded-[5px] px-2 py-1.5" style={{ border: `1px solid ${INK.edgeSoft}`, background: INK.rail }}>
       <div className="flex items-center gap-1.5">
         <Dot live />
-        <span className="font-mono text-[9.5px]" style={{ color: INK_TXT }}>a1b2c3d4</span>
-        <span className="rounded-sm px-1 font-mono text-[7px] uppercase tracking-[0.08em] text-studio-ink-faint" style={{ background: INK.module }}>tmux</span>
-        <span className="ml-auto font-mono text-[7.5px] uppercase tracking-[0.12em]" style={{ color: ACCENT }}>active</span>
+        <span className="font-mono text-2xs" style={{ color: INK_TXT }}>a1b2c3d4</span>
+        <span className="rounded-sm px-1 font-mono text-3xs uppercase tracking-[0.08em] text-studio-ink-faint" style={{ background: INK.module }}>tmux</span>
+        <span className="ml-auto font-mono text-3xs uppercase tracking-[0.12em]" style={{ color: ACCENT }}>active</span>
       </div>
-      <div className="mt-1 font-mono text-[8px] text-studio-ink-faint">openscout</div>
+      <div className="mt-1 font-mono text-3xs text-studio-ink-faint">openscout</div>
     </div>
   );
 }
@@ -382,7 +382,7 @@ function Rail() {
   return (
     <div className="flex w-[228px] flex-none flex-col" style={{ background: INK.panel, borderLeft: `1px solid ${INK.edge}` }}>
       <div className="flex h-[30px] flex-none items-center px-3" style={{ borderBottom: `1px solid ${INK.edgeSoft}` }}>
-        <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">Instrument</span>
+        <span className="font-mono text-2xs font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">Instrument</span>
       </div>
       <div className="flex flex-col gap-4 overflow-y-auto p-3.5">
         <RailSection label="Presence" count="4 peers">
@@ -422,7 +422,7 @@ export function Frame() {
             <span key={i} className="h-2 w-2 rounded-full" style={{ background: INK.edge }} />
           ))}
         </div>
-        <span className="font-mono text-[9px] text-studio-ink-faint">Scout · Agents › Openscout Card 0</span>
+        <span className="font-mono text-2xs text-studio-ink-faint">Scout · Agents › Openscout Card 0</span>
       </div>
       <div className="flex" style={{ height: 560 }}>
         <Center />
@@ -438,13 +438,13 @@ export default function AgentProfileCockpitPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-6 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · agent-profile-cockpit
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Agent Profile · Cockpit
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           Lead with what the agent is doing, not who it is. A live status band — state, the
           context-load gauge, last-activity pulse, the conversation it sits in — is the hero;
           identity drops to a compact header strip and one quiet facts band. The would-be dead
@@ -455,10 +455,10 @@ export default function AgentProfileCockpitPage() {
       <Frame />
 
       <section className="mt-9 max-w-prose">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">
           Design notes
         </div>
-        <ul className="flex flex-col gap-2 text-[12px] leading-relaxed text-studio-ink-faint">
+        <ul className="flex flex-col gap-2 text-md leading-relaxed text-studio-ink-faint">
           <li>
             <span style={{ color: INK_TXT }}>Live-first hierarchy →</span> the brightest element is the
             status band (state · context gauge · last-activity · conversation), not the name. Identity is

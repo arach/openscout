@@ -377,7 +377,7 @@ export default function RouteInventoryPage() {
   return (
     <main className="mx-auto max-w-[1500px] px-7 py-8">
       <header className="mb-8 border-b border-studio-edge pb-5">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           meta / route inventory
         </div>
         <div className="mt-2 grid gap-5 lg:grid-cols-[minmax(0,1fr)_520px]">
@@ -385,7 +385,7 @@ export default function RouteInventoryPage() {
             <h1 className="font-display text-4xl font-medium leading-none tracking-tight text-studio-ink">
               OpenScout route inventory
             </h1>
-            <p className="mt-3 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+            <p className="mt-3 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
               Pages, canonical URL structures, compatibility routes, and the UI
               components that offer navigation into them.
             </p>
@@ -402,8 +402,8 @@ export default function RouteInventoryPage() {
       <section className="mb-8 grid gap-3 lg:grid-cols-4">
         {NOTES.map(([title, body]) => (
           <article key={title} className="rounded-md border border-studio-edge bg-studio-surface p-4">
-            <h2 className="font-sans text-[13px] font-semibold text-studio-ink">{title}</h2>
-            <p className="mt-2 font-sans text-[12px] leading-relaxed text-studio-ink-faint">{body}</p>
+            <h2 className="font-sans text-lg font-semibold text-studio-ink">{title}</h2>
+            <p className="mt-2 font-sans text-md leading-relaxed text-studio-ink-faint">{body}</p>
           </article>
         ))}
       </section>
@@ -414,17 +414,17 @@ export default function RouteInventoryPage() {
             <article key={page.title} className="overflow-hidden rounded-md border border-studio-edge bg-studio-surface">
               <div className="grid gap-3 border-b border-studio-edge p-4 md:grid-cols-[minmax(0,1fr)_auto]">
                 <div>
-                  <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-studio-ink-faint">
+                  <div className="font-mono text-2xs uppercase tracking-[0.18em] text-studio-ink-faint">
                     {page.view}
                   </div>
-                  <h2 className="mt-1 font-display text-[20px] font-medium leading-tight text-studio-ink">
+                  <h2 className="mt-1 font-display text-4xl font-medium leading-tight text-studio-ink">
                     {page.title}
                   </h2>
-                  <p className="mt-2 font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+                  <p className="mt-2 font-sans text-md leading-relaxed text-studio-ink-faint">
                     {page.concept}
                   </p>
                 </div>
-                <code className="h-fit rounded-sm border border-studio-edge bg-code-bg px-2 py-1 font-mono text-[11px] text-studio-ink">
+                <code className="h-fit rounded-sm border border-studio-edge bg-code-bg px-2 py-1 font-mono text-sm text-studio-ink">
                   {page.canonical}
                 </code>
               </div>
@@ -439,13 +439,13 @@ export default function RouteInventoryPage() {
           {COMPONENTS.map((component) => (
             <article key={component.name} className="overflow-hidden rounded-md border border-studio-edge bg-studio-surface">
               <div className="border-b border-studio-edge p-4">
-                <div className="font-mono text-[9px] tracking-[0.12em] text-studio-ink-faint">
+                <div className="font-mono text-2xs tracking-[0.12em] text-studio-ink-faint">
                   {component.file}
                 </div>
-                <h2 className="mt-1 font-display text-[19px] font-medium leading-tight text-studio-ink">
+                <h2 className="mt-1 font-display text-4xl font-medium leading-tight text-studio-ink">
                   {component.name}
                 </h2>
-                <p className="mt-2 font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+                <p className="mt-2 font-sans text-md leading-relaxed text-studio-ink-faint">
                   {component.role}
                 </p>
               </div>
@@ -461,8 +461,8 @@ export default function RouteInventoryPage() {
 function Metric({ label, value }: { label: string; value: number }) {
   return (
     <div className="border-b border-r border-studio-edge p-4 md:border-b-0">
-      <div className="font-mono text-[24px] leading-none text-studio-ink">{value}</div>
-      <div className="mt-1 font-mono text-[9px] uppercase tracking-[0.18em] text-studio-ink-faint">{label}</div>
+      <div className="font-mono text-5xl leading-none text-studio-ink">{value}</div>
+      <div className="mt-1 font-mono text-2xs uppercase tracking-[0.18em] text-studio-ink-faint">{label}</div>
     </div>
   );
 }
@@ -479,10 +479,10 @@ function InventorySection({
   return (
     <section className="mb-10">
       <div className="mb-3 flex items-baseline gap-3 border-b border-studio-edge pb-2">
-        <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           {title}
         </div>
-        <div className="font-mono text-[9px] uppercase tracking-[0.20em] text-studio-ink-faint">
+        <div className="font-mono text-2xs uppercase tracking-[0.20em] text-studio-ink-faint">
           {count}
         </div>
       </div>
@@ -499,20 +499,20 @@ function RouteList({ routes, compact = false }: { routes: RouteItem[]; compact?:
           key={`${item.path}:${item.label}:${item.source}`}
           className={`grid gap-2 p-3 ${compact ? "md:grid-cols-[86px_minmax(0,1fr)]" : "md:grid-cols-[92px_minmax(180px,1.1fr)_minmax(130px,0.8fr)_minmax(120px,0.8fr)]"}`}
         >
-          <span className={`h-fit w-fit rounded-sm border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] ${kindClass(item.kind)}`}>
+          <span className={`h-fit w-fit rounded-sm border px-1.5 py-0.5 font-mono text-2xs uppercase tracking-[0.12em] ${kindClass(item.kind)}`}>
             {KIND_LABEL[item.kind]}
           </span>
-          <code className="break-words font-mono text-[11px] leading-relaxed text-studio-ink">
+          <code className="break-words font-mono text-sm leading-relaxed text-studio-ink">
             {item.path}
           </code>
-          <span className="font-sans text-[12px] leading-relaxed text-studio-ink-muted">
+          <span className="font-sans text-md leading-relaxed text-studio-ink-muted">
             {item.label}
           </span>
-          <span className="break-words font-mono text-[9px] leading-relaxed text-studio-ink-faint">
+          <span className="break-words font-mono text-2xs leading-relaxed text-studio-ink-faint">
             {item.source}
           </span>
           {item.note ? (
-            <span className="md:col-start-2 md:col-end-5 font-sans text-[11px] leading-relaxed text-studio-ink-faint">
+            <span className="md:col-start-2 md:col-end-5 font-sans text-sm leading-relaxed text-studio-ink-faint">
               {item.note}
             </span>
           ) : null}

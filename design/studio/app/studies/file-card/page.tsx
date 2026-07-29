@@ -54,7 +54,7 @@ export default function FileCardPage() {
   if (stats.length === 0) {
     return (
       <main className="mx-auto max-w-page px-7 py-8">
-        <p className="font-sans text-[13px] italic text-studio-ink-faint">
+        <p className="font-sans text-lg italic text-studio-ink-faint">
           No sample files found on disk.
         </p>
       </main>
@@ -123,27 +123,27 @@ export default function FileCardPage() {
       </Section>
 
       <section className="mt-12 max-w-prose">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · candidate consumers
         </div>
-        <ul className="font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+        <ul className="font-sans text-md leading-relaxed text-studio-ink-faint">
           <li>
-            <code className="font-mono text-[11px] text-studio-ink">
+            <code className="font-mono text-sm text-studio-ink">
               components/EngMarkdown.tsx
             </code>{" "}
             — wrap inline path code spans in a hover card
           </li>
           <li>
-            <code className="font-mono text-[11px] text-studio-ink">
+            <code className="font-mono text-sm text-studio-ink">
               app/eng/file/[...path]/page.tsx
             </code>{" "}
             — replace the manual file-info strip with{" "}
-            <code className="font-mono text-[11px] text-studio-ink">
+            <code className="font-mono text-sm text-studio-ink">
               &lt;FileCardCompact /&gt;
             </code>
           </li>
           <li>
-            <code className="font-mono text-[11px] text-studio-ink">
+            <code className="font-mono text-sm text-studio-ink">
               components/EngDocHeader.tsx
             </code>{" "}
             — Related row could render sibling files as compact cards
@@ -167,10 +167,10 @@ function Section({
   return (
     <section className="mb-10">
       <div className="mb-3 flex items-baseline gap-3">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · {title}
         </div>
-        <div className="font-mono text-[10px] text-studio-ink-faint">
+        <div className="font-mono text-xs text-studio-ink-faint">
           {hint}
         </div>
         <div className="ml-3 h-px flex-1 bg-studio-edge" />

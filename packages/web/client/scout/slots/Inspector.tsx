@@ -4,7 +4,6 @@ import { useScout } from "../Provider.tsx";
 import { resolveRightPane } from "../../screens/resolve-panes.tsx";
 import { ScoutbotPanel } from "../scoutbot/ScoutbotPanel.tsx";
 import { BrokerRight } from "../../screens/broker/right.tsx";
-import { ChatChannelsRight } from "../../screens/chat/channels-right.tsx";
 import { OpsRight } from "../../screens/ops/inspector-panel.tsx";
 import { usePersistentBoolean, usePersistentNumber } from "../../lib/persistent-state.ts";
 import { VerticalResizeHandle } from "./VerticalResizeHandle.tsx";
@@ -80,16 +79,6 @@ export function ScoutInspector() {
     content = <ScoutbotPanel forceExpanded fill />;
   } else {
     switch (route.view) {
-      case "channels":
-        content = (
-          <ChatChannelsRight
-            channelId={route.channelId}
-            agents={agents}
-            navigate={navigate}
-            returnRoute={route}
-          />
-        );
-        break;
       case "ops":
         content = (
           <OpsRight

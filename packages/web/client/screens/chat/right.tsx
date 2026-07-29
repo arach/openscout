@@ -109,8 +109,13 @@ function flightStateLabel(state: string): string {
 
 export function ConversationInspector() {
   const { route, agents, navigate, apiConnection, reload } = useScout();
+  // One conversation route: /messages/<id> is how the rail opens everything
+  // (channels included, whose dedicated right pane died with the channels
+  // route), so the inspector reads the id from both conversation views.
   const conversationId =
-    route.view === "conversation" ? route.conversationId : null;
+    route.view === "conversation" || route.view === "messages"
+      ? route.conversationId ?? null
+      : null;
 
   const [meta, setMeta] = useState<SessionEntry | null>(null);
   const [flights, setFlights] = useState<Flight[]>([]);

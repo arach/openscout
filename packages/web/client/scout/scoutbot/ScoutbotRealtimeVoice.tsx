@@ -84,7 +84,7 @@ export function ScoutbotRealtimeVoice({
         aria-label={title}
         aria-expanded={open}
         aria-controls="scoutbot-realtime-voice-menu"
-        className={`flex h-[18px] items-center gap-1.5 rounded border px-1.5 font-mono text-[9px] uppercase tracking-[0.1em] transition-colors ${
+        className={`flex h-[18px] items-center gap-1.5 rounded border px-1.5 font-mono text-2xs uppercase tracking-[0.1em] transition-colors ${
           state === "live"
             ? "border-lime-300/35 bg-lime-300/[0.08] text-lime-100"
             : state === "connecting"

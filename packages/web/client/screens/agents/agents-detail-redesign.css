@@ -519,7 +519,7 @@
 .s-work-casefile-title {
   margin: 0;
   font-family: var(--font-accent-title);
-  font-size: 26px;
+  font-size: var(--text-6xl);
   font-weight: 600;
   line-height: var(--leading-none);
   letter-spacing: -0.03em;
@@ -963,7 +963,7 @@
 
 .s-agent-profile-hero-title {
   max-width: 18ch;
-  font-size: 36px;
+  font-size: var(--text-8xl);
   line-height: 0.98;
   letter-spacing: 0;
 }
@@ -2036,7 +2036,7 @@
 }
 
 .s-work-not-found-glyph {
-  font-size: 32px;
+  font-size: var(--text-7xl);
   font-weight: 100;
   color: color-mix(in srgb, var(--border) 90%, var(--muted));
   line-height: var(--leading-none);

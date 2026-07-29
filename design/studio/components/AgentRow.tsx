@@ -122,19 +122,19 @@ export function AgentRow({
                 : undefined,
           }}
         />
-        <span className="w-[80px] shrink-0 font-sans text-[13px] font-medium text-studio-ink">
+        <span className="w-[80px] shrink-0 font-sans text-lg font-medium text-studio-ink">
           {agent.name}
         </span>
         <span
-          className="w-[110px] shrink-0 font-mono text-[10px] uppercase tracking-eyebrow"
+          className="w-[110px] shrink-0 font-mono text-xs uppercase tracking-eyebrow"
           style={{ color: dotColor }}
         >
           {AGENT_STATE_LABEL[agent.state]}
         </span>
-        <span className="min-w-0 flex-1 truncate font-sans text-[12.5px] text-studio-ink-faint">
+        <span className="min-w-0 flex-1 truncate font-sans text-md text-studio-ink-faint">
           {agent.task ?? "—"}
         </span>
-        <span className="shrink-0 font-mono text-[10px] tabular-nums text-studio-ink-faint">
+        <span className="shrink-0 font-mono text-xs tabular-nums text-studio-ink-faint">
           {agent.updatedAgo}
         </span>
       </div>
@@ -143,7 +143,7 @@ export function AgentRow({
 
   const padY = density === "compact" ? "py-1" : "py-1.5";
   const avatarSize =
-    density === "compact" ? "h-5 w-5 text-[10px]" : "h-6 w-6 text-[10.5px]";
+    density === "compact" ? "h-5 w-5 text-xs" : "h-6 w-6 text-xs";
   const dotRing = density === "compact" ? "ring-1" : "ring-2";
 
   return wrap(
@@ -174,11 +174,11 @@ export function AgentRow({
         ) : null}
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate font-sans text-[12.5px] text-studio-ink">
+        <span className="truncate font-sans text-md text-studio-ink">
           {agent.name}
         </span>
         <span
-          className="truncate font-mono text-[10px]"
+          className="truncate font-mono text-xs"
           style={{ color: dotColor }}
         >
           {AGENT_STATE_LABEL[agent.state]}
@@ -187,7 +187,7 @@ export function AgentRow({
           ) : null}
         </span>
       </div>
-      <span className="shrink-0 font-mono text-[9.5px] tabular-nums text-studio-ink-faint">
+      <span className="shrink-0 font-mono text-2xs tabular-nums text-studio-ink-faint">
         {agent.updatedAgo}
       </span>
     </div>

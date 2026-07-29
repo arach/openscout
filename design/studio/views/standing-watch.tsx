@@ -136,20 +136,20 @@ export default function StandingWatchPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-6 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · standing-watch
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Standing watch
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           The mesh as a sonar scope. Heading carries node residency —{" "}
-          <span className="font-mono text-[11px] text-studio-ink">macbook</span>{" "}
+          <span className="font-mono text-sm text-studio-ink">macbook</span>{" "}
           north,{" "}
-          <span className="font-mono text-[11px] text-studio-ink">hetz</span>{" "}
-          east, <span className="font-mono text-[11px] text-studio-ink">archie</span>{" "}
+          <span className="font-mono text-sm text-studio-ink">hetz</span>{" "}
+          east, <span className="font-mono text-sm text-studio-ink">archie</span>{" "}
           south,{" "}
-          <span className="font-mono text-[11px] text-studio-ink">cloud</span>{" "}
+          <span className="font-mono text-sm text-studio-ink">cloud</span>{" "}
           west. Distance from center carries recency. Frozen mid-sweep.
         </p>
       </header>
@@ -213,7 +213,7 @@ export default function StandingWatchPage() {
                   <text
                     x={x2}
                     y={y2 + (node === "macbook" ? -4 : node === "archie" ? 12 : 4)}
-                    fontSize={9.5}
+                    fontSize={9}
                     fontFamily="JetBrains Mono, ui-monospace"
                     fill="var(--studio-ink-faint)"
                     letterSpacing="0.22em"
@@ -387,10 +387,10 @@ export default function StandingWatchPage() {
       </div>
 
       <section className="mt-12 max-w-prose">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · why this exists
         </div>
-        <p className="font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="font-sans text-lg leading-relaxed text-studio-ink-faint">
           Roster lists tell you who&apos;s on the team. They don&apos;t tell you
           where they are, or how recently they spoke. For a mesh fleet that
           spans a laptop, a remote box, a home server, and a few cloud
@@ -408,8 +408,8 @@ export default function StandingWatchPage() {
 function DetailPanel({ hover }: { hover: Beacon | null }) {
   if (!hover) {
     return (
-      <div className="flex h-full min-h-[200px] flex-col justify-center rounded-md border border-studio-edge bg-studio-canvas-alt px-5 py-6 font-mono text-[10.5px] text-studio-ink-faint">
-        <div className="text-[9px] uppercase tracking-eyebrow">No beacon</div>
+      <div className="flex h-full min-h-[200px] flex-col justify-center rounded-md border border-studio-edge bg-studio-canvas-alt px-5 py-6 font-mono text-xs text-studio-ink-faint">
+        <div className="text-2xs uppercase tracking-eyebrow">No beacon</div>
         <div className="mt-2 leading-relaxed">
           Hover any node on the scope to inspect its current task,
           residency, and time-since-last-ping.
@@ -419,22 +419,22 @@ function DetailPanel({ hover }: { hover: Beacon | null }) {
   }
   return (
     <div className="rounded-md border border-studio-edge bg-studio-canvas-alt p-5">
-      <div className="text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         Beacon
       </div>
       <div className="mt-1 flex items-baseline gap-3">
-        <h2 className="font-display text-[20px] tracking-tight text-studio-ink">
+        <h2 className="font-display text-4xl tracking-tight text-studio-ink">
           {hover.name}
         </h2>
         <span
-          className="font-mono text-[10px] uppercase tracking-eyebrow"
+          className="font-mono text-xs uppercase tracking-eyebrow"
           style={{ color: STATE_COLOR[hover.state] }}
         >
           {hover.state}
         </span>
         {hover.unread ? (
           <span
-            className="rounded-[3px] px-1.5 py-px font-mono text-[9px] font-semibold tabular-nums"
+            className="rounded-[3px] px-1.5 py-px font-mono text-2xs font-semibold tabular-nums"
             style={{
               color: "var(--status-error-fg)",
               background: "var(--status-error-bg)",
@@ -445,7 +445,7 @@ function DetailPanel({ hover }: { hover: Beacon | null }) {
         ) : null}
       </div>
 
-      <dl className="mt-4 grid grid-cols-[80px_1fr] gap-x-3 gap-y-2 font-mono text-[10.5px]">
+      <dl className="mt-4 grid grid-cols-[80px_1fr] gap-x-3 gap-y-2 font-mono text-xs">
         <dt className="uppercase tracking-eyebrow text-studio-ink-faint">
           Node
         </dt>
@@ -466,7 +466,7 @@ function DetailPanel({ hover }: { hover: Beacon | null }) {
         ) : null}
       </dl>
 
-      <div className="mt-5 border-t border-studio-edge pt-3 font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="mt-5 border-t border-studio-edge pt-3 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         @{hover.id} · h{hover.hue}
       </div>
     </div>

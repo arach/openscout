@@ -109,7 +109,7 @@ export function SourceFileViewer({ path, onClose }: SourceFileViewerProps) {
         {/* Chrome */}
         <div className="flex items-baseline gap-3 border-b border-studio-edge px-5 py-3">
           <div className="min-w-0 flex-1">
-            <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+            <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
               · file
               {dir ? (
                 <>
@@ -122,12 +122,12 @@ export function SourceFileViewer({ path, onClose }: SourceFileViewerProps) {
                 </>
               ) : null}
             </div>
-            <div className="mt-0.5 truncate font-sans text-[14px] font-medium tracking-tight text-studio-ink">
+            <div className="mt-0.5 truncate font-sans text-xl font-medium tracking-tight text-studio-ink">
               {filename}
             </div>
           </div>
 
-          <div className="flex shrink-0 items-baseline gap-3 font-mono text-[10px] text-studio-ink-faint">
+          <div className="flex shrink-0 items-baseline gap-3 font-mono text-xs text-studio-ink-faint">
             {data ? (
               <>
                 <span className="tabular-nums">
@@ -152,7 +152,7 @@ export function SourceFileViewer({ path, onClose }: SourceFileViewerProps) {
 
             <a
               href={cursorHref}
-              className="ml-1 inline-flex items-baseline gap-1 rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-2 py-1 font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint transition-colors hover:border-studio-edge-strong hover:text-studio-ink"
+              className="ml-1 inline-flex items-baseline gap-1 rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-2 py-1 font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint transition-colors hover:border-studio-edge-strong hover:text-studio-ink"
               title="Open in Cursor"
             >
               <span>cursor</span>
@@ -163,7 +163,7 @@ export function SourceFileViewer({ path, onClose }: SourceFileViewerProps) {
               type="button"
               aria-label="Close"
               onClick={onClose}
-              className="ml-1 inline-flex items-center justify-center rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-2 py-1 font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint transition-colors hover:border-studio-edge-strong hover:text-studio-ink"
+              className="ml-1 inline-flex items-center justify-center rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-2 py-1 font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint transition-colors hover:border-studio-edge-strong hover:text-studio-ink"
             >
               ESC
             </button>
@@ -176,12 +176,12 @@ export function SourceFileViewer({ path, onClose }: SourceFileViewerProps) {
           style={{ background: "var(--code-bg)" }}
         >
           {error ? (
-            <div className="px-5 py-6 font-mono text-[12px] text-studio-ink-faint">
+            <div className="px-5 py-6 font-mono text-md text-studio-ink-faint">
               Could not load <span className="text-studio-ink">{path}</span> —{" "}
               {error}.
             </div>
           ) : !data ? (
-            <div className="px-5 py-6 font-mono text-[12px] text-studio-ink-faint">
+            <div className="px-5 py-6 font-mono text-md text-studio-ink-faint">
               Loading {path}…
             </div>
           ) : (

@@ -295,7 +295,7 @@
 
 .agent-card-name {
   font-family: var(--font-mono);
-  font-size: 15px;
+  font-size: var(--text-2xl);
   font-weight: 600;
   letter-spacing: 0.005em;
   color: var(--ink);
@@ -1846,7 +1846,7 @@
   background: transparent;
   color: color-mix(in srgb, var(--ink) 55%, transparent);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   line-height: 1;
   cursor: pointer;
   border-radius: 0;

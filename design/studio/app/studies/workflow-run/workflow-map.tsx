@@ -268,7 +268,7 @@ export function WorkflowMap({ model }: { model: WorkflowMapModel }) {
 
           {model.workers.length > workers.length ? (
             <div
-              className="absolute font-mono text-[10px] uppercase tracking-ch text-studio-ink-faint"
+              className="absolute font-mono text-xs uppercase tracking-ch text-studio-ink-faint"
               style={{ left: 238, bottom: 22 }}
             >
               +{model.workers.length - workers.length} more workers hidden from this compact map
@@ -367,8 +367,8 @@ function EndpointCard({
       className="absolute rounded-md border bg-studio-surface px-4 py-4 shadow-sm"
       style={{ left: x, top: y, width: w, height: h, borderColor: stroke }}
     >
-      <div className="font-display text-[15px] font-medium text-studio-ink">{title}</div>
-      <div className="mt-4 truncate font-mono text-[10px] text-studio-ink-faint">{detail}</div>
+      <div className="font-display text-2xl font-medium text-studio-ink">{title}</div>
+      <div className="mt-4 truncate font-mono text-xs text-studio-ink-faint">{detail}</div>
     </div>
   );
 }
@@ -414,13 +414,13 @@ function RoleStack({
       <div className="relative h-full rounded-md border border-studio-edge bg-studio-surface p-3 shadow-sm">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint">
+            <div className="flex items-center gap-2 font-mono text-2xs uppercase tracking-ch text-studio-ink-faint">
               <span className="h-1.5 w-1.5 rounded-sm" style={{ background: accent }} />
               <span>{group.title}</span>
             </div>
-            <div className="mt-1 truncate text-[12px] text-studio-ink-muted">{group.deck}</div>
+            <div className="mt-1 truncate text-md text-studio-ink-muted">{group.deck}</div>
           </div>
-          <div className="shrink-0 rounded-sm border border-studio-edge bg-studio-canvas px-2 py-1 text-right font-mono text-[9px] text-studio-ink-faint">
+          <div className="shrink-0 rounded-sm border border-studio-edge bg-studio-canvas px-2 py-1 text-right font-mono text-2xs text-studio-ink-faint">
             {group.workers.length} agents
           </div>
         </div>
@@ -448,13 +448,13 @@ function RoleStack({
         <div className="mt-3 flex items-center justify-between border-t border-studio-edge pt-2">
           <div className="flex min-w-0 gap-1 overflow-hidden">
             {tools.map(([tool, count]) => (
-              <span key={tool} className="truncate rounded-sm bg-studio-canvas px-1.5 py-0.5 font-mono text-[8px] text-studio-ink-faint">
+              <span key={tool} className="truncate rounded-sm bg-studio-canvas px-1.5 py-0.5 font-mono text-3xs text-studio-ink-faint">
                 {tool} {count}
               </span>
             ))}
           </div>
           {hiddenCount > 0 ? (
-            <span className="shrink-0 font-mono text-[9px] text-studio-ink-muted">
+            <span className="shrink-0 font-mono text-2xs text-studio-ink-muted">
               +{hiddenCount} stacked
             </span>
           ) : null}
@@ -494,16 +494,16 @@ function StackWorkerButton({
       style={{ borderColor: active ? accent : undefined }}
       aria-label={`${pinned ? "Unpin" : "Pin"} ${worker.label}`}
     >
-      <span className="font-mono text-[9px] text-studio-ink-muted">{String(index + 1).padStart(2, "0")}</span>
+      <span className="font-mono text-2xs text-studio-ink-muted">{String(index + 1).padStart(2, "0")}</span>
       <span className="min-w-0">
-        <span className="block truncate font-display text-[12px] font-medium text-studio-ink">
+        <span className="block truncate font-display text-md font-medium text-studio-ink">
           {worker.label}
         </span>
-        <span className="mt-0.5 block truncate font-mono text-[9px] text-studio-ink-faint">
+        <span className="mt-0.5 block truncate font-mono text-2xs text-studio-ink-faint">
           {worker.shortId} / {nodeValue(worker)}
         </span>
       </span>
-      <span className="rounded-sm border border-studio-edge bg-studio-canvas-alt px-1.5 py-1 text-center font-mono text-[8px] uppercase tracking-ch text-studio-ink-faint">
+      <span className="rounded-sm border border-studio-edge bg-studio-canvas-alt px-1.5 py-1 text-center font-mono text-3xs uppercase tracking-ch text-studio-ink-faint">
         {pinned ? "pinned" : "pin"}
       </span>
     </button>
@@ -544,7 +544,7 @@ function AgentDetailBay({
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2 font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint">
+          <div className="flex flex-wrap items-center gap-2 font-mono text-2xs uppercase tracking-ch text-studio-ink-faint">
             <span className="h-1.5 w-1.5 rounded-sm" style={{ background: accent }} />
             <span>{group.title}</span>
             <span>/</span>
@@ -552,22 +552,22 @@ function AgentDetailBay({
             <span>/</span>
             <span>{worker.status}</span>
           </div>
-          <h3 className="mt-2 truncate font-display text-[22px] font-medium text-studio-ink">
+          <h3 className="mt-2 truncate font-display text-5xl font-medium text-studio-ink">
             {worker.label}
           </h3>
-          <p className="mt-1 truncate text-[12px] text-studio-ink-faint">{group.deck}</p>
+          <p className="mt-1 truncate text-md text-studio-ink-faint">{group.deck}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <a
             href={`#trace-${worker.shortId}`}
-            className="rounded-sm border border-studio-edge bg-studio-canvas px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint transition hover:border-scout-accent/50 hover:text-studio-ink"
+            className="rounded-sm border border-studio-edge bg-studio-canvas px-2.5 py-1.5 font-mono text-2xs uppercase tracking-ch text-studio-ink-faint transition hover:border-scout-accent/50 hover:text-studio-ink"
           >
             trace down
           </a>
           <button
             type="button"
             onClick={() => onTogglePin(worker)}
-            className="rounded-sm border border-studio-edge bg-studio-canvas px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint transition hover:border-scout-accent/50 hover:text-studio-ink"
+            className="rounded-sm border border-studio-edge bg-studio-canvas px-2.5 py-1.5 font-mono text-2xs uppercase tracking-ch text-studio-ink-faint transition hover:border-scout-accent/50 hover:text-studio-ink"
           >
             {pinnedCopy}
           </button>
@@ -586,19 +586,19 @@ function AgentDetailBay({
           <DetailLane title="Result lane">
             <div className="grid gap-2">
               {(worker.output.length > 0 ? worker.output : [resultText(worker)]).slice(0, 3).map((line) => (
-                <p key={line} className="rounded border border-studio-edge bg-studio-canvas px-3 py-2 text-[12px] leading-relaxed text-studio-ink">
+                <p key={line} className="rounded border border-studio-edge bg-studio-canvas px-3 py-2 text-md leading-relaxed text-studio-ink">
                   {truncate(line, 185)}
                 </p>
               ))}
             </div>
           </DetailLane>
           <DetailLane title="Task lane">
-            <p className="max-h-[88px] overflow-hidden text-[12px] leading-relaxed text-studio-ink-faint">
+            <p className="max-h-[88px] overflow-hidden text-md leading-relaxed text-studio-ink-faint">
               {worker.prompt ? truncate(worker.prompt, 360) : "No prompt excerpt captured."}
             </p>
           </DetailLane>
           <DetailLane title="Final lane">
-            <p className="max-h-[70px] overflow-hidden text-[12px] leading-relaxed text-studio-ink-faint">
+            <p className="max-h-[70px] overflow-hidden text-md leading-relaxed text-studio-ink-faint">
               {worker.trace.finalText ? truncate(worker.trace.finalText, 300) : "No final assistant message captured."}
             </p>
           </DetailLane>
@@ -606,7 +606,7 @@ function AgentDetailBay({
 
         <div className="grid gap-3">
           <DetailLane title="Execution lane">
-            <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-studio-ink-faint">
+            <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-xs text-studio-ink-faint">
               {Object.entries(worker.trace.typeCounts).map(([type, count]) => (
                 <span key={type}>
                   {type} <span className="text-studio-ink">{count}</span>
@@ -617,7 +617,7 @@ function AgentDetailBay({
               <div className="mt-3 grid gap-1.5">
                 {topTools.map(([tool, count]) => (
                   <div key={tool} className="grid grid-cols-[86px_minmax(0,1fr)_26px] items-center gap-2">
-                    <span className="truncate font-mono text-[10px] text-studio-ink" title={tool}>
+                    <span className="truncate font-mono text-xs text-studio-ink" title={tool}>
                       {tool}
                     </span>
                     <span className="h-1.5 overflow-hidden rounded-sm bg-studio-canvas-alt">
@@ -626,12 +626,12 @@ function AgentDetailBay({
                         style={{ width: `${maxTool ? Math.max(8, Math.round((count / maxTool) * 100)) : 0}%` }}
                       />
                     </span>
-                    <span className="text-right font-mono text-[10px] text-studio-ink-faint">{count}</span>
+                    <span className="text-right font-mono text-xs text-studio-ink-faint">{count}</span>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="mt-2 font-mono text-[10px] text-studio-ink-muted">no tool calls recorded</div>
+              <div className="mt-2 font-mono text-xs text-studio-ink-muted">no tool calls recorded</div>
             )}
           </DetailLane>
 
@@ -651,12 +651,12 @@ function AgentDetailBay({
                   }`}
                 >
                   <span className="min-w-0">
-                    <span className="block truncate text-[11px] text-studio-ink">{sibling.label}</span>
-                    <span className="block truncate font-mono text-[8.5px] text-studio-ink-faint">
+                    <span className="block truncate text-sm text-studio-ink">{sibling.label}</span>
+                    <span className="block truncate font-mono text-3xs text-studio-ink-faint">
                       {sibling.shortId} / {nodeValue(sibling)}
                     </span>
                   </span>
-                  <span className="text-right font-mono text-[8px] uppercase tracking-ch text-studio-ink-muted">
+                  <span className="text-right font-mono text-3xs uppercase tracking-ch text-studio-ink-muted">
                     {sibling.id === worker.id && pinned ? "pinned" : "view"}
                   </span>
                 </button>
@@ -676,8 +676,8 @@ function EmptyDetailBay() {
       style={{ left: DETAIL_X, top: DETAIL_Y, width: DETAIL_W, height: DETAIL_H }}
     >
       <div>
-        <div className="font-display text-[20px] font-medium text-studio-ink">No agent selected</div>
-        <div className="mt-2 font-mono text-[10px] uppercase tracking-ch text-studio-ink-faint">
+        <div className="font-display text-4xl font-medium text-studio-ink">No agent selected</div>
+        <div className="mt-2 font-mono text-xs uppercase tracking-ch text-studio-ink-faint">
           detail bay
         </div>
       </div>
@@ -694,7 +694,7 @@ function DetailLane({
 }) {
   return (
     <div className="rounded border border-studio-edge bg-studio-canvas px-3 py-2.5">
-      <div className="font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint">{title}</div>
+      <div className="font-mono text-2xs uppercase tracking-ch text-studio-ink-faint">{title}</div>
       <div className="mt-2">{children}</div>
     </div>
   );
@@ -703,8 +703,8 @@ function DetailLane({
 function MiniMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0 rounded border border-studio-edge bg-studio-canvas px-2 py-1.5">
-      <div className="truncate font-mono text-[8px] uppercase tracking-ch text-studio-ink-faint">{label}</div>
-      <div className="mt-0.5 truncate font-mono text-[9px] text-studio-ink">{value}</div>
+      <div className="truncate font-mono text-3xs uppercase tracking-ch text-studio-ink-faint">{label}</div>
+      <div className="mt-0.5 truncate font-mono text-2xs text-studio-ink">{value}</div>
     </div>
   );
 }
@@ -712,11 +712,11 @@ function MiniMetric({ label, value }: { label: string; value: string }) {
 function SectionHead({ title, meta }: { title: string; meta?: string }) {
   return (
     <div className="flex items-baseline justify-between gap-4">
-      <h2 className="font-display text-[20px] font-medium tracking-tight text-studio-ink">
+      <h2 className="font-display text-4xl font-medium tracking-tight text-studio-ink">
         {title}
       </h2>
       {meta ? (
-        <span className="text-right font-mono text-[10px] text-studio-ink-faint">
+        <span className="text-right font-mono text-xs text-studio-ink-faint">
           {meta}
         </span>
       ) : null}

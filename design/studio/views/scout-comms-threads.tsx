@@ -138,10 +138,10 @@ export default function ScoutCommsThreadsStudy() {
         <>
           Reply and thread as first-class moves in the macOS conversation surface. The broker
           already carries both primitives —{" "}
-          <code className="font-mono text-[11px] text-studio-ink">reply_to_message_id</code> on
+          <code className="font-mono text-sm text-studio-ink">reply_to_message_id</code> on
           messages and{" "}
-          <code className="font-mono text-[11px] text-studio-ink">parent_conversation_id</code>{" "}
-          on conversations — and <code className="font-mono text-[11px] text-studio-ink">ScoutMessage</code>{" "}
+          <code className="font-mono text-sm text-studio-ink">parent_conversation_id</code>{" "}
+          on conversations — and <code className="font-mono text-sm text-studio-ink">ScoutMessage</code>{" "}
           decodes the reply field today. This study gives the data a shape: a Reply affordance with
           grouped rendering (phase 1, client-only), then anchored sub-threads that also give
           &ldquo;New chat from this message…&rdquo; a home (phase 2, needs server population).
@@ -418,14 +418,14 @@ function Deltas() {
   ];
   return (
     <div className="mt-6 max-w-[92ch]">
-      <div className="mb-3 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-studio-ink-faint">
+      <div className="mb-3 font-mono text-2xs font-bold uppercase tracking-[0.14em] text-studio-ink-faint">
         deltas
       </div>
       <div className="flex flex-col gap-3">
         {rows.map((r) => (
           <div key={r.mark} className="flex gap-3">
-            <span className="font-mono text-[13px] leading-[1.5] text-studio-ink">{r.mark}</span>
-            <p className="text-[13px] leading-relaxed text-studio-ink-muted">
+            <span className="font-mono text-lg leading-[1.5] text-studio-ink">{r.mark}</span>
+            <p className="text-lg leading-relaxed text-studio-ink-muted">
               <strong className="font-semibold text-studio-ink">{r.head}.</strong> {r.body}
             </p>
           </div>

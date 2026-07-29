@@ -288,13 +288,13 @@ export default function ChatLandingStudy() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-6 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · chat-landing
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Chat · Landing
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           The unscoped /chat center — messages route, no conversation selected. Today a card grid
           re-lists the rail with per-card layout chrome; these are three takes on what should be
           there instead. The rail and the nav chrome are static stubs — only the center is under

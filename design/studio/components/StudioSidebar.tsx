@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type RefObject,
 } from "react";
 import { cn } from "@/lib/utils";
@@ -111,7 +112,7 @@ export function StudioSidebar({
         totalPages={totalPages}
       />
 
-      <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-6 pt-2 font-mono text-sm">
+      <nav className="studio-scroll min-h-0 flex-1 overflow-y-auto px-3 pb-6 pt-2 font-mono text-sm">
         {searching ? (
           <SearchResults
             pages={sortPages(matches ?? [], sort, studyMtimes)}
@@ -190,12 +191,22 @@ function pageRecency(page: StudioPage, mtimes: Record<string, number>): number {
   return Math.max(fromMtime, fromIso);
 }
 
+/** Bucket index rows (`/plans`, `/studies`, …) stay pinned above the
+ *  entries they index so sort never buries the doorway. */
+function isBucketIndex(page: StudioPage): boolean {
+  return page.href === `/${page.bucket}`;
+}
+
 function comparePages(
   a: StudioPage,
   b: StudioPage,
   sort: SortMode,
   mtimes: Record<string, number>,
 ): number {
+  const aIndex = isBucketIndex(a) ? 0 : 1;
+  const bIndex = isBucketIndex(b) ? 0 : 1;
+  if (aIndex !== bIndex) return aIndex - bIndex;
+
   if (sort === "recent") {
     const delta = pageRecency(b, mtimes) - pageRecency(a, mtimes);
     if (delta !== 0) return delta;
@@ -221,11 +232,18 @@ function sortFamilyGroups(
   mtimes: Record<string, number>,
 ) {
   return [...groups].sort((a, b) => {
+    const aIndex = isBucketIndex(a.primary) ? 0 : 1;
+    const bIndex = isBucketIndex(b.primary) ? 0 : 1;
+    if (aIndex !== bIndex) return aIndex - bIndex;
+
     if (sort === "recent") {
-      return (
+      const delta =
         freshest([b.primary, ...b.variants], mtimes) -
-        freshest([a.primary, ...a.variants], mtimes)
-      );
+        freshest([a.primary, ...a.variants], mtimes);
+      if (delta !== 0) return delta;
+      return a.primary.label.localeCompare(b.primary.label, undefined, {
+        sensitivity: "base",
+      });
     }
     if (sort === "status") {
       const ra = a.primary.status ? STATUS_RANK[a.primary.status] : 99;
@@ -268,7 +286,7 @@ function SidebarControls({
 
   return (
     <div className="shrink-0 border-b border-studio-edge px-3 py-2.5">
-      <label className="relative flex items-center gap-1.5 rounded-[4px] border border-studio-edge bg-studio-canvas-alt px-2 py-1.5">
+      <label className="studio-search relative flex items-center gap-1.5 rounded-[5px] px-2 py-1.5">
         <span
           aria-hidden
           className="font-mono text-2xs text-studio-ink-faint"
@@ -281,24 +299,24 @@ function SidebarControls({
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="search pages…"
+          placeholder="Search pages…"
           aria-label="Search studio pages"
           className={cn(
-            "focus-ring min-w-0 flex-1 bg-transparent font-mono text-xs text-studio-ink",
+            "min-w-0 flex-1 bg-transparent font-mono text-xs text-studio-ink",
             "placeholder:text-studio-ink-faint outline-none",
             // Kill browser search chrome so the field stays studio-shaped.
             "[&::-webkit-search-cancel-button]:hidden",
           )}
         />
         {!query ? (
-          <kbd className="shrink-0 rounded-[2px] border border-studio-edge px-1 font-mono text-2xs text-studio-ink-faint">
+          <kbd className="shrink-0 rounded-[2px] border border-studio-edge bg-studio-canvas/60 px-1 font-mono text-2xs text-studio-ink-faint">
             /
           </kbd>
         ) : (
           <button
             type="button"
             onClick={() => onQueryChange("")}
-            className="focus-ring shrink-0 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint hover:text-studio-ink"
+            className="focus-ring shrink-0 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint transition-colors hover:text-studio-ink"
             aria-label="Clear search"
           >
             esc
@@ -324,7 +342,7 @@ function SidebarControls({
                 className={cn(
                   "focus-ring rounded-[3px] px-1.5 py-0.5 font-mono text-2xs uppercase tracking-eyebrow transition-colors",
                   active
-                    ? "bg-studio-canvas-alt text-studio-ink"
+                    ? "bg-studio-canvas text-studio-ink shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--studio-ink)_10%,transparent)]"
                     : "text-studio-ink-faint hover:text-studio-ink",
                 )}
               >
@@ -473,6 +491,7 @@ function BucketSection({
                 groups={sortFamilyGroups(familyGroups(pages), sort, studyMtimes)}
                 pathname={pathname}
                 mtimes={studyMtimes}
+                sort={sort}
               />
             ))
         ) : (
@@ -486,6 +505,8 @@ function BucketSection({
                 key={group.primary.href}
                 group={group}
                 pathname={pathname}
+                sort={sort}
+                studyMtimes={studyMtimes}
                 mtime={
                   sort === "recent"
                     ? freshest([group.primary, ...group.variants], studyMtimes) ||
@@ -501,9 +522,9 @@ function BucketSection({
   );
 }
 
-/** Engineering bucket renders lean: the Index entry + the 5 most
- *  recently touched SCO docs (or all when sorted alpha/status with room).
- *  The /eng index page is the canonical browser for the full corpus. */
+/** Engineering bucket renders lean: the Index entry + a short sorted
+ *  slice of SCO docs. The /eng index is the full corpus browser.
+ *  Recency uses each page's `updatedAt` (from file mtime). */
 function EngBucketSection({
   pathname,
   extraPages,
@@ -520,8 +541,11 @@ function EngBucketSection({
     sort,
     {},
   );
-  const recent = docs.slice(0, 5);
-  const remaining = docs.length - recent.length;
+  // Keep the rail lean under recency; alpha/status can show a few more
+  // so the active mode is visible without dumping the whole corpus.
+  const visibleLimit = sort === "recent" ? 5 : 8;
+  const visible = docs.slice(0, visibleLimit);
+  const remaining = docs.length - visible.length;
 
   return (
     <section>
@@ -536,13 +560,13 @@ function EngBucketSection({
           </SidebarLink>
         ) : null}
 
-        {recent.length > 0 ? (
+        {visible.length > 0 ? (
           <>
             <div className="mt-3 mb-1 px-2 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
               {sort === "alpha" ? "A–Z" : sort === "status" ? "By status" : "Recent"}
             </div>
             <div className="flex flex-col">
-              {recent.map((page) => (
+              {visible.map((page) => (
                 <SidebarLink
                   key={page.href}
                   href={page.href}
@@ -550,6 +574,9 @@ function EngBucketSection({
                   muted
                 >
                   <span className="flex-1 truncate">{page.label}</span>
+                  <AgeStamp
+                    ms={pageRecency(page, {}) || undefined}
+                  />
                   {page.status ? <StatusDot status={page.status} /> : null}
                 </SidebarLink>
               ))}
@@ -571,8 +598,11 @@ function EngBucketSection({
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <h2 className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
-      · {children}
+    <h2 className="flex items-center gap-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <span className="text-scout-accent" aria-hidden>
+        ·
+      </span>
+      <span>{children}</span>
     </h2>
   );
 }
@@ -582,11 +612,13 @@ function SurfaceBlock({
   groups,
   pathname,
   mtimes,
+  sort = "recent",
 }: {
   label: string;
   groups: ReturnType<typeof familyGroups>;
   pathname: string | null;
   mtimes?: Record<string, number>;
+  sort?: SortMode;
 }) {
   return (
     <div>
@@ -599,6 +631,8 @@ function SurfaceBlock({
             key={group.primary.href}
             group={group}
             pathname={pathname}
+            sort={sort}
+            studyMtimes={mtimes}
             // The family's freshest, not the primary's — the row must wear
             // the same recency the sort ranked it by.
             mtime={
@@ -618,16 +652,24 @@ function PageItem({
   group,
   pathname,
   mtime,
+  sort = "recent",
+  studyMtimes = {},
 }: {
   group: { primary: StudioPage; variants: StudioPage[] };
   pathname: string | null;
   mtime?: number;
+  sort?: SortMode;
+  studyMtimes?: Record<string, number>;
 }) {
   const { primary, variants } = group;
   const hasVariants = variants.length > 0;
   const activeHere = primary.href === pathname;
   const variantActive = variants.some((v) => v.href === pathname);
   const [expanded, setExpanded] = useState(activeHere || variantActive);
+  const sortedVariants = useMemo(
+    () => sortPages(variants, sort, studyMtimes),
+    [variants, sort, studyMtimes],
+  );
 
   return (
     <div>
@@ -653,7 +695,7 @@ function PageItem({
       </div>
       {hasVariants && expanded ? (
         <div className="ml-3 flex flex-col border-l border-studio-edge pl-2.5">
-          {variants.map((v) => (
+          {sortedVariants.map((v) => (
             <SidebarLink
               key={v.href}
               href={v.href}
@@ -661,6 +703,9 @@ function PageItem({
               muted
             >
               <span className="flex-1 truncate">{v.label}</span>
+              <AgeStamp
+                ms={pageRecency(v, studyMtimes) || undefined}
+              />
               {v.status ? <StatusDot status={v.status} /> : null}
             </SidebarLink>
           ))}
@@ -686,13 +731,14 @@ function SidebarLink({
   return (
     <Link
       href={href}
+      data-active={active ? "true" : undefined}
       className={cn(
-        "focus-ring flex items-center gap-1.5 rounded-[3px] px-2 py-1 transition-colors",
+        "studio-nav-link focus-ring flex items-center gap-1.5 rounded-[4px] px-2 py-1",
         active
-          ? "bg-studio-canvas-alt text-studio-ink"
+          ? "text-studio-ink"
           : muted
-            ? "text-studio-ink-faint hover:bg-studio-canvas-alt hover:text-studio-ink"
-            : "text-studio-ink-faint hover:bg-studio-canvas-alt hover:text-studio-ink",
+            ? "text-studio-ink-faint hover:bg-studio-canvas/70 hover:text-studio-ink"
+            : "text-studio-ink-muted hover:bg-studio-canvas/70 hover:text-studio-ink",
         className,
       )}
     >

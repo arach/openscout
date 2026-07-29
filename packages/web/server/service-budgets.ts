@@ -8,9 +8,10 @@
  *             or the control-plane DB when available
  *   - kimi:   provider-reported Kimi Code 5-hour and weekly subscription quota
  *             from the same `/usages` endpoint used by Kimi Code's `/usage`
- *   - cursor: locally reported Cursor membership and subscription state. Cursor
- *             usage remains linked to its authenticated dashboard until a
- *             documented machine-readable usage feed is available.
+ *   - grok:   normalized signed-in dashboard capture when supplied, otherwise
+ *             content-free cumulative token telemetry from local Grok sessions.
+ *   - cursor: locally reported membership plus normalized usage totals from an
+ *             explicit dashboard text/CSV capture.
  *   - minimax: provider-reported Token Plan 5-hour and weekly quota windows
  *              from MiniMax's documented `/v1/token_plan/remains` endpoint.
  *   - github: `gh api rate_limit` resources.core (hourly window; honest about scope)
@@ -19,20 +20,27 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
+import {
+  readCodexRolloutUsageObservation,
+  type CodexUsageObservation,
+} from "@openscout/agent-sessions";
 import { Database } from "bun:sqlite";
 import { epochMs } from "@openscout/protocol";
 import { resolveClaudeStatuslineDirectory } from "@openscout/runtime/claude-statusline";
+import { buildPiRpcCredentialEnv } from "@openscout/runtime/pi-rpc";
 import { execSystemFile } from "@openscout/runtime/system-probes";
 import { db, resolveDbPath } from "./db/internal/db.ts";
 
-const CACHE_TTL_MS = 60 * 60 * 1000;
+const CACHE_TTL_MS = 60 * 1000;
 const WEEK_MS = 7 * 24 * 3600 * 1000;
 const CODEX_LOOKBACK_DAYS = 3;
+const LOCAL_QUOTA_FRESH_MS = 2 * 60 * 1000;
+const REMOTE_QUOTA_FRESH_MS = 5 * 60 * 1000;
 const GH_CLI_TIMEOUT_MS = 4000;
 const KIMI_USAGE_TIMEOUT_MS = 4000;
 const MINIMAX_REMAINS_TIMEOUT_MS = 4000;
@@ -46,7 +54,9 @@ const GH_CLI_BIN_ENV = "OPENSCOUT_GH_BIN";
 const GH_RATE_LIMIT_JSON_ENV = "OPENSCOUT_GH_RATE_LIMIT_JSON";
 const KIMI_USAGE_JSON_ENV = "OPENSCOUT_KIMI_USAGE_JSON";
 const CURSOR_STATUS_JSON_ENV = "OPENSCOUT_CURSOR_STATUS_JSON";
+const GROK_USAGE_JSON_ENV = "OPENSCOUT_GROK_USAGE_JSON";
 const MINIMAX_REMAINS_JSON_ENV = "OPENSCOUT_MINIMAX_REMAINS_JSON";
+const DASHBOARD_IMPORT_MAX_CHARS = 128 * 1024;
 
 type GaugeTone = "ok" | "warn" | "err" | "dim";
 
@@ -64,6 +74,8 @@ export type ServiceQuotaWindowGauge = {
   capLabel: string;
   unitLabel: string;
   resetAt: number;
+  capturedAt?: number;
+  source?: string;
   history?: ServiceQuotaHistoryPoint[];
 };
 
@@ -79,6 +91,8 @@ export type ServiceGauge =
       resetAt: number;
       windows?: ServiceQuotaWindowGauge[];
       plan?: string;
+      capturedAt?: number;
+      source?: string;
     }
   | {
       id: string;
@@ -88,6 +102,8 @@ export type ServiceGauge =
       windowLabel?: string;
       detailLabel?: string;
       tone: GaugeTone;
+      capturedAt?: number;
+      source?: string;
     };
 
 export type ServiceBudgetsResponse = {
@@ -104,12 +120,14 @@ export type CloudAccount = {
 };
 
 let cached: { value: ServiceBudgetsResponse; expiresAt: number } | null = null;
-let inflight: Promise<ServiceBudgetsResponse> | null = null;
+let inflightNormal: Promise<ServiceBudgetsResponse> | null = null;
+let inflightForce: Promise<ServiceBudgetsResponse> | null = null;
 let quotaWriteDb: Database | null = null;
 
 export function resetServiceBudgetsCache(): void {
   cached = null;
-  inflight = null;
+  inflightNormal = null;
+  inflightForce = null;
   quotaWriteDb?.close();
   quotaWriteDb = null;
 }
@@ -117,18 +135,24 @@ export function resetServiceBudgetsCache(): void {
 export async function loadServiceBudgets(forceRefresh = false): Promise<ServiceBudgetsResponse> {
   const now = Date.now();
   if (!forceRefresh && cached && cached.expiresAt > now) return cached.value;
-  if (!forceRefresh && inflight) return inflight;
+  if (forceRefresh && inflightForce) return inflightForce;
+  if (!forceRefresh && inflightForce) return inflightForce;
+  if (!forceRefresh && inflightNormal) return inflightNormal;
 
-  inflight = (async () => {
-    const [codex, claude, kimi, cursor, minimax, github] = await Promise.all([
+  const request = (async () => {
+    // A forced refresh that arrives during the initial cached read must run
+    // after it, not silently reuse that non-forced request.
+    if (forceRefresh && inflightNormal) await inflightNormal.catch(() => undefined);
+    const [codex, claude, kimi, grok, cursor, minimax, github] = await Promise.all([
       loadCodexGauge(forceRefresh).catch((error) => serviceBudgetProviderFailed("codex", error)),
       loadClaudeGauge().catch((error) => serviceBudgetProviderFailed("claude", error)),
       loadKimiGauge(forceRefresh).catch((error) => serviceBudgetProviderFailed("kimi", error)),
+      loadGrokGauge().catch((error) => serviceBudgetProviderFailed("grok", error)),
       loadCursorGauge().catch((error) => serviceBudgetProviderFailed("cursor", error)),
       loadMinimaxGauge(forceRefresh).catch((error) => serviceBudgetProviderFailed("minimax", error)),
       loadGithubGauge(forceRefresh).catch((error) => serviceBudgetProviderFailed("github", error)),
     ]);
-    const gauges = [codex, claude, kimi, cursor, minimax, github].filter((g): g is ServiceGauge => g !== null);
+    const gauges = [codex, claude, kimi, grok, cursor, minimax, github].filter((g): g is ServiceGauge => g !== null);
     const value: ServiceBudgetsResponse = {
       generatedAt: Date.now(),
       gauges,
@@ -137,11 +161,14 @@ export async function loadServiceBudgets(forceRefresh = false): Promise<ServiceB
     cached = { value, expiresAt: Date.now() + CACHE_TTL_MS };
     return value;
   })();
+  if (forceRefresh) inflightForce = request;
+  else inflightNormal = request;
 
   try {
-    return await inflight;
+    return await request;
   } finally {
-    inflight = null;
+    if (forceRefresh && inflightForce === request) inflightForce = null;
+    if (!forceRefresh && inflightNormal === request) inflightNormal = null;
   }
 }
 
@@ -158,44 +185,44 @@ function debugServiceBudgetProvider(provider: string, message: string, detail?: 
 
 /* ── codex ──────────────────────────────────────────────────────────── */
 
-type CodexRateLimitWindow = {
-  used_percent?: number;
-  window_minutes?: number;
-  resets_at?: number;
-};
-
-type CodexRateLimitsPayload = {
-  primary?: CodexRateLimitWindow | null;
-  secondary?: CodexRateLimitWindow | null;
-};
-
 type CodexRateLimitsObservation = {
-  limits: CodexRateLimitsPayload;
+  usage: CodexUsageObservation;
   capturedAt: number;
 };
 
 async function loadCodexGauge(forceRefresh = false): Promise<ServiceGauge | null> {
-  if (!forceRefresh) {
-    const persisted = loadPersistedProviderQuotaGauge({
-      id: "codex",
-      label: "codex",
-      provider: "openai",
-      harness: "codex",
-      maxAgeMs: WEEK_MS,
-    });
-    if (persisted) return persisted;
-  }
+  const fresh = loadPersistedProviderQuotaGauge({
+    id: "codex",
+    label: "codex",
+    provider: "openai",
+    harness: "codex",
+    maxAgeMs: LOCAL_QUOTA_FRESH_MS,
+  });
+  if (!forceRefresh && fresh) return fresh;
+
+  const fallback = loadPersistedProviderQuotaGauge({
+    id: "codex",
+    label: "codex",
+    provider: "openai",
+    harness: "codex",
+    maxAgeMs: WEEK_MS,
+  });
 
   const root = join(homeDir(), ".codex", "sessions");
-  if (!existsSync(root)) return null;
+  if (!existsSync(root)) return fallback;
 
-  const latest = findLatestCodexJsonl(root, CODEX_LOOKBACK_DAYS);
-  if (!latest) return null;
+  const recent = findRecentCodexJsonl(root, CODEX_LOOKBACK_DAYS);
+  if (recent.length === 0) return fallback;
 
-  const observation = await readLatestCodexRateLimits(latest);
-  if (!observation) return null;
+  const observations = (await Promise.all(recent.map((path) => readLatestCodexRateLimits(path))))
+    .filter((entry): entry is CodexRateLimitsObservation => entry !== null)
+    .sort((left, right) => left.capturedAt - right.capturedAt);
+  if (observations.length === 0) return fallback;
 
-  const snapshots = codexQuotaSnapshotsFromRateLimits(observation.limits, observation.capturedAt);
+  // Concurrent sessions can report different semantic windows. Harvest each
+  // session's latest observation and let the reset-aware selector merge them.
+  const snapshots = observations.flatMap((observation) =>
+    codexQuotaSnapshotsFromObservation(observation.usage, observation.capturedAt));
   persistQuotaSnapshots(snapshots);
   const persisted = loadPersistedProviderQuotaGauge({
     id: "codex",
@@ -212,27 +239,27 @@ async function loadCodexGauge(forceRefresh = false): Promise<ServiceGauge | null
 }
 
 function codexQuotaSnapshot(
-  kind: "primary" | "secondary",
-  window: CodexRateLimitWindow | null | undefined,
+  window: CodexUsageObservation["quotaWindows"][number],
   capturedAt: number,
+  planType?: string,
 ): ServiceQuotaSnapshot | null {
-  if (!window || typeof window.used_percent !== "number") return null;
-  const resetAt = typeof window.resets_at === "number" && Number.isFinite(window.resets_at)
-    ? window.resets_at * 1000
-    : capturedAt + (kind === "primary" ? 5 * 3600 * 1000 : WEEK_MS);
-  const windowMs = typeof window.window_minutes === "number" && Number.isFinite(window.window_minutes)
-    ? window.window_minutes * 60_000
-    : kind === "primary"
-      ? 5 * 3600 * 1000
-      : WEEK_MS;
+  const usedPercent = finiteNumber(window.usedPercent);
+  const percentRemaining = finiteNumber(window.percentRemaining)
+    ?? (usedPercent === undefined ? undefined : Math.max(0, 100 - usedPercent));
+  if (usedPercent === undefined && percentRemaining === undefined) return null;
+  const windowMs = finiteNumber(window.windowMs);
+  const resetAt = finiteNumber(window.resetAt) ?? capturedAt + (windowMs ?? WEEK_MS);
   return {
     provider: "openai",
     harness: "codex",
     transport: "codex_app_server",
-    label: formatQuotaWindowLabel(window.window_minutes, kind),
-    windowKind: kind,
-    usedPercent: window.used_percent,
-    percentRemaining: Math.max(0, 100 - window.used_percent),
+    planType,
+    label: window.label,
+    windowKind: window.windowKind,
+    usedPercent,
+    percentRemaining,
+    used: window.used,
+    limitValue: window.limit,
     resetAt,
     windowMs,
     capturedAt,
@@ -242,14 +269,13 @@ function codexQuotaSnapshot(
   };
 }
 
-function codexQuotaSnapshotsFromRateLimits(
-  limits: CodexRateLimitsPayload,
+function codexQuotaSnapshotsFromObservation(
+  usage: CodexUsageObservation,
   capturedAt: number,
 ): ServiceQuotaSnapshot[] {
-  return [
-    codexQuotaSnapshot("primary", limits.primary, capturedAt),
-    codexQuotaSnapshot("secondary", limits.secondary, capturedAt),
-  ].filter((entry): entry is ServiceQuotaSnapshot => entry !== null);
+  return usage.quotaWindows
+    .map((window) => codexQuotaSnapshot(window, capturedAt, usage.planType))
+    .filter((entry): entry is ServiceQuotaSnapshot => entry !== null);
 }
 
 function formatQuotaWindowLabel(
@@ -268,10 +294,9 @@ function formatQuotaWindowLabel(
   return `${windowMinutes}m`;
 }
 
-function findLatestCodexJsonl(root: string, lookbackDays: number): string | null {
+function findRecentCodexJsonl(root: string, lookbackDays: number): string[] {
   const cutoffMs = Date.now() - lookbackDays * 86400 * 1000;
-  let bestPath: string | null = null;
-  let bestMtime = 0;
+  const paths: Array<{ path: string; mtimeMs: number }> = [];
 
   const walk = (dir: string): void => {
     let entries;
@@ -287,16 +312,13 @@ function findLatestCodexJsonl(root: string, lookbackDays: number): string | null
       } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
         const stat = safeStat(full);
         if (!stat || stat.mtimeMs < cutoffMs) continue;
-        if (stat.mtimeMs > bestMtime) {
-          bestMtime = stat.mtimeMs;
-          bestPath = full;
-        }
+        paths.push({ path: full, mtimeMs: stat.mtimeMs });
       }
     }
   };
 
   walk(root);
-  return bestPath;
+  return paths.sort((left, right) => right.mtimeMs - left.mtimeMs).map((entry) => entry.path);
 }
 
 async function readLatestCodexRateLimits(path: string): Promise<CodexRateLimitsObservation | null> {
@@ -310,13 +332,14 @@ async function readLatestCodexRateLimits(path: string): Promise<CodexRateLimitsO
         const record = JSON.parse(line) as {
           timestamp?: unknown;
           ts?: unknown;
-          payload?: { rate_limits?: CodexRateLimitsPayload };
+          payload?: unknown;
         };
-        const limits = record.payload?.rate_limits;
-        if (limits && (limits.primary || limits.secondary)) {
+        const capturedAt = timestampMs(record.timestamp) ?? timestampMs(record.ts) ?? Date.now();
+        const usage = readCodexRolloutUsageObservation(record.payload, capturedAt);
+        if (usage?.quotaWindows.length) {
           latest = {
-            limits,
-            capturedAt: timestampMs(record.timestamp) ?? timestampMs(record.ts) ?? Date.now(),
+            usage,
+            capturedAt,
           };
         }
       } catch {
@@ -332,6 +355,7 @@ async function readLatestCodexRateLimits(path: string): Promise<CodexRateLimitsO
 /* ── claude ─────────────────────────────────────────────────────────── */
 
 type ServiceQuotaSnapshot = {
+  source?: "provider_reported" | "manual" | "observed";
   provider?: string | null;
   harness?: string | null;
   transport?: string | null;
@@ -558,6 +582,7 @@ function loadPersistedProviderQuotaSnapshots(input: {
     const lookbackMs = Math.max(input.maxAgeMs, QUOTA_HISTORY_LOOKBACK_MS);
     rows = db().query(
       `SELECT
+        source,
         provider,
         harness,
         transport,
@@ -573,7 +598,7 @@ function loadPersistedProviderQuotaSnapshots(input: {
         captured_at AS capturedAt,
         metadata_json AS metadataJson
       FROM budget_quota_window_snapshots
-      WHERE source = 'provider_reported'
+      WHERE source IN ('provider_reported', 'manual', 'observed')
         AND captured_at >= ?1
         AND (provider = ?2 OR harness = ?3)
       ORDER BY captured_at DESC, created_at DESC
@@ -611,14 +636,18 @@ function quotaGaugeFromSnapshots(input: {
       latestByWindow.set(key, row);
       continue;
     }
-    // A resumed harness session replays its frozen rate_limits with a FRESH
-    // capturedAt, so "latest capture wins" lets a days-old lower percentage
-    // overwrite the true current one. Usage within a window is monotonically
-    // non-decreasing (expired windows are filtered above), so the higher-usage
-    // row is always the fresher truth — never replace downward.
+    // Usage is monotonic only within one reset cycle. Prefer a later reset
+    // cycle even when its percentage is lower; for the same reset, keep the
+    // high-water mark so a resumed session cannot replay stale lower usage.
+    const rowResetAt = finiteNumber(row.resetAt);
+    const existingResetAt = finiteNumber(existing.resetAt);
+    if (rowResetAt !== undefined && existingResetAt !== undefined && rowResetAt !== existingResetAt) {
+      if (rowResetAt > existingResetAt) latestByWindow.set(key, row);
+      continue;
+    }
     const rowFill = quotaSnapshotUsage(row)?.fill ?? Number.NEGATIVE_INFINITY;
     const existingFill = quotaSnapshotUsage(existing)?.fill ?? Number.NEGATIVE_INFINITY;
-    if (rowFill > existingFill) {
+    if (rowFill > existingFill || (rowFill === existingFill && row.capturedAt > existing.capturedAt)) {
       latestByWindow.set(key, row);
     }
   }
@@ -649,6 +678,8 @@ function quotaGaugeFromSnapshots(input: {
     unitLabel: displayWindow.label,
     resetAt: displayWindow.resetAt,
     windows,
+    capturedAt: Math.max(...windows.map((window) => window.capturedAt ?? 0)),
+    source: displayWindow.source,
     ...(plan ? { plan } : {}),
   };
 }
@@ -696,7 +727,8 @@ function quotaHistoryByWindow(snapshots: ServiceQuotaSnapshot[]): Map<string, Se
 }
 
 function quotaSnapshotWindowKey(row: ServiceQuotaSnapshot): string {
-  return row.windowKind ?? row.label;
+  const resource = stringValue(row.metadata?.resource) ?? stringValue(row.metadata?.modelName) ?? "";
+  return [resource, formatStoredQuotaWindowLabel(row)].join(":");
 }
 
 function quotaSnapshotIsExpired(row: ServiceQuotaSnapshot, now: number): boolean {
@@ -746,8 +778,22 @@ function storedQuotaWindowGauge(
     label: formatStoredQuotaWindowLabel(row),
     ...usage,
     resetAt,
+    capturedAt: row.capturedAt,
+    source: quotaSnapshotSourceLabel(row),
     ...(history.length === 0 ? {} : { history }),
   };
+}
+
+function quotaSnapshotSourceLabel(row: ServiceQuotaSnapshot): string {
+  if (row.source === "manual") return "dashboard capture";
+  switch (row.transport) {
+    case "codex_app_server": return "Codex local session";
+    case "claude_statusline": return "Claude local status";
+    case "kimi_acp": return "Kimi API";
+    case "minimax_api": return "MiniMax API";
+    case "gh_cli": return "GitHub API";
+    default: return "provider report";
+  }
 }
 
 function deriveUsedPercent(used: number | null | undefined, limit: number | null | undefined): number | undefined {
@@ -764,6 +810,7 @@ function finiteNumber(value: number | null | undefined): number | undefined {
 function formatStoredQuotaWindowLabel(row: ServiceQuotaSnapshot): string {
   const explicitDuration = row.label.trim();
   if (/^\d+(?:\.\d+)?[mhd]$/iu.test(explicitDuration)) return explicitDuration;
+  if (/\s\d+(?:\.\d+)?[mhd]$/iu.test(explicitDuration)) return explicitDuration;
 
   const fromDuration = formatWindowMs(finiteNumber(row.windowMs));
   if (fromDuration) return fromDuration;
@@ -816,6 +863,14 @@ type KimiUsageResponse = {
 };
 
 async function loadKimiGauge(forceRefresh = false): Promise<ServiceGauge | null> {
+  const fresh = loadPersistedProviderQuotaGauge({
+    id: "kimi",
+    label: "kimi",
+    provider: "kimi",
+    harness: "kimi",
+    maxAgeMs: REMOTE_QUOTA_FRESH_MS,
+  });
+  if (!forceRefresh && fresh) return fresh;
   const persisted = loadPersistedProviderQuotaGauge({
     id: "kimi",
     label: "kimi",
@@ -823,7 +878,6 @@ async function loadKimiGauge(forceRefresh = false): Promise<ServiceGauge | null>
     harness: "kimi",
     maxAgeMs: WEEK_MS,
   });
-  if (!forceRefresh) return persisted;
   const payload = await readKimiUsageResponse();
   // Kimi OAuth access tokens are short-lived and refreshed by Kimi Code itself.
   // A manual Scout refresh while Kimi is closed should retain the last valid,
@@ -998,6 +1052,316 @@ function kimiMembershipPlan(payload: KimiUsageResponse): string | undefined {
     .replace(/(^|_)([a-z])/gu, (_match, prefix: string, letter: string) => `${prefix ? " " : ""}${letter.toUpperCase()}`);
 }
 
+/* ── signed-in dashboard captures + Grok local telemetry ───────────── */
+
+type DashboardUsageProvider = "grok" | "cursor";
+
+type DashboardUsageImport = {
+  provider: DashboardUsageProvider;
+  capturedAt: number;
+  plan?: string;
+  periodLabel?: string;
+  usedPercent?: number;
+  resetAt?: number;
+  totalTokens?: number;
+  eventCount?: number;
+};
+
+type DashboardUsageStore = {
+  version: 1;
+  providers: Partial<Record<DashboardUsageProvider, DashboardUsageImport>>;
+};
+
+export function importProviderDashboardUsage(input: {
+  provider: unknown;
+  text: unknown;
+}): ServiceGauge {
+  const provider = input.provider === "grok" || input.provider === "cursor" ? input.provider : null;
+  if (!provider) throw new Error("Dashboard import supports Grok or Cursor.");
+  if (typeof input.text !== "string" || !input.text.trim()) throw new Error("Paste usage dashboard text or CSV first.");
+  if (input.text.length > DASHBOARD_IMPORT_MAX_CHARS) throw new Error("Dashboard capture is too large (128 KB maximum).");
+
+  const capturedAt = Date.now();
+  const snapshot = provider === "grok"
+    ? parseGrokDashboardImport(input.text, capturedAt)
+    : parseCursorDashboardImport(input.text, capturedAt);
+  const store = readDashboardUsageStore();
+  store.providers[provider] = snapshot;
+  writeDashboardUsageStore(store);
+  cached = null;
+
+  const gauge = dashboardGauge(snapshot);
+  if (!gauge) throw new Error("The dashboard capture did not contain usable usage data.");
+  return gauge;
+}
+
+function dashboardImportPath(): string {
+  return join(dirname(resolveDbPath()), "provider-usage-snapshots.json");
+}
+
+function readDashboardUsageStore(): DashboardUsageStore {
+  const record = readJsonRecord(dashboardImportPath());
+  const providers = recordValue(record?.providers);
+  const store: DashboardUsageStore = { version: 1, providers: {} };
+  for (const provider of ["grok", "cursor"] as const) {
+    const value = recordValue(providers?.[provider]);
+    const capturedAt = numericValue(value?.capturedAt);
+    if (!capturedAt) continue;
+    store.providers[provider] = {
+      provider,
+      capturedAt,
+      plan: stringValue(value?.plan),
+      periodLabel: stringValue(value?.periodLabel),
+      usedPercent: numericValue(value?.usedPercent),
+      resetAt: numericValue(value?.resetAt),
+      totalTokens: numericValue(value?.totalTokens),
+      eventCount: numericValue(value?.eventCount),
+    };
+  }
+  return store;
+}
+
+function writeDashboardUsageStore(store: DashboardUsageStore): void {
+  const path = dashboardImportPath();
+  mkdirSync(dirname(path), { recursive: true });
+  const temporaryPath = `${path}.${process.pid}.tmp`;
+  writeFileSync(temporaryPath, `${JSON.stringify(store, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  renameSync(temporaryPath, path);
+}
+
+function parseGrokDashboardImport(text: string, capturedAt: number): DashboardUsageImport {
+  const lines = text.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+  const limitIndex = lines.findIndex((line) => /\b(?:weekly|monthly)\b.*\blimit\b/iu.test(line));
+  const relevant = limitIndex >= 0 ? lines.slice(limitIndex, limitIndex + 12).join(" ") : text;
+  const usedMatch = relevant.match(/(\d+(?:\.\d+)?)\s*%\s*(?:used)?/iu);
+  const usedPercent = usedMatch ? Number(usedMatch[1]) : Number.NaN;
+  if (!Number.isFinite(usedPercent) || usedPercent < 0 || usedPercent > 100) {
+    throw new Error("Could not find Grok's overall percent used. Copy the Usage panel, including its weekly limit.");
+  }
+  const limitLine = limitIndex >= 0 ? lines[limitIndex]! : "Weekly Grok Limit";
+  const periodLabel = /^monthly\b/iu.test(limitLine) ? "30d" : "7d";
+  const plan = limitLine
+    .replace(/^(?:weekly|monthly)\s+/iu, "")
+    .replace(/\s+limit\b.*$/iu, "")
+    .trim() || undefined;
+  const resetText = relevant.match(/\bresets?\s+(?:on\s+)?(.+?)(?=\s{2,}|\s+(?:product|extra|usage|credits?)\b|$)/iu)?.[1];
+  const resetAt = resetText ? Date.parse(resetText) : Number.NaN;
+  return {
+    provider: "grok",
+    capturedAt,
+    plan,
+    periodLabel,
+    usedPercent,
+    ...(Number.isFinite(resetAt) ? { resetAt } : {}),
+  };
+}
+
+function parseCursorDashboardImport(text: string, capturedAt: number): DashboardUsageImport {
+  const lines = text.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+  let tokenValues: number[] = [];
+  let eventCount = 0;
+  const headerIndex = lines.findIndex((line) => /\bdate\b/iu.test(line) && /\btokens?\b/iu.test(line) && line.includes(","));
+  if (headerIndex >= 0) {
+    const header = parseCsvLine(lines[headerIndex]!);
+    const tokenIndex = header.findIndex((value) => value.trim().toLowerCase() === "tokens");
+    for (const line of lines.slice(headerIndex + 1)) {
+      const cells = parseCsvLine(line);
+      const tokens = tokenIndex >= 0 ? compactNumber(cells[tokenIndex]) : undefined;
+      if (tokens !== undefined) {
+        tokenValues.push(tokens);
+        eventCount += 1;
+      }
+    }
+  } else {
+    tokenValues = lines.flatMap((line) => {
+      if (!/^\d[\d,.]*\s*[kmb]?\s*(?:tokens?)?$/iu.test(line)) return [];
+      const value = compactNumber(line.replace(/\s*tokens?$/iu, ""));
+      return value === undefined ? [] : [value];
+    });
+    eventCount = tokenValues.length;
+  }
+  if (tokenValues.length === 0) {
+    throw new Error("Could not find Cursor token rows. Paste the exported usage CSV or the copied usage table.");
+  }
+  const plan = text.match(/\b(pro\s+plus|pro|ultra|business|hobby)\b/iu)?.[1]
+    ?.replace(/\b\w/gu, (letter) => letter.toUpperCase());
+  return {
+    provider: "cursor",
+    capturedAt,
+    plan,
+    periodLabel: /last\s+30\s+days/iu.test(text) ? "30d" : /last\s+7\s+days/iu.test(text) ? "7d" : "captured range",
+    totalTokens: tokenValues.reduce((sum, value) => sum + value, 0),
+    eventCount,
+  };
+}
+
+function parseCsvLine(line: string): string[] {
+  const cells: string[] = [];
+  let cell = "";
+  let quoted = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index]!;
+    if (char === '"') {
+      if (quoted && line[index + 1] === '"') {
+        cell += '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (char === "," && !quoted) {
+      cells.push(cell);
+      cell = "";
+    } else {
+      cell += char;
+    }
+  }
+  cells.push(cell);
+  return cells;
+}
+
+function compactNumber(value: unknown): number | undefined {
+  if (typeof value !== "string") return undefined;
+  const match = value.trim().replace(/,/gu, "").match(/^(\d+(?:\.\d+)?)\s*([kmb])?$/iu);
+  if (!match) return undefined;
+  const amount = Number(match[1]);
+  const multiplier = match[2]?.toLowerCase() === "b" ? 1_000_000_000
+    : match[2]?.toLowerCase() === "m" ? 1_000_000
+      : match[2]?.toLowerCase() === "k" ? 1_000
+        : 1;
+  return amount * multiplier;
+}
+
+function dashboardGauge(snapshot: DashboardUsageImport): ServiceGauge | null {
+  if (snapshot.provider === "grok" && snapshot.usedPercent !== undefined) {
+    const windowMs = snapshot.periodLabel === "30d" ? 30 * 24 * 3600_000 : WEEK_MS;
+    const quota = quotaGaugeFromSnapshots({ id: "grok", label: "grok", allowExpiredWindows: true }, [{
+      source: "manual",
+      provider: "xai",
+      harness: "grok",
+      transport: "dashboard_import",
+      planType: snapshot.plan,
+      label: snapshot.periodLabel ?? "7d",
+      windowKind: "subscription",
+      usedPercent: snapshot.usedPercent,
+      percentRemaining: 100 - snapshot.usedPercent,
+      resetAt: snapshot.resetAt ?? snapshot.capturedAt + windowMs,
+      windowMs,
+      capturedAt: snapshot.capturedAt,
+      metadata: { source: "service-budgets.grok-dashboard" },
+    }]);
+    return quota;
+  }
+  if (snapshot.provider === "cursor" && snapshot.totalTokens !== undefined) {
+    const eventCount = Math.max(0, Math.round(snapshot.eventCount ?? 0));
+    return {
+      id: "cursor",
+      label: "cursor",
+      kind: "status",
+      statusLabel: snapshot.plan ?? "Cursor dashboard",
+      windowLabel: snapshot.periodLabel,
+      detailLabel: `${eventCount} ${eventCount === 1 ? "event" : "events"} · ${formatTokenCount(snapshot.totalTokens)} tokens`,
+      tone: "ok",
+      capturedAt: snapshot.capturedAt,
+      source: "dashboard capture",
+    };
+  }
+  return null;
+}
+
+type GrokLocalUsage = {
+  capturedAt: number;
+  totalTokens: number;
+  turns: number;
+  modelCalls: number;
+};
+
+async function loadGrokGauge(): Promise<ServiceGauge | null> {
+  const imported = readDashboardUsageStore().providers.grok;
+  const dashboard = imported ? dashboardGauge(imported) : null;
+  if (dashboard) return dashboard;
+
+  const sessions = loadGrokLocalUsage();
+  if (sessions.length === 0) return null;
+  const totalTokens = sessions.reduce((sum, usage) => sum + usage.totalTokens, 0);
+  const turns = sessions.reduce((sum, usage) => sum + usage.turns, 0);
+  const modelCalls = sessions.reduce((sum, usage) => sum + usage.modelCalls, 0);
+  return {
+    id: "grok",
+    label: "grok",
+    kind: "status",
+    statusLabel: "Local activity",
+    windowLabel: "observed 7d",
+    detailLabel: `${formatTokenCount(totalTokens)} tokens · ${turns} turns · ${modelCalls} model calls`,
+    tone: "dim",
+    capturedAt: Math.max(...sessions.map((usage) => usage.capturedAt)),
+    source: "Grok local telemetry",
+  };
+}
+
+function loadGrokLocalUsage(): GrokLocalUsage[] {
+  const fixture = process.env[GROK_USAGE_JSON_ENV];
+  if (fixture?.trim()) {
+    const parsed = parseJsonRecord(fixture);
+    const usage = grokUsageFromRecord(parsed, Date.now());
+    return usage ? [usage] : [];
+  }
+  const root = join(homeDir(), ".grok", "sessions");
+  if (!existsSync(root)) return [];
+  const cutoff = Date.now() - WEEK_MS;
+  const paths: string[] = [];
+  const walk = (directory: string): void => {
+    let entries;
+    try {
+      entries = readdirSync(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else if (entry.isFile() && entry.name === "updates.jsonl" && (safeStat(path)?.mtimeMs ?? 0) >= cutoff) paths.push(path);
+    }
+  };
+  walk(root);
+  return paths.flatMap((path) => {
+    let latest: GrokLocalUsage | null = null;
+    try {
+      for (const line of readFileSync(path, "utf8").split(/\r?\n/u)) {
+        if (!line.includes('"usage"')) continue;
+        const record = parseJsonRecord(line);
+        const usage = grokUsageFromRecord(record, safeStat(path)?.mtimeMs ?? Date.now());
+        if (usage && (!latest || usage.capturedAt >= latest.capturedAt)) latest = usage;
+      }
+    } catch {
+      return [];
+    }
+    return latest ? [latest] : [];
+  });
+}
+
+function grokUsageFromRecord(record: Record<string, unknown> | null, fallbackCapturedAt: number): GrokLocalUsage | null {
+  if (!record) return null;
+  const params = recordValue(record.params);
+  const update = recordValue(params?.update);
+  const usage = recordValue(update?.usage) ?? recordValue(record.usage) ?? update;
+  const totalTokens = numericValue(usage?.totalTokens)
+    ?? ((numericValue(usage?.inputTokens) ?? 0) + (numericValue(usage?.outputTokens) ?? 0));
+  if (!Number.isFinite(totalTokens) || totalTokens <= 0) return null;
+  return {
+    capturedAt: timestampMs(record.timestamp) ?? fallbackCapturedAt,
+    totalTokens,
+    turns: numericValue(usage?.numTurns) ?? 0,
+    modelCalls: numericValue(usage?.modelCalls) ?? 0,
+  };
+}
+
+function formatTokenCount(value: number): string {
+  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(value >= 10_000_000_000 ? 0 : 1)}B`;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}K`;
+  return String(Math.round(value));
+}
+
 /* ── cursor ─────────────────────────────────────────────────────────── */
 
 type CursorSubscriptionState = {
@@ -1009,21 +1373,26 @@ async function loadCursorGauge(): Promise<ServiceGauge | null> {
   const state = readCursorSubscriptionState();
   const membership = stringValue(state?.membershipType);
   const subscriptionStatus = stringValue(state?.subscriptionStatus);
-  if (!membership && !subscriptionStatus) return null;
+  const imported = readDashboardUsageStore().providers.cursor;
+  const dashboard = imported ? dashboardGauge(imported) : null;
+  if (!membership && !subscriptionStatus) return dashboard;
 
   const normalizedStatus = subscriptionStatus?.trim().toLowerCase();
+  const dashboardDetail = dashboard?.kind === "status" ? dashboard.detailLabel : undefined;
   return {
     id: "cursor",
     label: "cursor",
     kind: "status",
     statusLabel: cursorMembershipLabel(membership) ?? "Cursor",
     windowLabel: "subscription",
-    detailLabel: normalizedStatus ? cursorMembershipLabel(normalizedStatus) ?? normalizedStatus : "detected locally",
+    detailLabel: dashboardDetail ?? (normalizedStatus ? cursorMembershipLabel(normalizedStatus) ?? normalizedStatus : "detected locally"),
     tone: normalizedStatus === "active"
       ? "ok"
       : normalizedStatus?.includes("cancel") || normalizedStatus?.includes("past")
         ? "warn"
         : "dim",
+    ...(dashboard?.capturedAt ? { capturedAt: dashboard.capturedAt } : {}),
+    source: dashboard?.source ?? "Cursor local membership",
   };
 }
 
@@ -1093,6 +1462,14 @@ type MinimaxRemainsResponse = {
 };
 
 async function loadMinimaxGauge(forceRefresh = false): Promise<ServiceGauge | null> {
+  const fresh = loadPersistedProviderQuotaGauge({
+    id: "minimax",
+    label: "minimax",
+    provider: "minimax",
+    harness: "minimax",
+    maxAgeMs: REMOTE_QUOTA_FRESH_MS,
+  });
+  if (!forceRefresh && fresh) return fresh;
   const persisted = loadPersistedProviderQuotaGauge({
     id: "minimax",
     label: "minimax",
@@ -1100,7 +1477,6 @@ async function loadMinimaxGauge(forceRefresh = false): Promise<ServiceGauge | nu
     harness: "minimax",
     maxAgeMs: WEEK_MS,
   });
-  if (!forceRefresh) return persisted;
   const payload = await readMinimaxRemainsResponse();
   if (!payload) return persisted;
 
@@ -1123,7 +1499,9 @@ async function readMinimaxRemainsResponse(): Promise<MinimaxRemainsResponse | nu
     return parseJsonRecord(fixtureJson) as MinimaxRemainsResponse | null;
   }
 
-  const apiKey = process.env.MINIMAX_API_KEY?.trim() || process.env.MINIMAX_TOKEN?.trim();
+  const apiKey = process.env.MINIMAX_API_KEY?.trim()
+    || process.env.MINIMAX_TOKEN?.trim()
+    || buildPiRpcCredentialEnv({ provider: "minimax" })?.MINIMAX_API_KEY;
   if (!apiKey) return null;
 
   let response: Response;
@@ -1161,39 +1539,44 @@ async function readMinimaxRemainsResponse(): Promise<MinimaxRemainsResponse | nu
 }
 
 function minimaxQuotaSnapshots(payload: MinimaxRemainsResponse, capturedAt: number): ServiceQuotaSnapshot[] {
-  const general = (Array.isArray(payload.model_remains) ? payload.model_remains : [])
-    .find((entry) => stringValue(entry.model_name)?.toLowerCase() === "general");
-  if (!general) return [];
-
-  return [
-    minimaxQuotaSnapshot(general, {
-      label: "5h",
-      windowKind: "primary",
-      startAt: general.start_time,
-      endAt: general.end_time,
-      total: general.current_interval_total_count,
-      used: general.current_interval_usage_count,
-      remainingPercent: general.current_interval_remaining_percent,
-      capturedAt,
-    }),
-    minimaxQuotaSnapshot(general, {
-      label: "7d",
-      windowKind: "secondary",
-      startAt: general.weekly_start_time,
-      endAt: general.weekly_end_time,
-      total: general.current_weekly_total_count,
-      used: general.current_weekly_usage_count,
-      remainingPercent: general.current_weekly_remaining_percent,
-      capturedAt,
-    }),
-  ].filter((entry): entry is ServiceQuotaSnapshot => entry !== null);
+  return (Array.isArray(payload.model_remains) ? payload.model_remains : []).flatMap((model, index) => {
+    const modelName = stringValue(model.model_name) ?? `model-${index + 1}`;
+    const prefix = modelName.toLowerCase() === "general" ? "" : `${modelName} `;
+    const intervalStartAt = timestampMs(model.start_time);
+    const intervalEndAt = timestampMs(model.end_time);
+    const intervalLabel = formatWindowMs(
+      intervalStartAt !== undefined && intervalEndAt !== undefined ? intervalEndAt - intervalStartAt : undefined,
+    ) ?? "5h";
+    return [
+      minimaxQuotaSnapshot(model, {
+        label: `${prefix}${intervalLabel}`,
+        windowKind: `${modelName}:primary`,
+        startAt: model.start_time,
+        endAt: model.end_time,
+        total: model.current_interval_total_count,
+        used: model.current_interval_usage_count,
+        remainingPercent: model.current_interval_remaining_percent,
+        capturedAt,
+      }),
+      minimaxQuotaSnapshot(model, {
+        label: `${prefix}7d`,
+        windowKind: `${modelName}:secondary`,
+        startAt: model.weekly_start_time,
+        endAt: model.weekly_end_time,
+        total: model.current_weekly_total_count,
+        used: model.current_weekly_usage_count,
+        remainingPercent: model.current_weekly_remaining_percent,
+        capturedAt,
+      }),
+    ].filter((entry): entry is ServiceQuotaSnapshot => entry !== null);
+  });
 }
 
 function minimaxQuotaSnapshot(
-  _model: MinimaxRemainsModel,
+  model: MinimaxRemainsModel,
   input: {
     label: string;
-    windowKind: "primary" | "secondary";
+    windowKind: string;
     startAt: unknown;
     endAt: unknown;
     total: unknown;
@@ -1206,7 +1589,7 @@ function minimaxQuotaSnapshot(
   const total = numericValue(input.total);
   const used = numericValue(input.used);
   if (remainingPercent === undefined && (total === undefined || used === undefined)) return null;
-  const resetAt = timestampMs(input.endAt) ?? input.capturedAt + (input.windowKind === "primary" ? 5 * 3600_000 : WEEK_MS);
+  const resetAt = timestampMs(input.endAt) ?? input.capturedAt + (input.windowKind.endsWith(":primary") ? 5 * 3600_000 : WEEK_MS);
   const startAt = timestampMs(input.startAt);
   const windowMs = startAt === undefined ? resetAt - input.capturedAt : resetAt - startAt;
   return {
@@ -1223,7 +1606,10 @@ function minimaxQuotaSnapshot(
     resetAt,
     windowMs,
     capturedAt: input.capturedAt,
-    metadata: { source: "service-budgets.minimax-token-plan" },
+    metadata: {
+      source: "service-budgets.minimax-token-plan",
+      modelName: stringValue(model.model_name),
+    },
   };
 }
 
@@ -1236,16 +1622,14 @@ type GhRateLimitResponse = {
 };
 
 async function loadGithubGauge(forceRefresh = false): Promise<ServiceGauge | null> {
-  if (!forceRefresh) {
-    const persisted = loadPersistedProviderQuotaGauge({
-      id: "github",
-      label: "github",
-      provider: "github",
-      harness: "github",
-      maxAgeMs: 15 * 60 * 1000,
-    });
-    return persisted;
-  }
+  const fresh = loadPersistedProviderQuotaGauge({
+    id: "github",
+    label: "github",
+    provider: "github",
+    harness: "github",
+    maxAgeMs: 15 * 60 * 1000,
+  });
+  if (!forceRefresh && fresh) return fresh;
 
   let stdout: string;
   const fixtureJson = process.env[GH_RATE_LIMIT_JSON_ENV];
@@ -1414,10 +1798,10 @@ function persistQuotaSnapshots(snapshots: ServiceQuotaSnapshot[]): void {
         used_percent, percent_remaining, used, limit_value, reset_at, window_ms,
         captured_at, metadata_json, created_at
       ) VALUES (
-        ?1, 'provider_reported', ?2, ?3, ?4, NULL, NULL, NULL,
-        NULL, NULL, NULL, ?5, ?6, ?7,
-        ?8, ?9, ?10, ?11, ?12, ?13,
-        ?14, ?15, ?16
+        ?1, ?2, ?3, ?4, ?5, NULL, NULL, NULL,
+        NULL, NULL, NULL, ?6, ?7, ?8,
+        ?9, ?10, ?11, ?12, ?13, ?14,
+        ?15, ?16, ?17
       )
       ON CONFLICT(id) DO UPDATE SET
         source = excluded.source,
@@ -1437,6 +1821,23 @@ function persistQuotaSnapshots(snapshots: ServiceQuotaSnapshot[]): void {
         metadata_json = excluded.metadata_json,
         created_at = excluded.created_at`,
     );
+    const readExisting = writer.query<{
+      usedPercent: number | null;
+      percentRemaining: number | null;
+      used: number | null;
+      limitValue: number | null;
+      resetAt: number | null;
+    }, [string]>(
+      `SELECT
+        used_percent AS usedPercent,
+        percent_remaining AS percentRemaining,
+        used,
+        limit_value AS limitValue,
+        reset_at AS resetAt
+      FROM budget_quota_window_snapshots
+      WHERE id = ?1
+      LIMIT 1`,
+    );
     const pruneHistory = writer.query(
       `DELETE FROM budget_quota_window_snapshots
       WHERE id LIKE '${QUOTA_HISTORY_ID_PREFIX}%'
@@ -1449,8 +1850,11 @@ function persistQuotaSnapshots(snapshots: ServiceQuotaSnapshot[]): void {
       snapshot: ServiceQuotaSnapshot,
       metadata: Record<string, unknown> | undefined,
     ): void => {
+      const existing = readExisting.get(id);
+      if (existing && !quotaSnapshotMayReplace(existing, snapshot)) return;
       statement.run(
         id,
+        snapshot.source ?? "provider_reported",
         snapshot.provider ?? null,
         snapshot.harness ?? null,
         snapshot.transport ?? null,
@@ -1480,12 +1884,27 @@ function persistQuotaSnapshots(snapshots: ServiceQuotaSnapshot[]): void {
   }
 }
 
+function quotaSnapshotMayReplace(
+  existing: Pick<ServiceQuotaSnapshot, "usedPercent" | "percentRemaining" | "used" | "limitValue" | "resetAt">,
+  incoming: ServiceQuotaSnapshot,
+): boolean {
+  const existingResetAt = finiteNumber(existing.resetAt);
+  const incomingResetAt = finiteNumber(incoming.resetAt);
+  if (existingResetAt !== undefined && incomingResetAt !== undefined && existingResetAt !== incomingResetAt) {
+    return incomingResetAt > existingResetAt;
+  }
+  const existingFill = quotaSnapshotUsage({ ...existing, label: "", capturedAt: 0 })?.fill;
+  const incomingFill = quotaSnapshotUsage(incoming)?.fill;
+  if (existingFill !== undefined && incomingFill !== undefined) return incomingFill >= existingFill;
+  return true;
+}
+
 function quotaSnapshotId(snapshot: ServiceQuotaSnapshot): string {
   return `budget:quota:${stableHash([
     "service-budgets",
     snapshot.provider ?? "",
     snapshot.harness ?? "",
-    snapshot.windowKind ?? snapshot.label,
+    quotaSnapshotWindowKey(snapshot),
   ])}`;
 }
 
@@ -1495,7 +1914,8 @@ function quotaHistorySnapshotId(snapshot: ServiceQuotaSnapshot): string {
     "history",
     snapshot.provider ?? "",
     snapshot.harness ?? "",
-    snapshot.windowKind ?? snapshot.label,
+    quotaSnapshotWindowKey(snapshot),
+    finiteNumber(snapshot.resetAt) ?? 0,
     Math.floor(snapshot.capturedAt / QUOTA_HISTORY_BUCKET_MS),
   ])}`;
 }

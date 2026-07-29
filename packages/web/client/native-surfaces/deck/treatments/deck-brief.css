@@ -73,9 +73,9 @@
 }
 .brief__viewport-body { min-height: 0; overflow: auto; padding: 2px 16px 12px; }
 /* The reading column earns a larger body size than the dense treatments. */
-.brief__viewport-body .deck-stream__content strong { font-size: 15px; line-height: 1.5; }
+.brief__viewport-body .deck-stream__content strong { font-size: var(--text-2xl); line-height: 1.5; }
 .brief__viewport-body .deck-stream__row[data-type="reasoning"] .deck-stream__content strong,
-.brief__viewport-body .deck-stream__row[data-type="action"] .deck-stream__content strong { font-size: 13px; }
+.brief__viewport-body .deck-stream__row[data-type="action"] .deck-stream__content strong { font-size: var(--text-lg); }
 
 .brief__dock { flex: none; display: flex; flex-direction: column; gap: 9px; }
 .brief__dock-voice { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; }
@@ -139,7 +139,7 @@
 }
 .brief__palette-list button[data-active="true"] { border-color: rgba(106,242,197,.3); background: rgba(106,242,197,.08); color: var(--deck-ink); }
 .brief__palette-list button:focus-visible { outline: 2px solid rgba(106,242,197,.6); outline-offset: -2px; }
-.brief__palette-list strong { min-width: 0; overflow: hidden; font-size: 14px; font-weight: 520; text-overflow: ellipsis; white-space: nowrap; }
+.brief__palette-list strong { min-width: 0; overflow: hidden; font-size: var(--text-xl); font-weight: 520; text-overflow: ellipsis; white-space: nowrap; }
 .brief__palette-list em { color: var(--deck-dim); font: 500 var(--deck-kicker)/1 var(--deck-mono); font-style: normal; white-space: nowrap; }
 .brief__palette-group { color: var(--deck-dim); font: 650 var(--deck-kicker)/1 var(--deck-mono); letter-spacing: .1em; text-transform: uppercase; }
 .brief__palette-group[data-tone="live"] { color: var(--deck-green); }
@@ -155,6 +155,6 @@
 @media (max-height: 700px) {
   .brief__column { padding: 12px 18px; gap: 9px; }
   .brief__head h2 { font-size: clamp(23px, 2.8vw, 31px); }
-  .brief__viewport-body .deck-stream__content strong { font-size: 14px; }
+  .brief__viewport-body .deck-stream__content strong { font-size: var(--text-xl); }
   .deck-primary[data-size="lg"] { width: 72px; height: 72px; }
 }

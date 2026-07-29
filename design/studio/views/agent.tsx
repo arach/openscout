@@ -129,13 +129,13 @@ export default function AgentVocabularyPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-10 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · agent
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Agent vocabulary
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           Every visible form an agent takes in scout's web client, on one
           page. Each section pairs the canonical component with a footnote
           pointing at the production source it was lifted from. Toggle the
@@ -166,7 +166,7 @@ export default function AgentVocabularyPage() {
                 role="Quarterback · codex"
                 state="needs-attention"
               />
-              <div className="mt-3 border-t border-studio-edge pt-2 font-mono text-[10px] text-studio-ink-faint">
+              <div className="mt-3 border-t border-studio-edge pt-2 font-mono text-xs text-studio-ink-faint">
                 opened 1m ago · 5 unread
               </div>
             </div>
@@ -181,7 +181,7 @@ export default function AgentVocabularyPage() {
         liftedFrom="packages/web/client/scout/inspector/HomeAgentsInspector.tsx:94"
       >
         <div className="overflow-hidden rounded-md border border-studio-edge bg-studio-surface">
-          <div className="grid grid-cols-[160px_1fr_1fr_1fr] gap-4 border-b border-studio-edge px-4 py-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="grid grid-cols-[160px_1fr_1fr_1fr] gap-4 border-b border-studio-edge px-4 py-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             <div>State</div>
             <div>Bare</div>
             <div>With halo</div>
@@ -193,10 +193,10 @@ export default function AgentVocabularyPage() {
               className="grid grid-cols-[160px_1fr_1fr_1fr] items-center gap-4 border-b border-studio-edge px-4 py-3 last:border-b-0"
             >
               <div>
-                <div className="font-sans text-[12.5px] text-studio-ink">
+                <div className="font-sans text-md text-studio-ink">
                   {AGENT_STATE_LABEL[s]}
                 </div>
-                <code className="font-mono text-[9.5px] text-studio-ink-faint">
+                <code className="font-mono text-2xs text-studio-ink-faint">
                   state: "{s}"
                 </code>
               </div>
@@ -266,7 +266,7 @@ export default function AgentVocabularyPage() {
       >
         <div className="grid gap-6 lg:grid-cols-3">
           <Specimen caption="In prose">
-            <p className="font-sans text-[13.5px] leading-relaxed text-studio-ink">
+            <p className="font-sans text-lg leading-relaxed text-studio-ink">
               The PR was reviewed by{" "}
               <AgentMentionChip agent={{ name: "Hudson", handle: "hudson" }} />{" "}
               and merged after{" "}
@@ -276,7 +276,7 @@ export default function AgentVocabularyPage() {
           </Specimen>
           <Specimen caption="Attendees row">
             <div className="rounded-md border border-studio-edge bg-studio-surface px-3 py-2">
-              <div className="mb-1.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+              <div className="mb-1.5 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
                 attendees · 4
               </div>
               <div className="flex flex-wrap gap-1.5">
@@ -290,13 +290,13 @@ export default function AgentVocabularyPage() {
           <Specimen caption="Standalone · size variants">
             <div className="flex flex-col gap-3">
               <div className="flex items-baseline gap-2">
-                <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+                <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
                   md
                 </span>
                 <AgentMentionChip agent={{ name: "Hudson", handle: "hudson" }} />
               </div>
               <div className="flex items-baseline gap-2">
-                <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+                <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
                   sm
                 </span>
                 <AgentMentionChip
@@ -331,7 +331,7 @@ export default function AgentVocabularyPage() {
             />
           </Specimen>
           <Specimen caption="Annotations">
-            <ul className="font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+            <ul className="font-sans text-md leading-relaxed text-studio-ink-faint">
               <li>
                 <span className="text-studio-ink">2-column grid</span> at every
                 breakpoint — the surface lives in the right inspector rail at
@@ -389,10 +389,10 @@ export default function AgentVocabularyPage() {
             </div>
           </Specimen>
           <Specimen caption="Notes">
-            <ul className="font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+            <ul className="font-sans text-md leading-relaxed text-studio-ink-faint">
               <li>
                 <span className="text-studio-ink">240×180 viewBox</span>,
-                scaled with <code className="font-mono text-[11px]">width="100%"</code>{" "}
+                scaled with <code className="font-mono text-sm">width="100%"</code>{" "}
                 so the mesh fills whatever rail it lands in.
               </li>
               <li>
@@ -402,7 +402,7 @@ export default function AgentVocabularyPage() {
               </li>
               <li>
                 <span className="text-studio-ink">Production version</span>{" "}
-                adds <code className="font-mono text-[11px]">{`<animateMotion>`}</code>{" "}
+                adds <code className="font-mono text-sm">{`<animateMotion>`}</code>{" "}
                 pulses along each connection line; this study is static.
               </li>
             </ul>
@@ -412,10 +412,10 @@ export default function AgentVocabularyPage() {
 
       {/* Footer */}
       <section className="mt-16 max-w-prose border-t border-studio-edge pt-6">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · components
         </div>
-        <ul className="space-y-1 font-mono text-[11px] leading-relaxed text-studio-ink-faint">
+        <ul className="space-y-1 font-mono text-sm leading-relaxed text-studio-ink-faint">
           <li><span className="text-studio-ink">components/AgentPresenceDot.tsx</span> — colored dot, 3 sizes, optional halo</li>
           <li><span className="text-studio-ink">components/AgentRow.tsx</span> — agent row in 3 densities</li>
           <li><span className="text-studio-ink">components/AgentCard.tsx</span> — info-dense 5-row tile</li>
@@ -445,14 +445,14 @@ function Section({
   return (
     <section className="mb-14">
       <div className="mb-4 flex items-baseline gap-3">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           {label}
         </div>
-        <div className="font-mono text-[10px] text-studio-ink-faint">{hint}</div>
+        <div className="font-mono text-xs text-studio-ink-faint">{hint}</div>
         <div className="ml-3 h-px flex-1 bg-studio-edge" />
       </div>
       {children}
-      <div className="mt-3 font-mono text-[9.5px] text-studio-ink-faint">
+      <div className="mt-3 font-mono text-2xs text-studio-ink-faint">
         lifted from <code className="text-studio-ink-muted">{liftedFrom}</code>
       </div>
     </section>
@@ -468,7 +468,7 @@ function Specimen({
 }) {
   return (
     <div className="flex flex-col gap-2">
-      <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · {caption}
       </div>
       {children}
@@ -490,7 +490,7 @@ function IdentityBlock({
   return (
     <div className="flex items-center gap-3">
       <div
-        className="relative grid h-10 w-10 shrink-0 place-items-center rounded-full font-mono text-[14px]"
+        className="relative grid h-10 w-10 shrink-0 place-items-center rounded-full font-mono text-xl"
         style={{
           background: avatarColor(name),
           color: "var(--studio-canvas)",
@@ -500,22 +500,22 @@ function IdentityBlock({
       </div>
       <div className="flex min-w-0 flex-col">
         <div className="flex items-baseline gap-2">
-          <span className="font-sans text-[15px] font-semibold tracking-tight text-studio-ink">
+          <span className="font-sans text-2xl font-semibold tracking-tight text-studio-ink">
             {name}
           </span>
-          <span className="font-mono text-[10.5px] text-studio-ink-faint">
+          <span className="font-mono text-xs text-studio-ink-faint">
             {handle}
           </span>
         </div>
         <div className="mt-0.5 flex items-baseline gap-1.5">
           <AgentPresenceDot state={state} size="sm" withHalo={state === "working"} />
           <span
-            className="font-mono text-[10px] uppercase tracking-eyebrow"
+            className="font-mono text-xs uppercase tracking-eyebrow"
             style={{ color: AGENT_STATE_COLOR[state] }}
           >
             {AGENT_STATE_LABEL[state]}
           </span>
-          <span className="font-mono text-[10px] text-studio-ink-faint">
+          <span className="font-mono text-xs text-studio-ink-faint">
             · {role}
           </span>
         </div>
@@ -528,7 +528,7 @@ function AvatarWithCorner({ state, name }: { state: AgentState; name: string }) 
   return (
     <div className="inline-flex">
       <div
-        className="relative grid h-7 w-7 shrink-0 place-items-center rounded-full font-mono text-[11px]"
+        className="relative grid h-7 w-7 shrink-0 place-items-center rounded-full font-mono text-sm"
         style={{
           background: avatarColor(name),
           color: "var(--studio-canvas)",

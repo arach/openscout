@@ -227,6 +227,50 @@ export const STUDIO_PAGES: StudioPage[] = [
       "The inspector's ask module clips all four routing selects to fit one 263px row. Faithful baseline plus three treatments — routing owns the toolbar line · one readout that expands on demand · routing-first instrument band — each at 520px and 380px. Studio only until ported.",
   },
   {
+    href: "/studies/new-task-launch-log",
+    label: "New task · launch log",
+    bucket: "studies",
+    surface: "web",
+    status: "concept",
+    source: [
+      "design/studio/views/new-task-launch-log.tsx",
+      "design/studio/app/studies/new-task-launch-log/page.tsx",
+      "packages/web/client/screens/agents/NewChatComposer.tsx",
+      "packages/runtime/src/broker-delivery-acceptance-service.ts",
+      "packages/runtime/src/broker-local-invocation-service.ts",
+      "docs/design/web-message-job-lifecycle.md",
+    ],
+    blurb:
+      "The beat between New-task send and the conversation opening, redesigned from a spinner + Queued placeholder into a launch ledger: the real submit-pipeline vocabulary (message.posted → invocation.requested → flight waking → dispatch job → endpoint active → running via spawn → tmux ready → first tokens) logged as it completes — mono type, true tabular timings on a ≥70ms render cadence, one emerald pulse on the active line. Fast path, cold spawn, and queued_until_online scenarios; every line grounded file:line, the two missing control events named. Studio only until ported.",
+  },
+  {
+    href: "/studies/messages-home",
+    label: "Messages · landing",
+    bucket: "studies",
+    surface: "web",
+    status: "concept",
+    source: [
+      "design/studio/views/messages-home.tsx",
+      "packages/web/client/screens/chat/MessagesScreen.tsx",
+    ],
+    blurb:
+      "SUPERSEDED by comms-one-rail (panel review 2026-07-29): both treatments were landing pages, and the split inbox was the one-rail wearing different labels. Salvage — the coalesced-notice fold and the need-a-reply stat — moved into the rail. Kept for the record with the craft fixes applied.",
+  },
+  {
+    href: "/studies/comms-one-rail",
+    label: "Comms · one rail",
+    bucket: "studies",
+    surface: "web",
+    status: "concept",
+    source: [
+      "design/studio/views/comms-one-rail.tsx",
+      "docs/design/comms-channel-navigation.md",
+      "packages/web/client/screens/chat/left.tsx",
+    ],
+    blurb:
+      "The channel-navigation direction (D1–D6) as a working frame: one rail with Needs you · Channels · Agents · Observed, land-in-conversation instead of a landing page, ＋ channel browser with dimmed inline discovery rows, and a row-grammar specimen strip. Studio only until sign-off.",
+  },
+  {
     href: "/studies/session-harness-state",
     label: "Session Harness State",
     bucket: "studies",
@@ -1084,6 +1128,22 @@ export const STUDIO_PAGES: StudioPage[] = [
   },
 
   // ── Studies · Web ───────────────────────────────────────────────
+  {
+    href: "/studies/window-countdowns",
+    label: "Home · Window Countdowns",
+    bucket: "studies",
+    surface: "web",
+    family: "home",
+    status: "concept",
+    source: [
+      "design/studio/views/window-countdowns.tsx",
+      "design/studio/views/window-countdowns.module.css",
+      "packages/web/client/screens/home/HomeHero.tsx",
+      "packages/web/client/screens/home/home-hero.css",
+    ],
+    blurb:
+      "Interactive comparison bench for six Grok-proposed short and weekly quota countdown treatments. One shared state control forces normal, imminent, reset-due, and stale behavior; desktop and rail-width previews expose responsive costs. Recommended: symmetric dual countdowns with the weekly absolute deadline retained as secondary context.",
+  },
   {
     href: "/studies/inspector-bar",
     label: "Inspector Bar",

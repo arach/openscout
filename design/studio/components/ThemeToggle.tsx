@@ -27,7 +27,11 @@ export function ThemeToggle() {
   };
 
   return (
-    <div className="flex items-center gap-px rounded-[3px] border border-studio-edge p-px">
+    <div
+      role="group"
+      aria-label="Theme"
+      className="flex w-full items-center gap-0.5 rounded-[5px] border border-studio-edge p-0.5"
+    >
       <Pill active={active === "dark"} onClick={() => apply("dark")} label="Dark" />
       <Pill active={active === "light"} onClick={() => apply("light")} label="Light" />
     </div>
@@ -48,9 +52,9 @@ function Pill({
       type="button"
       onClick={onClick}
       className={[
-        "focus-ring flex-1 rounded-[2px] px-2 py-1 font-mono text-2xs font-semibold uppercase tracking-ch transition-colors",
+        "focus-ring flex-1 rounded-[3px] px-2 py-1 font-mono text-2xs font-semibold uppercase tracking-ch transition-colors",
         active
-          ? "bg-studio-canvas-alt text-studio-ink"
+          ? "bg-studio-canvas text-studio-ink shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--studio-ink)_10%,transparent)]"
           : "text-studio-ink-faint hover:text-studio-ink",
       ].join(" ")}
       aria-pressed={active}

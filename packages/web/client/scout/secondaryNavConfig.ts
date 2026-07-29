@@ -1,7 +1,6 @@
 import type { SecondaryNavGroup } from "../components/SecondaryNav.tsx";
 import {
   projectAgentsSecondaryNav,
-  projectChatSecondaryNav,
   projectOpsSecondaryNav,
 } from "./nav-destinations.ts";
 
@@ -10,8 +9,6 @@ import {
 // the route stays alive, the nav entry does not. SCO-083 moves agent config into
 // the Settings area; this strip remains until Settings Dialog conversion lands.
 export const AGENTS_SECONDARY_NAV: SecondaryNavGroup[] = projectAgentsSecondaryNav();
-
-export const CHAT_SECONDARY_NAV: SecondaryNavGroup[] = projectChatSecondaryNav();
 
 /**
  * Ops secondary strip — Ops-area destinations only (SCO-083).

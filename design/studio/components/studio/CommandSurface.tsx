@@ -32,34 +32,34 @@ export function CommandSurface({
   return (
     <div className="overflow-hidden rounded-[4px] border border-studio-edge bg-studio-canvas">
       <div className="flex items-center justify-between gap-3 border-b border-studio-edge bg-studio-canvas-alt px-3 py-1.5">
-        <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           command
         </span>
         <span className="flex items-center gap-2">
           {rerunHref ? (
             <RerunLink
               href={rerunHref}
-              className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint underline-offset-4 hover:text-studio-ink hover:underline"
+              className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint underline-offset-4 hover:text-studio-ink hover:underline"
               title="Force re-run, bypassing the cache"
               pendingLabel="running ↻"
             >
               re-run ↻
             </RerunLink>
           ) : null}
-          <span className={`font-mono text-[9px] uppercase tracking-eyebrow ${badge.tone}`}>
+          <span className={`font-mono text-2xs uppercase tracking-eyebrow ${badge.tone}`}>
             {badge.label}
           </span>
         </span>
       </div>
-      <pre className="overflow-x-auto px-3 py-2 font-mono text-[10.5px] leading-relaxed text-studio-ink">
+      <pre className="overflow-x-auto px-3 py-2 font-mono text-xs leading-relaxed text-studio-ink">
         $ {shell}
       </pre>
 
-      <div className="border-t border-studio-edge bg-studio-canvas-alt px-3 py-1.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="border-t border-studio-edge bg-studio-canvas-alt px-3 py-1.5 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         output
       </div>
       {run.error ? (
-        <pre className="overflow-x-auto px-3 py-2 font-mono text-[10.5px] leading-relaxed text-status-error-fg">
+        <pre className="overflow-x-auto px-3 py-2 font-mono text-xs leading-relaxed text-status-error-fg">
           {run.error}
         </pre>
       ) : (
@@ -67,7 +67,7 @@ export function CommandSurface({
       )}
 
       {footnote ? (
-        <div className="border-t border-studio-edge bg-studio-canvas-alt px-3 py-2 font-sans text-[11.5px] leading-relaxed text-studio-ink-faint">
+        <div className="border-t border-studio-edge bg-studio-canvas-alt px-3 py-2 font-sans text-sm leading-relaxed text-studio-ink-faint">
           {footnote}
         </div>
       ) : null}

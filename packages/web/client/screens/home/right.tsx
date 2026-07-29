@@ -25,7 +25,7 @@ export function HomeRight() {
 
   if (agents.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center px-4 text-center font-mono text-[11px] leading-relaxed text-[var(--scout-chrome-ink-faint)]">
+      <div className="flex h-full flex-col items-center justify-center px-4 text-center font-mono text-sm leading-relaxed text-[var(--scout-chrome-ink-faint)]">
         <div className="mb-1 uppercase tracking-[0.15em]">
           {apiConnection.status === "offline" ? "Roster unavailable" : "No agents"}
         </div>
@@ -42,7 +42,7 @@ export function HomeRight() {
   const blocked = agents.filter((agent) => !isAgentOnline(agent.state, agent));
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
+    <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-sm">
       {busy.length > 0 && (
         <Section label="In progress" count={busy.length}>
           {busy.map((agent) => (
@@ -91,10 +91,10 @@ function Section({
   return (
     <div className="flex flex-col">
       <div className="flex items-baseline justify-between mb-1.5">
-        <span className="text-[9px] font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
+        <span className="text-2xs font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
           {label}
         </span>
-        <span className="text-[9px] font-mono tabular-nums text-[var(--scout-chrome-ink-ghost)]">
+        <span className="text-2xs font-mono tabular-nums text-[var(--scout-chrome-ink-ghost)]">
           {count}
         </span>
       </div>
@@ -127,9 +127,9 @@ function AgentRow({
       <div className="flex flex-col min-w-0 flex-1">
         <span className="truncate font-medium text-[var(--scout-chrome-ink)]">{agent.name}</span>
         {subLabel ? (
-          <span className="truncate text-[10px] text-[var(--scout-chrome-ink-faint)]">{subLabel}</span>
+          <span className="truncate text-xs text-[var(--scout-chrome-ink-faint)]">{subLabel}</span>
         ) : agent.updatedAt ? (
-          <span className="truncate text-[10px] text-[var(--scout-chrome-ink-ghost)]">
+          <span className="truncate text-xs text-[var(--scout-chrome-ink-ghost)]">
             {timeAgo(agent.updatedAt)}
           </span>
         ) : null}

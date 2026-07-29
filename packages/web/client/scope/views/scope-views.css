@@ -39,7 +39,7 @@
   align-items: baseline;
   gap: 12px;
   font-family: var(--scope-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   letter-spacing: 0.06em;
   color: var(--scope-muted);
 }
@@ -70,7 +70,7 @@
   background: transparent;
   color: var(--scope-muted);
   font-family: var(--scope-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   padding: 4px 8px;
   border-radius: 4px;
   cursor: pointer;
@@ -97,7 +97,7 @@
 
 .scope-lane-width.is-compact .scope-lane-width__btn {
   padding: 2px 5px;
-  font-size: 9px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -116,7 +116,7 @@
   padding: 0;
   list-style: none;
   font-family: var(--scope-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--scope-muted);
 }
 
@@ -127,7 +127,7 @@
   place-items: center;
   padding: 48px 24px;
   font-family: var(--scope-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--scope-muted);
 }
 
@@ -309,7 +309,7 @@
   border-radius: 4px;
   background: rgba(95, 208, 196, 0.1);
   color: var(--scope-accent);
-  font-size: 11px;
+  font-size: var(--text-sm);
   line-height: 22px;
   text-align: center;
   cursor: grab;
@@ -323,7 +323,7 @@
   width: 18px;
   height: 18px;
   margin-top: 0;
-  font-size: 10px;
+  font-size: var(--text-xs);
   line-height: 18px;
 }
 
@@ -395,7 +395,7 @@
   top: 50%;
   transform: translate(-50%, -50%);
   font-family: var(--scope-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--scope-accent);
@@ -430,7 +430,7 @@
   gap: 2px;
   min-width: 0;
   font-family: var(--scope-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 
 .scope-lane__source {
@@ -464,13 +464,13 @@
 }
 
 .scope-lane.is-stack-compact .scope-lane__meta {
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 
 .scope-lane__empty {
   padding: 24px 12px;
   font-family: var(--scope-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--scope-muted);
   text-align: center;
 }
@@ -572,7 +572,7 @@
 .scope-lane.is-stack-compact .scope-lane__trace .s-observe--lane .s-observe-tool-cmd,
 .scope-lane.is-stack-compact .scope-lane__trace .s-observe--lane .s-observe-message-text,
 .scope-lane.is-stack-compact .scope-lane__trace .s-observe--lane .s-observe-think-text {
-  font-size: 10px;
+  font-size: var(--text-xs);
   line-height: 1.35;
 }
 
@@ -611,7 +611,7 @@
   align-items: baseline;
   gap: 12px;
   font-family: var(--scope-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   letter-spacing: 0.06em;
   color: var(--scope-muted);
 }
@@ -641,7 +641,7 @@
   gap: 10px;
   margin-bottom: 8px;
   font-family: var(--scope-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 
 .scope-dir__group-name {
@@ -667,7 +667,7 @@
   align-items: center;
   padding: 8px 12px;
   font-family: var(--scope-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   border-bottom: 1px solid var(--scope-line);
   cursor: pointer;
 }
@@ -745,7 +745,7 @@
   border: none;
   background: transparent;
   color: var(--scope-muted, #8d8980);
-  font-size: 20px;
+  font-size: var(--text-4xl);
   line-height: 1;
   padding: 4px 8px;
   cursor: pointer;
@@ -779,7 +779,7 @@
 .scope-lane-detail__kicker {
   display: block;
   font-family: var(--scope-mono, monospace);
-  font-size: 10px;
+  font-size: var(--text-xs);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--scope-muted, #8d8980);
@@ -789,7 +789,7 @@
 .scope-lane-detail__title {
   margin: 0;
   font-family: var(--scope-mono, monospace);
-  font-size: 14px;
+  font-size: var(--text-xl);
   font-weight: 500;
   color: var(--scope-accent, #5fd0c4);
 }
@@ -801,7 +801,7 @@
 .scope-lane-detail__sub {
   margin-top: 4px;
   font-family: var(--scope-mono, monospace);
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--scope-muted, #8d8980);
 }
 
@@ -813,7 +813,7 @@
   padding: 10px 16px;
   border-bottom: 1px solid var(--scope-line, rgba(255, 255, 255, 0.1));
   font-family: var(--scope-mono, monospace);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 
 .scope-lane-detail__stat {
@@ -881,7 +881,7 @@
   align-items: baseline;
   gap: 12px;
   font-family: var(--scope-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   letter-spacing: 0.06em;
   color: var(--scope-muted);
 }
@@ -954,7 +954,7 @@
   background: transparent;
   color: var(--scope-muted);
   border-radius: 4px;
-  font-size: 11px;
+  font-size: var(--text-sm);
   letter-spacing: 0.04em;
 }
 
@@ -986,7 +986,7 @@
   background: color-mix(in srgb, var(--scope-panel) 88%, var(--scope-bg));
   border-bottom-color: var(--scope-line);
   color: var(--scope-muted);
-  font-size: 10px;
+  font-size: var(--text-xs);
   letter-spacing: 0.08em;
 }
 
@@ -1035,7 +1035,7 @@
   background: color-mix(in srgb, var(--scope-panel) 92%, var(--scope-bg));
   border-top-color: var(--scope-line);
   color: var(--scope-muted);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 
 .scope-sessions__atop .s-atop-keys-count strong,
@@ -1053,7 +1053,7 @@
 .scope-sessions__atop .dt-empty {
   color: var(--scope-muted);
   font-family: var(--scope-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 
 /* ── Tail view (/scope/tail) ── */
@@ -1098,7 +1098,7 @@
   align-items: baseline;
   gap: 12px;
   font-family: var(--scope-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   letter-spacing: 0.06em;
   color: var(--scope-muted);
 }
@@ -1154,7 +1154,7 @@
 .scope-tail__stream .s-tail-status {
   background: color-mix(in srgb, var(--scope-panel) 92%, var(--scope-bg));
   border-bottom-color: var(--scope-line);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 
 .scope-tail__stream .s-tail-status-state {
@@ -1263,7 +1263,7 @@
   border-color: var(--scope-line);
   background: rgba(95, 208, 196, 0.04);
   color: var(--scope-muted);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 
 .scope-tail__stream .s-tail-divider:hover,
@@ -1275,7 +1275,7 @@
 .scope-tail__stream .s-tail-empty {
   color: var(--scope-muted);
   font-family: var(--scope-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 
 .scope-tail__stream .s-tail-empty-title {
@@ -1286,7 +1286,7 @@
   background: color-mix(in srgb, var(--scope-panel) 92%, var(--scope-bg));
   border-top: 1px solid var(--scope-line);
   color: var(--scope-muted);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 
 .scope-tail__stream .s-tail-keys kbd {

@@ -46,9 +46,9 @@ export function CodeExcerpt({
     .join("\n");
 
   return (
-    <div className="font-mono text-[11.5px] leading-[1.55]">
+    <div className="font-mono text-sm leading-[1.55]">
       {(startLine || endLine || language) ? (
-        <div className="mb-1.5 flex items-baseline gap-2 px-1 text-[9.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mb-1.5 flex items-baseline gap-2 px-1 text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           {language ? <span>{language}</span> : null}
           {language && (startLine || endLine) ? (
             <span aria-hidden className="text-studio-ink-faint">·</span>
@@ -103,7 +103,7 @@ export function CodeExcerpt({
             >
               …
             </span>
-            <span className="flex-1 px-3 py-1 italic text-studio-ink-faint text-[10px]">
+            <span className="flex-1 px-3 py-1 italic text-studio-ink-faint text-xs">
               truncated at {maxLines} lines ({windowed.length - maxLines} more)
             </span>
           </div>

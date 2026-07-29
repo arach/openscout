@@ -1,6 +1,5 @@
 import type { Route } from "../../lib/types.ts";
 import type { useScout } from "../../scout/Provider.tsx";
-import { ChannelsScreen } from "./ChannelsScreen.tsx";
 import { ConversationScreen } from "./ConversationScreen.tsx";
 
 import { MessagesScreen } from "./MessagesScreen.tsx";
@@ -17,6 +16,8 @@ export function ChatContent({ route, navigate }: { route: Route; navigate: Navig
           navigate={navigate}
         />
       );
+    // One conversation route (D6): channels resolve inside MessagesScreen by
+    // conversation kind — there is no separate channels route.
     case "messages":
       return (
         <MessagesScreen
@@ -24,8 +25,6 @@ export function ChatContent({ route, navigate }: { route: Route; navigate: Navig
           navigate={navigate}
         />
       );
-    case "channels":
-      return <ChannelsScreen channelId={route.channelId} navigate={navigate} />;
     default:
       return null;
   }

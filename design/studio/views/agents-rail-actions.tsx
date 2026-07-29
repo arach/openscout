@@ -92,13 +92,13 @@ export default function AgentsRailActionsPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-6 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · agents-rail-actions
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Agents · Rail Actions
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           The main view stays the list — projects, or the agents under them. What moves is the chrome:{" "}
           <b>Search</b> and <b>New chat</b> leave the center and become rail <em>actions</em> that open a ⌘K palette /
           composer over the list, then get out of the way. Kept deliberately simple — two actions, the agents you last

@@ -25,11 +25,11 @@ function InspectorSection({ label, count, action, children }: Props) {
   return (
     <section className="px-3 py-2.5">
       <div className="mb-1.5 flex items-baseline gap-2">
-        <div className="flex-1 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-studio-ink-faint">
+        <div className="flex-1 font-mono text-xs font-semibold uppercase tracking-[0.18em] text-studio-ink-faint">
           {label}
         </div>
         {typeof count === "number" ? (
-          <span className="rounded-[3px] bg-studio-canvas-alt px-1.5 py-px font-mono text-[9.5px] text-studio-ink">
+          <span className="rounded-[3px] bg-studio-canvas-alt px-1.5 py-px font-mono text-2xs text-studio-ink">
             {count}
           </span>
         ) : null}
@@ -77,7 +77,7 @@ export default function InspectorSectionAtomPage() {
             action={
               <button
                 type="button"
-                className="rounded-[3px] px-1.5 py-px font-mono text-[9.5px] text-studio-ink-faint hover:bg-studio-canvas-alt hover:text-studio-ink"
+                className="rounded-[3px] px-1.5 py-px font-mono text-2xs text-studio-ink-faint hover:bg-studio-canvas-alt hover:text-studio-ink"
               >
                 clear
               </button>
@@ -91,10 +91,10 @@ export default function InspectorSectionAtomPage() {
       </div>
 
       <div className="mt-12 max-w-prose border-t border-studio-edge pt-5">
-        <div className="mb-2 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           · props
         </div>
-        <pre className="font-mono text-[11.5px] leading-relaxed text-studio-ink">
+        <pre className="font-mono text-sm leading-relaxed text-studio-ink">
 {`interface Props {
   label: string;
   count?: number;
@@ -110,7 +110,7 @@ export default function InspectorSectionAtomPage() {
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div>
-      <div className="mb-2 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="mb-2 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         · {title}
       </div>
       <div className="rounded-md border border-studio-edge bg-studio-surface">
@@ -135,10 +135,10 @@ function Row({
         tone === "warn" ? "bg-[var(--status-warn-bg)]" : ""
       }`}
     >
-      <span className="font-sans text-[12.5px] font-medium text-studio-ink">
+      <span className="font-sans text-md font-medium text-studio-ink">
         {name}
       </span>
-      <span className="font-sans text-[11.5px] text-studio-ink-faint">
+      <span className="font-sans text-sm text-studio-ink-faint">
         {detail}
       </span>
     </div>

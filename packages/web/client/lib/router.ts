@@ -11,8 +11,6 @@ import type {
   AgentTab,
   DispatchFilter,
   FollowPreferredView,
-  MessagesFilter,
-  MessagesSort,
   OpsMode,
   ProjectSet,
   ProjectsIndexView,
@@ -84,16 +82,8 @@ function parseOpsMode(value: string | undefined): OpsMode | undefined {
   }
 }
 
-function parseMessagesFilter(value: string | null): MessagesFilter | undefined {
-  return value === "dm" || value === "channel" || value === "all" ? value : undefined;
-}
-
 function parseDispatchFilter(value: string | null): DispatchFilter | undefined {
   return value === "delivered" || value === "failed" || value === "all" ? value : undefined;
-}
-
-function parseMessagesSort(value: string | null): MessagesSort | undefined {
-  return value === "recent" || value === "name" || value === "unread" ? value : undefined;
 }
 
 function parseSearchMode(value: string | undefined): SearchMode | undefined {
@@ -203,7 +193,6 @@ const MACHINE_SCOPED_VIEWS = new Set<Route["view"]>([
   "sessions",
   "repos",
   "harnesses",
-  "channels",
   "mesh",
   "activity",
   "work",
@@ -494,13 +483,9 @@ export function routeFromUrl(urlLike: string | URL): Route {
   // Legacy /conversations → Chat messages index.
   if (parts[0] === "conversations") return scoped({ view: "messages" });
   if (parts[0] === "messages") {
-    const filter = parseMessagesFilter(url.searchParams.get("filter"));
-    const sort = parseMessagesSort(url.searchParams.get("sort"));
     const base: Extract<Route, { view: "messages" }> = {
       view: "messages",
       ...(parts[1] ? { conversationId: decodeURIComponent(parts[1]) } : {}),
-      ...(filter ? { filter } : {}),
-      ...(sort ? { sort } : {}),
     };
     return scoped(base);
   }
@@ -551,10 +536,11 @@ export function routeFromUrl(urlLike: string | URL): Route {
       ...(hitId ? { hitId } : {}),
     };
   }
+  // Legacy /channels deep links alias onto the unified conversation route.
   if (parts[0] === "channels" && parts[1]) {
-    return scoped({ view: "channels", channelId: decodeURIComponent(parts[1]) });
+    return scoped({ view: "messages", conversationId: decodeURIComponent(parts[1]) });
   }
-  if (parts[0] === "channels") return scoped({ view: "channels" });
+  if (parts[0] === "channels") return scoped({ view: "messages" });
   if (parts[0] === "mesh") return scoped({ view: "mesh" });
   if (parts[0] === "dispatch" || parts[0] === "broker") {
     const attemptId = url.searchParams.get("attempt")?.trim() || undefined;
@@ -769,8 +755,6 @@ export function routePath(r: Route, pathname?: string): string {
     }
     case "messages": {
       const params = new URLSearchParams();
-      if (r.filter && r.filter !== "all") params.set("filter", r.filter);
-      if (r.sort && r.sort !== "recent") params.set("sort", r.sort);
       appendMachineScope(params, r);
       const base = r.conversationId
         ? `/messages/${encodeURIComponent(r.conversationId)}`
@@ -816,10 +800,6 @@ export function routePath(r: Route, pathname?: string): string {
       if (r.hitId) params.set("hit", r.hitId);
       return `${base}${searchSuffix(params)}`;
     }
-    case "channels":
-      return pathWithMachineScope(r.channelId
-        ? `/channels/${encodeURIComponent(r.channelId)}`
-        : "/channels", r);
     case "mesh":
       return pathWithMachineScope("/mesh", r);
     case "broker": {
@@ -860,7 +840,8 @@ export function routePath(r: Route, pathname?: string): string {
           ? `/settings/agents/${encodeURIComponent(r.agentId)}`
           : "/settings/agents";
       }
-      if (r.section === "pairing" || !r.section) return "/settings";
+      if (!r.section) return "/settings";
+      if (r.section === "pairing") return "/settings/pairing";
       if (r.section === "comms") return "/settings/comms";
       return `/settings/${r.section}`;
     case "ops":
@@ -949,8 +930,6 @@ export function routeKey(r: Route): string {
         : r.sessionId ? `session:${r.agentId ?? ""}:${r.sessionId}${scope}` : `sessions${scope}`;
     case "messages":
       return r.conversationId ? `messages:${r.conversationId}${scope}` : `messages${scope}`;
-    case "channels":
-      return r.channelId ? `channel:${r.channelId}${scope}` : `channels${scope}`;
     case "work":
       return `work:${r.workId}${scope}`;
     case "ops":

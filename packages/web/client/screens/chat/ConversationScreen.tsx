@@ -2293,6 +2293,7 @@ export function ConversationScreen({
                 data-tone={terminalTurnReceipt.tone}
                 aria-live="polite"
               >
+                <span className="dot" aria-hidden="true" />
                 <div className="s-thread-terminal-receipt-copy">
                   <span className="s-thread-terminal-receipt-label">
                     {terminalTurnReceipt.label}

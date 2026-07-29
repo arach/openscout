@@ -19,6 +19,8 @@ import {
 import {
   collapseTailDisplayRows,
   isTailNoiseEvent,
+  TAIL_KIND_GLYPH as KIND_GLYPH,
+  TAIL_KIND_LABEL as KIND_LABEL,
   type TailDisplayMode,
 } from "../../lib/tail-display.ts";
 import { useTailEvents } from "../../lib/tail-events.ts";
@@ -35,24 +37,6 @@ const BUFFER_LIMIT = 5_000;
 const DEFAULT_RECENT_LIMIT = 500;
 const DISCOVERY_REFRESH_MS = 30_000;
 const DISPLAY_MODE_STORAGE_KEY = "openscout:tail-display-mode";
-
-const KIND_GLYPH: Record<TailEventKind, string> = {
-  user: ">",
-  assistant: "<",
-  tool: "*",
-  "tool-result": "=",
-  system: "~",
-  other: "·",
-};
-
-const KIND_LABEL: Record<TailEventKind, string> = {
-  user: "USR",
-  assistant: "AST",
-  tool: "TOL",
-  "tool-result": "OUT",
-  system: "SYS",
-  other: "EVT",
-};
 
 type TailAttribution = TailEvent["harness"];
 

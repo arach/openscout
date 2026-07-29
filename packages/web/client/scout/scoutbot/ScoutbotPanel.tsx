@@ -884,7 +884,7 @@ export function ScoutbotPanel({
         )}
 
         {(partial || speaking) && !realtimeLive && (
-          <div className="flex items-center justify-between gap-2 rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 px-2.5 py-2 font-mono text-[10px] leading-relaxed text-[var(--scout-chrome-ink-faint)]">
+          <div className="flex items-center justify-between gap-2 rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 px-2.5 py-2 font-mono text-xs leading-relaxed text-[var(--scout-chrome-ink-faint)]">
             <span className="min-w-0 truncate">{speaking ? "Speaking reply…" : partial}</span>
             {speaking && (
               <button
@@ -900,7 +900,7 @@ export function ScoutbotPanel({
         )}
 
         {askStatus && !sending && (
-          <div className="font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
+          <div className="font-mono text-2xs uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
             {askStatus}
           </div>
         )}
@@ -930,7 +930,7 @@ export function ScoutbotPanel({
         />
 
         {error && (
-          <div className="rounded border border-red-400/30 bg-red-400/10 px-2.5 py-2 font-mono text-[10px] leading-relaxed text-red-200">
+          <div className="rounded border border-red-400/30 bg-red-400/10 px-2.5 py-2 font-mono text-xs leading-relaxed text-red-200">
             {error}
           </div>
         )}

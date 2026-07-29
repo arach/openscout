@@ -24,13 +24,13 @@ export default function HudAssistantPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-8 max-w-prose">
-        <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · macos · hud-assistant
         </div>
-        <h1 className="mt-1 font-sans text-[28px] font-semibold leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-sans text-6xl font-semibold leading-none tracking-tight text-studio-ink">
           HUD Assistant
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           Slot 5 — a desktop view of the same Scout that lives on iOS.
           One persistent thread, context-aware dock routing, and the
           natural home for `/` commands and `@` agent completion. The
@@ -59,7 +59,7 @@ function Tier({
 }) {
   return (
     <section className="flex flex-col gap-2">
-      <div className="font-mono text-[9.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · {label}
       </div>
       <HudPanel size={size} tab="assistant" />

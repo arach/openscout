@@ -5,6 +5,7 @@ import { shouldBootstrapDiscoveredEmbed } from "./surfaces/embed-path.ts";
 
 import {
   applyScoutThemeToDocument,
+  resolveScoutStartupAppearanceDetails,
   resolveScoutStartupTheme,
   resolveScoutStartupTemplate,
 } from "./lib/theme.ts";
@@ -21,7 +22,11 @@ if (!el) {
 const rootElement = el;
 
 const initialTheme = resolveScoutStartupTheme();
-applyScoutThemeToDocument(initialTheme, resolveScoutStartupTemplate());
+applyScoutThemeToDocument(
+  initialTheme,
+  resolveScoutStartupTemplate(),
+  resolveScoutStartupAppearanceDetails(),
+);
 
 const pathname = window.location.pathname;
 const isScoutbotFxLab = pathname === "/dev/scoutbot-fx";

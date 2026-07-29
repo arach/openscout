@@ -60,11 +60,11 @@ export default function OperatorBriefPage() {
     <main className="mx-auto max-w-page px-7 py-8">
       <Eyebrow />
 
-      <h1 className="mt-1 font-display text-[32px] font-medium leading-none tracking-tight text-studio-ink">
+      <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
         Operator brief &amp; handoff
       </h1>
 
-      <p className="mt-3 max-w-prose font-sans text-[13.5px] leading-relaxed text-studio-ink-faint">
+      <p className="mt-3 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
         The full lifecycle from the operator&apos;s side. There&apos;s a
         kickoff <em>brief</em>, a <em>check-in</em> cadence that runs the
         whole time the agent is out, and a <em>debrief</em> that arrives
@@ -73,7 +73,7 @@ export default function OperatorBriefPage() {
         ambient end of the cadence. This study zooms out to the
         surrounding document.
       </p>
-      <p className="mt-2 max-w-prose font-sans text-[12px] leading-relaxed text-studio-ink-faint" style={{ opacity: 0.8 }}>
+      <p className="mt-2 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint" style={{ opacity: 0.8 }}>
         Composing one: <a href="/studies/brief-author" className="text-studio-ink underline decoration-studio-edge-strong underline-offset-4 hover:decoration-[color:var(--scout-accent)]">/studies/brief-author</a>.
       </p>
 
@@ -81,7 +81,7 @@ export default function OperatorBriefPage() {
       <SectionTitle hint="The kickoff artifact, fully composed" className="mt-12">
         The brief
       </SectionTitle>
-      <p className="mt-2 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+      <p className="mt-2 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
         Not the prompt field. The mental model of the document an operator
         hands over. Goal, boundaries, success, references, latitude —
         re-readable by the operator, referable by the agent.
@@ -97,7 +97,7 @@ export default function OperatorBriefPage() {
       >
         Check-in spectrum
       </SectionTitle>
-      <p className="mt-2 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+      <p className="mt-2 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
         Mid-flight contact is not one thing with a verbosity knob —
         it&apos;s four different surfaces at four different cadences.
         Passing glance lives in your peripheral vision; ambient lives in
@@ -119,7 +119,7 @@ export default function OperatorBriefPage() {
       >
         The debrief
       </SectionTitle>
-      <p className="mt-2 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+      <p className="mt-2 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
         Not a diff dump. A document the operator can read first thing in
         the morning — what was decided and why, what was tried and
         discarded, what&apos;s still open, what the agent learned. The
@@ -133,7 +133,7 @@ export default function OperatorBriefPage() {
       <SectionTitle hint="Brief + cadence + debrief are one document" className="mt-16">
         The thread of continuity
       </SectionTitle>
-      <p className="mt-2 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+      <p className="mt-2 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
         The brief opens the file. The check-ins are annotations stitched
         in along the way. The debrief closes the file. From a distance
         it&apos;s one growing artifact, not three separate documents.
@@ -144,17 +144,17 @@ export default function OperatorBriefPage() {
 
       {/* ── 5. How to read ──────────────────────────────────────── */}
       <section className="mt-16 max-w-prose border-t border-studio-edge pt-6">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · how to read this study
         </div>
-        <p className="font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+        <p className="font-sans text-md leading-relaxed text-studio-ink-faint">
           Every surface is rendered statically at full opacity from the
           production primitives where it makes sense (
-          <code className="font-mono text-[11px] text-studio-ink">
+          <code className="font-mono text-sm text-studio-ink">
             TickerSlotCard
           </code>{" "}
           and{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
+          <code className="font-mono text-sm text-studio-ink">
             ActionCluster
           </code>{" "}
           for the ambient end of the cadence spectrum) and as new
@@ -162,7 +162,7 @@ export default function OperatorBriefPage() {
           intervene panels — these don&apos;t exist in shipping code yet,
           so this study is the canonical reference. To feel the live
           micro-moment, go to{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
+          <code className="font-mono text-sm text-studio-ink">
             /studies/ticker-interactions
           </code>
           .
@@ -181,14 +181,14 @@ function BriefDocument() {
     <article className="mx-auto max-w-[760px] rounded-md border border-studio-edge bg-studio-surface px-9 py-8 shadow-[0_8px_30px_-12px_rgba(0,0,0,0.4)]">
       {/* Document masthead — looks like a sheet of paper, not a card */}
       <header className="border-b border-studio-edge pb-5">
-        <div className="flex items-baseline justify-between gap-4 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="flex items-baseline justify-between gap-4 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           <span>brief · {TASK.id}</span>
           <span>filed {TASK.filed}</span>
         </div>
-        <h2 className="mt-2 font-display text-[28px] font-medium leading-[1.1] tracking-tight text-studio-ink">
+        <h2 className="mt-2 font-display text-6xl font-medium leading-[1.1] tracking-tight text-studio-ink">
           {TASK.title}
         </h2>
-        <div className="mt-3 flex items-baseline gap-3 font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mt-3 flex items-baseline gap-3 font-mono text-xs uppercase tracking-eyebrow text-studio-ink-faint">
           <span>
             for{" "}
             <AgentHandle name={TASK.agent} hue={TASK.agentHue} />
@@ -202,7 +202,7 @@ function BriefDocument() {
 
       {/* Goal — narrative, not bullets. Brief = document. */}
       <BriefField label="Goal">
-        <p className="m-0 font-sans text-[14px] leading-[1.65] text-studio-ink">
+        <p className="m-0 font-sans text-xl leading-[1.65] text-studio-ink">
           Walk the auth middleware end-to-end and surface every place
           we&apos;re out of step with SOC 2 controls — token rotation,
           session expiry, audit log gaps, anything that would fail a
@@ -213,16 +213,16 @@ function BriefDocument() {
 
       {/* Boundaries — the lane lines */}
       <BriefField label="Boundaries">
-        <ul className="m-0 list-none space-y-1.5 p-0 font-sans text-[13px] leading-relaxed text-studio-ink">
+        <ul className="m-0 list-none space-y-1.5 p-0 font-sans text-lg leading-relaxed text-studio-ink">
           <BoundaryLine kind="in">
-            <code className="font-mono text-[12px] text-studio-ink">
+            <code className="font-mono text-md text-studio-ink">
               packages/web/server/auth/
             </code>{" "}
             and everything it imports.
           </BoundaryLine>
           <BoundaryLine kind="in">
             Read-only review of{" "}
-            <code className="font-mono text-[12px] text-studio-ink">
+            <code className="font-mono text-md text-studio-ink">
               packages/runtime/session/
             </code>
             .
@@ -238,7 +238,7 @@ function BriefDocument() {
 
       {/* Success criteria */}
       <BriefField label="Success">
-        <ol className="m-0 list-decimal space-y-2 pl-5 font-sans text-[13px] leading-relaxed text-studio-ink marker:font-mono marker:text-[10px] marker:text-studio-ink-faint">
+        <ol className="m-0 list-decimal space-y-2 pl-5 font-sans text-lg leading-relaxed text-studio-ink marker:font-mono marker:text-xs marker:text-studio-ink-faint">
           <li>
             A list of every gap, ranked: blocker · meaningful · cosmetic.
           </li>
@@ -255,7 +255,7 @@ function BriefDocument() {
 
       {/* References — facts only, in mono */}
       <BriefField label="References">
-        <ul className="m-0 list-none space-y-1 p-0 font-mono text-[11.5px] leading-snug text-studio-ink">
+        <ul className="m-0 list-none space-y-1 p-0 font-mono text-sm leading-snug text-studio-ink">
           <ReferenceLine>docs/eng/0014-auth-rewrite.md</ReferenceLine>
           <ReferenceLine>
             plans/2026-Q1-soc2-prep.md{" "}
@@ -276,7 +276,7 @@ function BriefDocument() {
       </BriefField>
 
       {/* Foot of the document */}
-      <footer className="mt-7 border-t border-studio-edge pt-4 font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <footer className="mt-7 border-t border-studio-edge pt-4 font-mono text-xs uppercase tracking-eyebrow text-studio-ink-faint">
         <span>countersigned · </span>
         <AgentHandle name={TASK.agent} hue={TASK.agentHue} />
         <Dot />
@@ -300,7 +300,7 @@ function BriefField({
 }) {
   return (
     <section className="mt-6">
-      <h3 className="mb-2 font-mono text-[9.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <h3 className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · {label}
       </h3>
       {children}
@@ -323,7 +323,7 @@ function BoundaryLine({
     <li className="flex items-baseline gap-3">
       <span
         aria-hidden
-        className="grid h-4 w-6 shrink-0 place-items-center font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow"
+        className="grid h-4 w-6 shrink-0 place-items-center font-mono text-3xs font-semibold uppercase tracking-eyebrow"
         style={{
           color,
           borderLeft: `2px solid ${color}`,
@@ -342,7 +342,7 @@ function ReferenceLine({ children }: { children: React.ReactNode }) {
     <li className="flex items-baseline gap-2">
       <span
         aria-hidden
-        className="font-mono text-[10px] text-studio-ink-faint"
+        className="font-mono text-xs text-studio-ink-faint"
         style={{ opacity: 0.7 }}
       >
         ›
@@ -395,7 +395,7 @@ function LatitudeStrip() {
                   }}
                 />
                 <span
-                  className="absolute top-5 whitespace-nowrap font-mono text-[9px] uppercase tracking-eyebrow"
+                  className="absolute top-5 whitespace-nowrap font-mono text-2xs uppercase tracking-eyebrow"
                   style={{
                     color: active ? "var(--studio-ink)" : "var(--studio-ink-faint)",
                   }}
@@ -407,7 +407,7 @@ function LatitudeStrip() {
           })}
         </div>
       </div>
-      <p className="mt-2 font-sans text-[12px] italic leading-relaxed text-studio-ink-faint">
+      <p className="mt-2 font-sans text-md italic leading-relaxed text-studio-ink-faint">
         You can decide on findings ranking and surface them in your debrief.
         Anything that touches policy interpretation (what counts as a SOC 2
         violation vs. a recommendation), ask @arach in #scout-security
@@ -420,7 +420,7 @@ function LatitudeStrip() {
 function AgentHandle({ name, hue }: { name: string; hue: number }) {
   return (
     <span
-      className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink"
+      className="font-mono text-xs uppercase tracking-eyebrow text-studio-ink"
       style={{
         // Tiny coloured leading dot so the handle is always identifiable.
         background: `linear-gradient(90deg, oklch(0.74 0.15 ${hue}) 0 6px, transparent 6px)`,
@@ -497,7 +497,7 @@ function CadenceAxis() {
           />
         ))}
       </div>
-      <div className="mt-1 flex justify-between font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="mt-1 flex justify-between font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         <span>← less attention</span>
         <span>more attention →</span>
       </div>
@@ -523,7 +523,7 @@ function CadenceStation({
       <div className="flex items-baseline gap-2">
         <span
           aria-hidden
-          className="grid h-5 w-5 shrink-0 place-items-center rounded-full border font-mono text-[9px]"
+          className="grid h-5 w-5 shrink-0 place-items-center rounded-full border font-mono text-2xs"
           style={{
             borderColor: "var(--studio-edge-strong)",
             color: "var(--studio-ink-faint)",
@@ -531,11 +531,11 @@ function CadenceStation({
         >
           {number}
         </span>
-        <div className="font-mono text-[11px] uppercase tracking-eyebrow text-studio-ink">
+        <div className="font-mono text-sm uppercase tracking-eyebrow text-studio-ink">
           {name}
         </div>
       </div>
-      <div className="mt-0.5 pl-7 font-mono text-[9.5px] italic text-studio-ink-faint">
+      <div className="mt-0.5 pl-7 font-mono text-2xs italic text-studio-ink-faint">
         {sub}
       </div>
 
@@ -545,7 +545,7 @@ function CadenceStation({
       </div>
 
       {/* Beats — three mono words underneath */}
-      <ul className="m-0 mt-3 flex list-none flex-wrap gap-x-2 gap-y-0.5 p-0 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <ul className="m-0 mt-3 flex list-none flex-wrap gap-x-2 gap-y-0.5 p-0 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         {beats.map((b, i) => (
           <li key={b} className="flex items-baseline gap-2">
             {i > 0 ? <Dot /> : null}
@@ -572,10 +572,10 @@ function PassingGlance() {
         <PulseDot hue={125} delay={0.4} />
         <PulseDot hue={25} delay={0.8} />
       </div>
-      <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         three lights, three lanes
       </div>
-      <div className="mt-1 font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint" style={{ opacity: 0.7 }}>
+      <div className="mt-1 font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint" style={{ opacity: 0.7 }}>
         lives in: corner of HUD
       </div>
     </div>
@@ -637,10 +637,10 @@ function AmbientCheckIn() {
           onChipClick={() => {}}
         />
       </div>
-      <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         slot in the chrome strip
       </div>
-      <div className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint" style={{ opacity: 0.7 }}>
+      <div className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint" style={{ opacity: 0.7 }}>
         lives in: HUD telegraph
       </div>
     </div>
@@ -659,11 +659,11 @@ function StructuredPause() {
       <div className="rounded-md border border-studio-edge bg-studio-surface">
         {/* Sheet header */}
         <header className="flex items-baseline justify-between gap-3 border-b border-studio-edge px-3 py-2">
-          <div className="flex items-baseline gap-2 font-mono text-[10px] uppercase tracking-eyebrow">
+          <div className="flex items-baseline gap-2 font-mono text-xs uppercase tracking-eyebrow">
             <AgentHandle name={TASK.agent} hue={TASK.agentHue} />
             <span className="text-studio-ink-faint">· working state</span>
           </div>
-          <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
             2h 13m in
           </span>
         </header>
@@ -672,16 +672,16 @@ function StructuredPause() {
         <div className="space-y-3 px-3 py-3">
           {/* Now */}
           <Block label="Now">
-            <p className="m-0 font-sans text-[12px] leading-snug text-studio-ink">
+            <p className="m-0 font-sans text-md leading-snug text-studio-ink">
               Reading{" "}
-              <code className="font-mono text-[11px]">session.ts</code> to
+              <code className="font-mono text-sm">session.ts</code> to
               map every place we extend session lifetime.
             </p>
           </Block>
 
           {/* Trail */}
           <Block label="Trail">
-            <ul className="m-0 list-none space-y-1 p-0 font-mono text-[10.5px] text-studio-ink">
+            <ul className="m-0 list-none space-y-1 p-0 font-mono text-xs text-studio-ink">
               <TrailItem>
                 ✓ Mapped 14 entry points into{" "}
                 <span className="text-studio-ink-faint">auth/</span>
@@ -700,11 +700,11 @@ function StructuredPause() {
 
           {/* Open questions — the only place the agent flags it needs the operator */}
           <Block label="Open">
-            <ul className="m-0 list-none space-y-1 p-0 font-sans text-[12px] leading-snug text-studio-ink">
+            <ul className="m-0 list-none space-y-1 p-0 font-sans text-md leading-snug text-studio-ink">
               <li className="flex items-baseline gap-2">
                 <span
                   aria-hidden
-                  className="grid h-3.5 w-3.5 shrink-0 place-items-center rounded-full font-mono text-[8.5px]"
+                  className="grid h-3.5 w-3.5 shrink-0 place-items-center rounded-full font-mono text-3xs"
                   style={{
                     background: "var(--status-warn-bg)",
                     color: "var(--status-warn-fg)",
@@ -718,10 +718,10 @@ function StructuredPause() {
           </Block>
         </div>
       </div>
-      <div className="mt-3 text-center font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="mt-3 text-center font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         inspector sheet
       </div>
-      <div className="text-center font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint" style={{ opacity: 0.7 }}>
+      <div className="text-center font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint" style={{ opacity: 0.7 }}>
         lives in: right rail or modal
       </div>
     </div>
@@ -737,7 +737,7 @@ function Block({
 }) {
   return (
     <div>
-      <div className="mb-1 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="mb-1 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · {label}
       </div>
       {children}
@@ -779,12 +779,12 @@ function FullIntervene() {
           className="flex items-baseline justify-between gap-3 border-b px-3 py-2"
           style={{ borderColor: "var(--studio-edge)" }}
         >
-          <div className="flex items-baseline gap-2 font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink">
+          <div className="flex items-baseline gap-2 font-mono text-xs uppercase tracking-eyebrow text-studio-ink">
             <span style={{ color: "var(--scout-accent)" }}>● steering</span>
             <span className="text-studio-ink-faint">·</span>
             <AgentHandle name={TASK.agent} hue={TASK.agentHue} />
           </div>
-          <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
             paused
           </span>
         </header>
@@ -792,18 +792,18 @@ function FullIntervene() {
         <div className="space-y-3 px-3 py-3">
           {/* What the agent was about to do */}
           <div>
-            <div className="mb-1 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+            <div className="mb-1 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
               · about to
             </div>
-            <p className="m-0 font-sans text-[12px] leading-snug text-studio-ink">
-              Open <code className="font-mono text-[11px]">audit/writer.ts</code>{" "}
+            <p className="m-0 font-sans text-md leading-snug text-studio-ink">
+              Open <code className="font-mono text-sm">audit/writer.ts</code>{" "}
               and trace the log gap.
             </p>
           </div>
 
           {/* Redirect — three lanes */}
           <div>
-            <div className="mb-1.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+            <div className="mb-1.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
               · redirect
             </div>
             <div className="space-y-1.5">
@@ -827,11 +827,11 @@ function FullIntervene() {
 
           {/* The intervention message — text the operator types */}
           <div>
-            <div className="mb-1.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+            <div className="mb-1.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
               · note to agent
             </div>
             <div
-              className="rounded-sm border px-2 py-1.5 font-sans text-[12px] italic leading-relaxed text-studio-ink"
+              className="rounded-sm border px-2 py-1.5 font-sans text-md italic leading-relaxed text-studio-ink"
               style={{
                 borderColor: "var(--studio-edge)",
                 background: "var(--studio-canvas)",
@@ -843,10 +843,10 @@ function FullIntervene() {
           </div>
         </div>
       </div>
-      <div className="mt-3 text-center font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="mt-3 text-center font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         glass overlay, agent halted
       </div>
-      <div className="text-center font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint" style={{ opacity: 0.7 }}>
+      <div className="text-center font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint" style={{ opacity: 0.7 }}>
         lives in: centred modal
       </div>
     </div>
@@ -887,12 +887,12 @@ function RedirectLane({
         style={{ background: tint, opacity: picked ? 1 : 0.45 }}
       />
       <span
-        className="font-mono text-[10.5px] uppercase tracking-eyebrow"
+        className="font-mono text-xs uppercase tracking-eyebrow"
         style={{ color: picked ? "var(--studio-ink)" : "var(--studio-ink-faint)" }}
       >
         {label}
       </span>
-      <span className="font-sans text-[11.5px] italic text-studio-ink-faint">
+      <span className="font-sans text-sm italic text-studio-ink-faint">
         {detail}
       </span>
     </div>
@@ -905,7 +905,7 @@ function CadenceLegend() {
       className="max-w-prose rounded-sm border-l-2 pl-4"
       style={{ borderColor: "var(--studio-edge-strong)" }}
     >
-      <p className="m-0 font-sans text-[12.5px] italic leading-relaxed text-studio-ink-faint">
+      <p className="m-0 font-sans text-md italic leading-relaxed text-studio-ink-faint">
         The same agent, same task, four surfaces. The operator&apos;s
         cost of attention climbs left to right; the agent&apos;s
         willingness to be interrupted climbs the same way. Station 4 is
@@ -925,17 +925,17 @@ function DebriefDocument() {
       {/* Header — mirrors the brief masthead, with a small "unread"
        *  marker in the warm accent so the operator's eye lands on it. */}
       <header className="border-b border-studio-edge pb-5">
-        <div className="flex items-baseline justify-between gap-4 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="flex items-baseline justify-between gap-4 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           <span className="flex items-baseline gap-2">
             <UnreadDot />
             debrief · {TASK.id}
           </span>
           <span>handed back {TASK.handBack}</span>
         </div>
-        <h2 className="mt-2 font-display text-[28px] font-medium leading-[1.1] tracking-tight text-studio-ink">
+        <h2 className="mt-2 font-display text-6xl font-medium leading-[1.1] tracking-tight text-studio-ink">
           {TASK.title}
         </h2>
-        <div className="mt-3 flex items-baseline gap-3 font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mt-3 flex items-baseline gap-3 font-mono text-xs uppercase tracking-eyebrow text-studio-ink-faint">
           <span>
             from{" "}
             <AgentHandle name={TASK.agent} hue={TASK.agentHue} />
@@ -951,19 +951,19 @@ function DebriefDocument() {
 
       {/* The lede — written for the auditor, per the brief */}
       <BriefField label="Lede">
-        <p className="m-0 font-sans text-[14.5px] italic leading-[1.65] text-studio-ink">
+        <p className="m-0 font-sans text-xl italic leading-[1.65] text-studio-ink">
           The middleware is largely sound. Three blockers — token rotation
           (15-minute drift), audit-log gaps around session refresh, and a
           legacy bypass header still wired into the dev path. Six smaller
           findings, none of which fail an audit on their own. Refresh-token
           entropy (per your mid-flight note) is fine, sourced from
-          <code className="font-mono text-[12px] not-italic"> crypto.randomBytes</code>.
+          <code className="font-mono text-md not-italic"> crypto.randomBytes</code>.
         </p>
       </BriefField>
 
       {/* What was decided */}
       <BriefField label="Decided">
-        <ul className="m-0 list-none space-y-2 p-0 font-sans text-[13px] leading-relaxed text-studio-ink">
+        <ul className="m-0 list-none space-y-2 p-0 font-sans text-lg leading-relaxed text-studio-ink">
           <DecidedLine
             verb="ranked"
             body="3 blockers, 4 meaningful, 2 cosmetic — see below."
@@ -982,7 +982,7 @@ function DebriefDocument() {
 
       {/* Tried & discarded */}
       <BriefField label="Tried &amp; discarded">
-        <ul className="m-0 list-none space-y-2 p-0 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <ul className="m-0 list-none space-y-2 p-0 font-sans text-lg leading-relaxed text-studio-ink-faint">
           <DiscardedLine
             tried="Diffing against the November 2024 audit findings"
             why="couldn't match line numbers post-refactor; switched to mapping by symbol name."
@@ -1029,7 +1029,7 @@ function DebriefDocument() {
 
       {/* Open */}
       <BriefField label="Open">
-        <ul className="m-0 list-none space-y-1.5 p-0 font-sans text-[13px] leading-relaxed text-studio-ink">
+        <ul className="m-0 list-none space-y-1.5 p-0 font-sans text-lg leading-relaxed text-studio-ink">
           <li className="flex items-baseline gap-2">
             <OpenDot />
             <span>
@@ -1050,17 +1050,17 @@ function DebriefDocument() {
 
       {/* What the agent learned */}
       <BriefField label="Learned">
-        <p className="m-0 font-sans text-[13px] italic leading-relaxed text-studio-ink-faint">
+        <p className="m-0 font-sans text-lg italic leading-relaxed text-studio-ink-faint">
           The audit-log writer pattern shows up four times; worth pulling
           into a single middleware. Not in scope for this brief, but I
           left a note in{" "}
-          <code className="font-mono text-[11.5px] not-italic">docs/eng/0014</code>.
+          <code className="font-mono text-sm not-italic">docs/eng/0014</code>.
         </p>
       </BriefField>
 
       {/* Recommended next */}
       <BriefField label="Recommended next">
-        <ol className="m-0 list-decimal space-y-1 pl-5 font-sans text-[13px] leading-relaxed text-studio-ink marker:font-mono marker:text-[10px] marker:text-studio-ink-faint">
+        <ol className="m-0 list-decimal space-y-1 pl-5 font-sans text-lg leading-relaxed text-studio-ink marker:font-mono marker:text-xs marker:text-studio-ink-faint">
           <li>Open three PRs against the blockers (1–2 days, @hudson).</li>
           <li>
             Schedule a 30-min walk-through with the auditor before the
@@ -1074,10 +1074,10 @@ function DebriefDocument() {
 
       {/* Footer — the audit trail */}
       <footer className="mt-7 border-t border-studio-edge pt-4">
-        <div className="font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           · audit trail
         </div>
-        <ul className="m-0 mt-2 list-none space-y-1 p-0 font-mono text-[10.5px] text-studio-ink">
+        <ul className="m-0 mt-2 list-none space-y-1 p-0 font-mono text-xs text-studio-ink">
           <TrailLine time="09:14" what="brief countersigned" />
           <TrailLine time="11:00" what="check-in 1 · ambient · no operator action" />
           <TrailLine
@@ -1116,7 +1116,7 @@ function DecidedLine({
     <li className="flex items-baseline gap-3">
       <span
         aria-hidden
-        className="shrink-0 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint"
+        className="shrink-0 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint"
         style={{
           width: 76,
           textAlign: "right",
@@ -1127,7 +1127,7 @@ function DecidedLine({
       <div className="flex-1">
         <span>{body}</span>
         {why ? (
-          <span className="ml-1 font-sans text-[12px] italic text-studio-ink-faint">
+          <span className="ml-1 font-sans text-md italic text-studio-ink-faint">
             — {why}
           </span>
         ) : null}
@@ -1147,7 +1147,7 @@ function DiscardedLine({
     <li className="flex items-baseline gap-3">
       <span
         aria-hidden
-        className="shrink-0 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint"
+        className="shrink-0 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint"
         style={{ width: 76, textAlign: "right", opacity: 0.7 }}
       >
         tried
@@ -1156,7 +1156,7 @@ function DiscardedLine({
         <span className="text-studio-ink-faint" style={{ textDecoration: "line-through", textDecorationColor: "var(--studio-edge-strong)" }}>
           {tried}
         </span>
-        <span className="ml-1 font-sans text-[12px] not-italic text-studio-ink-faint">
+        <span className="ml-1 font-sans text-md not-italic text-studio-ink-faint">
           — {why}
         </span>
       </div>
@@ -1188,7 +1188,7 @@ function Finding({
       <div className="flex items-baseline gap-3">
         <span
           aria-hidden
-          className="shrink-0 font-mono text-[9px] font-semibold uppercase tracking-eyebrow"
+          className="shrink-0 font-mono text-2xs font-semibold uppercase tracking-eyebrow"
           style={{
             width: 76,
             textAlign: "right",
@@ -1198,10 +1198,10 @@ function Finding({
           {severity}
         </span>
         <div className="flex-1">
-          <div className="font-sans text-[13.5px] leading-snug text-studio-ink">
+          <div className="font-sans text-lg leading-snug text-studio-ink">
             {title}
           </div>
-          <div className="mt-0.5 font-mono text-[10.5px] text-studio-ink-faint">
+          <div className="mt-0.5 font-mono text-xs text-studio-ink-faint">
             <code className="text-studio-ink">{where}</code>
             {cost ? (
               <>
@@ -1210,7 +1210,7 @@ function Finding({
               </>
             ) : null}
           </div>
-          <div className="mt-0.5 font-sans text-[12px] italic leading-snug text-studio-ink-faint">
+          <div className="mt-0.5 font-sans text-md italic leading-snug text-studio-ink-faint">
             fix: <span className="not-italic text-studio-ink">{fix}</span>
           </div>
         </div>
@@ -1223,7 +1223,7 @@ function OpenDot() {
   return (
     <span
       aria-hidden
-      className="grid h-3.5 w-3.5 shrink-0 place-items-center rounded-full font-mono text-[8.5px]"
+      className="grid h-3.5 w-3.5 shrink-0 place-items-center rounded-full font-mono text-3xs"
       style={{
         background: "var(--status-warn-bg)",
         color: "var(--status-warn-fg)",
@@ -1302,7 +1302,7 @@ function ContinuityStrip() {
         </ContinuityPage>
       </div>
 
-      <p className="mt-7 max-w-prose font-sans text-[12px] italic leading-relaxed text-studio-ink-faint">
+      <p className="mt-7 max-w-prose font-sans text-md italic leading-relaxed text-studio-ink-faint">
         Same document, three timestamps. The brief opens the file; the
         check-ins write in the margins; the debrief closes it. The audit
         trail at the foot of the debrief is the same row of beats that
@@ -1323,7 +1323,7 @@ function ContinuityPage({
 }) {
   return (
     <div className="flex flex-col">
-      <div className="mb-2 flex items-baseline justify-between font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="mb-2 flex items-baseline justify-between font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         <span>{label}</span>
         <span>{time}</span>
       </div>
@@ -1384,10 +1384,10 @@ function ContinuitySheet({
       }}
     >
       {/* Document body */}
-      <div className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
         · {kicker}
       </div>
-      <p className="mt-2 mb-0 font-sans text-[12px] leading-snug text-studio-ink">
+      <p className="mt-2 mb-0 font-sans text-md leading-snug text-studio-ink">
         {body}
       </p>
 
@@ -1403,7 +1403,7 @@ function ContinuitySheet({
       {/* Lower-right stamp */}
       <span
         aria-hidden
-        className="absolute bottom-2 right-2 grid h-5 w-5 place-items-center rounded-full font-mono text-[10px] font-semibold"
+        className="absolute bottom-2 right-2 grid h-5 w-5 place-items-center rounded-full font-mono text-xs font-semibold"
         style={markStyle}
       >
         {markLabel}
@@ -1438,7 +1438,7 @@ function AnnotationLine({ indent }: { indent?: boolean }) {
 
 function Eyebrow() {
   return (
-    <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+    <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
       · studies · web · operator-brief
     </div>
   );
@@ -1463,11 +1463,11 @@ function SectionTitle({
 }) {
   return (
     <div className={`flex items-baseline gap-3 ${className}`}>
-      <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · {children}
       </div>
       {hint ? (
-        <div className="font-mono text-[10px] text-studio-ink-faint">
+        <div className="font-mono text-xs text-studio-ink-faint">
           {hint}
         </div>
       ) : null}

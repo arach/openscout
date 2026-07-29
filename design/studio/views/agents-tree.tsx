@@ -460,7 +460,7 @@ function StateDot({ state, size = 7 }: { state: AgentState; size?: number }) {
 
 function LivePill() {
   return (
-    <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-studio-edge px-1.5 py-[1px] font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-studio-edge px-1.5 py-[1px] font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
       <span
         className="h-1.5 w-1.5 rounded-full"
         style={{
@@ -486,12 +486,12 @@ function HeadCount({
   return (
     <span className="inline-flex shrink-0 items-baseline gap-1">
       <span
-        className="font-mono text-[12px] font-semibold tabular-nums"
+        className="font-mono text-md font-semibold tabular-nums"
         style={{ color: tone ?? "var(--studio-ink)" }}
       >
         {n}
       </span>
-      <span className="font-sans text-[11px] text-studio-ink-faint">{label}</span>
+      <span className="font-sans text-sm text-studio-ink-faint">{label}</span>
     </span>
   );
 }
@@ -725,13 +725,13 @@ export default function AgentsTreePage() {
       <style>{STYLES}</style>
 
       <header className="mb-7 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · macos · agents-tree
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Agents tree
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           The Agents view, reshaped from a flat card grid into the fleet&rsquo;s
           real hierarchy — <span className="text-studio-ink-muted">project · agent · session</span>.
           The inspector slaves to the cursor; the whole tree flies from the
@@ -748,7 +748,7 @@ export default function AgentsTreePage() {
               title · Live · counts | filter. Ported from the native Repos
               header so Agents reads as the same system. */}
           <div className="flex items-center gap-3 border-b border-studio-edge px-3 py-2">
-            <span className="shrink-0 font-sans text-[14px] font-semibold leading-none text-studio-ink">
+            <span className="shrink-0 font-sans text-xl font-semibold leading-none text-studio-ink">
               Agents
             </span>
             <LivePill />
@@ -778,10 +778,10 @@ export default function AgentsTreePage() {
                   }
                 }}
                 placeholder="Filter projects · agents · sessions"
-                className="focus-ring w-full rounded-[4px] border border-studio-edge bg-studio-canvas px-2 py-1 font-mono text-[11px] text-studio-ink placeholder:text-studio-ink-faint"
+                className="focus-ring w-full rounded-[4px] border border-studio-edge bg-studio-canvas px-2 py-1 font-mono text-sm text-studio-ink placeholder:text-studio-ink-faint"
               />
               {!filter ? (
-                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[10px] text-studio-ink-faint">
+                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 font-mono text-xs text-studio-ink-faint">
                   /
                 </span>
               ) : null}
@@ -792,7 +792,7 @@ export default function AgentsTreePage() {
               mirroring the Repos table head so the timestamps read as a column.
               pl-[30px] aligns the spine under the project name (8 base + 14
               chevron + 8 gap); pr-3 + w-[68px] aligns UPDATED over the Age cell. */}
-          <div className="flex items-center border-b border-studio-edge py-1 pl-[30px] pr-3 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="flex items-center border-b border-studio-edge py-1 pl-[30px] pr-3 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             <span>Project · Agent · Session</span>
             <span className="ml-auto w-[68px] text-right">Updated</span>
           </div>
@@ -820,14 +820,14 @@ export default function AgentsTreePage() {
               />
             ))}
             {rows.length === 0 ? (
-              <div className="px-4 py-6 font-mono text-[11px] text-studio-ink-faint">
+              <div className="px-4 py-6 font-mono text-sm text-studio-ink-faint">
                 no matches for &ldquo;{filter}&rdquo;
               </div>
             ) : null}
 
             {flash ? (
               <div
-                className="pointer-events-none sticky bottom-2 mx-3 mt-2 rounded-[5px] border px-3 py-1.5 font-mono text-[10.5px]"
+                className="pointer-events-none sticky bottom-2 mx-3 mt-2 rounded-[5px] border px-3 py-1.5 font-mono text-xs"
                 style={{
                   animation: "at-flash 200ms cubic-bezier(.16,1,.3,1)",
                   background: "var(--scout-accent-soft)",
@@ -841,7 +841,7 @@ export default function AgentsTreePage() {
           </div>
 
           {/* Footer hint, echoing the app's status bar */}
-          <div className="flex items-center gap-3 border-t border-studio-edge px-3 py-1.5 font-mono text-[9px] text-studio-ink-faint">
+          <div className="flex items-center gap-3 border-t border-studio-edge px-3 py-1.5 font-mono text-2xs text-studio-ink-faint">
             <span><Kbd>j</Kbd>/<Kbd>k</Kbd> move</span>
             <span><Kbd>h</Kbd>/<Kbd>l</Kbd> fold</span>
             <span><Kbd>↵</Kbd> open</span>
@@ -860,10 +860,10 @@ export default function AgentsTreePage() {
 
       {/* Keyboard map */}
       <section className="mt-10 max-w-prose">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · keyboard
         </div>
-        <div className="grid grid-cols-2 gap-x-8 gap-y-1.5 font-mono text-[11px]">
+        <div className="grid grid-cols-2 gap-x-8 gap-y-1.5 font-mono text-sm">
           {KEYMAP.map(([keys, action]) => (
             <div key={action} className="flex items-baseline gap-2">
               <span className="w-[88px] shrink-0 text-studio-ink">{keys}</span>
@@ -875,18 +875,18 @@ export default function AgentsTreePage() {
 
       {/* Ports to */}
       <section className="mt-10 max-w-prose">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · ports to
         </div>
-        <ul className="font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+        <ul className="font-sans text-md leading-relaxed text-studio-ink-faint">
           <li>
-            <code className="font-mono text-[11px] text-studio-ink">
+            <code className="font-mono text-sm text-studio-ink">
               apps/macos/Sources/Scout/ScoutRootView.swift
             </code>{" "}
             — the Agents section + trailing inspector
           </li>
           <li>
-            <code className="font-mono text-[11px] text-studio-ink">
+            <code className="font-mono text-sm text-studio-ink">
               apps/macos/Sources/Scout/ScoutObserveSidecarPanel.swift
             </code>{" "}
             — observe / peek from a session row
@@ -954,7 +954,7 @@ function TreeRow({
           aria-label={expanded ? "collapse" : "expand"}
         >
           <span
-            className="text-[9px] leading-none transition-transform duration-150"
+            className="text-2xs leading-none transition-transform duration-150"
             style={{
               transform: expanded ? "rotate(90deg)" : "none",
               transitionTimingFunction: "cubic-bezier(.16,1,.3,1)",
@@ -969,13 +969,13 @@ function TreeRow({
 
       {row.kind === "project" ? (
         <>
-          <span className="min-w-0 flex-1 truncate font-mono text-[12px] font-semibold text-studio-ink">
+          <span className="min-w-0 flex-1 truncate font-mono text-md font-semibold text-studio-ink">
             {row.project.name}
             <span className="ml-2 font-normal text-studio-ink-faint">
               {row.project.path}
             </span>
           </span>
-          <span className="shrink-0 font-mono text-[9.5px] tabular-nums text-studio-ink-faint">
+          <span className="shrink-0 font-mono text-2xs tabular-nums text-studio-ink-faint">
             {row.project.agents.length} agent
             {row.project.agents.length === 1 ? "" : "s"}
           </span>
@@ -1001,15 +1001,15 @@ function TreeRow({
             cornerPulse={isLiveState(row.agent.state)}
           />
           <span className="min-w-0 flex-1 truncate">
-            <span className="font-sans text-[13px] font-medium text-studio-ink">
+            <span className="font-sans text-lg font-medium text-studio-ink">
               {row.agent.name}
             </span>
-            <span className="ml-2 font-mono text-[10px] text-studio-ink-faint">
+            <span className="ml-2 font-mono text-xs text-studio-ink-faint">
               {row.agent.role.toLowerCase()} · {row.agent.harness}
             </span>
           </span>
           <span
-            className="shrink-0 font-mono text-[9px] font-semibold uppercase tracking-eyebrow"
+            className="shrink-0 font-mono text-2xs font-semibold uppercase tracking-eyebrow"
             style={{ color: stateLabelColor(row.agent.state) }}
           >
             {STATE_LABEL[row.agent.state]}
@@ -1023,14 +1023,14 @@ function TreeRow({
             style={{ background: "var(--studio-ink-faint)" }}
           />
           <span className="min-w-0 flex-1 truncate">
-            <span className="font-mono text-[11px] text-studio-ink-muted">
+            <span className="font-mono text-sm text-studio-ink-muted">
               {row.session.id}
             </span>
-            <span className="ml-2 font-mono text-[10px] text-studio-ink-faint">
+            <span className="ml-2 font-mono text-xs text-studio-ink-faint">
               {row.session.label}
             </span>
           </span>
-          <span className="shrink-0 font-mono text-[9px] text-studio-ink-faint">
+          <span className="shrink-0 font-mono text-2xs text-studio-ink-faint">
             cId {row.session.cId}
           </span>
           <Age age={row.session.age} live={row.session.live} liveAge={liveAge} />
@@ -1050,7 +1050,7 @@ function Age({
   liveAge: (base: string) => string;
 }) {
   return (
-    <span className="w-[68px] shrink-0 text-right font-mono text-[10px] tabular-nums text-studio-ink-faint">
+    <span className="w-[68px] shrink-0 text-right font-mono text-xs tabular-nums text-studio-ink-faint">
       {live ? <SettleNum value={liveAge(age)} /> : age}
     </span>
   );
@@ -1072,7 +1072,7 @@ function ISection({
       <div className="mb-1.5 flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <span className="h-2.5 w-[2px] bg-studio-edge-strong" />
-          <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             {title}
           </span>
         </div>
@@ -1086,10 +1086,10 @@ function ISection({
 function IRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-[3px]">
-      <span className="shrink-0 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <span className="shrink-0 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         {label}
       </span>
-      <span className="truncate text-right font-mono text-[11px] text-studio-ink">
+      <span className="truncate text-right font-mono text-sm text-studio-ink">
         {value}
       </span>
     </div>
@@ -1110,14 +1110,14 @@ function Inspector({
     return (
       <div>
         <div className="mb-3 flex items-center justify-between">
-          <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             Project
           </span>
         </div>
-        <div className="font-mono text-[15px] font-semibold text-studio-ink">
+        <div className="font-mono text-2xl font-semibold text-studio-ink">
           {p.name}
         </div>
-        <div className="mt-0.5 font-mono text-[10px] text-studio-ink-faint">
+        <div className="mt-0.5 font-mono text-xs text-studio-ink-faint">
           {p.path}
         </div>
         <ISection title="Fleet">
@@ -1129,10 +1129,10 @@ function Inspector({
             {p.agents.map((a) => (
               <div key={a.id} className="flex items-center gap-2">
                 <StateDot state={a.state} size={6} />
-                <span className="min-w-0 flex-1 truncate font-sans text-[12px] text-studio-ink">
+                <span className="min-w-0 flex-1 truncate font-sans text-md text-studio-ink">
                   {a.name}
                 </span>
-                <span className="font-mono text-[9px] text-studio-ink-faint">
+                <span className="font-mono text-2xs text-studio-ink-faint">
                   {a.branch}
                 </span>
               </div>
@@ -1152,11 +1152,11 @@ function Inspector({
   return (
     <div>
       <div className="mb-3 flex items-center justify-between">
-        <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           Agent
         </span>
         <span
-          className="rounded-[3px] px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-[0.18em]"
+          className="rounded-[3px] px-1.5 py-0.5 font-mono text-2xs font-semibold tracking-[0.18em]"
           style={{
             color: stateLabelColor(a.state),
             background: "color-mix(in oklab, currentColor 14%, transparent)",
@@ -1168,16 +1168,16 @@ function Inspector({
 
       <div className="flex items-center gap-2.5">
         <span
-          className="grid h-8 w-8 shrink-0 place-items-center rounded-full font-mono text-[12px]"
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-full font-mono text-md"
           style={{ background: "oklch(0.42 0.008 80)", color: "var(--studio-canvas)" }}
         >
           {a.name[0]}
         </span>
         <div className="min-w-0">
-          <div className="truncate font-sans text-[14px] font-semibold text-studio-ink">
+          <div className="truncate font-sans text-xl font-semibold text-studio-ink">
             {a.name}
           </div>
-          <div className="truncate font-mono text-[9px] text-studio-ink-faint">
+          <div className="truncate font-mono text-2xs text-studio-ink-faint">
             {a.handle}
           </div>
         </div>
@@ -1200,7 +1200,7 @@ function Inspector({
       <ISection
         title="Session"
         action={
-          <button className="focus-ring font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint hover:text-studio-ink">
+          <button className="focus-ring font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint hover:text-studio-ink">
             ◎ Observe
           </button>
         }
@@ -1233,7 +1233,7 @@ function Inspector({
                 )
               }
             />
-            <button className="focus-ring mt-1.5 font-mono text-[10px] text-studio-ink-faint hover:text-studio-ink">
+            <button className="focus-ring mt-1.5 font-mono text-xs text-studio-ink-faint hover:text-studio-ink">
               + New session
             </button>
           </>
@@ -1247,7 +1247,7 @@ function Inspector({
 
 function Kbd({ children }: { children: React.ReactNode }) {
   return (
-    <kbd className="rounded-[3px] border border-studio-edge bg-studio-canvas px-1 py-px font-mono text-[10px] text-studio-ink-muted">
+    <kbd className="rounded-[3px] border border-studio-edge bg-studio-canvas px-1 py-px font-mono text-xs text-studio-ink-muted">
       {children}
     </kbd>
   );

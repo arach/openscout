@@ -89,11 +89,11 @@ export function ScoutbotRealtimeVoiceCallHeader({
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
-          <div className={`font-mono font-medium uppercase tracking-[0.12em] text-[var(--scout-chrome-ink)] ${page ? "text-xs" : "text-[10px]"}`}>
+          <div className={`font-mono font-medium uppercase tracking-[0.12em] text-[var(--scout-chrome-ink)] ${page ? "text-xs" : "text-xs"}`}>
             Live voice
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            <span className={`rounded border px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-[0.1em] ${tone.chip}`}>
+            <span className={`rounded border px-1.5 py-0.5 font-mono text-3xs uppercase tracking-[0.1em] ${tone.chip}`}>
               {tone.label}
             </span>
             {onExpand && (
@@ -120,7 +120,7 @@ export function ScoutbotRealtimeVoiceCallHeader({
             )}
           </div>
         </div>
-        <p className={`mt-1 leading-snug text-[var(--scout-chrome-ink-faint)] ${page ? "text-xs" : "text-[10px]"}`}>
+        <p className={`mt-1 leading-snug text-[var(--scout-chrome-ink-faint)] ${page ? "text-xs" : "text-xs"}`}>
           {tone.detail}
         </p>
       </div>
@@ -182,7 +182,7 @@ export function ScoutbotRealtimeVoiceCall({
         <button
           type="button"
           onClick={() => setView("controls")}
-          className={`flex items-center justify-center gap-1.5 border-b font-mono uppercase tracking-[0.09em] transition-colors ${page ? "h-10 text-[10px]" : "h-8 text-[9px]"} ${view === "controls" ? "border-lime-300/70 text-[var(--scout-chrome-ink)]" : "border-transparent text-[var(--scout-chrome-ink-faint)] hover:text-[var(--scout-chrome-ink)]"}`}
+          className={`flex items-center justify-center gap-1.5 border-b font-mono uppercase tracking-[0.09em] transition-colors ${page ? "h-10 text-xs" : "h-8 text-2xs"} ${view === "controls" ? "border-lime-300/70 text-[var(--scout-chrome-ink)]" : "border-transparent text-[var(--scout-chrome-ink-faint)] hover:text-[var(--scout-chrome-ink)]"}`}
         >
           <Radio size={10} />
           Controls
@@ -190,32 +190,32 @@ export function ScoutbotRealtimeVoiceCall({
         <button
           type="button"
           onClick={() => setView("activity")}
-          className={`flex items-center justify-center gap-1.5 border-b font-mono uppercase tracking-[0.09em] transition-colors ${page ? "h-10 text-[10px]" : "h-8 text-[9px]"} ${view === "activity" ? "border-lime-300/70 text-[var(--scout-chrome-ink)]" : "border-transparent text-[var(--scout-chrome-ink-faint)] hover:text-[var(--scout-chrome-ink)]"}`}
+          className={`flex items-center justify-center gap-1.5 border-b font-mono uppercase tracking-[0.09em] transition-colors ${page ? "h-10 text-xs" : "h-8 text-2xs"} ${view === "activity" ? "border-lime-300/70 text-[var(--scout-chrome-ink)]" : "border-transparent text-[var(--scout-chrome-ink-faint)] hover:text-[var(--scout-chrome-ink)]"}`}
         >
           <ListTree size={10} />
           Activity
-          {trace.length > 0 && <span className="text-[8px] text-[var(--scout-chrome-ink-ghost)]">{trace.length}</span>}
+          {trace.length > 0 && <span className="text-3xs text-[var(--scout-chrome-ink-ghost)]">{trace.length}</span>}
         </button>
       </nav>
 
       {view === "activity" ? (
         <div className={`flex min-h-0 flex-1 flex-col ${page ? "p-5" : "p-2.5"}`}>
           <div className="mb-2 flex items-center justify-between">
-            <p className="font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--scout-chrome-ink-faint)]">
+            <p className="font-mono text-2xs uppercase tracking-[0.1em] text-[var(--scout-chrome-ink-faint)]">
               Session activity
             </p>
             {trace.length > 0 && (
               <button
                 type="button"
                 onClick={clearTrace}
-                className="font-mono text-[8px] uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-ghost)] hover:text-[var(--scout-chrome-ink)]"
+                className="font-mono text-3xs uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-ghost)] hover:text-[var(--scout-chrome-ink)]"
               >
                 Clear
               </button>
             )}
           </div>
           {trace.length === 0 ? (
-            <div className="flex flex-1 items-center justify-center rounded border border-dashed border-[var(--scout-chrome-border-soft)] px-4 text-center text-[10px] leading-snug text-[var(--scout-chrome-ink-ghost)]">
+            <div className="flex flex-1 items-center justify-center rounded border border-dashed border-[var(--scout-chrome-border-soft)] px-4 text-center text-xs leading-snug text-[var(--scout-chrome-ink-ghost)]">
               Start a call to record requests, replies, navigation attempts, and delivery results.
             </div>
           ) : (
@@ -227,17 +227,17 @@ export function ScoutbotRealtimeVoiceCall({
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex min-w-0 items-start gap-1.5">
-                      <span className={`shrink-0 rounded border px-1 py-0.5 font-mono text-[7px] uppercase tracking-[0.08em] ${traceKindTone(entry.kind)}`}>
+                      <span className={`shrink-0 rounded border px-1 py-0.5 font-mono text-3xs uppercase tracking-[0.08em] ${traceKindTone(entry.kind)}`}>
                         {traceKindLabel(entry.kind)}
                       </span>
-                      <span className={`${page ? "text-xs" : "text-[10px]"} min-w-0 leading-tight text-[var(--scout-chrome-ink)]`}>{entry.label}</span>
+                      <span className={`${page ? "text-xs" : "text-xs"} min-w-0 leading-tight text-[var(--scout-chrome-ink)]`}>{entry.label}</span>
                     </div>
-                    <time className="shrink-0 font-mono text-[7px] text-[var(--scout-chrome-ink-ghost)]">
+                    <time className="shrink-0 font-mono text-3xs text-[var(--scout-chrome-ink-ghost)]">
                       {formatTraceTime(entry.at)}
                     </time>
                   </div>
                   {entry.detail && (
-                    <span className={`mt-1 block whitespace-pre-wrap break-words font-mono leading-relaxed text-[var(--scout-chrome-ink-ghost)] ${page ? "text-[10px]" : "text-[8px]"}`}>
+                    <span className={`mt-1 block whitespace-pre-wrap break-words font-mono leading-relaxed text-[var(--scout-chrome-ink-ghost)] ${page ? "text-xs" : "text-3xs"}`}>
                       {entry.detail}
                     </span>
                   )}
@@ -252,14 +252,14 @@ export function ScoutbotRealtimeVoiceCall({
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
                 <History size={10} className="shrink-0 text-lime-200/80" />
-                <p className="font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--scout-chrome-ink-faint)]">
+                <p className="font-mono text-2xs uppercase tracking-[0.1em] text-[var(--scout-chrome-ink-faint)]">
                   Live chat
                 </p>
               </div>
-              <p className="mt-1 truncate text-[10px] text-[var(--scout-chrome-ink)]" title={chatState?.session.id}>
+              <p className="mt-1 truncate text-xs text-[var(--scout-chrome-ink)]" title={chatState?.session.id}>
                 {chatState?.session.title || "Loading chat…"}
               </p>
-              <p className="mt-0.5 text-[9px] leading-snug text-[var(--scout-chrome-ink-ghost)]">
+              <p className="mt-0.5 text-2xs leading-snug text-[var(--scout-chrome-ink-ghost)]">
                 Context stays with this chat when voice stops or the panel closes.
               </p>
             </div>
@@ -271,7 +271,7 @@ export function ScoutbotRealtimeVoiceCall({
                     value={chatState.session.id}
                     disabled={Boolean(sessionAction)}
                     onChange={(event) => void switchChat(event.target.value)}
-                    className="h-7 w-full min-w-0 rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-bg)] px-2 font-mono text-[9px] text-[var(--scout-chrome-ink)] outline-none focus:border-lime-300/40 disabled:cursor-wait disabled:opacity-50"
+                    className="h-7 w-full min-w-0 rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-bg)] px-2 font-mono text-2xs text-[var(--scout-chrome-ink)] outline-none focus:border-lime-300/40 disabled:cursor-wait disabled:opacity-50"
                     title="Switch live chat; an active voice connection will end"
                   >
                     {chatState.sessions.map((session) => (
@@ -287,7 +287,7 @@ export function ScoutbotRealtimeVoiceCall({
                 onClick={() => void startNewChat()}
                 disabled={!chatState || Boolean(sessionAction)}
                 title="Start a new chat; an active voice connection will end"
-                className="flex h-7 shrink-0 items-center justify-center gap-1 rounded border border-lime-300/30 bg-lime-300/[0.06] px-2 font-mono text-[8px] uppercase tracking-[0.08em] text-lime-100 hover:bg-lime-300/10 disabled:cursor-wait disabled:opacity-40"
+                className="flex h-7 shrink-0 items-center justify-center gap-1 rounded border border-lime-300/30 bg-lime-300/[0.06] px-2 font-mono text-3xs uppercase tracking-[0.08em] text-lime-100 hover:bg-lime-300/10 disabled:cursor-wait disabled:opacity-40"
               >
                 {sessionAction === "new" ? <Loader2 size={9} className="animate-spin" /> : <Plus size={9} />}
                 New
@@ -298,13 +298,13 @@ export function ScoutbotRealtimeVoiceCall({
           <section className="space-y-1.5 rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 p-2.5">
             <div className="flex items-center justify-between gap-2">
               <div>
-                <p className="text-[10px] text-[var(--scout-chrome-ink)]">Preferred Scoutbot model</p>
-                <p className="mt-0.5 text-[9px] leading-snug text-[var(--scout-chrome-ink-faint)]">
+                <p className="text-xs text-[var(--scout-chrome-ink)]">Preferred Scoutbot model</p>
+                <p className="mt-0.5 text-2xs leading-snug text-[var(--scout-chrome-ink-faint)]">
                   Used for typed and live Scoutbot replies.
                 </p>
               </div>
               {chatState?.config.provider && (
-                <span className="font-mono text-[8px] uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-ghost)]">
+                <span className="font-mono text-3xs uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-ghost)]">
                   {chatState.config.provider}
                 </span>
               )}
@@ -321,26 +321,26 @@ export function ScoutbotRealtimeVoiceCall({
                 }}
                 placeholder="gpt-4.1-mini"
                 aria-label="Preferred Scoutbot model"
-                className="h-7 min-w-0 flex-1 rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-bg)] px-2 font-mono text-[9px] text-[var(--scout-chrome-ink)] outline-none focus:border-lime-300/40"
+                className="h-7 min-w-0 flex-1 rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-bg)] px-2 font-mono text-2xs text-[var(--scout-chrome-ink)] outline-none focus:border-lime-300/40"
               />
               <button
                 type="button"
                 onClick={() => void savePreferredModel()}
                 disabled={modelSaving || !modelDraft.trim() || modelDraft.trim() === chatState?.config.model}
-                className="flex h-7 min-w-12 items-center justify-center rounded border border-lime-300/30 bg-lime-300/[0.06] px-2 font-mono text-[8px] uppercase tracking-[0.08em] text-lime-100 disabled:opacity-35"
+                className="flex h-7 min-w-12 items-center justify-center rounded border border-lime-300/30 bg-lime-300/[0.06] px-2 font-mono text-3xs uppercase tracking-[0.08em] text-lime-100 disabled:opacity-35"
               >
                 {modelSaving ? <Loader2 size={9} className="animate-spin" /> : "Apply"}
               </button>
             </div>
             {modelStatus && (
-              <p className="font-mono text-[8px] text-[var(--scout-chrome-ink-faint)]">{modelStatus}</p>
+              <p className="font-mono text-3xs text-[var(--scout-chrome-ink-faint)]">{modelStatus}</p>
             )}
           </section>
 
           <section className="flex items-center justify-between gap-3 rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 p-2.5">
             <div className="min-w-0">
-              <p className="text-[10px] text-[var(--scout-chrome-ink)]">Live conversation</p>
-              <p className="mt-0.5 text-[9px] leading-snug text-[var(--scout-chrome-ink-faint)]">
+              <p className="text-xs text-[var(--scout-chrome-ink)]">Live conversation</p>
+              <p className="mt-0.5 text-2xs leading-snug text-[var(--scout-chrome-ink-faint)]">
                 {active ? "Microphone and spoken replies are active." : "Start when you are ready to speak."}
               </p>
             </div>
@@ -358,7 +358,7 @@ export function ScoutbotRealtimeVoiceCall({
           </section>
 
           {dictationActive && (
-            <p className="rounded border border-amber-300/20 bg-amber-300/[0.05] px-2 py-1.5 font-mono text-[9px] leading-relaxed text-amber-100/80">
+            <p className="rounded border border-amber-300/20 bg-amber-300/[0.05] px-2 py-1.5 font-mono text-2xs leading-relaxed text-amber-100/80">
               Finish dictation before starting a live call.
             </p>
           )}
@@ -367,7 +367,7 @@ export function ScoutbotRealtimeVoiceCall({
             <button
               type="button"
               onClick={() => void endCall()}
-              className="flex min-h-8 w-full items-center justify-center gap-1.5 rounded border border-red-400/30 bg-red-400/[0.06] px-2 font-mono text-[9px] uppercase tracking-[0.09em] text-red-100/90 transition-colors hover:bg-red-400/12"
+              className="flex min-h-8 w-full items-center justify-center gap-1.5 rounded border border-red-400/30 bg-red-400/[0.06] px-2 font-mono text-2xs uppercase tracking-[0.09em] text-red-100/90 transition-colors hover:bg-red-400/12"
             >
               <Square size={8} className="fill-current" />
               {state === "connecting" ? "Cancel connection" : "End live voice"}
@@ -377,14 +377,14 @@ export function ScoutbotRealtimeVoiceCall({
           <button
             type="button"
             onClick={openVoiceSettings}
-            className="flex min-h-7 w-full items-center justify-center gap-1.5 rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 px-2 font-mono text-[9px] uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-faint)] hover:text-[var(--scout-chrome-ink)]"
+            className="flex min-h-7 w-full items-center justify-center gap-1.5 rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 px-2 font-mono text-2xs uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-faint)] hover:text-[var(--scout-chrome-ink)]"
           >
             <Settings2 size={9} />
             Voice settings
           </button>
 
           {visibleError && (
-            <p className="rounded border border-red-400/25 bg-red-400/[0.07] px-2 py-1.5 text-[9px] leading-relaxed text-red-100">
+            <p className="rounded border border-red-400/25 bg-red-400/[0.07] px-2 py-1.5 text-2xs leading-relaxed text-red-100">
               {visibleError}
             </p>
           )}

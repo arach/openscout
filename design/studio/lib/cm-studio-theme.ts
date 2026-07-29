@@ -27,7 +27,7 @@ const chrome = (mode: "dark" | "light") =>
       ".cm-scroller": {
         fontFamily:
           '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace',
-        fontSize: "12.5px",
+        fontSize: "var(--text-md)",
         lineHeight: "1.55",
       },
       ".cm-gutters": {

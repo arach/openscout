@@ -583,15 +583,15 @@ export default function LaneDetailSheetCalmPage() {
 const CSS = `
 .lds-study{min-height:100vh;background:${C.bg};color:${C.ink};font-family:Inter,system-ui,sans-serif;padding:40px}
 .study-head{margin-bottom:22px;max-width:720px}
-.eyebrow{font-family:ui-monospace,monospace;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:${C.dim}}
-.lds-study h1{font-size:28px;font-weight:600;margin:4px 0}
-.sub{font-family:ui-monospace,monospace;font-size:12px;color:${C.dim};margin:0;line-height:1.5}
+.eyebrow{font-family:ui-monospace,monospace;font-size: var(--text-2xs);text-transform:uppercase;letter-spacing:.08em;color:${C.dim}}
+.lds-study h1{font-size: var(--text-6xl);font-weight:600;margin:4px 0}
+.sub{font-family:ui-monospace,monospace;font-size: var(--text-md);color:${C.dim};margin:0;line-height:1.5}
 
 /* stage — a faint left context so the sheet reads as a right-rail, plus the panel */
 .stage{display:flex;gap:0;align-items:flex-start;margin-top:8px;border:1px solid ${C.edge};border-radius:11px;overflow:hidden;width:fit-content;background:${C.bg}}
 .stage-context{width:230px;padding:16px 14px;display:flex;flex-direction:column;gap:7px;opacity:.55}
-.ctx-line{font-family:ui-monospace,monospace;font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:${C.dim};margin-bottom:6px}
-.ctx-lane{display:flex;align-items:center;gap:8px;font-family:ui-monospace,monospace;font-size:12px;color:${C.muted};padding:7px 9px;border-radius:6px}
+.ctx-line{font-family:ui-monospace,monospace;font-size: var(--text-2xs);text-transform:uppercase;letter-spacing:.1em;color:${C.dim};margin-bottom:6px}
+.ctx-lane{display:flex;align-items:center;gap:8px;font-family:ui-monospace,monospace;font-size: var(--text-md);color:${C.muted};padding:7px 9px;border-radius:6px}
 .ctx-lane--sel{background:rgba(255,255,255,.04);color:${C.ink};opacity:1}
 .ctx-dot{width:6px;height:6px;border-radius:50%;background:${C.faint}}
 .ctx-dot--on{background:${C.green};box-shadow:0 0 0 3px color-mix(in srgb,${C.green} 18%,transparent)}
@@ -604,11 +604,11 @@ const CSS = `
 .sheet-head{display:flex;align-items:center;gap:10px;padding:14px 16px 13px;border-bottom:1px solid ${C.edge}}
 .sheet-av{flex:none;border-radius:8px}
 .sheet-ident{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 auto}
-.sheet-name{display:inline-flex;align-items:center;gap:6px;font-size:15px;font-weight:600;letter-spacing:-.01em;color:${C.ink}}
-.sheet-sub{display:inline-flex;align-items:center;gap:6px;font-family:ui-monospace,monospace;font-size:10.5px;color:${C.dim}}
+.sheet-name{display:inline-flex;align-items:center;gap:6px;font-size: var(--text-2xl);font-weight:600;letter-spacing:-.01em;color:${C.ink}}
+.sheet-sub{display:inline-flex;align-items:center;gap:6px;font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.dim}}
 .working-dot{width:6px;height:6px;border-radius:50%;background:${C.green};box-shadow:0 0 0 3px color-mix(in srgb,${C.green} 16%,transparent);animation:pulse 2.6s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
-.harness-badge{display:inline-flex;align-items:center;gap:5px;flex:none;padding:3px 8px 3px 6px;border:1px solid ${C.edge};border-radius:5px;color:${C.muted};font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.02em}
+.harness-badge{display:inline-flex;align-items:center;gap:5px;flex:none;padding:3px 8px 3px 6px;border:1px solid ${C.edge};border-radius:5px;color:${C.muted};font-family:ui-monospace,monospace;font-size: var(--text-xs);letter-spacing:.02em}
 .harness-badge .harness-label{color:${C.muted};text-transform:lowercase}
 .closebtn{flex:none;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border:0;background:transparent;color:${C.dim};border-radius:6px;cursor:pointer}
 .closebtn:hover{color:${C.ink};background:rgba(255,255,255,.04)}
@@ -624,39 +624,39 @@ const CSS = `
 .attn-mark{flex:none;width:2px;border-radius:1px;background:${C.green};align-self:stretch;
   box-shadow:0 0 8px color-mix(in srgb,${C.green} 40%,transparent)}
 .attn-body{display:flex;flex-direction:column;gap:9px;min-width:0;flex:1 1 auto}
-.attn-q{font-size:13px;line-height:1.45;color:${C.ink};font-weight:500}
+.attn-q{font-size: var(--text-lg);line-height:1.45;color:${C.ink};font-weight:500}
 .attn-acts{display:inline-flex;gap:7px}
 
 /* NOW — the lead. */
 .now{padding:18px 16px 16px}
-.now-cap{font-family:ui-monospace,monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:${C.dim};margin-bottom:9px}
+.now-cap{font-family:ui-monospace,monospace;font-size: var(--text-2xs);font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:${C.dim};margin-bottom:9px}
 .now-action{display:flex;align-items:flex-start;gap:8px;
   background:#070809;border:1px solid color-mix(in srgb,${C.ink} 12%,transparent);border-radius:7px;
   padding:9px 11px;box-shadow:inset 0 1px 0 rgba(255,255,255,.03),0 1px 2px rgba(0,0,0,.4)}
-.now-prompt{flex:none;color:color-mix(in srgb,${C.green} 80%,${C.muted});font-weight:700;font-family:ui-monospace,monospace;font-size:12px;line-height:1.5}
-.now-cmd{flex:1 1 auto;min-width:0;font-family:ui-monospace,monospace;font-size:11.5px;line-height:1.55;color:${C.ink};
+.now-prompt{flex:none;color:color-mix(in srgb,${C.green} 80%,${C.muted});font-weight:700;font-family:ui-monospace,monospace;font-size: var(--text-md);line-height:1.5}
+.now-cmd{flex:1 1 auto;min-width:0;font-family:ui-monospace,monospace;font-size: var(--text-sm);line-height:1.55;color:${C.ink};
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all}
 .now-acts{display:inline-flex;align-items:center;gap:3px;flex:none}
 
 /* HEALTH — one calm gauge */
 .health{padding:4px 16px 16px}
 .health-row{display:flex;align-items:center;gap:11px}
-.health-k{font-family:ui-monospace,monospace;font-size:10px;color:${C.dim};text-transform:lowercase;letter-spacing:.04em;flex:none;width:54px}
+.health-k{font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.dim};text-transform:lowercase;letter-spacing:.04em;flex:none;width:54px}
 .health-bar{flex:1 1 auto;height:3px;border-radius:3px;background:rgba(255,255,255,.06);overflow:hidden}
 .health-fill{display:block;height:100%;background:${C.green};border-radius:3px}
-.health-v{flex:none;font-family:ui-monospace,monospace;font-size:11px;color:${C.muted};font-variant-numeric:tabular-nums;min-width:34px;text-align:right}
+.health-v{flex:none;font-family:ui-monospace,monospace;font-size: var(--text-sm);color:${C.muted};font-variant-numeric:tabular-nums;min-width:34px;text-align:right}
 
 /* HEADLINE — the single change figure, breathing */
 .headline{padding:0 16px 18px;border-bottom:1px solid ${C.edgeSoft};margin-bottom:2px}
-.headline-fig{display:flex;align-items:baseline;gap:10px;font-family:ui-monospace,monospace;font-size:22px;font-weight:600;letter-spacing:-.01em;line-height:1}
+.headline-fig{display:flex;align-items:baseline;gap:10px;font-family:ui-monospace,monospace;font-size: var(--text-5xl);font-weight:600;letter-spacing:-.01em;line-height:1}
 .headline-fig .fadd{color:${C.ink}}
 .headline-fig .fdel{color:${C.dim}}
-.headline-cap{margin-top:7px;font-family:ui-monospace,monospace;font-size:10.5px;color:${C.dim}}
+.headline-cap{margin-top:7px;font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.dim}}
 
 /* ACTIONS */
 .actions{display:flex;flex-wrap:wrap;gap:7px;padding:14px 16px 6px}
 .ghost{display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border:1px solid ${C.edge};border-radius:6px;
-  background:rgba(255,255,255,.015);color:${C.muted};font-family:ui-monospace,monospace;font-size:11px;cursor:pointer;white-space:nowrap}
+  background:rgba(255,255,255,.015);color:${C.muted};font-family:ui-monospace,monospace;font-size: var(--text-sm);cursor:pointer;white-space:nowrap}
 .ghost:hover{color:${C.ink};border-color:rgba(255,255,255,.14);background:rgba(255,255,255,.04)}
 .ghost--primary{color:${C.ink};border-color:color-mix(in srgb,${C.green} 36%,transparent);
   background:color-mix(in srgb,${C.green} 9%,transparent)}
@@ -670,27 +670,27 @@ const CSS = `
 .disc-head:hover{background:rgba(255,255,255,.018)}
 .disc-caret{flex:none;color:${C.dim};display:inline-flex}
 .disc-head:hover .disc-caret{color:${C.muted}}
-.disc-label{font-family:ui-monospace,monospace;font-size:11px;color:${C.ink};letter-spacing:.01em;flex:none}
-.disc-hint{margin-left:auto;font-family:ui-monospace,monospace;font-size:10px;color:${C.dim};white-space:nowrap}
+.disc-label{font-family:ui-monospace,monospace;font-size: var(--text-sm);color:${C.ink};letter-spacing:.01em;flex:none}
+.disc-hint{margin-left:auto;font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.dim};white-space:nowrap}
 .disc-body{padding:0 0 12px}
 .disc--open>.disc-head .disc-label{color:${C.ink}}
 
 /* nested disclose (read files inside files) sits a touch quieter, no top rule */
 .disc-body .disc{border-top:1px solid ${C.edgeSoft};margin-top:2px}
 .disc-body .disc-head{padding:9px 16px 9px 24px}
-.disc-body .disc-label{font-size:10px;color:${C.muted}}
+.disc-body .disc-label{font-size: var(--text-xs);color:${C.muted}}
 
 /* a small in-disclosure action bar */
 .disc-bar{display:flex;align-items:center;gap:6px;padding:2px 16px 8px}
 .disc-bar-spacer{flex:1 1 auto}
-.diff-tally{display:inline-flex;gap:5px;font-family:ui-monospace,monospace;font-size:10px}
+.diff-tally{display:inline-flex;gap:5px;font-family:ui-monospace,monospace;font-size: var(--text-xs)}
 
 /* kv grid (runtime) */
 .kvgrid{display:flex;flex-direction:column;gap:0;padding:0 16px}
 .kv{display:grid;grid-template-columns:74px 1fr;column-gap:10px;align-items:center;padding:4px 0;min-width:0}
-.kv-k{font-family:ui-monospace,monospace;font-size:10px;color:${C.dim};text-transform:lowercase;letter-spacing:.02em}
-.kv-v{font-family:ui-monospace,monospace;font-size:11px;color:${C.ink};min-width:0;display:flex;align-items:center;gap:8px}
-.kv-aux{color:${C.dim};font-size:10px}
+.kv-k{font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.dim};text-transform:lowercase;letter-spacing:.02em}
+.kv-v{font-family:ui-monospace,monospace;font-size: var(--text-sm);color:${C.ink};min-width:0;display:flex;align-items:center;gap:8px}
+.kv-aux{color:${C.dim};font-size: var(--text-xs)}
 
 /* copy value + dot */
 .cval{display:inline-flex;align-items:center;gap:6px;min-width:0;max-width:100%}
@@ -706,14 +706,14 @@ const CSS = `
 /* TOKENS (demoted, flat grid only when revealed) */
 .usage{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;margin:0 16px;border:1px solid ${C.edge};border-radius:7px;overflow:hidden;background:${C.edge}}
 .ucell{display:flex;flex-direction:column;gap:2px;padding:8px 10px;background:${C.panel}}
-.ucell-n{font-family:ui-monospace,monospace;font-size:12px;color:${C.ink};font-variant-numeric:tabular-nums}
-.ucell-l{font-family:ui-monospace,monospace;font-size:9px;color:${C.dim};text-transform:lowercase;letter-spacing:.04em}
+.ucell-n{font-family:ui-monospace,monospace;font-size: var(--text-md);color:${C.ink};font-variant-numeric:tabular-nums}
+.ucell-l{font-family:ui-monospace,monospace;font-size: var(--text-2xs);color:${C.dim};text-transform:lowercase;letter-spacing:.04em}
 
 /* FILES */
 .fadd{color:${C.muted}}.fdel{color:${C.dim}}
 .filegroup{padding:0 16px;margin-top:4px}
 .filegroup--nested{margin-top:0}
-.fglabel{display:flex;align-items:center;gap:7px;padding:7px 0 4px;font-family:ui-monospace,monospace;font-size:9px;font-weight:600;letter-spacing:.1em;color:${C.dim};width:100%;border:0;background:transparent;text-align:left}
+.fglabel{display:flex;align-items:center;gap:7px;padding:7px 0 4px;font-family:ui-monospace,monospace;font-size: var(--text-2xs);font-weight:600;letter-spacing:.1em;color:${C.dim};width:100%;border:0;background:transparent;text-align:left}
 .fglabel-mark{width:6px;height:6px;border-radius:1.5px;flex:none}
 .fglabel-mark--new{background:${C.green}}
 .fglabel-mark--mod{background:${C.muted}}
@@ -721,14 +721,14 @@ const CSS = `
 .fglabel-n{color:${C.faint};font-weight:400}
 .frow{display:flex;align-items:center;gap:8px;padding:3px 6px 3px 13px;margin:0 -6px;border-radius:5px;min-width:0}
 .frow:hover{background:rgba(255,255,255,.025)}
-.fstate{flex:none;width:11px;text-align:center;font-family:ui-monospace,monospace;font-size:12px;line-height:1;color:${C.dim}}
+.fstate{flex:none;width:11px;text-align:center;font-family:ui-monospace,monospace;font-size: var(--text-md);line-height:1;color:${C.dim}}
 .fstate--new{color:${C.green}}
 .fstate--mod{color:${C.muted}}
 .fstate--read{color:${C.faint}}
-.fpath{flex:1 1 auto;min-width:0;font-family:ui-monospace,monospace;font-size:11px;display:flex;align-items:baseline;overflow:hidden}
+.fpath{flex:1 1 auto;min-width:0;font-family:ui-monospace,monospace;font-size: var(--text-sm);display:flex;align-items:baseline;overflow:hidden}
 .fdir{color:${C.dim};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;max-width:46%;flex:0 1 auto}
 .fbase{color:${C.ink};white-space:nowrap;flex:none}
-.fdiff{flex:none;display:inline-flex;gap:4px;font-family:ui-monospace,monospace;font-size:10px}
+.fdiff{flex:none;display:inline-flex;gap:4px;font-family:ui-monospace,monospace;font-size: var(--text-xs)}
 .frow-acts{flex:none;display:inline-flex;align-items:center;gap:1px}
 .rowact{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:1px solid transparent;border-radius:4px;background:transparent;color:${C.faint};cursor:pointer;opacity:0;transition:opacity .12s ease,color .12s ease}
 .frow:hover .rowact,.now-action:hover .rowact{opacity:1}
@@ -738,11 +738,11 @@ const CSS = `
 .cmdlist{padding:0 16px}
 .crow{display:flex;align-items:center;gap:8px;padding:4px 6px;margin:0 -6px;border-radius:5px;min-width:0}
 .crow:hover{background:rgba(255,255,255,.025)}
-.cmark{flex:none;width:12px;text-align:center;font-family:ui-monospace,monospace;font-size:11px;color:${C.dim}}
+.cmark{flex:none;width:12px;text-align:center;font-family:ui-monospace,monospace;font-size: var(--text-sm);color:${C.dim}}
 .crow--bash .cmark{color:color-mix(in srgb,${C.green} 70%,${C.muted})}
-.ctext{flex:1 1 auto;min-width:0;font-family:ui-monospace,monospace;font-size:11px;color:${C.muted};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ctext{flex:1 1 auto;min-width:0;font-family:ui-monospace,monospace;font-size: var(--text-sm);color:${C.muted};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .crow--bash .ctext{color:${C.ink}}
-.cresult{flex:none;font-family:ui-monospace,monospace;font-size:9.5px;color:${C.dim};white-space:nowrap}
+.cresult{flex:none;font-family:ui-monospace,monospace;font-size: var(--text-2xs);color:${C.dim};white-space:nowrap}
 .crow-acts{flex:none;display:inline-flex;align-items:center}
 
 /* PLANS — flat rows, no bordered card */
@@ -752,12 +752,12 @@ const CSS = `
 .plan-head{display:flex;align-items:center;gap:8px;width:100%;border:0;background:transparent;cursor:pointer;padding:9px 0;text-align:left;min-width:0}
 .plan-head:hover .plan-title{color:${C.ink}}
 .plan-caret{flex:none;color:${C.dim};display:inline-flex}
-.plan-title{flex:1 1 auto;min-width:0;font-size:12px;color:${C.muted};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.plan-tally{flex:none;font-family:ui-monospace,monospace;font-size:9.5px;color:${C.dim}}
-.plan-now{display:flex;align-items:baseline;gap:7px;padding:0 0 9px 18px;font-family:ui-monospace,monospace;font-size:10.5px;color:${C.muted};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.plan-title{flex:1 1 auto;min-width:0;font-size: var(--text-md);color:${C.muted};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.plan-tally{flex:none;font-family:ui-monospace,monospace;font-size: var(--text-2xs);color:${C.dim}}
+.plan-now{display:flex;align-items:baseline;gap:7px;padding:0 0 9px 18px;font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.muted};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .plan-now-mark{flex:none;color:${C.green}}
 .plan-steps{padding:0 0 11px 18px;display:flex;flex-direction:column;gap:3px}
-.pstep{display:flex;align-items:baseline;gap:8px;font-family:ui-monospace,monospace;font-size:10.5px;color:${C.muted};padding-top:5px}
+.pstep{display:flex;align-items:baseline;gap:8px;font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.muted};padding-top:5px}
 .pstep-box{flex:none;width:11px;text-align:center;color:${C.dim}}
 .pstep--done .pstep-text{color:${C.dim};text-decoration:line-through}
 .pstep--doing .pstep-box{color:${C.green}}
@@ -766,9 +766,9 @@ const CSS = `
 
 /* foot */
 .sheet-foot{margin:14px 16px 6px;padding-top:12px;border-top:1px solid ${C.edgeSoft};
-  font-family:ui-monospace,monospace;font-size:9.5px;color:${C.faint};display:flex;align-items:center;gap:6px}
+  font-family:ui-monospace,monospace;font-size: var(--text-2xs);color:${C.faint};display:flex;align-items:center;gap:6px}
 .foot-id{color:${C.dim}}
 .foot-spacer{flex:1 1 auto}
-.foot-demo{border:0;background:transparent;color:${C.faint};font-family:ui-monospace,monospace;font-size:9.5px;cursor:pointer;padding:0}
+.foot-demo{border:0;background:transparent;color:${C.faint};font-family:ui-monospace,monospace;font-size: var(--text-2xs);cursor:pointer;padding:0}
 .foot-demo:hover{color:${C.muted}}
 `;

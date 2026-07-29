@@ -99,13 +99,13 @@ export default function AgentInspectorCardPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-8 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · macos · agent-inspector-card
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Agent inspector card
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           The per-agent card in the Scout sidebar. No <em>AVAILABLE</em>{" "}
           tag (state rides the dot), header click opens the profile, the
           card is one cohesive unit. <strong className="text-studio-ink-muted">Observe lives with the
@@ -124,10 +124,10 @@ export default function AgentInspectorCardPage() {
         </Labeled>
       </div>
 
-      <h2 className="mt-14 mb-4 font-display text-[18px] font-medium tracking-tight text-studio-ink">
+      <h2 className="mt-14 mb-4 font-display text-3xl font-medium tracking-tight text-studio-ink">
         In a DM — two cards stacked
       </h2>
-      <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+      <p className="mb-5 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
         Dewey <span className="text-studio-ink-faint">{"<>"}</span> Scout, stacked in the narrow inspector column.
       </p>
       <div className="flex w-[300px] flex-col gap-3">
@@ -141,7 +141,7 @@ export default function AgentInspectorCardPage() {
 function Labeled({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="w-[300px]">
-      <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-scout-accent">
+      <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-scout-accent">
         {label}
       </div>
       {children}
@@ -202,7 +202,7 @@ function CardHeader({ agent }: { agent: InspectorAgent }) {
       title={`Open ${agent.name}'s profile`}
     >
       <div
-        className="relative grid h-[30px] w-[30px] shrink-0 place-items-center rounded-full font-mono text-[12px]"
+        className="relative grid h-[30px] w-[30px] shrink-0 place-items-center rounded-full font-mono text-md"
         style={{ background: avatarColor(agent.name), color: "var(--studio-canvas)" }}
       >
         {agent.name[0]?.toUpperCase()}
@@ -212,10 +212,10 @@ function CardHeader({ agent }: { agent: InspectorAgent }) {
         />
       </div>
       <div className="min-w-0 flex-1 pt-0.5">
-        <div className="truncate font-sans text-[15px] font-semibold tracking-tight text-studio-ink decoration-studio-ink-faint underline-offset-2 group-hover:underline">
+        <div className="truncate font-sans text-2xl font-semibold tracking-tight text-studio-ink decoration-studio-ink-faint underline-offset-2 group-hover:underline">
           {agent.name}
         </div>
-        <div className="truncate font-mono text-[9.5px] text-studio-ink-faint">
+        <div className="truncate font-mono text-2xs text-studio-ink-faint">
           {agent.id}
         </div>
       </div>
@@ -228,12 +228,12 @@ function SessionSection({ session }: { session: NonNullable<InspectorAgent["sess
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between">
-        <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           Session
         </div>
         <ObserveButton />
       </div>
-      <div className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-1 font-mono text-[10.5px]">
+      <div className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-1 font-mono text-xs">
         <span className="uppercase tracking-eyebrow text-studio-ink-faint">id</span>
         <span className="truncate text-right text-studio-ink" title={session.id}>
           {session.id.slice(0, 8)}
@@ -253,7 +253,7 @@ function ObserveButton() {
     <button
       type="button"
       title="Observe this session"
-      className="flex shrink-0 items-center gap-1.5 rounded-[5px] border border-studio-edge-strong bg-studio-canvas-alt px-2 py-1 font-mono text-[9.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted transition-colors hover:border-[color-mix(in_oklab,var(--status-ok-fg)_50%,transparent)] hover:bg-[color-mix(in_oklab,var(--status-ok-fg)_12%,transparent)] hover:text-[var(--status-ok-fg)]"
+      className="flex shrink-0 items-center gap-1.5 rounded-[5px] border border-studio-edge-strong bg-studio-canvas-alt px-2 py-1 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-muted transition-colors hover:border-[color-mix(in_oklab,var(--status-ok-fg)_50%,transparent)] hover:bg-[color-mix(in_oklab,var(--status-ok-fg)_12%,transparent)] hover:text-[var(--status-ok-fg)]"
     >
       <EyeIcon />
       Observe
@@ -265,7 +265,7 @@ function NewSessionLink() {
   return (
     <button
       type="button"
-      className="flex items-center gap-1 self-start font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint transition-colors hover:text-scout-accent"
+      className="flex items-center gap-1 self-start font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint transition-colors hover:text-scout-accent"
     >
       <PlusIcon /> New session
     </button>
@@ -275,10 +275,10 @@ function NewSessionLink() {
 function Section({ label, rows }: { label: string; rows: [string, string][] }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         {label}
       </div>
-      <div className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-1 font-mono text-[10.5px]">
+      <div className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-1 font-mono text-xs">
         {rows.map(([k, v]) => (
           <Fragment key={k}>
             <span className="uppercase tracking-eyebrow text-studio-ink-faint">{k}</span>
@@ -293,14 +293,14 @@ function Section({ label, rows }: { label: string; rows: [string, string][] }) {
 function Skills({ skills }: { skills: string[] }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         Skills
       </div>
       <div className="flex flex-wrap gap-1">
         {skills.map((s) => (
           <code
             key={s}
-            className="rounded-[3px] bg-studio-canvas-alt px-1.5 py-0.5 font-mono text-[9.5px] text-studio-ink-muted"
+            className="rounded-[3px] bg-studio-canvas-alt px-1.5 py-0.5 font-mono text-2xs text-studio-ink-muted"
           >
             {s}
           </code>

@@ -359,7 +359,7 @@
   height: 15px;
   flex: none;
   border-radius: var(--radius-xs);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   background: color-mix(in srgb, currentColor 16%, transparent);
 }
@@ -427,7 +427,7 @@
   padding: 0 4px;
   border: 1px solid var(--rd-line);
   border-radius: var(--radius-xs);
-  font-size: 8px;
+  font-size: var(--text-3xs);
   text-transform: uppercase;
   letter-spacing: var(--tracking-sm);
   color: var(--muted);

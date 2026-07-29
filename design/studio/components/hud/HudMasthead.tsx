@@ -132,11 +132,11 @@ function AttentionPip({ count }: { count: number }) {
           }}
         />
       </span>
-      <span className="font-mono text-[11px] font-semibold tabular-nums text-studio-ink">
+      <span className="font-mono text-sm font-semibold tabular-nums text-studio-ink">
         {count}
       </span>
       <span
-        className="font-mono text-[10px] font-bold uppercase tracking-eyebrow"
+        className="font-mono text-xs font-bold uppercase tracking-eyebrow"
         style={{ color: "var(--scout-accent)" }}
       >
         on you
@@ -172,7 +172,7 @@ function TabLink({
           </span>
         ) : null}
         <span
-          className="font-mono text-[10px] font-bold"
+          className="font-mono text-xs font-bold"
           style={{
             color: active ? "var(--scout-accent)" : "var(--studio-ink-faint)",
           }}
@@ -182,10 +182,10 @@ function TabLink({
         <span
           className={
             active
-              ? "font-sans text-[12px] font-semibold lowercase text-studio-ink"
+              ? "font-sans text-md font-semibold lowercase text-studio-ink"
               : onClick
-                ? "font-sans text-[12px] lowercase text-studio-ink-faint group-hover:text-studio-ink"
-                : "font-sans text-[12px] lowercase text-studio-ink-faint"
+                ? "font-sans text-md lowercase text-studio-ink-faint group-hover:text-studio-ink"
+                : "font-sans text-md lowercase text-studio-ink-faint"
           }
         >
           {label}
@@ -215,7 +215,7 @@ function TabLink({
 
 function TabSeparator() {
   return (
-    <span className="mx-2 self-end pb-[3px] font-mono text-[10px] text-studio-ink-faint">
+    <span className="mx-2 self-end pb-[3px] font-mono text-xs text-studio-ink-faint">
       ·
     </span>
   );
@@ -249,7 +249,7 @@ function SizePills({
             className={[
               "inline-flex h-[16px] w-[18px] items-center justify-center",
               "rounded-[2.5px] transition-colors",
-              "font-mono text-[9px] font-bold tracking-[0.5px]",
+              "font-mono text-2xs font-bold tracking-[0.5px]",
               active
                 ? "bg-studio-canvas-alt text-scout-accent"
                 : "text-studio-ink-faint hover:text-studio-ink",

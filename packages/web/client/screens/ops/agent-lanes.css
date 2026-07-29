@@ -765,7 +765,7 @@
   border-radius: calc(var(--radius-sm) - 1px);
   padding: 2px 6px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   letter-spacing: var(--tracking-xs);
   color: var(--dim);
   cursor: pointer;
@@ -825,7 +825,7 @@
   .s-agent-lane-chrome-width-btn {
     min-width: 1.45rem;
     padding-inline: 4px;
-    font-size: 9px;
+    font-size: var(--text-2xs);
   }
 
 }

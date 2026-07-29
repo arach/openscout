@@ -23,7 +23,7 @@ export default async function PlanPage({
 
   return (
     <main className="mx-auto max-w-page px-7 py-8">
-      <div className="mb-6 flex items-baseline gap-3 font-mono text-[10px] text-studio-ink-faint">
+      <div className="mb-6 flex items-baseline gap-3 font-mono text-xs text-studio-ink-faint">
         <Link
           href="/plans"
           className="uppercase tracking-eyebrow text-studio-ink-faint hover:text-studio-ink"
@@ -40,7 +40,7 @@ export default async function PlanPage({
           })}
         </span>
         <span className="text-studio-ink-faint">·</span>
-        <code className="font-mono text-[9.5px] text-studio-ink-faint">
+        <code className="font-mono text-2xs text-studio-ink-faint">
           plans/{plan.slug}.md
         </code>
       </div>
@@ -52,14 +52,14 @@ export default async function PlanPage({
 
       {plan.source && plan.source.length > 0 ? (
         <div className="mt-12 max-w-prose border-t border-studio-edge pt-5">
-          <div className="mb-2 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="mb-2 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
             · related source
           </div>
           <ul className="space-y-1">
             {plan.source.map((src) => (
               <li
                 key={src}
-                className="font-mono text-[11px] text-studio-ink-faint"
+                className="font-mono text-sm text-studio-ink-faint"
               >
                 <code className="rounded-[2px] bg-studio-canvas-alt px-1.5 py-0.5 text-studio-ink">
                   {src}

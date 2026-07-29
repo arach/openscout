@@ -44,7 +44,7 @@ function Rail({ children }: { children: React.ReactNode }) {
 function RailHeader({ label }: { label: string }) {
   return (
     <div className="flex h-[34px] flex-none items-center justify-between px-3.5" style={{ borderBottom: `1px solid ${INK.edgeSoft}` }}>
-      <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">{label}</span>
+      <span className="font-mono text-xs font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">{label}</span>
       <span className="flex items-center gap-1.5 text-studio-ink-faint">
         <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden><rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.1" /><path d="M10 3v10" stroke="currentColor" strokeWidth="1.1" /></svg>
       </span>
@@ -59,8 +59,8 @@ function Body({ children }: { children: React.ReactNode }) {
 function Footer({ primary, secondary }: { primary: string; secondary: string }) {
   return (
     <div className="flex flex-none items-center gap-1.5 px-3 py-2.5" style={{ borderTop: `1px solid ${INK.edgeSoft}`, background: INK.rail }}>
-      <button className="flex-1 cursor-pointer rounded-[4px] py-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.12em] transition hover:brightness-110 active:brightness-95" style={{ background: ACCENT, color: INK.canvas }}>{primary}</button>
-      <button className={`flex-1 cursor-pointer rounded-[4px] py-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-studio-ink-muted transition-colors ${HOVER}`} style={{ border: `1px solid ${INK.edge}` }}>{secondary}</button>
+      <button className="flex-1 cursor-pointer rounded-[4px] py-1.5 font-mono text-2xs font-semibold uppercase tracking-[0.12em] transition hover:brightness-110 active:brightness-95" style={{ background: ACCENT, color: INK.canvas }}>{primary}</button>
+      <button className={`flex-1 cursor-pointer rounded-[4px] py-1.5 font-mono text-2xs font-semibold uppercase tracking-[0.12em] text-studio-ink-muted transition-colors ${HOVER}`} style={{ border: `1px solid ${INK.edge}` }}>{secondary}</button>
     </div>
   );
 }
@@ -71,8 +71,8 @@ function Section({ label, count, children }: { label: string; count?: React.Reac
   return (
     <div>
       <div className="mb-2 flex items-baseline justify-between">
-        <span className="font-mono text-[8px] font-semibold uppercase tracking-[0.18em] text-studio-ink-faint">{label}</span>
-        {count != null ? <span className="font-mono text-[8.5px] tabular-nums text-studio-ink-faint">{count}</span> : null}
+        <span className="font-mono text-3xs font-semibold uppercase tracking-[0.18em] text-studio-ink-faint">{label}</span>
+        {count != null ? <span className="font-mono text-3xs tabular-nums text-studio-ink-faint">{count}</span> : null}
       </div>
       {children}
     </div>
@@ -85,8 +85,8 @@ function StatRow({ stats }: { stats: Stat[] }) {
     <div className="flex">
       {stats.map((s, i) => (
         <div key={s.k} className="flex flex-1 flex-col gap-1.5" style={{ paddingLeft: i ? 11 : 0, marginLeft: i ? 11 : 0, borderLeft: i ? `1px solid ${INK.edgeSoft}` : undefined }}>
-          <span className="font-mono text-[7px] font-semibold uppercase tracking-[0.1em] text-studio-ink-faint">{s.k}</span>
-          <span className="font-mono text-[18px] leading-none tabular-nums" style={{ color: s.warn ? DEL : s.accent ? ACCENT : "var(--studio-ink)" }}>{s.v}</span>
+          <span className="font-mono text-3xs font-semibold uppercase tracking-[0.1em] text-studio-ink-faint">{s.k}</span>
+          <span className="font-mono text-3xl leading-none tabular-nums" style={{ color: s.warn ? DEL : s.accent ? ACCENT : "var(--studio-ink)" }}>{s.v}</span>
         </div>
       ))}
     </div>
@@ -98,7 +98,7 @@ function TagMix({ tags }: { tags: T[] }) {
   return (
     <div className="flex flex-wrap gap-1.5">
       {tags.map((t) => (
-        <button key={t.label} className="inline-flex cursor-pointer items-center gap-1.5 rounded-[3px] border border-[oklch(0.27_0.008_80)] px-1.5 py-[2.5px] font-mono text-[9px] transition-colors hover:border-[oklch(0.37_0.008_80)]">
+        <button key={t.label} className="inline-flex cursor-pointer items-center gap-1.5 rounded-[3px] border border-[oklch(0.27_0.008_80)] px-1.5 py-[2.5px] font-mono text-2xs transition-colors hover:border-[oklch(0.37_0.008_80)]">
           <span className="text-studio-ink-muted">{t.label}</span>
           {t.count != null ? <span className="tabular-nums text-studio-ink-faint">{t.count}</span> : null}
         </button>
@@ -130,10 +130,10 @@ function RowList({ rows, defaultSelected }: { rows: LRow[]; defaultSelected?: nu
             <span className="h-1.5 w-1.5 flex-none rounded-full" style={{ background: selected ? ACCENT : r.dot ?? INK.edge }} />
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline gap-2">
-                <span className="truncate font-mono text-[11px]" style={{ color: lit ? "var(--studio-ink)" : r.dim ? "var(--studio-ink-faint)" : "var(--studio-ink-muted)" }}>{r.name}</span>
-                {r.meta != null ? <span className="ml-auto flex-none font-mono text-[9px] tabular-nums text-studio-ink-faint">{r.meta}</span> : null}
+                <span className="truncate font-mono text-sm" style={{ color: lit ? "var(--studio-ink)" : r.dim ? "var(--studio-ink-faint)" : "var(--studio-ink-muted)" }}>{r.name}</span>
+                {r.meta != null ? <span className="ml-auto flex-none font-mono text-2xs tabular-nums text-studio-ink-faint">{r.meta}</span> : null}
               </div>
-              {r.sub ? <div className="truncate font-mono text-[8.5px] text-studio-ink-faint">{r.sub}</div> : null}
+              {r.sub ? <div className="truncate font-mono text-3xs text-studio-ink-faint">{r.sub}</div> : null}
             </div>
           </button>
         );
@@ -149,13 +149,13 @@ function QuietKV({ rows }: { rows: KRow[] }) {
       {rows.map((r) =>
         r.wide ? (
           <div key={r.k} className="flex flex-col gap-[2px]">
-            <span className="font-mono text-[7.5px] uppercase tracking-[0.1em] text-studio-ink-faint">{r.k}</span>
-            <span className="truncate font-mono text-[10px]" style={{ color: r.color ?? "var(--studio-ink-muted)" }}>{r.v}</span>
+            <span className="font-mono text-3xs uppercase tracking-[0.1em] text-studio-ink-faint">{r.k}</span>
+            <span className="truncate font-mono text-xs" style={{ color: r.color ?? "var(--studio-ink-muted)" }}>{r.v}</span>
           </div>
         ) : (
           <div key={r.k} className="flex items-baseline justify-between gap-3">
-            <span className="font-mono text-[8px] uppercase tracking-[0.1em] text-studio-ink-faint">{r.k}</span>
-            <span className="truncate text-right font-mono text-[10px] tabular-nums" style={{ color: r.color ?? "var(--studio-ink-muted)" }}>{r.v}</span>
+            <span className="font-mono text-3xs uppercase tracking-[0.1em] text-studio-ink-faint">{r.k}</span>
+            <span className="truncate text-right font-mono text-xs tabular-nums" style={{ color: r.color ?? "var(--studio-ink-muted)" }}>{r.v}</span>
           </div>
         )
       )}
@@ -164,7 +164,7 @@ function QuietKV({ rows }: { rows: KRow[] }) {
 }
 
 function EmptyLine({ children }: { children: React.ReactNode }) {
-  return <p className="font-mono text-[10px] leading-relaxed text-studio-ink-faint">{children}</p>;
+  return <p className="font-mono text-xs leading-relaxed text-studio-ink-faint">{children}</p>;
 }
 
 function Identity({ glyph, name, sub }: { glyph: React.ReactNode; name: string; sub: string }) {
@@ -172,15 +172,15 @@ function Identity({ glyph, name, sub }: { glyph: React.ReactNode; name: string; 
     <div className="flex items-center gap-2.5">
       <div className="grid h-[34px] w-[34px] flex-none place-items-center rounded-[7px] text-studio-ink-muted" style={{ background: INK.module, border: `1px solid ${INK.edgeSoft}` }}>{glyph}</div>
       <div className="min-w-0">
-        <div className="truncate font-mono text-[15px] leading-none text-studio-ink">{name}</div>
-        <div className="mt-1.5 truncate font-mono text-[9px] text-studio-ink-faint">{sub}</div>
+        <div className="truncate font-mono text-2xl leading-none text-studio-ink">{name}</div>
+        <div className="mt-1.5 truncate font-mono text-2xs text-studio-ink-faint">{sub}</div>
       </div>
     </div>
   );
 }
 
 function Tag({ children }: { children: React.ReactNode }) {
-  return <span className="inline-flex items-center rounded-[3px] px-1.5 py-[1px] font-mono text-[8px] font-semibold uppercase tracking-[0.1em] text-studio-ink-faint" style={{ border: `1px solid ${INK.edge}` }}>{children}</span>;
+  return <span className="inline-flex items-center rounded-[3px] px-1.5 py-[1px] font-mono text-3xs font-semibold uppercase tracking-[0.1em] text-studio-ink-faint" style={{ border: `1px solid ${INK.edge}` }}>{children}</span>;
 }
 
 /* ── specialised treatments ───────────────────────────────────────────────── */
@@ -202,8 +202,8 @@ function ChurnLead({ add, del }: { add: number; del: number }) {
   return (
     <div>
       <div className="mb-2 flex items-baseline justify-between">
-        <span className="font-mono text-[8px] font-semibold uppercase tracking-[0.18em] text-studio-ink-faint">Churn · main</span>
-        <span className="font-mono text-[10px] tabular-nums"><span style={{ color: ADD }}>+{add}</span> <span style={{ color: DEL }}>−{del}</span></span>
+        <span className="font-mono text-3xs font-semibold uppercase tracking-[0.18em] text-studio-ink-faint">Churn · main</span>
+        <span className="font-mono text-xs tabular-nums"><span style={{ color: ADD }}>+{add}</span> <span style={{ color: DEL }}>−{del}</span></span>
       </div>
       <div className="flex h-[4px] w-full overflow-hidden rounded-full" style={{ background: INK.edgeSoft }}>
         <div className="h-full" style={{ width: `${(add / total) * 100}%`, background: ADD }} />
@@ -217,7 +217,7 @@ function MessageQuote({ kind, text }: { kind: string; text: string }) {
   return (
     <button type="button" className={`block w-full cursor-pointer rounded-r-[4px] pl-2.5 text-left transition-colors ${HOVER}`} style={{ borderLeft: `2px solid ${INK.edge}` }}>
       <div className="mb-1.5 pt-1"><Tag>{kind}</Tag></div>
-      <p className="pb-1 font-mono text-[10px] leading-relaxed text-studio-ink-muted">{text}</p>
+      <p className="pb-1 font-mono text-xs leading-relaxed text-studio-ink-muted">{text}</p>
     </button>
   );
 }
@@ -235,10 +235,10 @@ function Timeline({ items }: { items: TLItem[] }) {
           <div className="min-w-0 flex-1 pb-3 pt-1">
             <div className="flex items-baseline gap-2">
               <Tag>{it.kind}</Tag>
-              <span className="ml-auto font-mono text-[8.5px] tabular-nums text-studio-ink-faint">{it.ago}</span>
+              <span className="ml-auto font-mono text-3xs tabular-nums text-studio-ink-faint">{it.ago}</span>
             </div>
-            <div className="mt-1 truncate font-mono text-[10.5px] text-studio-ink-muted">{it.actor}</div>
-            {it.title ? <div className="truncate font-mono text-[9px] text-studio-ink-faint">{it.title}</div> : null}
+            <div className="mt-1 truncate font-mono text-xs text-studio-ink-muted">{it.actor}</div>
+            {it.title ? <div className="truncate font-mono text-2xs text-studio-ink-faint">{it.title}</div> : null}
           </div>
         </button>
       ))}
@@ -252,8 +252,8 @@ function Steps({ steps }: { steps: Step[] }) {
     <div className="flex flex-col gap-[1px]">
       {steps.map((s, i) => (
         <button key={i} type="button" className={`flex cursor-pointer items-center gap-2 rounded-[4px] px-1 py-[3px] text-left transition-colors ${HOVER}`}>
-          <span className="w-2 flex-none text-center font-mono text-[10px]" style={{ color: s.status === "active" ? ACCENT : s.status === "blocked" ? DEL : "var(--studio-ink-faint)" }}>{s.mark}</span>
-          <span className="min-w-0 flex-1 truncate font-mono text-[10.5px]" style={{ color: s.status === "done" ? "var(--studio-ink-faint)" : "var(--studio-ink-muted)" }}>{s.text}</span>
+          <span className="w-2 flex-none text-center font-mono text-xs" style={{ color: s.status === "active" ? ACCENT : s.status === "blocked" ? DEL : "var(--studio-ink-faint)" }}>{s.mark}</span>
+          <span className="min-w-0 flex-1 truncate font-mono text-xs" style={{ color: s.status === "done" ? "var(--studio-ink-faint)" : "var(--studio-ink-muted)" }}>{s.text}</span>
           <Tag>{s.status}</Tag>
         </button>
       ))}
@@ -266,9 +266,9 @@ function ModeGrid({ modes }: { modes: { label: string; active?: boolean }[] }) {
     <div className="grid grid-cols-2 gap-1.5">
       {modes.map((m) =>
         m.active ? (
-          <button key={m.label} className="cursor-pointer rounded-[4px] py-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] transition hover:brightness-110" style={{ background: `color-mix(in oklab, ${ACCENT} 14%, transparent)`, color: ACCENT, border: `1px solid ${ACCENT}` }}>{m.label}</button>
+          <button key={m.label} className="cursor-pointer rounded-[4px] py-1.5 font-mono text-2xs font-semibold uppercase tracking-[0.1em] transition hover:brightness-110" style={{ background: `color-mix(in oklab, ${ACCENT} 14%, transparent)`, color: ACCENT, border: `1px solid ${ACCENT}` }}>{m.label}</button>
         ) : (
-          <button key={m.label} className={`cursor-pointer rounded-[4px] py-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-studio-ink-muted transition-colors ${HOVER}`} style={{ border: `1px solid ${INK.edge}` }}>{m.label}</button>
+          <button key={m.label} className={`cursor-pointer rounded-[4px] py-1.5 font-mono text-2xs font-semibold uppercase tracking-[0.1em] text-studio-ink-muted transition-colors ${HOVER}`} style={{ border: `1px solid ${INK.edge}` }}>{m.label}</button>
         )
       )}
     </div>
@@ -278,7 +278,7 @@ function ModeGrid({ modes }: { modes: { label: string; active?: boolean }[] }) {
 function TermPre({ lines }: { lines: string[] }) {
   return (
     <div className="overflow-hidden rounded-[5px] p-2.5" style={{ background: INK.canvas, border: `1px solid ${INK.edgeSoft}` }}>
-      <pre className="whitespace-pre font-mono text-[8px] leading-relaxed text-studio-ink-faint">{lines.join("\n")}</pre>
+      <pre className="whitespace-pre font-mono text-3xs leading-relaxed text-studio-ink-faint">{lines.join("\n")}</pre>
     </div>
   );
 }
@@ -290,8 +290,8 @@ function HarnessBars({ rows }: { rows: { name: string; count: number }[] }) {
       {rows.map((r) => (
         <div key={r.name}>
           <div className="mb-1 flex items-baseline justify-between font-mono">
-            <span className="text-[9px] text-studio-ink-muted">{r.name}</span>
-            <span className="text-[9px] tabular-nums text-studio-ink-faint">{r.count}</span>
+            <span className="text-2xs text-studio-ink-muted">{r.name}</span>
+            <span className="text-2xs tabular-nums text-studio-ink-faint">{r.count}</span>
           </div>
           <div className="h-[3px] w-full overflow-hidden rounded-full" style={{ background: INK.edgeSoft }}>
             <div className="h-full rounded-full" style={{ width: `${(r.count / max) * 100}%`, background: INK.edge }} />
@@ -306,7 +306,7 @@ function ReachRow({ ok, label }: { ok: boolean; label: string }) {
   return (
     <div className="flex items-center gap-2">
       <span className="h-1.5 w-1.5 rounded-full" style={{ background: ok ? ACCENT : INK.edge }} />
-      <span className="font-mono text-[10.5px]" style={{ color: ok ? "var(--studio-ink-muted)" : "var(--studio-ink-faint)" }}>{label}</span>
+      <span className="font-mono text-xs" style={{ color: ok ? "var(--studio-ink-muted)" : "var(--studio-ink-faint)" }}>{label}</span>
     </div>
   );
 }
@@ -354,7 +354,7 @@ function AgentsContext() {
       <Body>
         <Section label="Directory context">
           <StatRow stats={[{ k: "Agents", v: "25" }, { k: "Projects", v: "15" }, { k: "Working", v: "0" }]} />
-          <div className="mt-2 font-mono text-[8.5px] uppercase tracking-[0.1em] text-studio-ink-faint">25 ready · 15 projects</div>
+          <div className="mt-2 font-mono text-3xs uppercase tracking-[0.1em] text-studio-ink-faint">25 ready · 15 projects</div>
         </Section>
         <Section label="Project mix">
           <TagMix tags={[{ label: "openscout", count: "8" }, { label: "hudson", count: "4" }, { label: "action", count: "1" }, { label: "art", count: "1" }, { label: "dewey", count: "1" }]} />
@@ -406,7 +406,7 @@ function SessionsContext() {
       <Body>
         <Section label="Sessions context">
           <StatRow stats={[{ k: "Scout", v: "12" }, { k: "Raw", v: "48" }, { k: "Live", v: "3", accent: true }]} />
-          <div className="mt-2 font-mono text-[8.5px] uppercase tracking-[0.1em] text-studio-ink-faint">4 sources</div>
+          <div className="mt-2 font-mono text-3xs uppercase tracking-[0.1em] text-studio-ink-faint">4 sources</div>
         </Section>
         <Section label="Sources">
           <TagMix tags={[{ label: "claude", count: "16" }, { label: "codex", count: "3" }, { label: "pi", count: "5" }]} />
@@ -455,10 +455,10 @@ function ConversationDetail() {
         <Section label="Now">
           <div className="flex items-center gap-2">
             <span className="h-1.5 w-1.5 rounded-full" style={{ background: ACCENT }} />
-            <span className="font-mono text-[10.5px] text-studio-ink-muted">Working</span>
-            <span className="ml-auto font-mono text-[9px] text-studio-ink-faint">2m</span>
+            <span className="font-mono text-xs text-studio-ink-muted">Working</span>
+            <span className="ml-auto font-mono text-2xs text-studio-ink-faint">2m</span>
           </div>
-          <p className="mt-1.5 font-mono text-[9.5px] leading-relaxed text-studio-ink-faint">Refactoring AgentRow into a shared atom.</p>
+          <p className="mt-1.5 font-mono text-2xs leading-relaxed text-studio-ink-faint">Refactoring AgentRow into a shared atom.</p>
         </Section>
         <Section label="Workspace">
           <QuietKV rows={[{ k: "Project", v: "hudson" }, { k: "Branch", v: "main" }, { k: "Path", v: "~/dev/hudson", wide: true }]} />
@@ -510,8 +510,8 @@ function SearchDetail() {
       <RailHeader label="Result" />
       <Body>
         <div>
-          <div className="font-mono text-[7.5px] font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">Selected result</div>
-          <div className="mt-1.5 font-mono text-[14px] leading-tight text-studio-ink">AgentRow shared atom</div>
+          <div className="font-mono text-3xs font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">Selected result</div>
+          <div className="mt-1.5 font-mono text-xl leading-tight text-studio-ink">AgentRow shared atom</div>
         </div>
         <TagMix tags={[{ label: "openscout" }, { label: "claude" }, { label: "worktree diff" }, { label: "records 0..79" }]} />
         <Section label="Why ranked here">
@@ -594,8 +594,8 @@ function TailDetail() {
       <RailHeader label="Event" />
       <Body>
         <div className="flex items-baseline gap-2.5">
-          <span className="font-mono text-[20px] leading-none tabular-nums text-studio-ink">00:01:55</span>
-          <span className="font-mono text-[9px] text-studio-ink-faint">talkie · 019eb9da</span>
+          <span className="font-mono text-4xl leading-none tabular-nums text-studio-ink">00:01:55</span>
+          <span className="font-mono text-2xs text-studio-ink-faint">talkie · 019eb9da</span>
         </div>
         <Section label="Message">
           <MessageQuote kind="assistant" text="Done. I tightened the selector geometry and quieted the idle pulse — the rail now settles in one frame instead of three." />
@@ -630,7 +630,7 @@ function DispatchContext() {
       <Body>
         <Section label="Dispatch context">
           <StatRow stats={[{ k: "Sent", v: "142" }, { k: "Query", v: "0" }, { k: "Delivery", v: "1", warn: true }]} />
-          <div className="mt-2 font-mono text-[8.5px] uppercase tracking-[0.1em] text-studio-ink-faint">0.7% fail · 1m ago</div>
+          <div className="mt-2 font-mono text-3xs uppercase tracking-[0.1em] text-studio-ink-faint">0.7% fail · 1m ago</div>
         </Section>
         <Section label="Route mix">
           <TagMix tags={[{ label: "channel", count: "5" }, { label: "dm", count: "3" }, { label: "ask", count: "2" }]} />
@@ -704,8 +704,8 @@ function WorkDetail() {
       <Body>
         <div className="flex items-center gap-2">
           <span className="h-1.5 w-1.5 rounded-full" style={{ background: ACCENT }} />
-          <span className="font-mono text-[11px] text-studio-ink-muted">Hudson</span>
-          <span className="font-mono text-[10px] text-studio-ink-faint">→ Arach</span>
+          <span className="font-mono text-sm text-studio-ink-muted">Hudson</span>
+          <span className="font-mono text-xs text-studio-ink-faint">→ Arach</span>
         </div>
         <Section label="Case">
           <QuietKV rows={[{ k: "Phase", v: "build" }, { k: "Acceptance", v: "pending" }, { k: "Priority", v: "high" }]} />
@@ -737,14 +737,14 @@ function CScroll({ children }: { children: React.ReactNode }) {
   return <div className="min-h-0 flex-1 overflow-hidden px-2.5 py-2">{children}</div>;
 }
 function CPill({ children, active }: { children: React.ReactNode; active?: boolean }) {
-  return <span className="inline-flex items-center rounded-[4px] px-2 py-[3px] font-mono text-[9px]" style={active ? { background: `color-mix(in oklab, ${ACCENT} 14%, transparent)`, color: ACCENT, border: `1px solid ${ACCENT}` } : { color: "var(--studio-ink-faint)", border: `1px solid ${INK.edge}` }}>{children}</span>;
+  return <span className="inline-flex items-center rounded-[4px] px-2 py-[3px] font-mono text-2xs" style={active ? { background: `color-mix(in oklab, ${ACCENT} 14%, transparent)`, color: ACCENT, border: `1px solid ${ACCENT}` } : { color: "var(--studio-ink-faint)", border: `1px solid ${INK.edge}` }}>{children}</span>;
 }
 function CGroupLabel({ name, path, meta }: { name: string; path?: string; meta?: string }) {
   return (
     <div className="mb-1 mt-3 flex items-baseline gap-2 px-1.5 first:mt-1">
-      <span className="font-mono text-[10.5px] text-studio-ink">{name}</span>
-      {path ? <span className="font-mono text-[8.5px] text-studio-ink-faint">{path}</span> : null}
-      {meta ? <span className="ml-auto font-mono text-[8.5px] tabular-nums text-studio-ink-faint">{meta}</span> : null}
+      <span className="font-mono text-xs text-studio-ink">{name}</span>
+      {path ? <span className="font-mono text-3xs text-studio-ink-faint">{path}</span> : null}
+      {meta ? <span className="ml-auto font-mono text-3xs tabular-nums text-studio-ink-faint">{meta}</span> : null}
     </div>
   );
 }
@@ -776,7 +776,7 @@ function AgentsCenter({ selected }: { selected?: string }) {
   return (
     <div className="flex h-full flex-col">
       <CTool>
-        <span className="font-mono text-[10px] text-studio-ink-faint">filter · projects · agents · sessions</span>
+        <span className="font-mono text-xs text-studio-ink-faint">filter · projects · agents · sessions</span>
         <div className="ml-auto flex items-center gap-1.5"><CPill active>cards</CPill><CPill>tree</CPill><CPill>24h</CPill><CPill>claude 14</CPill></div>
       </CTool>
       <CScroll>
@@ -786,10 +786,10 @@ function AgentsCenter({ selected }: { selected?: string }) {
             {g.agents.map((a) => (
               <CRow key={a.n} sel={a.n === selected}>
                 <Dotc on={a.on} />
-                <span className="font-mono text-[11.5px]" style={{ color: a.n === selected ? "var(--studio-ink)" : "var(--studio-ink-muted)" }}>{a.n}</span>
-                <span className="font-mono text-[9px] text-studio-ink-faint">{a.r}</span>
-                <span className="ml-auto font-mono text-[9px] tabular-nums text-studio-ink-faint">{a.t}</span>
-                <span className="w-7 text-right font-mono text-[9px] tabular-nums text-studio-ink-faint">{a.u}</span>
+                <span className="font-mono text-sm" style={{ color: a.n === selected ? "var(--studio-ink)" : "var(--studio-ink-muted)" }}>{a.n}</span>
+                <span className="font-mono text-2xs text-studio-ink-faint">{a.r}</span>
+                <span className="ml-auto font-mono text-2xs tabular-nums text-studio-ink-faint">{a.t}</span>
+                <span className="w-7 text-right font-mono text-2xs tabular-nums text-studio-ink-faint">{a.u}</span>
               </CRow>
             ))}
           </div>
@@ -809,14 +809,14 @@ function SessionsCenter() {
   ];
   return (
     <div className="flex h-full flex-col">
-      <CTool><span className="font-mono text-[10px] text-studio-ink-faint">sessions</span><div className="ml-auto flex gap-1.5"><CPill active>scout</CPill><CPill>raw</CPill><CPill>live</CPill></div></CTool>
+      <CTool><span className="font-mono text-xs text-studio-ink-faint">sessions</span><div className="ml-auto flex gap-1.5"><CPill active>scout</CPill><CPill>raw</CPill><CPill>live</CPill></div></CTool>
       <CScroll>
         {rows.map((r) => (
           <CRow key={r.n}>
             <Dotc on={r.on} />
-            <span className="font-mono text-[11px] text-studio-ink-muted">{r.n}</span>
-            <span className="ml-auto font-mono text-[9px] text-studio-ink-faint">{r.s}</span>
-            <span className="w-7 text-right font-mono text-[9px] tabular-nums text-studio-ink-faint">{r.u}</span>
+            <span className="font-mono text-sm text-studio-ink-muted">{r.n}</span>
+            <span className="ml-auto font-mono text-2xs text-studio-ink-faint">{r.s}</span>
+            <span className="w-7 text-right font-mono text-2xs tabular-nums text-studio-ink-faint">{r.u}</span>
           </CRow>
         ))}
       </CScroll>
@@ -843,9 +843,9 @@ function TerminalCenter() {
   ];
   return (
     <div className="flex h-full flex-col">
-      <CTool><span className="font-mono text-[10px] text-studio-ink-muted">Action</span><span className="font-mono text-[9px] text-studio-ink-faint">tmux · 132×44</span><div className="ml-auto"><CPill active>observe</CPill></div></CTool>
+      <CTool><span className="font-mono text-xs text-studio-ink-muted">Action</span><span className="font-mono text-2xs text-studio-ink-faint">tmux · 132×44</span><div className="ml-auto"><CPill active>observe</CPill></div></CTool>
       <div className="min-h-0 flex-1 overflow-hidden p-3.5" style={{ background: INK.canvas }}>
-        <pre className="whitespace-pre-wrap font-mono text-[9.5px] leading-relaxed text-studio-ink-faint">{lines.join("\n")}</pre>
+        <pre className="whitespace-pre-wrap font-mono text-2xs leading-relaxed text-studio-ink-faint">{lines.join("\n")}</pre>
       </div>
     </div>
   );
@@ -857,19 +857,19 @@ function Turn({ who, harness, text }: { who: string; harness: string; text: stri
     <div className="flex gap-2.5 px-1.5 py-2.5">
       <Mono label={who.charAt(0)} />
       <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2"><span className="font-mono text-[11px] text-studio-ink">{who}</span><span className="font-mono text-[8.5px] text-studio-ink-faint">{harness}</span></div>
-        <p className="mt-1 font-mono text-[10.5px] leading-relaxed text-studio-ink-muted">{text}</p>
+        <div className="flex items-baseline gap-2"><span className="font-mono text-sm text-studio-ink">{who}</span><span className="font-mono text-3xs text-studio-ink-faint">{harness}</span></div>
+        <p className="mt-1 font-mono text-xs leading-relaxed text-studio-ink-muted">{text}</p>
       </div>
     </div>
   );
 }
 function Composer() {
-  return <div className="flex flex-none items-center gap-2 px-3 py-2.5" style={{ borderTop: `1px solid ${INK.edgeSoft}` }}><div className="flex-1 rounded-[6px] px-3 py-2 font-mono text-[10px] text-studio-ink-faint" style={{ border: `1px solid ${INK.edge}` }}>Message…</div><button className="rounded-[5px] px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em]" style={{ background: ACCENT, color: INK.canvas }}>Send</button></div>;
+  return <div className="flex flex-none items-center gap-2 px-3 py-2.5" style={{ borderTop: `1px solid ${INK.edgeSoft}` }}><div className="flex-1 rounded-[6px] px-3 py-2 font-mono text-xs text-studio-ink-faint" style={{ border: `1px solid ${INK.edge}` }}>Message…</div><button className="rounded-[5px] px-3 py-2 font-mono text-2xs font-semibold uppercase tracking-[0.1em]" style={{ background: ACCENT, color: INK.canvas }}>Send</button></div>;
 }
 function ConversationCenter() {
   return (
     <div className="flex h-full flex-col">
-      <CTool><span className="font-mono text-[10px] text-studio-ink-muted">Hudson</span><span className="font-mono text-[9px] text-studio-ink-faint">@hudson</span></CTool>
+      <CTool><span className="font-mono text-xs text-studio-ink-muted">Hudson</span><span className="font-mono text-2xs text-studio-ink-faint">@hudson</span></CTool>
       <div className="min-h-0 flex-1 overflow-hidden px-2.5 py-1">
         <Turn who="You" harness="" text="Can you pull AgentRow into a shared atom? It's duplicated across three screens." />
         <Turn who="Hudson" harness="claude" text="On it. Moving it into scout/atoms and updating the call sites." />
@@ -882,7 +882,7 @@ function ConversationCenter() {
 function ChannelCenter() {
   return (
     <div className="flex h-full flex-col">
-      <CTool><span className="font-mono text-[10px] text-studio-ink-muted">#general</span><span className="font-mono text-[9px] text-studio-ink-faint">4 people · project dewey</span></CTool>
+      <CTool><span className="font-mono text-xs text-studio-ink-muted">#general</span><span className="font-mono text-2xs text-studio-ink-faint">4 people · project dewey</span></CTool>
       <div className="min-h-0 flex-1 overflow-hidden px-2.5 py-1">
         <Turn who="Dewey" harness="claude" text="Standup digest is ready — 5 agents active, 3 PRs awaiting review." />
         <Turn who="Hudson" harness="claude" text="Picking up the audit trail work. Will post when the diff is clean." />
@@ -903,15 +903,15 @@ function SearchCenter() {
   ];
   return (
     <div className="flex h-full flex-col">
-      <CTool><div className="flex flex-1 items-center gap-2 rounded-[6px] px-2.5 py-1.5" style={{ border: `1px solid ${INK.edge}` }}><span className="font-mono text-[10px] text-studio-ink-faint">⌕</span><span className="font-mono text-[10px] text-studio-ink-muted">agent row</span></div><CPill active>knowledge</CPill></CTool>
+      <CTool><div className="flex flex-1 items-center gap-2 rounded-[6px] px-2.5 py-1.5" style={{ border: `1px solid ${INK.edge}` }}><span className="font-mono text-xs text-studio-ink-faint">⌕</span><span className="font-mono text-xs text-studio-ink-muted">agent row</span></div><CPill active>knowledge</CPill></CTool>
       <CScroll>
         {rows.map((r) => (
           <CRow key={r.t} sel={r.sel}>
             <div className="min-w-0 flex-1">
-              <div className="font-mono text-[11px]" style={{ color: r.sel ? "var(--studio-ink)" : "var(--studio-ink-muted)" }}>{r.t}</div>
-              <div className="truncate font-mono text-[9px] text-studio-ink-faint">{r.s}</div>
+              <div className="font-mono text-sm" style={{ color: r.sel ? "var(--studio-ink)" : "var(--studio-ink-muted)" }}>{r.t}</div>
+              <div className="truncate font-mono text-2xs text-studio-ink-faint">{r.s}</div>
             </div>
-            <span className="flex-none font-mono text-[8.5px] text-studio-ink-faint">{r.m}</span>
+            <span className="flex-none font-mono text-3xs text-studio-ink-faint">{r.m}</span>
           </CRow>
         ))}
       </CScroll>
@@ -923,17 +923,17 @@ function SearchCenter() {
 function MissionCenter() {
   return (
     <div className="flex h-full flex-col">
-      <CTool><span className="font-mono text-[10px] text-studio-ink-faint">mission control</span><div className="ml-auto"><CPill>24h</CPill></div></CTool>
+      <CTool><span className="font-mono text-xs text-studio-ink-faint">mission control</span><div className="ml-auto"><CPill>24h</CPill></div></CTool>
       <CScroll>
         <CGroupLabel name="Needs attention" meta="0" />
-        <div className="px-2 py-1.5 font-mono text-[10px] text-studio-ink-faint">No operator cues. The fleet is quiet.</div>
+        <div className="px-2 py-1.5 font-mono text-xs text-studio-ink-faint">No operator cues. The fleet is quiet.</div>
         <CGroupLabel name="Active runs" meta="3" />
         {[{ n: "repo-watch-converge-map", w: "5 workers" }, { n: "web-taxonomy", w: "8 workers" }, { n: "talkie-bridge-security-audit", w: "78 workers" }].map((r) => (
-          <CRow key={r.n}><Dotc on /><Tag>workflow</Tag><span className="font-mono text-[11px] text-studio-ink-muted">{r.n}</span><span className="ml-auto font-mono text-[9px] text-studio-ink-faint">{r.w}</span></CRow>
+          <CRow key={r.n}><Dotc on /><Tag>workflow</Tag><span className="font-mono text-sm text-studio-ink-muted">{r.n}</span><span className="ml-auto font-mono text-2xs text-studio-ink-faint">{r.w}</span></CRow>
         ))}
         <CGroupLabel name="Agent pulse" meta="25" />
         {["Action", "Hudson", "Grok Hudson", "Dewey"].map((n) => (
-          <CRow key={n}><Dotc on /><span className="font-mono text-[11px] text-studio-ink-muted">{n}</span><span className="ml-auto font-mono text-[9px] text-studio-ink-faint">available · 1d</span></CRow>
+          <CRow key={n}><Dotc on /><span className="font-mono text-sm text-studio-ink-muted">{n}</span><span className="ml-auto font-mono text-2xs text-studio-ink-faint">available · 1d</span></CRow>
         ))}
       </CScroll>
     </div>
@@ -951,16 +951,16 @@ function PlanCenter() {
   ];
   return (
     <div className="flex h-full flex-col">
-      <CTool><span className="font-mono text-[10px] text-studio-ink-faint">docs/plan.md</span></CTool>
+      <CTool><span className="font-mono text-xs text-studio-ink-faint">docs/plan.md</span></CTool>
       <div className="min-h-0 flex-1 overflow-hidden px-6 py-5">
-        <div className="font-mono text-[16px] text-studio-ink">Inspector sidebar</div>
-        <p className="mt-3 max-w-prose font-mono text-[10.5px] leading-relaxed text-studio-ink-faint">The right-side inspector, in the Instrument language. Anchored on the real surfaces, structure lifted from the live CONTEXT panel, one accent.</p>
-        <div className="mt-5 font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">Checklist</div>
+        <div className="font-mono text-2xl text-studio-ink">Inspector sidebar</div>
+        <p className="mt-3 max-w-prose font-mono text-xs leading-relaxed text-studio-ink-faint">The right-side inspector, in the Instrument language. Anchored on the real surfaces, structure lifted from the live CONTEXT panel, one accent.</p>
+        <div className="mt-5 font-mono text-2xs font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">Checklist</div>
         <div className="mt-2 flex flex-col gap-1.5">
           {steps.map((s, i) => (
             <div key={i} className="flex items-center gap-2.5">
-              <span className="w-3 text-center font-mono text-[11px]" style={{ color: s.active ? ACCENT : "var(--studio-ink-faint)" }}>{s.m}</span>
-              <span className="font-mono text-[11px]" style={{ color: s.done ? "var(--studio-ink-faint)" : "var(--studio-ink-muted)" }}>{s.t}</span>
+              <span className="w-3 text-center font-mono text-sm" style={{ color: s.active ? ACCENT : "var(--studio-ink-faint)" }}>{s.m}</span>
+              <span className="font-mono text-sm" style={{ color: s.done ? "var(--studio-ink-faint)" : "var(--studio-ink-muted)" }}>{s.t}</span>
             </div>
           ))}
         </div>
@@ -981,13 +981,13 @@ function TailCenter() {
   ];
   return (
     <div className="flex h-full flex-col">
-      <CTool><Dotc on /><span className="font-mono text-[10px] uppercase tracking-[0.1em] text-studio-ink-muted">live</span><span className="font-mono text-[9px] text-studio-ink-faint">40 · 19 · 0.0 t/s</span><div className="ml-auto"><CPill>pause</CPill></div></CTool>
+      <CTool><Dotc on /><span className="font-mono text-xs uppercase tracking-[0.1em] text-studio-ink-muted">live</span><span className="font-mono text-2xs text-studio-ink-faint">40 · 19 · 0.0 t/s</span><div className="ml-auto"><CPill>pause</CPill></div></CTool>
       <CScroll>
         {rows.map((r, i) => (
           <CRow key={i} sel={r.sel}>
-            <span className="font-mono text-[9px] tabular-nums text-studio-ink-faint">{r.t}</span>
+            <span className="font-mono text-2xs tabular-nums text-studio-ink-faint">{r.t}</span>
             <Tag>{r.k}</Tag>
-            <span className="truncate font-mono text-[10px]" style={{ color: r.sel ? "var(--studio-ink)" : "var(--studio-ink-muted)" }}>{r.m}</span>
+            <span className="truncate font-mono text-xs" style={{ color: r.sel ? "var(--studio-ink)" : "var(--studio-ink-muted)" }}>{r.m}</span>
           </CRow>
         ))}
       </CScroll>
@@ -1006,14 +1006,14 @@ function DispatchCenter() {
   ];
   return (
     <div className="flex h-full flex-col">
-      <CTool><span className="font-mono text-[10px] text-studio-ink-faint">dispatch ledger</span><span className="font-mono text-[9px] text-studio-ink-faint">142 routes</span></CTool>
+      <CTool><span className="font-mono text-xs text-studio-ink-faint">dispatch ledger</span><span className="font-mono text-2xs text-studio-ink-faint">142 routes</span></CTool>
       <CScroll>
         {rows.map((r, i) => (
           <CRow key={i}>
             <span className="h-[7px] w-[7px] flex-none rounded-full" style={{ background: r.on ? ACCENT : DEL }} />
             <Tag>{r.k}</Tag>
-            <span className="font-mono text-[10.5px] text-studio-ink-muted">{r.d}</span>
-            <span className="ml-auto font-mono text-[9px] tabular-nums text-studio-ink-faint">{r.u}</span>
+            <span className="font-mono text-xs text-studio-ink-muted">{r.d}</span>
+            <span className="ml-auto font-mono text-2xs tabular-nums text-studio-ink-faint">{r.u}</span>
           </CRow>
         ))}
       </CScroll>
@@ -1031,14 +1031,14 @@ function MeshCenter() {
   ];
   return (
     <div className="flex h-full flex-col">
-      <CTool><span className="font-mono text-[10px] text-studio-ink-faint">mesh · openscout</span><div className="ml-auto"><CPill active>discoverable</CPill></div></CTool>
+      <CTool><span className="font-mono text-xs text-studio-ink-faint">mesh · openscout</span><div className="ml-auto"><CPill active>discoverable</CPill></div></CTool>
       <CScroll>
         {rows.map((r) => (
           <CRow key={r.n} sel={r.sel}>
             <Dotc on={r.on} />
-            <span className="font-mono text-[11px]" style={{ color: r.sel ? "var(--studio-ink)" : "var(--studio-ink-muted)" }}>{r.n}</span>
-            <span className="ml-auto font-mono text-[9px] text-studio-ink-faint">{r.h}</span>
-            <span className="w-8 text-right font-mono text-[9px] tabular-nums text-studio-ink-faint">{r.u}</span>
+            <span className="font-mono text-sm" style={{ color: r.sel ? "var(--studio-ink)" : "var(--studio-ink-muted)" }}>{r.n}</span>
+            <span className="ml-auto font-mono text-2xs text-studio-ink-faint">{r.h}</span>
+            <span className="w-8 text-right font-mono text-2xs tabular-nums text-studio-ink-faint">{r.u}</span>
           </CRow>
         ))}
       </CScroll>
@@ -1055,16 +1055,16 @@ function ReposCenter() {
   ];
   return (
     <div className="flex h-full flex-col">
-      <CTool><Dotc on /><span className="font-mono text-[10px] uppercase tracking-[0.1em] text-studio-ink-muted">live</span><span className="font-mono text-[9px] text-studio-ink-faint">10 repos · 3 attn</span><div className="ml-auto flex gap-1.5"><CPill active>table</CPill><CPill>drift</CPill></div></CTool>
+      <CTool><Dotc on /><span className="font-mono text-xs uppercase tracking-[0.1em] text-studio-ink-muted">live</span><span className="font-mono text-2xs text-studio-ink-faint">10 repos · 3 attn</span><div className="ml-auto flex gap-1.5"><CPill active>table</CPill><CPill>drift</CPill></div></CTool>
       <CScroll>
         {repos.map((r) => (
           <div key={r.n}>
             <CGroupLabel name={r.n} path={r.path} meta={r.sel ? "dirty" : "idle"} />
             {r.wts.map((w) => (
               <CRow key={w.b} sel={r.sel}>
-                <span className="font-mono text-[10.5px] text-studio-ink-muted">{w.b}</span>
-                <span className="ml-auto font-mono text-[9.5px] tabular-nums"><span style={{ color: ADD }}>+{w.a}</span> <span style={{ color: DEL }}>−{w.d}</span></span>
-                <span className="w-20 text-right font-mono text-[8.5px] text-studio-ink-faint">{w.ag}</span>
+                <span className="font-mono text-xs text-studio-ink-muted">{w.b}</span>
+                <span className="ml-auto font-mono text-2xs tabular-nums"><span style={{ color: ADD }}>+{w.a}</span> <span style={{ color: DEL }}>−{w.d}</span></span>
+                <span className="w-20 text-right font-mono text-3xs text-studio-ink-faint">{w.ag}</span>
               </CRow>
             ))}
           </div>
@@ -1078,7 +1078,7 @@ function ReposCenter() {
 function WorkCenter() {
   return (
     <div className="flex h-full flex-col">
-      <CTool><Dotc on /><span className="font-mono text-[10px] text-studio-ink-muted">Refactor AgentRow</span><span className="font-mono text-[9px] text-studio-ink-faint">build · Hudson</span></CTool>
+      <CTool><Dotc on /><span className="font-mono text-xs text-studio-ink-muted">Refactor AgentRow</span><span className="font-mono text-2xs text-studio-ink-faint">build · Hudson</span></CTool>
       <div className="min-h-0 flex-1 overflow-hidden px-2.5 py-1">
         <Turn who="Hudson" harness="flight started" text="Reviewing 8 commits for type safety across the three call sites." />
         <Turn who="Hudson" harness="message" text="Pulled AgentRow into a shared atom — three call sites updated." />
@@ -1091,13 +1091,13 @@ function WorkCenter() {
 function HomeCenter() {
   return (
     <div className="flex h-full flex-col">
-      <CTool><span className="font-mono text-[10px] text-studio-ink-faint">home · inbox</span></CTool>
+      <CTool><span className="font-mono text-xs text-studio-ink-faint">home · inbox</span></CTool>
       <div className="min-h-0 flex-1 overflow-hidden px-5 py-4">
-        <div className="font-mono text-[13px] text-studio-ink">Morning fleet status</div>
-        <p className="mt-2 max-w-prose font-mono text-[10.5px] leading-relaxed text-studio-ink-faint">25 agents active across 15 projects. 0 working, 25 ready. 3 workflows in flight; no operator cues.</p>
+        <div className="font-mono text-lg text-studio-ink">Morning fleet status</div>
+        <p className="mt-2 max-w-prose font-mono text-xs leading-relaxed text-studio-ink-faint">25 agents active across 15 projects. 0 working, 25 ready. 3 workflows in flight; no operator cues.</p>
         <div className="mt-5"><CGroupLabel name="Ready" meta="5" /></div>
         {["Action", "Hudson", "Dewey", "Iris", "Lattices"].map((n) => (
-          <CRow key={n}><Dotc on /><span className="font-mono text-[11px] text-studio-ink-muted">{n}</span><span className="ml-auto font-mono text-[9px] text-studio-ink-faint">1d</span></CRow>
+          <CRow key={n}><Dotc on /><span className="font-mono text-sm text-studio-ink-muted">{n}</span><span className="ml-auto font-mono text-2xs text-studio-ink-faint">1d</span></CRow>
         ))}
       </div>
     </div>
@@ -1172,13 +1172,13 @@ function NavPanel({ selected, onSelect }: { selected: string; onSelect: (id: str
   return (
     <div className="flex w-[176px] flex-none flex-col overflow-y-auto" style={{ background: INK.rail, borderRight: `1px solid ${INK.edgeSoft}` }}>
       <div className="flex h-[34px] flex-none items-center gap-2 px-3" style={{ borderBottom: `1px solid ${INK.edgeSoft}` }}>
-        <div className="grid h-[18px] w-[18px] place-items-center rounded-[4px] font-mono text-[9px] font-semibold" style={{ background: ACCENT, color: INK.canvas }}>S</div>
-        <span className="font-mono text-[10px] tracking-[0.1em] text-studio-ink-faint">scout</span>
+        <div className="grid h-[18px] w-[18px] place-items-center rounded-[4px] font-mono text-2xs font-semibold" style={{ background: ACCENT, color: INK.canvas }}>S</div>
+        <span className="font-mono text-xs tracking-[0.1em] text-studio-ink-faint">scout</span>
       </div>
       <div className="flex flex-col gap-3 p-2">
         {GROUPS.map((g) => (
           <div key={g.group}>
-            <div className="mb-1 px-1.5 font-mono text-[7.5px] font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">{g.group}</div>
+            <div className="mb-1 px-1.5 font-mono text-3xs font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">{g.group}</div>
             <div className="flex flex-col gap-[1px]">
               {g.items.map((it) => {
                 const sel = it.id === selected;
@@ -1187,7 +1187,7 @@ function NavPanel({ selected, onSelect }: { selected: string; onSelect: (id: str
                     key={it.id}
                     type="button"
                     onClick={() => onSelect(it.id)}
-                    className={`flex cursor-pointer items-center rounded-[4px] px-1.5 py-[5px] text-left font-mono text-[11px] transition-colors ${sel ? "" : HOVER}`}
+                    className={`flex cursor-pointer items-center rounded-[4px] px-1.5 py-[5px] text-left font-mono text-sm transition-colors ${sel ? "" : HOVER}`}
                     style={{ background: sel ? INK.module : undefined, color: sel ? "var(--studio-ink)" : "var(--studio-ink-faint)" }}
                   >
                     {it.label}
@@ -1210,7 +1210,7 @@ function InContext() {
       <div className="overflow-hidden rounded-[10px]" style={{ background: INK.canvas, border: `1px solid ${INK.edge}`, boxShadow: "0 30px 70px -34px rgba(0,0,0,0.85)" }}>
         <div className="flex h-[30px] items-center px-3" style={{ borderBottom: `1px solid ${INK.edgeSoft}`, background: INK.rail }}>
           <Lights />
-          <div className="flex-1 text-center font-mono text-[10px] tracking-[0.12em] text-studio-ink-faint">scout · {surface.label.toLowerCase()}</div>
+          <div className="flex-1 text-center font-mono text-xs tracking-[0.12em] text-studio-ink-faint">scout · {surface.label.toLowerCase()}</div>
           <div className="w-[44px]" />
         </div>
 
@@ -1224,14 +1224,14 @@ function InContext() {
 
         <div className="flex h-[22px] items-center gap-2 px-3" style={{ borderTop: `1px solid ${INK.edgeSoft}`, background: INK.rail }}>
           <span className="h-1.5 w-1.5 rounded-full" style={{ background: INK.edge }} />
-          <span className="font-mono text-[8.5px] tracking-[0.14em] text-studio-ink-faint">broker up · 25 agents · dev main</span>
+          <span className="font-mono text-3xs tracking-[0.14em] text-studio-ink-faint">broker up · 25 agents · dev main</span>
         </div>
       </div>
 
       <div className="mt-3.5 flex items-baseline gap-2.5">
-        <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-studio-ink-muted">{surface.label}</span>
+        <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-studio-ink-muted">{surface.label}</span>
         <span className="h-3 w-px" style={{ background: INK.edge }} />
-        <p className="font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">{surface.decision}</p>
+        <p className="font-sans text-md leading-relaxed text-studio-ink-faint">{surface.decision}</p>
       </div>
     </div>
   );
@@ -1245,9 +1245,9 @@ export default function ScoutInspectorsPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-10">
       <header className="mb-10 max-w-2xl">
-        <div className="mb-2 font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">· studies · macos · shell · instrument</div>
-        <h1 className="font-display text-[34px] font-medium leading-[1.05] tracking-tight text-studio-ink">The inspector, in context</h1>
-        <p className="mt-4 font-sans text-[14px] leading-relaxed text-studio-ink-faint">
+        <div className="mb-2 font-mono text-sm font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">· studies · macos · shell · instrument</div>
+        <h1 className="font-display text-6xl font-medium leading-[1.05] tracking-tight text-studio-ink">The inspector, in context</h1>
+        <p className="mt-4 font-sans text-xl leading-relaxed text-studio-ink-faint">
           Every right-side inspector the app ships today, rendered as the actual
           right rail inside the window shell, beside its real main view. Pick a
           surface in the left nav; the center and the rail both re-render for
@@ -1259,10 +1259,10 @@ export default function ScoutInspectorsPage() {
       <InContext />
 
       <div className="mt-12 rounded-[8px] border border-studio-edge bg-studio-canvas-alt px-5 py-4">
-        <p className="font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
-          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-studio-ink-muted">{ALL.length} content-types · one grammar</span>
+        <p className="font-sans text-md leading-relaxed text-studio-ink-faint">
+          <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-studio-ink-muted">{ALL.length} content-types · one grammar</span>
           <br />
-          <span className="mt-1 block">Home · Agents · Chat · Search · Ops · Repos · Work — every surface in the live app that owns a right rail. Identity → a specialised lead → flat structured sections → footer; only the lead and treatments change to fit the entity. Inventoried from <code className="font-mono text-[12px] text-studio-ink-muted">scout/inspector/*</code>; data from the current fleet.</span>
+          <span className="mt-1 block">Home · Agents · Chat · Search · Ops · Repos · Work — every surface in the live app that owns a right rail. Identity → a specialised lead → flat structured sections → footer; only the lead and treatments change to fit the entity. Inventoried from <code className="font-mono text-md text-studio-ink-muted">scout/inspector/*</code>; data from the current fleet.</span>
         </p>
       </div>
     </main>

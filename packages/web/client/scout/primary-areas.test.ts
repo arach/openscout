@@ -42,10 +42,10 @@ describe("primary areas (SCO-083 IA model)", () => {
     expect(systemPrimaryAreas().map((a) => a.id)).toEqual(["ops", "settings"]);
   });
 
-  test("ROUTE_AREA_BY_VIEW has exactly 22 keys and 8 non-empty buckets", () => {
+  test("ROUTE_AREA_BY_VIEW has exactly 21 keys and 8 non-empty buckets", () => {
     const views = allRouteViews();
-    expect(views).toHaveLength(22);
-    expect(new Set(views).size).toBe(22);
+    expect(views).toHaveLength(21);
+    expect(new Set(views).size).toBe(21);
 
     const buckets = routeViewsByArea();
     const areaIds = Object.keys(buckets) as PrimaryAreaId[];
@@ -60,7 +60,8 @@ describe("primary areas (SCO-083 IA model)", () => {
       ["agent-info", "agents-v2", "code", "repo-diff", "repos"].sort(),
     );
     expect(buckets.sessions.sort()).toEqual(["sessions", "terminal"].sort());
-    expect(buckets.chat.sort()).toEqual(["channels", "conversation", "messages"].sort());
+    // Route unification: channels are conversations, not their own view.
+    expect(buckets.chat.sort()).toEqual(["conversation", "messages"].sort());
     expect(buckets.dispatch.sort()).toEqual(["broker", "follow", "work"].sort());
     expect(buckets.search).toEqual(["search"]);
     expect(buckets.ops.sort()).toEqual(["harnesses", "mesh", "ops"].sort());

@@ -67,7 +67,7 @@ export function HudGroundControl({
     >
       {/* Header row — eyebrow + broker pulse. */}
       <div className="flex items-center justify-between border-b border-studio-edge px-3 py-1.5">
-        <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           Ground Control
         </span>
         <BrokerPulse ok={brokerOk} />
@@ -85,7 +85,7 @@ export function HudGroundControl({
       {/* Footer row — unread + tiny grid. */}
       {typeof unread === "number" ? (
         <div className="flex items-center justify-between border-t border-studio-edge px-3 py-1.5">
-          <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
             Inbox
           </span>
           <UnreadChip count={unread} />
@@ -106,7 +106,7 @@ function AgentBeacon({ agent }: { agent: GroundAgent }) {
       <div className="relative grid h-4 w-4 place-items-center">
         <BeaconBody fill={fill} state={agent.state} />
       </div>
-      <span className="font-mono text-[8.5px] uppercase text-studio-ink-faint">
+      <span className="font-mono text-3xs uppercase text-studio-ink-faint">
         {initial}
       </span>
     </div>
@@ -200,7 +200,7 @@ function BeaconBody({ fill, state }: { fill: string; state: AgentState }) {
 function BrokerPulse({ ok }: { ok: boolean }) {
   return (
     <span className="flex items-center gap-1.5">
-      <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         broker
       </span>
       <svg
@@ -235,7 +235,7 @@ function BrokerPulse({ ok }: { ok: boolean }) {
 function UnreadChip({ count }: { count: number }) {
   if (count <= 0) {
     return (
-      <span className="font-mono text-[9.5px] text-studio-ink-faint">
+      <span className="font-mono text-2xs text-studio-ink-faint">
         — clear
       </span>
     );
@@ -243,7 +243,7 @@ function UnreadChip({ count }: { count: number }) {
 
   return (
     <span
-      className="inline-flex items-center gap-1 rounded-[3px] px-1.5 py-px font-mono text-[9.5px] font-semibold"
+      className="inline-flex items-center gap-1 rounded-[3px] px-1.5 py-px font-mono text-2xs font-semibold"
       style={{
         color: "var(--status-error-fg)",
         background: "var(--status-error-bg)",

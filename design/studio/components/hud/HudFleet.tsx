@@ -158,8 +158,8 @@ function FleetRow({
           <span
             className={
               compact
-                ? "font-sans text-[13px] font-medium leading-none text-studio-ink"
-                : "font-sans text-[14px] font-semibold leading-none tracking-tight text-studio-ink"
+                ? "font-sans text-lg font-medium leading-none text-studio-ink"
+                : "font-sans text-xl font-semibold leading-none tracking-tight text-studio-ink"
             }
           >
             {agent.name}
@@ -167,21 +167,21 @@ function FleetRow({
           <span
             className={
               compact
-                ? "font-mono text-[9.5px] text-studio-ink-faint"
-                : "font-mono text-[10.5px] text-studio-ink-faint"
+                ? "font-mono text-2xs text-studio-ink-faint"
+                : "font-mono text-xs text-studio-ink-faint"
             }
           >
             {agent.handle}
           </span>
           <span
-            className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow"
+            className="font-mono text-2xs font-semibold uppercase tracking-eyebrow"
             style={{ color: stateColor(agent) }}
           >
             {agent.stateLabel}
           </span>
           <span className="ml-auto flex items-baseline gap-3">
             <HudActivityPulse values={agent.pulse} size={size} dim={agent.dim} />
-            <span className="font-mono text-[10px] font-medium tabular-nums text-studio-ink-faint">
+            <span className="font-mono text-xs font-medium tabular-nums text-studio-ink-faint">
               {agent.ago}
             </span>
             <HudScoutLink
@@ -197,12 +197,12 @@ function FleetRow({
         <div
           className={
             compact
-              ? "mt-1.5 font-sans text-[12px] leading-snug text-studio-ink"
-              : "mt-2 font-sans text-[13px] leading-snug text-studio-ink"
+              ? "mt-1.5 font-sans text-md leading-snug text-studio-ink"
+              : "mt-2 font-sans text-lg leading-snug text-studio-ink"
           }
           style={{ paddingLeft: compact ? 14 : 16 }}
         >
-          <span className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
             work
           </span>{" "}
           <span>{agent.work}</span>
@@ -213,24 +213,24 @@ function FleetRow({
           <div
             className={
               compact
-                ? "mt-1 flex items-baseline gap-1.5 font-sans text-[11px] leading-snug text-studio-ink-muted"
-                : "mt-1.5 flex items-baseline gap-1.5 font-sans text-[11.5px] leading-snug text-studio-ink-muted"
+                ? "mt-1 flex items-baseline gap-1.5 font-sans text-sm leading-snug text-studio-ink-muted"
+                : "mt-1.5 flex items-baseline gap-1.5 font-sans text-sm leading-snug text-studio-ink-muted"
             }
             style={{ paddingLeft: compact ? 14 : 16 }}
           >
-            <span className="font-mono text-[10px] text-studio-ink-faint">
+            <span className="font-mono text-xs text-studio-ink-faint">
               ↪
             </span>
             <span className="min-w-0 flex-1 truncate">{agent.lastAction}</span>
             {agent.lastActionAgo ? (
-              <span className="shrink-0 font-mono text-[9.5px] tabular-nums text-studio-ink-faint">
+              <span className="shrink-0 font-mono text-2xs tabular-nums text-studio-ink-faint">
                 · {agent.lastActionAgo}
               </span>
             ) : null}
           </div>
         ) : (
           <div
-            className="mt-1 font-mono text-[10px] text-studio-ink-faint"
+            className="mt-1 font-mono text-xs text-studio-ink-faint"
             style={{ paddingLeft: compact ? 14 : 16 }}
           >
             —
@@ -285,20 +285,20 @@ function FleetTileMedium({
               withHalo={agent.isWorking}
             />
           </span>
-          <span className="font-sans text-[13.5px] font-semibold leading-none tracking-tight text-studio-ink">
+          <span className="font-sans text-lg font-semibold leading-none tracking-tight text-studio-ink">
             {agent.name}
           </span>
-          <span className="font-mono text-[10px] text-studio-ink-faint">
+          <span className="font-mono text-xs text-studio-ink-faint">
             {agent.handle}
           </span>
           <span
-            className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow"
+            className="font-mono text-2xs font-semibold uppercase tracking-eyebrow"
             style={{ color: stateColor(agent) }}
           >
             {agent.stateLabel}
           </span>
           <span className="ml-auto inline-flex items-baseline gap-2">
-            <span className="font-mono text-[10px] font-medium tabular-nums text-studio-ink-faint">
+            <span className="font-mono text-xs font-medium tabular-nums text-studio-ink-faint">
               {agent.ago}
             </span>
             <HudScoutLink kind="agent" id={agent.id} size="medium" />
@@ -310,7 +310,7 @@ function FleetTileMedium({
           className="mt-2 flex items-center gap-2"
           style={{ paddingLeft: 14 }}
         >
-          <span className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
             pulse
           </span>
           <HudActivityPulse values={agent.pulse} size="medium" dim={agent.dim} />
@@ -318,10 +318,10 @@ function FleetTileMedium({
 
         {/* Work */}
         <div
-          className="mt-2 font-sans text-[12px] leading-snug text-studio-ink"
+          className="mt-2 font-sans text-md leading-snug text-studio-ink"
           style={{ paddingLeft: 14 }}
         >
-          <span className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
             work
           </span>{" "}
           <span>{agent.work}</span>
@@ -330,20 +330,20 @@ function FleetTileMedium({
         {/* Last action */}
         {agent.lastAction ? (
           <div
-            className="mt-1.5 flex items-baseline gap-1.5 font-sans text-[11px] leading-snug text-studio-ink-muted"
+            className="mt-1.5 flex items-baseline gap-1.5 font-sans text-sm leading-snug text-studio-ink-muted"
             style={{ paddingLeft: 14 }}
           >
-            <span className="font-mono text-[10px] text-studio-ink-faint">↪</span>
+            <span className="font-mono text-xs text-studio-ink-faint">↪</span>
             <span className="min-w-0 flex-1">{agent.lastAction}</span>
             {agent.lastActionAgo ? (
-              <span className="shrink-0 font-mono text-[9.5px] tabular-nums text-studio-ink-faint">
+              <span className="shrink-0 font-mono text-2xs tabular-nums text-studio-ink-faint">
                 · {agent.lastActionAgo}
               </span>
             ) : null}
           </div>
         ) : (
           <div
-            className="mt-1.5 font-mono text-[10px] text-studio-ink-faint"
+            className="mt-1.5 font-mono text-xs text-studio-ink-faint"
             style={{ paddingLeft: 14 }}
           >
             —
@@ -364,25 +364,25 @@ function FleetDetail({ agent, size }: { agent: FleetAgent; size: HudSize }) {
     <div
       className={`border-t border-studio-edge bg-studio-canvas-alt ${padX} py-2.5`}
     >
-      <div className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · last turn
       </div>
-      <div className="mt-1 font-sans text-[12px] leading-snug text-studio-ink">
+      <div className="mt-1 font-sans text-md leading-snug text-studio-ink">
         {agent.lastAction ?? agent.work}
       </div>
 
       {agent.recentActions && agent.recentActions.length > 0 ? (
         <>
-          <div className="mt-2.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="mt-2.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             · recent actions
           </div>
           <ul className="mt-1 flex flex-col gap-[2px]">
             {agent.recentActions.slice(0, 3).map((line, i) => (
               <li
                 key={i}
-                className="flex items-baseline gap-1.5 font-sans text-[11.5px] leading-snug text-studio-ink-muted"
+                className="flex items-baseline gap-1.5 font-sans text-sm leading-snug text-studio-ink-muted"
               >
-                <span className="font-mono text-[9px] text-studio-ink-faint">
+                <span className="font-mono text-2xs text-studio-ink-faint">
                   ↪
                 </span>
                 <span className="min-w-0 flex-1">{line}</span>
@@ -394,13 +394,13 @@ function FleetDetail({ agent, size }: { agent: FleetAgent; size: HudSize }) {
 
       {agent.capabilities && agent.capabilities.length > 0 ? (
         <div className="mt-2.5 flex flex-wrap items-baseline gap-1.5">
-          <span className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             · caps
           </span>
           {agent.capabilities.map((cap) => (
             <span
               key={cap}
-              className="rounded-[2px] border border-studio-edge bg-studio-canvas px-1 py-px font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-muted"
+              className="rounded-[2px] border border-studio-edge bg-studio-canvas px-1 py-px font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-muted"
             >
               {cap}
             </span>
@@ -491,27 +491,27 @@ function FleetColumnARow({
               withHalo={agent.isWorking}
             />
           </span>
-          <span className="font-sans text-[12.5px] font-semibold leading-none tracking-tight text-studio-ink">
+          <span className="font-sans text-md font-semibold leading-none tracking-tight text-studio-ink">
             {agent.name}
           </span>
-          <span className="font-mono text-[9.5px] text-studio-ink-faint">
+          <span className="font-mono text-2xs text-studio-ink-faint">
             {agent.handle}
           </span>
           <span
-            className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow"
+            className="font-mono text-3xs font-semibold uppercase tracking-eyebrow"
             style={{ color: stateColor(agent) }}
           >
             {agent.stateLabel}
           </span>
           <span className="ml-auto inline-flex shrink-0 items-baseline gap-2">
             <HudActivityPulse values={agent.pulse} size="compact" dim={agent.dim} />
-            <span className="font-mono text-[9.5px] tabular-nums text-studio-ink-faint">
+            <span className="font-mono text-2xs tabular-nums text-studio-ink-faint">
               {agent.ago}
             </span>
           </span>
         </div>
         <div
-          className="mt-1.5 font-sans text-[11.5px] leading-snug text-studio-ink-muted"
+          className="mt-1.5 font-sans text-sm leading-snug text-studio-ink-muted"
           style={{ paddingLeft: 14 }}
         >
           {agent.work}
@@ -541,14 +541,14 @@ function FleetColumnB({ agent }: { agent: FleetAgent }) {
             withHalo={agent.isWorking}
           />
         </span>
-        <span className="font-sans text-[13px] font-semibold leading-none tracking-tight text-studio-ink">
+        <span className="font-sans text-lg font-semibold leading-none tracking-tight text-studio-ink">
           {agent.name}
         </span>
-        <span className="font-mono text-[10px] text-studio-ink-faint">
+        <span className="font-mono text-xs text-studio-ink-faint">
           {agent.handle}
         </span>
         <span
-          className="ml-auto font-mono text-[9px] font-semibold uppercase tracking-eyebrow"
+          className="ml-auto font-mono text-2xs font-semibold uppercase tracking-eyebrow"
           style={{ color: stateColor(agent) }}
         >
           {agent.stateLabel}
@@ -557,10 +557,10 @@ function FleetColumnB({ agent }: { agent: FleetAgent }) {
 
       {/* Work item — full sentence, sans 13 */}
       <section>
-        <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · work
         </div>
-        <p className="mt-1 font-sans text-[13px] leading-snug text-studio-ink">
+        <p className="mt-1 font-sans text-lg leading-snug text-studio-ink">
           {agent.work}
         </p>
       </section>
@@ -568,19 +568,19 @@ function FleetColumnB({ agent }: { agent: FleetAgent }) {
       {/* Recent actions — last 3 with relative time, sans 12 ink-muted */}
       {recent.length > 0 ? (
         <section>
-          <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             · recent
           </div>
           <ul className="mt-1 flex flex-col gap-[3px]">
             {recent.map((line, i) => (
               <li
                 key={i}
-                className="flex items-baseline gap-1.5 font-sans text-[12px] leading-snug text-studio-ink-muted"
+                className="flex items-baseline gap-1.5 font-sans text-md leading-snug text-studio-ink-muted"
               >
-                <span className="font-mono text-[10px] text-studio-ink-faint">↪</span>
+                <span className="font-mono text-xs text-studio-ink-faint">↪</span>
                 <span className="min-w-0 flex-1">{line}</span>
                 {recentAgos[i] ? (
-                  <span className="shrink-0 font-mono text-[9.5px] tabular-nums text-studio-ink-faint">
+                  <span className="shrink-0 font-mono text-2xs tabular-nums text-studio-ink-faint">
                     · {recentAgos[i]}
                   </span>
                 ) : null}
@@ -618,14 +618,14 @@ function StatKV({
 }) {
   return (
     <>
-      <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         {label}
       </span>
       <span
         className={
           mono
-            ? "truncate font-mono text-[11px] text-studio-ink"
-            : "truncate font-sans text-[12px] text-studio-ink"
+            ? "truncate font-mono text-sm text-studio-ink"
+            : "truncate font-sans text-md text-studio-ink"
         }
       >
         {value}
@@ -646,13 +646,13 @@ function FleetDrillRow({
       type="button"
       className="flex items-center gap-2 rounded-[2px] px-1.5 py-1 text-left transition-colors hover:bg-studio-canvas-alt"
     >
-      <span aria-hidden className="font-mono text-[11px] text-studio-ink-faint">
+      <span aria-hidden className="font-mono text-sm text-studio-ink-faint">
         →
       </span>
-      <span className="flex-1 font-mono text-[10.5px] uppercase tracking-eyebrow text-studio-ink-muted">
+      <span className="flex-1 font-mono text-xs uppercase tracking-eyebrow text-studio-ink-muted">
         {label}
       </span>
-      <span className="rounded-[2px] border border-studio-edge bg-studio-canvas px-1 py-px font-mono text-[9.5px] tabular-nums text-studio-ink-faint">
+      <span className="rounded-[2px] border border-studio-edge bg-studio-canvas px-1 py-px font-mono text-2xs tabular-nums text-studio-ink-faint">
         ({count})
       </span>
     </button>
@@ -670,17 +670,17 @@ function FleetColumnC({ agent }: { agent: FleetAgent }) {
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-y-auto px-3.5 py-3">
-      <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · LAST TURN · {agent.handle}
       </div>
-      <p className="mt-2 font-sans text-[12px] leading-relaxed text-studio-ink">
+      <p className="mt-2 font-sans text-md leading-relaxed text-studio-ink">
         {body}
       </p>
       <div className="mt-auto flex items-center gap-2 pt-3">
-        <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · TURN BUFFER ·
         </span>
-        <span className="font-mono text-[10px] tabular-nums text-studio-ink-muted">
+        <span className="font-mono text-xs tabular-nums text-studio-ink-muted">
           {pos}/{total}
         </span>
         <span className="ml-auto inline-flex items-center gap-1">

@@ -187,13 +187,13 @@ export default function HUDComposeSendStudy() {
 function Header() {
   return (
     <div className="mb-8 border-b border-studio-edge pb-5">
-      <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · openscout · macos · hud
       </div>
-      <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+      <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
         Compose · Send
       </h1>
-      <p className="mt-3 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+      <p className="mt-3 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
         The HUD bottom bar treats <em className="not-italic text-studio-ink">send</em>{" "}
         as a local act, not a network confirmation. On return, the field
         clears, the echo lands in the thread, and the SEND chip dims while
@@ -225,7 +225,7 @@ function FrameCard({ frame, index }: { frame: Frame; index: number }) {
     <div className="flex flex-col gap-3">
       <div className="flex items-baseline gap-2">
         <span
-          className="inline-grid h-4 w-4 place-items-center rounded-sm border font-mono text-[9px] font-semibold"
+          className="inline-grid h-4 w-4 place-items-center rounded-sm border font-mono text-2xs font-semibold"
           style={{
             color: "var(--studio-ink-faint)",
             borderColor: "var(--studio-edge)",
@@ -233,10 +233,10 @@ function FrameCard({ frame, index }: { frame: Frame; index: number }) {
         >
           {index}
         </span>
-        <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.20em] text-studio-ink">
+        <span className="font-mono text-xs font-semibold uppercase tracking-[0.20em] text-studio-ink">
           {frame.time}
         </span>
-        <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           {frame.caption}
         </span>
       </div>
@@ -290,7 +290,7 @@ function Msg({ msg }: { msg: ChatMsg }) {
     >
       <div className="flex items-baseline gap-1.5">
         <span
-          className="font-mono text-[9px] font-semibold uppercase tracking-[0.18em]"
+          className="font-mono text-2xs font-semibold uppercase tracking-[0.18em]"
           style={{
             color: isOp ? "var(--hud-ink)" : "var(--hud-accent)",
           }}
@@ -298,7 +298,7 @@ function Msg({ msg }: { msg: ChatMsg }) {
           {isOp ? "operator" : "@scoutbot"}
         </span>
         <span
-          className="font-mono text-[9px] uppercase tracking-eyebrow"
+          className="font-mono text-2xs uppercase tracking-eyebrow"
           style={{ color: "var(--hud-ink-deep)" }}
         >
           {msg.at}
@@ -312,7 +312,7 @@ function Msg({ msg }: { msg: ChatMsg }) {
         ) : null}
       </div>
       <div
-        className="font-mono text-[11px] leading-snug"
+        className="font-mono text-sm leading-snug"
         style={{
           color: isOp ? "var(--hud-ink)" : "var(--hud-ink-muted)",
         }}
@@ -351,7 +351,7 @@ function ComposeDock({ frame }: { frame: Frame }) {
       <div className="flex min-w-0 flex-1 flex-col gap-0.5" style={{ paddingTop: 3 }}>
         {frame.fieldText ? (
           <span
-            className="whitespace-pre-wrap break-words font-mono text-[11px] leading-[1.55]"
+            className="whitespace-pre-wrap break-words font-mono text-sm leading-[1.55]"
             style={{ color: "var(--hud-ink)" }}
           >
             {frame.fieldText}
@@ -361,7 +361,7 @@ function ComposeDock({ frame }: { frame: Frame }) {
           <span className="flex min-w-0 items-baseline gap-1">
             {frame.caret ? <Caret /> : null}
             <span
-              className="truncate font-mono text-[10.5px]"
+              className="truncate font-mono text-xs"
               style={{ color: "var(--hud-ink-deep)", fontStyle: "italic" }}
             >
               talk to the assistant — / for commands
@@ -419,7 +419,7 @@ function MicGlyph({ active }: { active: boolean }) {
 function TargetChip({ label }: { label: string }) {
   return (
     <span
-      className="shrink-0 rounded-sm px-1.5 py-[1.5px] font-mono text-[9.5px] font-semibold"
+      className="shrink-0 rounded-sm px-1.5 py-[1.5px] font-mono text-2xs font-semibold"
       style={{
         color: "var(--hud-accent)",
         border: "0.5px solid color-mix(in oklab, var(--hud-accent) 45%, transparent)",
@@ -433,7 +433,7 @@ function TargetChip({ label }: { label: string }) {
 function SendChip({ color, dim }: { color: string; dim: boolean }) {
   return (
     <span
-      className="flex shrink-0 items-center gap-1 px-1 py-[1.5px] font-mono text-[9.5px] font-semibold"
+      className="flex shrink-0 items-center gap-1 px-1 py-[1.5px] font-mono text-2xs font-semibold"
       style={{ color, opacity: dim ? 0.85 : 1, letterSpacing: "0.16em" }}
     >
       <span>↵</span>
@@ -445,7 +445,7 @@ function SendChip({ color, dim }: { color: string; dim: boolean }) {
 function KeyChip({ label }: { label: string }) {
   return (
     <span
-      className="shrink-0 rounded-sm px-1.5 py-[1.5px] font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow"
+      className="shrink-0 rounded-sm px-1.5 py-[1.5px] font-mono text-3xs font-semibold uppercase tracking-eyebrow"
       style={{
         color: "var(--hud-ink-faint)",
         border: "0.5px solid color-mix(in oklab, var(--hud-ink-faint) 30%, transparent)",
@@ -633,20 +633,20 @@ function ThreadHeaderBar() {
       }}
     >
       <span
-        className="font-mono text-[9px] font-semibold uppercase tracking-[0.20em]"
+        className="font-mono text-2xs font-semibold uppercase tracking-[0.20em]"
         style={{ color: "var(--hud-accent)" }}
       >
         @scout
       </span>
       <span
-        className="font-mono text-[9px] uppercase tracking-eyebrow"
+        className="font-mono text-2xs uppercase tracking-eyebrow"
         style={{ color: "var(--hud-ink-deep)" }}
       >
         assistant · session 18m
       </span>
       <span className="flex-1" />
       <span
-        className="font-mono text-[9px] uppercase tracking-eyebrow"
+        className="font-mono text-2xs uppercase tracking-eyebrow"
         style={{ color: "var(--hud-ink-deep)" }}
       >
         6 turns · 14:18 → 14:32
@@ -666,21 +666,21 @@ function TurnBlock({ turn }: { turn: Turn }) {
           <SourceGlyph who={turn.who} color={sourceColor} />
         </span>
         <span
-          className="font-mono text-[10.5px] font-semibold leading-none"
+          className="font-mono text-xs font-semibold leading-none"
           style={{ color: sourceColor }}
         >
           @{turn.who}
         </span>
         <span className="flex-1" />
         <span
-          className="font-mono text-[9.5px] leading-none"
+          className="font-mono text-2xs leading-none"
           style={{ color: "var(--hud-ink-deep)" }}
         >
           {turn.at}
         </span>
       </div>
       <div
-        className="font-mono text-[12px] leading-[1.6]"
+        className="font-mono text-md leading-[1.6]"
         style={{ paddingLeft: 18, color: "var(--hud-ink)" }}
       >
         {turn.spans.map((span, i) => (
@@ -847,7 +847,7 @@ function SpanLegend() {
   ];
 
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-[10px]">
+    <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-xs">
       {items.map((item) => (
         <span key={item.label} className="flex items-baseline gap-2">
           <span
@@ -856,7 +856,7 @@ function SpanLegend() {
           >
             {item.label}
           </span>
-          <span className="text-[11px]">{item.sample}</span>
+          <span className="text-sm">{item.sample}</span>
           <span style={{ color: "var(--studio-ink-faint)" }}>· {item.note}</span>
         </span>
       ))}
@@ -903,7 +903,7 @@ function Anatomy() {
         className="overflow-hidden rounded-md border"
         style={{ borderColor: "var(--studio-edge)" }}
       >
-        <table className="w-full font-mono text-[11px]">
+        <table className="w-full font-mono text-sm">
           <thead>
             <tr
               className="text-left"
@@ -940,7 +940,7 @@ function Anatomy() {
 
 function Th({ children }: { children: ReactNode }) {
   return (
-    <th className="px-3 py-2 font-semibold uppercase tracking-eyebrow text-[9px]">
+    <th className="px-3 py-2 font-semibold uppercase tracking-eyebrow text-2xs">
       {children}
     </th>
   );
@@ -977,11 +977,11 @@ function Td({
 function SectionHead({ title, meta }: { title: string; meta?: string }) {
   return (
     <div className="mb-4 flex items-baseline gap-3">
-      <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · {title}
       </div>
       {meta ? (
-        <div className="font-mono text-[9px] uppercase tracking-[0.20em] text-studio-ink-faint">
+        <div className="font-mono text-2xs uppercase tracking-[0.20em] text-studio-ink-faint">
           {meta}
         </div>
       ) : null}

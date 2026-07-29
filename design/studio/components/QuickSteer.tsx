@@ -346,7 +346,7 @@ function ActionChip({
       {action.needsInput ? (
         <span
           aria-hidden
-          className="absolute -bottom-0.5 right-0.5 text-[7px] leading-none"
+          className="absolute -bottom-0.5 right-0.5 text-3xs leading-none"
           style={{
             color: hovered ? accent : "var(--studio-ink-faint)",
             opacity: 0.7,
@@ -471,14 +471,14 @@ export function InputDock({
         onClick={(e) => e.stopPropagation()}
       >
         <span
-          className="shrink-0 font-mono text-[9px] uppercase tracking-eyebrow"
+          className="shrink-0 font-mono text-2xs uppercase tracking-eyebrow"
           style={{ color: accent, letterSpacing: "0.22em" }}
         >
           {action.label.toLowerCase()}
         </span>
         <span
           aria-hidden
-          className="shrink-0 font-mono text-[9px] uppercase text-studio-ink-faint"
+          className="shrink-0 font-mono text-2xs uppercase text-studio-ink-faint"
         >
           {onSave ? `→ @${evt.agent} · save` : `→ @${evt.agent}`}
         </span>
@@ -536,7 +536,7 @@ export function InputDock({
           placeholder={
             recording ? "listening…" : action.inputPlaceholder ?? "Message…"
           }
-          className="flex-1 bg-transparent font-mono text-[12px] text-studio-ink placeholder:text-studio-ink-faint focus:outline-none"
+          className="flex-1 bg-transparent font-mono text-md text-studio-ink placeholder:text-studio-ink-faint focus:outline-none"
           style={{ minWidth: 0 }}
         />
 
@@ -598,7 +598,7 @@ export function InputDock({
       </div>
 
       <div
-        className="mt-0.5 font-mono text-[7.5px] uppercase tracking-eyebrow text-studio-ink-faint"
+        className="mt-0.5 font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint"
         style={{ opacity: 0.75, textAlign: inline ? "right" : "center" }}
       >
         {onSave ? "↵ send · ⌘↵ save · esc cancel" : "↵ send · esc cancel"}

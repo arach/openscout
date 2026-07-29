@@ -2464,3 +2464,56 @@
 .ctx-panel-conversation-profile-button {
   margin-top: var(--space-2xs);
 }
+
+/* ── Chat rail (D1) — need-a-reply stat + collapsible section header ──
+   Additive: used by screens/chat/left.tsx only. Do not fold into the shared
+   .ctx-panel-* rules other rails consume. */
+
+.ctx-panel-rail-stat {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 650;
+  letter-spacing: var(--tracking-md);
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  /* The rail's one accent: attention, never chrome. */
+  color: var(--accent);
+}
+
+/* Section header that toggles a stratum (Observed). Inherits every type rule
+   from .ctx-panel-section-label; this only undoes button chrome. */
+.ctx-panel-section-toggle {
+  width: 100%;
+  border: 0;
+  background: none;
+  appearance: none;
+  text-align: left;
+  cursor: pointer;
+  transition: color 0.1s;
+}
+
+.ctx-panel-section-toggle:hover {
+  color: var(--muted);
+}
+
+.ctx-panel-section-toggle:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--accent) 52%, transparent);
+  outline-offset: 2px;
+}
+
+.ctx-panel-section-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  min-width: 0;
+}
+
+.ctx-panel-section-chevron {
+  display: inline-block;
+  width: 8px;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--dim);
+}

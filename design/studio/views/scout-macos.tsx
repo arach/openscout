@@ -189,7 +189,7 @@ function Segments({ items, active }: { items: string[]; active: string }) {
         return (
           <span
             key={it}
-            className="font-mono text-[10px] uppercase tracking-[0.13em] px-1.5 py-[3px] rounded-[5px] inline-flex items-center gap-1"
+            className="font-mono text-xs uppercase tracking-[0.13em] px-1.5 py-[3px] rounded-[5px] inline-flex items-center gap-1"
             style={
               on
                 ? { color: "var(--scout-accent)", ...GLASS_RAISED }
@@ -219,8 +219,8 @@ function Section({ title, children, ticks }: { title: string; children: React.Re
 function KV({ k, v, tint }: { k: string; v: React.ReactNode; tint?: string }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
-      <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-studio-ink-faint">{k}</span>
-      <span className="font-mono text-[11px] text-studio-ink tabular-nums text-right" style={tint ? { color: tint } : undefined}>{v}</span>
+      <span className="font-mono text-xs uppercase tracking-[0.08em] text-studio-ink-faint">{k}</span>
+      <span className="font-mono text-sm text-studio-ink tabular-nums text-right" style={tint ? { color: tint } : undefined}>{v}</span>
     </div>
   );
 }
@@ -233,7 +233,7 @@ function Pill({ children, tone = "neutral" }: { children: React.ReactNode; tone?
     info: { color: "oklch(0.82 0.10 220)", border: "1px solid color-mix(in oklab, oklch(0.82 0.10 220) 40%, transparent)", background: "oklch(0.82 0.10 220 / 0.14)" },
   };
   return (
-    <span className="font-mono text-[9px] uppercase tracking-[0.1em] px-1.5 py-[2px] rounded-[4px] inline-flex items-center gap-1" style={tones[tone]}>
+    <span className="font-mono text-2xs uppercase tracking-[0.1em] px-1.5 py-[2px] rounded-[4px] inline-flex items-center gap-1" style={tones[tone]}>
       {children}
     </span>
   );
@@ -292,9 +292,9 @@ function AppWindow({
       <div className="flex items-center gap-3 px-3.5 h-[42px]" style={{ borderBottom: "1px solid var(--studio-edge)" }}>
         <TrafficLights />
         <div className="flex items-baseline gap-2 ml-1">
-          <span className="font-mono text-[11px] tracking-[0.04em] text-studio-ink font-semibold">Scout</span>
-          <span className="text-studio-ink-faint text-[11px]">—</span>
-          <span className="font-mono text-[11px] tracking-[0.06em] text-studio-ink-muted uppercase">{title}</span>
+          <span className="font-mono text-sm tracking-[0.04em] text-studio-ink font-semibold">Scout</span>
+          <span className="text-studio-ink-faint text-sm">—</span>
+          <span className="font-mono text-sm tracking-[0.06em] text-studio-ink-muted uppercase">{title}</span>
         </div>
         <div className="ml-auto">{badge}</div>
       </div>
@@ -310,8 +310,8 @@ function AppWindow({
 function StatusBar({ left, right }: { left: React.ReactNode; right?: React.ReactNode }) {
   return (
     <div className="flex items-center gap-2 px-3.5 h-[26px] mt-auto" style={{ borderTop: "1px solid var(--studio-edge)", background: "color-mix(in oklab, var(--studio-canvas) 40%, transparent)" }}>
-      <span className="font-mono text-[9.5px] tracking-[0.08em] text-studio-ink-faint uppercase">{left}</span>
-      <span className="ml-auto font-mono text-[9.5px] tracking-[0.08em] text-studio-ink-faint uppercase">{right}</span>
+      <span className="font-mono text-2xs tracking-[0.08em] text-studio-ink-faint uppercase">{left}</span>
+      <span className="ml-auto font-mono text-2xs tracking-[0.08em] text-studio-ink-faint uppercase">{right}</span>
     </div>
   );
 }
@@ -326,7 +326,7 @@ function Toolbar({ children }: { children: React.ReactNode }) {
 
 function NewButton({ label }: { label: string }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-[7px] px-2 py-[5px] font-mono text-[10px] uppercase tracking-[0.1em]" style={{ color: "var(--scout-accent)", ...GLASS_RAISED }}>
+    <span className="inline-flex items-center gap-1 rounded-[7px] px-2 py-[5px] font-mono text-xs uppercase tracking-[0.1em]" style={{ color: "var(--scout-accent)", ...GLASS_RAISED }}>
       <PlusGlyph size={12} />
       {label}
     </span>
@@ -357,15 +357,15 @@ function ConvRow({ c, selected }: { c: Conv; selected?: boolean }) {
       <span className="mt-[3px]"><StatePip state={c.state} /></span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <span className="font-medium text-[12px] text-studio-ink truncate">{c.name}</span>
+          <span className="font-medium text-md text-studio-ink truncate">{c.name}</span>
           {c.ask === "pending" && <Pill tone="amber">ask</Pill>}
           {c.ask === "answered" && <Pill tone="accent">✓ ask</Pill>}
-          <span className="ml-auto font-mono text-[10px] text-studio-ink-faint tabular-nums">{c.time}</span>
+          <span className="ml-auto font-mono text-xs text-studio-ink-faint tabular-nums">{c.time}</span>
           {c.unread > 0 && (
-            <span className="font-mono text-[9px] tabular-nums rounded-full px-1.5 py-[1px]" style={{ color: "var(--studio-canvas)", background: "var(--scout-accent)" }}>{c.unread}</span>
+            <span className="font-mono text-2xs tabular-nums rounded-full px-1.5 py-[1px]" style={{ color: "var(--studio-canvas)", background: "var(--scout-accent)" }}>{c.unread}</span>
           )}
         </div>
-        <p className="mt-0.5 text-[11px] leading-snug text-studio-ink-muted line-clamp-1">{c.preview}</p>
+        <p className="mt-0.5 text-sm leading-snug text-studio-ink-muted line-clamp-1">{c.preview}</p>
       </div>
     </div>
   );
@@ -402,8 +402,8 @@ function CommsWindow() {
           <div className="flex items-center gap-2.5 px-4 h-[44px] shrink-0" style={{ borderBottom: "1px solid var(--studio-edge)" }}>
             <StatePip state="working" size={8} />
             <div>
-              <div className="text-[12.5px] font-semibold text-studio-ink leading-none">Dewey</div>
-              <div className="font-mono text-[9.5px] text-studio-ink-faint mt-1">~/dev/dewey · channel</div>
+              <div className="text-md font-semibold text-studio-ink leading-none">Dewey</div>
+              <div className="font-mono text-2xs text-studio-ink-faint mt-1">~/dev/dewey · channel</div>
             </div>
             <div className="ml-auto flex items-center gap-1.5">
               <Pill>Observe</Pill>
@@ -413,17 +413,17 @@ function CommsWindow() {
           <div className="flex-1 overflow-hidden px-4 py-3.5 space-y-3">
             {/* reply-context backlink — the headline feature */}
             <div className="flex items-center gap-2 rounded-[7px] px-2.5 py-1.5 w-fit" style={GLASS_PANEL}>
-              <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-studio-ink-faint">reply ▸</span>
-              <span className="text-[11px] text-studio-ink">surface active theme in inspector</span>
+              <span className="font-mono text-2xs uppercase tracking-[0.1em] text-studio-ink-faint">reply ▸</span>
+              <span className="text-sm text-studio-ink">surface active theme in inspector</span>
               <Pill tone="accent">done</Pill>
             </div>
             <Bubble who="them">Great breakdown. Take both — and surface the active theme in the inspector while you're in the view layer.</Bubble>
-            <Bubble who="me">On it. I'll thread it through <span className="font-mono text-[10.5px] text-studio-ink">resolveStartupTheme()</span> and land the inspector chip in the same pass.</Bubble>
+            <Bubble who="me">On it. I'll thread it through <span className="font-mono text-xs text-studio-ink">resolveStartupTheme()</span> and land the inspector chip in the same pass.</Bubble>
           </div>
           <div className="px-4 pb-3 pt-1 shrink-0">
             <div className="rounded-[9px] px-3 py-2 flex items-center" style={GLASS_PANEL}>
-              <span className="text-[11px] text-studio-ink-faint">Message Dewey…</span>
-              <span className="ml-auto font-mono text-[9px] text-studio-ink-faint uppercase tracking-[0.1em]">⌘↵</span>
+              <span className="text-sm text-studio-ink-faint">Message Dewey…</span>
+              <span className="ml-auto font-mono text-2xs text-studio-ink-faint uppercase tracking-[0.1em]">⌘↵</span>
             </div>
           </div>
         </div>
@@ -439,8 +439,8 @@ function CommsWindow() {
             <KV k="Branch" v="main" />
           </Section>
           <Section title="Ask">
-            <div className="flex items-center gap-1.5"><Pill tone="amber">pending</Pill><span className="text-[10.5px] text-studio-ink-muted">from Scout</span></div>
-            <p className="text-[11px] leading-snug text-studio-ink mt-0.5">Confirm the second-device scan to finish pairing.</p>
+            <div className="flex items-center gap-1.5"><Pill tone="amber">pending</Pill><span className="text-xs text-studio-ink-muted">from Scout</span></div>
+            <p className="text-sm leading-snug text-studio-ink mt-0.5">Confirm the second-device scan to finish pairing.</p>
           </Section>
         </div>
       </div>
@@ -454,7 +454,7 @@ function Bubble({ who, children }: { who: "me" | "them"; children: React.ReactNo
   return (
     <div className={me ? "flex justify-end" : "flex justify-start"}>
       <div
-        className="max-w-[78%] rounded-[11px] px-3 py-2 text-[12px] leading-snug"
+        className="max-w-[78%] rounded-[11px] px-3 py-2 text-md leading-snug"
         style={
           me
             ? { color: "var(--studio-canvas)", background: "var(--scout-accent)", boxShadow: "0 6px 16px -8px color-mix(in oklab, var(--scout-accent) 60%, transparent)" }
@@ -493,23 +493,23 @@ function AgentsWindow() {
         <div className="flex flex-col flex-1 min-w-0">
           <Toolbar>
             <Segments items={["All", "Working", "Idle"]} active="All" />
-            <span className="ml-auto font-mono text-[10px] text-studio-ink-faint uppercase tracking-[0.1em]">24 · 22 idle</span>
+            <span className="ml-auto font-mono text-xs text-studio-ink-faint uppercase tracking-[0.1em]">24 · 22 idle</span>
           </Toolbar>
           <div className="flex-1 overflow-hidden px-2.5 py-2 space-y-3">
             {AGENT_GROUPS.map((g, gi) => (
               <div key={g.project}>
                 <div className="flex items-center gap-2 px-1 mb-1">
-                  <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-studio-ink-muted">{g.project}</span>
-                  {g.path && <span className="font-mono text-[9.5px] text-studio-ink-faint">{g.path}</span>}
-                  <span className="ml-auto font-mono text-[9px] text-studio-ink-faint rounded-full px-1.5 py-[1px]" style={{ border: "1px solid var(--studio-edge)" }}>{g.count}</span>
+                  <span className="font-mono text-xs uppercase tracking-[0.12em] text-studio-ink-muted">{g.project}</span>
+                  {g.path && <span className="font-mono text-2xs text-studio-ink-faint">{g.path}</span>}
+                  <span className="ml-auto font-mono text-2xs text-studio-ink-faint rounded-full px-1.5 py-[1px]" style={{ border: "1px solid var(--studio-edge)" }}>{g.count}</span>
                 </div>
                 {g.agents.map((a, ai) => (
                   <div key={a.name + ai} className="relative flex items-center gap-2.5 rounded-[8px] px-2.5 py-[7px]" style={gi === 0 && ai === 0 ? GLASS_RAISED : undefined}>
                     <StatePip state={a.state} />
-                    <span className="text-[12px] text-studio-ink font-medium">{a.name}</span>
-                    <span className="text-[10.5px] text-studio-ink-faint">{a.role}</span>
+                    <span className="text-md text-studio-ink font-medium">{a.name}</span>
+                    <span className="text-xs text-studio-ink-faint">{a.role}</span>
                     {a.harness && <Pill>{a.harness}</Pill>}
-                    <span className="ml-auto font-mono text-[10px] text-studio-ink-faint tabular-nums">{a.updated}</span>
+                    <span className="ml-auto font-mono text-xs text-studio-ink-faint tabular-nums">{a.updated}</span>
                   </div>
                 ))}
               </div>
@@ -519,10 +519,10 @@ function AgentsWindow() {
         {/* Inspector — agent dossier */}
         <div className="shrink-0 flex flex-col gap-2.5 px-2.5 py-2.5" style={{ width: 220, borderLeft: "1px solid var(--studio-edge)", background: "color-mix(in oklab, var(--studio-canvas) 30%, transparent)" }}>
           <div className="flex items-center gap-2.5 px-1">
-            <span className="flex h-9 w-9 items-center justify-center rounded-[10px] font-semibold text-[13px] text-studio-ink" style={GLASS_RAISED}>A</span>
+            <span className="flex h-9 w-9 items-center justify-center rounded-[10px] font-semibold text-lg text-studio-ink" style={GLASS_RAISED}>A</span>
             <div>
-              <div className="text-[13px] font-semibold text-studio-ink leading-none">Action</div>
-              <div className="mt-1 flex items-center gap-1.5"><StatePip state="available" size={6} /><span className="font-mono text-[9.5px] text-studio-ink-muted uppercase tracking-[0.08em]">available</span></div>
+              <div className="text-lg font-semibold text-studio-ink leading-none">Action</div>
+              <div className="mt-1 flex items-center gap-1.5"><StatePip state="available" size={6} /><span className="font-mono text-2xs text-studio-ink-muted uppercase tracking-[0.08em]">available</span></div>
             </div>
           </div>
           <Section title="Runtime" ticks>
@@ -568,13 +568,13 @@ const TAIL_ROWS: TailRow[] = [
 
 function TailWindow() {
   return (
-    <AppWindow active="tail" title="Tail" badge={<span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.1em] text-studio-ink-muted"><StatePip state="working" size={6} />live</span>}>
+    <AppWindow active="tail" title="Tail" badge={<span className="inline-flex items-center gap-1.5 font-mono text-xs uppercase tracking-[0.1em] text-studio-ink-muted"><StatePip state="working" size={6} />live</span>}>
       <Toolbar>
         <Segments items={["All", "Asst", "Tool"]} active="All" />
         <div className="ml-auto flex items-center gap-1.5">
           <Pill tone="info">codex</Pill>
           <Pill>native</Pill>
-          <span className="font-mono text-[10px] text-studio-ink-faint">talkie · 4894</span>
+          <span className="font-mono text-xs text-studio-ink-faint">talkie · 4894</span>
         </div>
       </Toolbar>
       <div className="flex-1 overflow-hidden">
@@ -583,11 +583,11 @@ function TailWindow() {
             const zebra = i % 2 === 1;
             return (
               <div key={i} className="contents">
-                <div className="font-mono text-[9.5px] text-studio-ink-faint tabular-nums px-3 py-[5px]" style={{ background: zebra ? "color-mix(in oklab, var(--studio-ink) 3%, transparent)" : undefined }}>{r.time}</div>
+                <div className="font-mono text-2xs text-studio-ink-faint tabular-nums px-3 py-[5px]" style={{ background: zebra ? "color-mix(in oklab, var(--studio-ink) 3%, transparent)" : undefined }}>{r.time}</div>
                 <div className="px-1 py-[5px] flex items-start" style={{ background: zebra ? "color-mix(in oklab, var(--studio-ink) 3%, transparent)" : undefined }}>
                   <Pill tone={TAIL_KIND[r.kind]}>{r.kind}</Pill>
                 </div>
-                <div className="font-mono text-[10.5px] text-studio-ink-muted px-3 py-[5px] truncate" style={{ background: zebra ? "color-mix(in oklab, var(--studio-ink) 3%, transparent)" : undefined }}>{r.msg}</div>
+                <div className="font-mono text-xs text-studio-ink-muted px-3 py-[5px] truncate" style={{ background: zebra ? "color-mix(in oklab, var(--studio-ink) 3%, transparent)" : undefined }}>{r.msg}</div>
               </div>
             );
           })}
@@ -615,20 +615,20 @@ const REPOS: Repo[] = [
 ];
 
 function DriftBar({ value }: { value: number | null }) {
-  if (value === null) return <span className="font-mono text-[9px] text-studio-ink-faint">—</span>;
+  if (value === null) return <span className="font-mono text-2xs text-studio-ink-faint">—</span>;
   const pct = Math.min(100, (Math.abs(value) / 50) * 100);
   const color = value < 0 ? "oklch(0.72 0.17 25)" : "oklch(0.84 0.15 75)";
   return (
     <span className="inline-flex items-center gap-1.5">
       <span className="block h-[3px] rounded-[1px]" style={{ width: `${Math.max(pct, 10)}%`, maxWidth: 30, background: color }} />
-      <span className="font-mono text-[9px] tabular-nums" style={{ color }}>{value > 0 ? `+${value}` : value}</span>
+      <span className="font-mono text-2xs tabular-nums" style={{ color }}>{value > 0 ? `+${value}` : value}</span>
     </span>
   );
 }
 
 function ReposWindow() {
   return (
-    <AppWindow active="repos" title="Repos" badge={<span className="font-mono text-[10px] uppercase tracking-[0.1em] text-studio-ink-muted">10 repos</span>}>
+    <AppWindow active="repos" title="Repos" badge={<span className="font-mono text-xs uppercase tracking-[0.1em] text-studio-ink-muted">10 repos</span>}>
       <div className="flex flex-1 min-h-0">
         <div className="flex flex-col flex-1 min-w-0">
           <Toolbar>
@@ -640,16 +640,16 @@ function ReposWindow() {
                 {repo.selected && <CornerTicks gap={4} len={5} opacity={0.5} />}
                 <div className="flex items-center gap-2">
                   <StatePip state={repo.state === "attention" ? "needs-attention" : "available"} size={6} />
-                  <span className="text-[12px] font-semibold text-studio-ink">{repo.name}</span>
-                  <span className="font-mono text-[9.5px] text-studio-ink-faint">{repo.path}</span>
-                  <span className="ml-auto font-mono text-[9px] text-studio-ink-faint">{repo.agents} {repo.agents === 1 ? "idle" : "agents"}</span>
+                  <span className="text-md font-semibold text-studio-ink">{repo.name}</span>
+                  <span className="font-mono text-2xs text-studio-ink-faint">{repo.path}</span>
+                  <span className="ml-auto font-mono text-2xs text-studio-ink-faint">{repo.agents} {repo.agents === 1 ? "idle" : "agents"}</span>
                 </div>
                 <div className="mt-1.5 space-y-[3px]">
                   {repo.worktrees.map((w, wi) => (
                     <div key={wi} className="flex items-center gap-2 pl-3.5">
-                      <span className="font-mono text-[10.5px] truncate flex-1" style={{ color: w.highlight ? "oklch(0.86 0.13 75)" : "var(--studio-ink-muted)" }}>{w.branch}</span>
-                      {w.add !== null && <span className="font-mono text-[9px] tabular-nums" style={{ color: "oklch(0.78 0.14 145)" }}>+{w.add}</span>}
-                      {w.del !== null && <span className="font-mono text-[9px] tabular-nums" style={{ color: "oklch(0.72 0.16 25)" }}>−{w.del}</span>}
+                      <span className="font-mono text-xs truncate flex-1" style={{ color: w.highlight ? "oklch(0.86 0.13 75)" : "var(--studio-ink-muted)" }}>{w.branch}</span>
+                      {w.add !== null && <span className="font-mono text-2xs tabular-nums" style={{ color: "oklch(0.78 0.14 145)" }}>+{w.add}</span>}
+                      {w.del !== null && <span className="font-mono text-2xs tabular-nums" style={{ color: "oklch(0.72 0.16 25)" }}>−{w.del}</span>}
                       <DriftBar value={w.drift} />
                     </div>
                   ))}
@@ -661,8 +661,8 @@ function ReposWindow() {
         {/* Inspector — repo detail */}
         <div className="shrink-0 flex flex-col gap-2.5 px-2.5 py-2.5" style={{ width: 210, borderLeft: "1px solid var(--studio-edge)", background: "color-mix(in oklab, var(--studio-canvas) 30%, transparent)" }}>
           <div className="px-1">
-            <div className="text-[13px] font-semibold text-studio-ink">action</div>
-            <div className="font-mono text-[9.5px] text-studio-ink-faint mt-0.5">~/dev/action</div>
+            <div className="text-lg font-semibold text-studio-ink">action</div>
+            <div className="font-mono text-2xs text-studio-ink-faint mt-0.5">~/dev/action</div>
           </div>
           <Section title="Worktree" ticks>
             <KV k="Branch" v="codex/polished…" />
@@ -671,7 +671,7 @@ function ReposWindow() {
             <KV k="Drift" v="+21 ahead" tint="oklch(0.84 0.15 75)" />
           </Section>
           <Section title="Agents">
-            <div className="flex items-center gap-1.5"><StatePip state="available" size={6} /><span className="text-[11px] text-studio-ink">@action</span></div>
+            <div className="flex items-center gap-1.5"><StatePip state="available" size={6} /><span className="text-sm text-studio-ink">@action</span></div>
           </Section>
           <div className="mt-auto flex gap-1.5">
             <Pill tone="accent">Open</Pill>
@@ -709,8 +709,8 @@ export default function ScoutMacOSElevated() {
         {/* Header */}
         <header className="mb-10">
           <EyebrowLabel className="mb-3">Studies · macOS · Elevated</EyebrowLabel>
-          <h1 className="text-[30px] font-semibold tracking-tight text-studio-ink leading-none">Scout macOS · Elevated</h1>
-          <p className="mt-3 max-w-[64ch] text-[13.5px] leading-relaxed text-studio-ink-muted">
+          <h1 className="text-6xl font-semibold tracking-tight text-studio-ink leading-none">Scout macOS · Elevated</h1>
+          <p className="mt-3 max-w-[64ch] text-lg leading-relaxed text-studio-ink-muted">
             The four core screens — <span className="text-studio-ink">Comms · Agents · Tail · Repos</span> — brought into one
             elevated frame. The ScoutNext elegant language applied to the desktop shell: frosted-raised surfaces with real
             depth, corner ticks, bracketed controls, hand-drawn glyphs, and ink-strong type. Content mirrors the live app
@@ -720,7 +720,7 @@ export default function ScoutMacOSElevated() {
             <Pill tone="accent">concept</Pill>
             <Pill>frosted depth</Pill>
             <Pill>4 screens · 1 shell</Pill>
-            <span className="font-mono text-[10px] text-studio-ink-faint">baseline → scout-macos-shell · comms → scout-macos-refresh</span>
+            <span className="font-mono text-xs text-studio-ink-faint">baseline → scout-macos-shell · comms → scout-macos-refresh</span>
           </div>
         </header>
 
@@ -730,7 +730,7 @@ export default function ScoutMacOSElevated() {
             <section key={id}>
               <div className="mb-3 flex items-baseline gap-3">
                 <EyebrowLabel size="md" tone="ink" as="h2">{label}</EyebrowLabel>
-                <span className="text-[12px] text-studio-ink-faint">{role}</span>
+                <span className="text-md text-studio-ink-faint">{role}</span>
               </div>
               <Window />
             </section>

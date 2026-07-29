@@ -115,7 +115,7 @@ function AskHeading({ note }: { note?: string }) {
   return (
     <div className="flex items-baseline justify-between gap-3 px-3 pb-1.5 pt-2.5">
       <EyebrowLabel as="h3">Ask another agent</EyebrowLabel>
-      <span className="flex shrink-0 items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.12em] text-studio-ink-faint">
+      <span className="flex shrink-0 items-center gap-1.5 font-mono text-2xs uppercase tracking-[0.12em] text-studio-ink-faint">
         {note ?? "target working"}
         <AgentPresenceDot state="working" size="sm" />
       </span>
@@ -130,7 +130,7 @@ function PromptChips({ compact }: { compact?: boolean }) {
         <button
           key={prompt}
           type="button"
-          className="focus-ring inline-flex items-center gap-1 rounded-md border border-studio-edge px-[9px] py-[5px] font-sans text-[10px] text-studio-ink-muted transition-colors hover:border-studio-edge-strong hover:text-studio-ink"
+          className="focus-ring inline-flex items-center gap-1 rounded-md border border-studio-edge px-[9px] py-[5px] font-sans text-xs text-studio-ink-muted transition-colors hover:border-studio-edge-strong hover:text-studio-ink"
         >
           <Sparkles size={11} aria-hidden />
           {prompt}
@@ -145,7 +145,7 @@ function ContextMarker() {
   return (
     <span
       title={DISPATCH.ref}
-      className="inline-flex min-w-0 items-center gap-1 font-mono text-[9px] uppercase tracking-[0.12em] text-studio-ink-faint"
+      className="inline-flex min-w-0 items-center gap-1 font-mono text-2xs uppercase tracking-[0.12em] text-studio-ink-faint"
     >
       <Plus size={9} strokeWidth={2.5} aria-hidden />
       <span className="truncate">dispatch context</span>
@@ -167,10 +167,10 @@ function InspectorFrame({
   return (
     <div className="shrink-0">
       <div className="mb-1.5 flex items-baseline gap-2">
-        <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-studio-ink-faint">
+        <span className="font-mono text-2xs font-semibold uppercase tracking-[0.12em] text-studio-ink-faint">
           {width}px
         </span>
-        <span className="font-mono text-[9px] text-studio-ink-faint">{caption}</span>
+        <span className="font-mono text-2xs text-studio-ink-faint">{caption}</span>
       </div>
       <div
         style={{ width }}
@@ -179,10 +179,10 @@ function InspectorFrame({
         {/* Enough of what sits above the ask module for the rhythm to read. */}
         <div className="flex items-center gap-2 px-3 py-2">
           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-studio-ink-muted" aria-hidden />
-          <strong className="font-sans text-[11px] font-medium text-studio-ink">
+          <strong className="font-sans text-sm font-medium text-studio-ink">
             {DISPATCH.state}
           </strong>
-          <code className="truncate font-mono text-[10px] text-studio-ink-faint">
+          <code className="truncate font-mono text-xs text-studio-ink-faint">
             {DISPATCH.ref}
           </code>
         </div>
@@ -194,10 +194,10 @@ function InspectorFrame({
             ["Failed", DISPATCH.failed],
           ].map(([label, value]) => (
             <div key={label} className="min-w-0">
-              <dt className="truncate font-mono text-[9px] uppercase tracking-[0.1em] text-studio-ink-faint">
+              <dt className="truncate font-mono text-2xs uppercase tracking-[0.1em] text-studio-ink-faint">
                 {label}
               </dt>
-              <dd className="truncate font-mono text-[10px] text-studio-ink-muted">{value}</dd>
+              <dd className="truncate font-mono text-xs text-studio-ink-muted">{value}</dd>
             </div>
           ))}
         </dl>
@@ -205,7 +205,7 @@ function InspectorFrame({
         {children}
 
         {/* Ambient row that sits under the panel in the real inspector. */}
-        <div className="flex items-center gap-1.5 border-t border-studio-edge px-3 py-1.5 font-mono text-[9px] uppercase tracking-[0.12em] text-studio-ink-faint">
+        <div className="flex items-center gap-1.5 border-t border-studio-edge px-3 py-1.5 font-mono text-2xs uppercase tracking-[0.12em] text-studio-ink-faint">
           <Command size={9} aria-hidden />
           Command palette
           <span className="ml-auto normal-case tracking-normal">⌘K</span>
@@ -263,7 +263,7 @@ function BaselineSelect({
         style={{ maxWidth: clamp }}
         className={cx(
           "h-7 min-w-0 appearance-none truncate border-0 bg-transparent pl-0.5 pr-3.5",
-          "font-mono text-[9px] outline-none",
+          "font-mono text-2xs outline-none",
           strong ? "text-studio-ink" : "text-studio-ink-muted",
         )}
       >
@@ -298,8 +298,8 @@ function BaselinePanel() {
             <MessageSquare size={12} />
           </span>
           <div className="min-w-0">
-            <span className="block font-sans text-[12px] text-studio-ink">Ask another agent</span>
-            <small className="block font-sans text-[11px] leading-snug text-studio-ink-faint">
+            <span className="block font-sans text-md text-studio-ink">Ask another agent</span>
+            <small className="block font-sans text-sm leading-snug text-studio-ink-faint">
               Send a custom request with the full dispatch context attached.
             </small>
           </div>
@@ -312,7 +312,7 @@ function BaselinePanel() {
       <div className="border-t" style={accentRule}>
         <label
           htmlFor={`baseline-request-${DISPATCH.ref}`}
-          className="block px-3 pt-2 font-mono text-[9px] font-semibold uppercase tracking-[0.14em] text-studio-ink-faint"
+          className="block px-3 pt-2 font-mono text-2xs font-semibold uppercase tracking-[0.14em] text-studio-ink-faint"
         >
           Request
         </label>
@@ -321,7 +321,7 @@ function BaselinePanel() {
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           placeholder="What should openscout-staging-hypatia-2 investigate or do?"
-          className="block h-[76px] w-full resize-none border-0 bg-transparent px-3 pb-2 pt-1 font-sans text-[11px] leading-normal text-studio-ink outline-none placeholder:text-studio-ink-faint"
+          className="block h-[76px] w-full resize-none border-0 bg-transparent px-3 pb-2 pt-1 font-sans text-sm leading-normal text-studio-ink outline-none placeholder:text-studio-ink-faint"
         />
         <div className="border-t" style={accentRule} />
         <footer className="flex min-h-10 items-center gap-1.5 px-3 py-2">
@@ -333,13 +333,13 @@ function BaselinePanel() {
             >
               <Plus size={16} aria-hidden />
             </button>
-            <span className="min-w-0 truncate font-mono text-[9px] uppercase tracking-[0.12em] text-studio-ink-muted">
+            <span className="min-w-0 truncate font-mono text-2xs uppercase tracking-[0.12em] text-studio-ink-muted">
               Dispatch context included
             </span>
           </div>
 
           <div className="ml-auto flex min-w-0 items-center gap-1.5 overflow-hidden">
-            <span className="shrink-0 font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-studio-ink-faint">
+            <span className="shrink-0 font-mono text-2xs font-semibold uppercase tracking-[0.12em] text-studio-ink-faint">
               Send to
             </span>
             <BaselineSelect
@@ -478,7 +478,7 @@ function RoutingStatRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-2 border-t border-studio-edge py-1 first:border-t-0">
-      <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.12em] text-studio-ink-faint">
+      <span className="shrink-0 font-mono text-2xs uppercase tracking-[0.12em] text-studio-ink-faint">
         {label}
       </span>
       <div className="min-w-0">{children}</div>
@@ -516,14 +516,14 @@ function TreatmentB({ narrow, startOpen }: { narrow: boolean; startOpen?: boolea
                 onClick={() => setOpen((current) => !current)}
                 className="focus-ring ink-chip inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 transition-colors"
               >
-                <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.12em] text-studio-ink-faint">
+                <span className="shrink-0 font-mono text-2xs uppercase tracking-[0.12em] text-studio-ink-faint">
                   to
                 </span>
-                <span className="min-w-0 font-mono text-[11px] text-studio-ink">{agentLabel}</span>
+                <span className="min-w-0 font-mono text-sm text-studio-ink">{agentLabel}</span>
                 {/* At 380 the resting readout keeps the identity and sheds the
                     model rather than ellipsizing the agent id. */}
                 {narrow ? null : (
-                  <span className="shrink-0 font-mono text-[11px] text-studio-ink-faint">
+                  <span className="shrink-0 font-mono text-sm text-studio-ink-faint">
                     · {model}
                   </span>
                 )}
@@ -603,7 +603,7 @@ function TreatmentC({ narrow }: { narrow: boolean }) {
 
   const cell = (label: string, control: React.ReactNode) => (
     <div className="min-w-0">
-      <div className="truncate font-mono text-[9px] uppercase tracking-[0.12em] text-studio-ink-faint">
+      <div className="truncate font-mono text-2xs uppercase tracking-[0.12em] text-studio-ink-faint">
         {label}
       </div>
       <div className="-ml-2.5 mt-px min-w-0 [&>label]:max-w-full">{control}</div>
@@ -732,9 +732,9 @@ export function DispatchAskComposerStudy() {
   return (
     <div className="space-y-10">
       {/* What the controls actually are, from the source. */}
-      <div className="grid gap-3 border-y border-studio-edge py-4 font-mono text-[11px] text-studio-ink-faint sm:grid-cols-3">
+      <div className="grid gap-3 border-y border-studio-edge py-4 font-mono text-sm text-studio-ink-faint sm:grid-cols-3">
         <div>
-          <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-studio-ink">
+          <div className="text-2xs font-semibold uppercase tracking-[0.14em] text-studio-ink">
             The four selects
           </div>
           <div className="mt-1 leading-relaxed">
@@ -743,7 +743,7 @@ export function DispatchAskComposerStudy() {
           </div>
         </div>
         <div>
-          <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-studio-ink">
+          <div className="text-2xs font-semibold uppercase tracking-[0.14em] text-studio-ink">
             The measurement
           </div>
           <div className="mt-1 leading-relaxed">
@@ -752,7 +752,7 @@ export function DispatchAskComposerStudy() {
           </div>
         </div>
         <div>
-          <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-studio-ink">
+          <div className="text-2xs font-semibold uppercase tracking-[0.14em] text-studio-ink">
             Accent rule
           </div>
           <div className="mt-1 leading-relaxed">
@@ -765,7 +765,7 @@ export function DispatchAskComposerStudy() {
       <section id="baseline" className="scroll-mt-6 space-y-3">
         <div className="max-w-prose">
           <EyebrowLabel as="h2">Baseline · as it ships</EyebrowLabel>
-          <p className="mt-1 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+          <p className="mt-1 font-sans text-lg leading-relaxed text-studio-ink-faint">
             Faithful reproduction of the shipped module, drawn with studio tokens: same control
             inventory, same clamps, same accent spend. Open the selects — they work; you just
             cannot read them.
@@ -777,7 +777,7 @@ export function DispatchAskComposerStudy() {
       <section id="treatment-a" className="scroll-mt-6 space-y-3">
         <div className="max-w-prose">
           <EyebrowLabel as="h2">A · Routing owns the toolbar line</EyebrowLabel>
-          <p className="mt-1 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+          <p className="mt-1 font-sans text-lg leading-relaxed text-studio-ink-faint">
             The smallest honest fix. <strong className="font-medium text-studio-ink">Send to</strong>{" "}
             goes — the chips sit next to Send, so the direction is already obvious — and the
             explainer is deleted because the placeholder names the agent. The two settings you set
@@ -791,7 +791,7 @@ export function DispatchAskComposerStudy() {
       <section id="treatment-b" className="scroll-mt-6 space-y-3">
         <div className="max-w-prose">
           <EyebrowLabel as="h2">B · One readout, routing on demand</EyebrowLabel>
-          <p className="mt-1 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+          <p className="mt-1 font-sans text-lg leading-relaxed text-studio-ink-faint">
             Routing collapses to a single readout — <code className="font-mono">to …hypatia-2 ·
             claude-opus-4-6</code> — and the composer keeps a field and one line. Click the readout
             and routing unfolds as labelled stat rows; the values get a full line each and never
@@ -814,7 +814,7 @@ export function DispatchAskComposerStudy() {
       <section id="treatment-c" className="scroll-mt-6 space-y-3">
         <div className="max-w-prose">
           <EyebrowLabel as="h2">C · Routing first, chips while cold</EyebrowLabel>
-          <p className="mt-1 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+          <p className="mt-1 font-sans text-lg leading-relaxed text-studio-ink-faint">
             The vertical rhythm re-cut. Routing becomes an instrument band at the top — who before
             what — the request body is the panel&apos;s centre, and the prompt chips stop paying
             rent once you have typed anything. Two columns at 520px; at 380px the band stacks to
@@ -831,18 +831,18 @@ export function DispatchAskComposerStudy() {
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           {NOTES.map((note) => (
             <div key={note.id} className="min-w-0">
-              <div className="font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-studio-ink">
+              <div className="font-mono text-2xs font-semibold uppercase tracking-[0.12em] text-studio-ink">
                 {note.id} · {note.title}
               </div>
-              <dl className="mt-2 space-y-2 font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+              <dl className="mt-2 space-y-2 font-sans text-md leading-relaxed text-studio-ink-faint">
                 <div>
-                  <dt className="font-mono text-[9px] uppercase tracking-[0.12em] text-studio-ink-muted">
+                  <dt className="font-mono text-2xs uppercase tracking-[0.12em] text-studio-ink-muted">
                     Costs
                   </dt>
                   <dd className="mt-0.5">{note.costs}</dd>
                 </div>
                 <div>
-                  <dt className="font-mono text-[9px] uppercase tracking-[0.12em] text-studio-ink-muted">
+                  <dt className="font-mono text-2xs uppercase tracking-[0.12em] text-studio-ink-muted">
                     Buys
                   </dt>
                   <dd className="mt-0.5">{note.buys}</dd>

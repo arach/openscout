@@ -208,17 +208,17 @@ function TreeNodeView({
         >
           <span
             aria-hidden
-            className={`w-3 shrink-0 text-[10px] text-studio-ink-faint transition-transform ${
+            className={`w-3 shrink-0 text-xs text-studio-ink-faint transition-transform ${
               open ? "translate-y-px" : ""
             }`}
           >
             {open ? "▾" : "▸"}
           </span>
           <FolderGlyph open={open} />
-          <span className="min-w-0 flex-1 truncate text-left text-[12px] text-studio-ink">
+          <span className="min-w-0 flex-1 truncate text-left text-md text-studio-ink">
             {node.name}
           </span>
-          <span className="font-mono text-[9.5px] tabular-nums text-studio-ink-faint">
+          <span className="font-mono text-2xs tabular-nums text-studio-ink-faint">
             {fileCount}
           </span>
         </button>
@@ -245,7 +245,7 @@ function TreeNodeView({
             ))}
             {node.truncatedAtDepth ? (
               <div
-                className="font-mono text-[9.5px] italic text-studio-ink-faint"
+                className="font-mono text-2xs italic text-studio-ink-faint"
                 style={{ paddingLeft: 8 }}
               >
                 …truncated at depth
@@ -274,7 +274,7 @@ function TreeNodeView({
       <span aria-hidden className="w-3 shrink-0" />
       <FileGlyph extension={extOf(node.name)} />
       <span
-        className={`min-w-0 flex-1 truncate text-[12px] ${
+        className={`min-w-0 flex-1 truncate text-md ${
           isCurrent
             ? "text-studio-ink"
             : "text-studio-ink-muted group-hover:text-studio-ink"
@@ -283,7 +283,7 @@ function TreeNodeView({
         {node.name}
       </span>
       {typeof node.bytes === "number" ? (
-        <span className="font-mono text-[9.5px] tabular-nums text-studio-ink-faint">
+        <span className="font-mono text-2xs tabular-nums text-studio-ink-faint">
           {formatBytes(node.bytes)}
         </span>
       ) : null}

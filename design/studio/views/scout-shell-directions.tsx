@@ -47,10 +47,10 @@ function RailHeader({ label, status }: { label: string; status?: string }) {
     <div className="flex h-[34px] flex-none items-center justify-between px-3.5" style={{ borderBottom: `1px solid ${INK.edgeSoft}` }}>
       <div className="flex items-center gap-2">
         <span className="h-3.5 w-[2px] rounded-full" style={{ background: ACCENT }} />
-        <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-studio-ink-muted">{label}</span>
+        <span className="font-mono text-xs font-semibold uppercase tracking-[0.16em] text-studio-ink-muted">{label}</span>
       </div>
       {status ? (
-        <span className="flex items-center gap-1.5 font-mono text-[8.5px] uppercase tracking-[0.12em] text-studio-ink-faint">
+        <span className="flex items-center gap-1.5 font-mono text-3xs uppercase tracking-[0.12em] text-studio-ink-faint">
           <span className="h-1.5 w-1.5 rounded-full" style={{ background: INK.edge }} />
           {status}
         </span>
@@ -66,8 +66,8 @@ function Body({ children }: { children: React.ReactNode }) {
 function Footer({ primary, secondary }: { primary: string; secondary: string }) {
   return (
     <div className="flex flex-none items-center gap-1.5 px-3 py-2.5" style={{ borderTop: `1px solid ${INK.edgeSoft}`, background: INK.rail }}>
-      <button className="flex-1 rounded-[4px] py-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.12em]" style={{ background: ACCENT, color: INK.canvas }}>{primary}</button>
-      <button className="flex-1 rounded-[4px] py-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-studio-ink-muted" style={{ border: `1px solid ${INK.edge}` }}>{secondary}</button>
+      <button className="flex-1 rounded-[4px] py-1.5 font-mono text-2xs font-semibold uppercase tracking-[0.12em]" style={{ background: ACCENT, color: INK.canvas }}>{primary}</button>
+      <button className="flex-1 rounded-[4px] py-1.5 font-mono text-2xs font-semibold uppercase tracking-[0.12em] text-studio-ink-muted" style={{ border: `1px solid ${INK.edge}` }}>{secondary}</button>
     </div>
   );
 }
@@ -78,8 +78,8 @@ function Section({ label, count, children }: { label: string; count?: React.Reac
   return (
     <div>
       <div className="mb-2 flex items-baseline justify-between">
-        <span className="font-mono text-[8px] font-semibold uppercase tracking-[0.18em] text-studio-ink-faint">{label}</span>
-        {count != null ? <span className="font-mono text-[8.5px] tabular-nums text-studio-ink-faint">{count}</span> : null}
+        <span className="font-mono text-3xs font-semibold uppercase tracking-[0.18em] text-studio-ink-faint">{label}</span>
+        {count != null ? <span className="font-mono text-3xs tabular-nums text-studio-ink-faint">{count}</span> : null}
       </div>
       {children}
     </div>
@@ -97,8 +97,8 @@ function StatRow({ stats }: { stats: Stat[] }) {
           className="flex flex-1 flex-col gap-1.5"
           style={{ paddingLeft: i ? 12 : 0, marginLeft: i ? 12 : 0, borderLeft: i ? `1px solid ${INK.edgeSoft}` : undefined }}
         >
-          <span className="font-mono text-[7.5px] font-semibold uppercase tracking-[0.12em] text-studio-ink-faint">{s.k}</span>
-          <span className="font-mono text-[19px] leading-none tabular-nums" style={{ color: s.accent ? ACCENT : "var(--studio-ink)" }}>{s.v}</span>
+          <span className="font-mono text-3xs font-semibold uppercase tracking-[0.12em] text-studio-ink-faint">{s.k}</span>
+          <span className="font-mono text-4xl leading-none tabular-nums" style={{ color: s.accent ? ACCENT : "var(--studio-ink)" }}>{s.v}</span>
         </div>
       ))}
     </div>
@@ -111,7 +111,7 @@ function TagMix({ tags }: { tags: T[] }) {
   return (
     <div className="flex flex-wrap gap-1.5">
       {tags.map((t) => (
-        <span key={t.label} className="inline-flex items-center gap-1.5 rounded-[3px] px-1.5 py-[2.5px] font-mono text-[9px]" style={{ border: `1px solid ${INK.edge}` }}>
+        <span key={t.label} className="inline-flex items-center gap-1.5 rounded-[3px] px-1.5 py-[2.5px] font-mono text-2xs" style={{ border: `1px solid ${INK.edge}` }}>
           <span className="text-studio-ink-muted">{t.label}</span>
           {t.count != null ? <span className="tabular-nums text-studio-ink-faint">{t.count}</span> : null}
         </span>
@@ -128,8 +128,8 @@ function RowList({ rows }: { rows: LRow[] }) {
       {rows.map((r) => (
         <div key={r.name} className="flex items-center gap-2">
           <span className="h-1.5 w-1.5 flex-none rounded-full" style={{ background: r.dot ?? INK.edge }} />
-          <span className="truncate font-mono text-[11px]" style={{ color: r.dim ? "var(--studio-ink-faint)" : "var(--studio-ink-muted)" }}>{r.name}</span>
-          {r.meta != null ? <span className="ml-auto flex-none font-mono text-[9px] tabular-nums text-studio-ink-faint">{r.meta}</span> : null}
+          <span className="truncate font-mono text-sm" style={{ color: r.dim ? "var(--studio-ink-faint)" : "var(--studio-ink-muted)" }}>{r.name}</span>
+          {r.meta != null ? <span className="ml-auto flex-none font-mono text-2xs tabular-nums text-studio-ink-faint">{r.meta}</span> : null}
         </div>
       ))}
     </div>
@@ -144,13 +144,13 @@ function QuietKV({ rows }: { rows: KRow[] }) {
       {rows.map((r) =>
         r.wide ? (
           <div key={r.k} className="flex flex-col gap-[2px]">
-            <span className="font-mono text-[7.5px] uppercase tracking-[0.1em] text-studio-ink-faint">{r.k}</span>
-            <span className="truncate font-mono text-[10px]" style={{ color: r.color ?? "var(--studio-ink-muted)" }}>{r.v}</span>
+            <span className="font-mono text-3xs uppercase tracking-[0.1em] text-studio-ink-faint">{r.k}</span>
+            <span className="truncate font-mono text-xs" style={{ color: r.color ?? "var(--studio-ink-muted)" }}>{r.v}</span>
           </div>
         ) : (
           <div key={r.k} className="flex items-baseline justify-between gap-3">
-            <span className="font-mono text-[8px] uppercase tracking-[0.1em] text-studio-ink-faint">{r.k}</span>
-            <span className="truncate text-right font-mono text-[10px] tabular-nums" style={{ color: r.color ?? "var(--studio-ink-muted)" }}>{r.v}</span>
+            <span className="font-mono text-3xs uppercase tracking-[0.1em] text-studio-ink-faint">{r.k}</span>
+            <span className="truncate text-right font-mono text-xs tabular-nums" style={{ color: r.color ?? "var(--studio-ink-muted)" }}>{r.v}</span>
           </div>
         )
       )}
@@ -159,7 +159,7 @@ function QuietKV({ rows }: { rows: KRow[] }) {
 }
 
 function EmptyLine({ children }: { children: React.ReactNode }) {
-  return <p className="font-mono text-[10px] leading-relaxed text-studio-ink-faint">{children}</p>;
+  return <p className="font-mono text-xs leading-relaxed text-studio-ink-faint">{children}</p>;
 }
 
 function Identity({ glyph, name, sub }: { glyph: React.ReactNode; name: string; sub: string }) {
@@ -169,8 +169,8 @@ function Identity({ glyph, name, sub }: { glyph: React.ReactNode; name: string; 
         {glyph}
       </div>
       <div className="min-w-0">
-        <div className="truncate font-mono text-[15px] leading-none text-studio-ink">{name}</div>
-        <div className="mt-1.5 truncate font-mono text-[9px] text-studio-ink-faint">{sub}</div>
+        <div className="truncate font-mono text-2xl leading-none text-studio-ink">{name}</div>
+        <div className="mt-1.5 truncate font-mono text-2xs text-studio-ink-faint">{sub}</div>
       </div>
     </div>
   );
@@ -178,7 +178,7 @@ function Identity({ glyph, name, sub }: { glyph: React.ReactNode; name: string; 
 
 function Tag({ children }: { children: React.ReactNode }) {
   return (
-    <span className="inline-flex items-center rounded-[3px] px-1.5 py-[1px] font-mono text-[8px] font-semibold uppercase tracking-[0.1em] text-studio-ink-faint" style={{ border: `1px solid ${INK.edge}` }}>
+    <span className="inline-flex items-center rounded-[3px] px-1.5 py-[1px] font-mono text-3xs font-semibold uppercase tracking-[0.1em] text-studio-ink-faint" style={{ border: `1px solid ${INK.edge}` }}>
       {children}
     </span>
   );
@@ -203,8 +203,8 @@ function ChurnLead({ add, del }: { add: number; del: number }) {
   return (
     <div>
       <div className="mb-2 flex items-baseline justify-between">
-        <span className="font-mono text-[8px] font-semibold uppercase tracking-[0.18em] text-studio-ink-faint">Churn · main</span>
-        <span className="font-mono text-[10px] tabular-nums">
+        <span className="font-mono text-3xs font-semibold uppercase tracking-[0.18em] text-studio-ink-faint">Churn · main</span>
+        <span className="font-mono text-xs tabular-nums">
           <span style={{ color: ADD }}>+{add}</span> <span style={{ color: DEL }}>−{del}</span>
         </span>
       </div>
@@ -220,7 +220,7 @@ function MessageQuote({ kind, text }: { kind: string; text: string }) {
   return (
     <div className="pl-2.5" style={{ borderLeft: `2px solid ${INK.edge}` }}>
       <div className="mb-1.5"><Tag>{kind}</Tag></div>
-      <p className="font-mono text-[10px] leading-relaxed text-studio-ink-muted">{text}</p>
+      <p className="font-mono text-xs leading-relaxed text-studio-ink-muted">{text}</p>
     </div>
   );
 }
@@ -306,8 +306,8 @@ function TailSidebar({ flush }: { flush?: boolean }) {
       <RailHeader label="Event" status="codex" />
       <Body>
         <div className="flex items-baseline gap-2.5">
-          <span className="font-mono text-[20px] leading-none tabular-nums text-studio-ink">00:01:55</span>
-          <span className="font-mono text-[9px] text-studio-ink-faint">talkie · 019eb9da</span>
+          <span className="font-mono text-4xl leading-none tabular-nums text-studio-ink">00:01:55</span>
+          <span className="font-mono text-2xs text-studio-ink-faint">talkie · 019eb9da</span>
         </div>
 
         <Section label="Message"><MessageQuote kind="assistant" text="Done. I tightened the selector geometry and quieted the idle pulse — the rail now settles in one frame instead of three." /></Section>
@@ -420,7 +420,7 @@ function SurfaceFrame({ title, shape, sidebar }: { title: string; shape: Shape; 
     <div className="overflow-hidden rounded-[10px]" style={{ background: INK.canvas, border: `1px solid ${INK.edge}`, boxShadow: "0 30px 70px -34px rgba(0,0,0,0.85)" }}>
       <div className="flex h-[30px] items-center px-3" style={{ borderBottom: `1px solid ${INK.edgeSoft}`, background: INK.rail }}>
         <Lights />
-        <div className="flex-1 text-center font-mono text-[10px] tracking-[0.12em] text-studio-ink-faint">{title}</div>
+        <div className="flex-1 text-center font-mono text-xs tracking-[0.12em] text-studio-ink-faint">{title}</div>
         <div className="w-[44px]" />
       </div>
 
@@ -432,7 +432,7 @@ function SurfaceFrame({ title, shape, sidebar }: { title: string; shape: Shape; 
 
         <div className="relative min-w-0 flex-1" style={{ borderRight: `1px solid ${INK.edgeSoft}`, background: INK.canvas }}>
           <CenterSkeleton shape={shape} />
-          <div className="absolute left-3 top-3 z-10 font-mono text-[8px] uppercase tracking-[0.14em]" style={{ color: INK.edge }}>
+          <div className="absolute left-3 top-3 z-10 font-mono text-3xs uppercase tracking-[0.14em]" style={{ color: INK.edge }}>
             center · separate study
           </div>
         </div>
@@ -442,7 +442,7 @@ function SurfaceFrame({ title, shape, sidebar }: { title: string; shape: Shape; 
 
       <div className="flex h-[22px] items-center gap-2 px-3" style={{ borderTop: `1px solid ${INK.edgeSoft}`, background: INK.rail }}>
         <span className="h-1.5 w-1.5 rounded-full" style={{ background: INK.edge }} />
-        <span className="font-mono text-[8.5px] tracking-[0.14em] text-studio-ink-faint">{title.split("·").pop()?.trim()}</span>
+        <span className="font-mono text-3xs tracking-[0.14em] text-studio-ink-faint">{title.split("·").pop()?.trim()}</span>
       </div>
     </div>
   );
@@ -456,10 +456,10 @@ function SurfaceHeading({ n, title, note }: { n: string; title: string; note: st
   return (
     <div className="mb-5 flex items-end justify-between gap-6">
       <div className="flex items-baseline gap-3">
-        <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-scout-accent">{n}</span>
-        <h2 className="font-display text-[22px] font-medium tracking-tight text-studio-ink">{title}</h2>
+        <span className="font-mono text-sm font-semibold uppercase tracking-[0.16em] text-scout-accent">{n}</span>
+        <h2 className="font-display text-5xl font-medium tracking-tight text-studio-ink">{title}</h2>
       </div>
-      <p className="max-w-md text-right font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">{note}</p>
+      <p className="max-w-md text-right font-sans text-md leading-relaxed text-studio-ink-faint">{note}</p>
     </div>
   );
 }
@@ -469,13 +469,13 @@ export default function ScoutShellDirectionsPage() {
     <main className="mx-auto max-w-page px-7 py-10">
       <header className="mb-14 max-w-2xl">
         <div className="mb-2 flex items-center gap-2">
-          <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">· studies · macos · shell</span>
-          <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-[0.1em]" style={{ background: "var(--scout-accent-soft)", color: ACCENT }}>
+          <span className="font-mono text-sm font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">· studies · macos · shell</span>
+          <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-mono text-3xs font-semibold uppercase tracking-[0.1em]" style={{ background: "var(--scout-accent-soft)", color: ACCENT }}>
             <span className="h-1 w-1 rounded-full bg-current" />Instrument
           </span>
         </div>
-        <h1 className="font-display text-[34px] font-medium leading-[1.05] tracking-tight text-studio-ink">The inspector sidebar</h1>
-        <p className="mt-4 font-sans text-[14px] leading-relaxed text-studio-ink-faint">
+        <h1 className="font-display text-6xl font-medium leading-[1.05] tracking-tight text-studio-ink">The inspector sidebar</h1>
+        <p className="mt-4 font-sans text-xl leading-relaxed text-studio-ink-faint">
           The Instrument structure vocabulary — borrowed from the live app's
           CONTEXT panel — applied to the right-side inspector across the four
           real surfaces. Flat sections under faint labels; structure comes from
@@ -508,8 +508,8 @@ export default function ScoutShellDirectionsPage() {
       </div>
 
       <div className="mt-16 rounded-[8px] border border-studio-edge bg-studio-canvas-alt px-5 py-4">
-        <p className="font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
-          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-studio-ink-muted">The structure vocabulary</span>
+        <p className="font-sans text-md leading-relaxed text-studio-ink-faint">
+          <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-studio-ink-muted">The structure vocabulary</span>
           <br />
           <span className="mt-1 block">Stat readouts (big number · tiny label) · tag distributions (pill + count) · dot-led list rows · quiet label/value lines · plain empty states. Flat sections under faint labels — no boxes. A single accent for the live signal and primary action; green/red reserved for diff churn. Lifted from the live CONTEXT panel so the inspector and the rest of the app speak the same language.</span>
         </p>

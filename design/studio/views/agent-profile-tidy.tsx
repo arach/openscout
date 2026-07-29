@@ -72,12 +72,12 @@ function StatePill({ inline }: { inline?: boolean }) {
     <span className="inline-flex items-center gap-1.5">
       <span className="h-1.5 w-1.5 rounded-full" style={{ background: ACCENT }} />
       <span
-        className={inline ? "text-[10px] text-studio-ink-muted" : "font-mono text-[9px] uppercase tracking-[0.16em]"}
+        className={inline ? "text-xs text-studio-ink-muted" : "font-mono text-2xs uppercase tracking-[0.16em]"}
         style={inline ? undefined : { color: "var(--studio-ink)" }}
       >
         Ready
       </span>
-      <span className="font-mono text-[8.5px] text-studio-ink-faint">· 2m</span>
+      <span className="font-mono text-3xs text-studio-ink-faint">· 2m</span>
     </span>
   );
 }
@@ -88,17 +88,17 @@ function FacetCell({ facet, wide }: { facet: Facet; wide?: boolean }) {
       className="min-w-0 px-3 py-2.5"
       style={{ background: INK.canvas, gridColumn: wide ? "span 2" : undefined }}
     >
-      <div className="mb-1 font-mono text-[7.5px] font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">
+      <div className="mb-1 font-mono text-3xs font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">
         {facet.label}
       </div>
       <div
-        className={`truncate ${facet.mono ? "font-mono text-[10px]" : "text-[12px]"}`}
+        className={`truncate ${facet.mono ? "font-mono text-xs" : "text-md"}`}
         style={{ color: "var(--studio-ink)" }}
       >
         {facet.value}
       </div>
       {facet.detail ? (
-        <div className="mt-0.5 truncate font-mono text-[8.5px] text-studio-ink-faint">{facet.detail}</div>
+        <div className="mt-0.5 truncate font-mono text-3xs text-studio-ink-faint">{facet.detail}</div>
       ) : null}
     </div>
   );
@@ -115,12 +115,12 @@ function CenterPane({ mode }: { mode: "before" | "after" }) {
       <div className="flex items-start gap-3">
         <Avatar size={48} />
         <div className="min-w-0 flex-1">
-          <div className="font-mono text-[8px] uppercase tracking-[0.16em] text-studio-ink-faint">agent · claude</div>
+          <div className="font-mono text-3xs uppercase tracking-[0.16em] text-studio-ink-faint">agent · claude</div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="font-display text-[22px] leading-none" style={{ color: "var(--studio-ink)" }}>
+            <span className="font-display text-5xl leading-none" style={{ color: "var(--studio-ink)" }}>
               Openscout Card 0
             </span>
-            <span className="font-mono text-[11px] text-studio-ink-faint">@openscout-card-0-lxrq1a</span>
+            <span className="font-mono text-sm text-studio-ink-faint">@openscout-card-0-lxrq1a</span>
           </div>
           <div className="mt-2">
             <StatePill />
@@ -166,7 +166,7 @@ function CenterPane({ mode }: { mode: "before" | "after" }) {
         </div>
         {!after ? (
           <div className="mt-3 flex h-16 items-center justify-center rounded-md border border-dashed" style={{ borderColor: INK.edgeSoft }}>
-            <span className="font-mono text-[8.5px] uppercase tracking-[0.14em] text-studio-ink-faint">cells balloon · 7xl bottom padding opens dead canvas</span>
+            <span className="font-mono text-3xs uppercase tracking-[0.14em] text-studio-ink-faint">cells balloon · 7xl bottom padding opens dead canvas</span>
           </div>
         ) : null}
       </div>
@@ -188,10 +188,10 @@ function RailSection({
   return (
     <div>
       <div className="mb-1.5 flex items-center gap-2">
-        <span className="font-mono text-[8px] font-semibold uppercase tracking-[0.18em] text-studio-ink-faint">{label}</span>
+        <span className="font-mono text-3xs font-semibold uppercase tracking-[0.18em] text-studio-ink-faint">{label}</span>
         {echo ? (
           <span
-            className="rounded-[3px] px-1 py-[1px] font-mono text-[7px] uppercase tracking-[0.1em]"
+            className="rounded-[3px] px-1 py-[1px] font-mono text-3xs uppercase tracking-[0.1em]"
             style={{ color: DEL, border: `1px solid color-mix(in srgb, ${DEL} 40%, transparent)` }}
           >
             echoes center
@@ -206,8 +206,8 @@ function RailSection({
 function RailRow({ k, v }: { k: string; v: string }) {
   return (
     <div className="flex items-baseline justify-between gap-2 py-0.5">
-      <span className="font-mono text-[8px] uppercase tracking-[0.1em] text-studio-ink-faint">{k}</span>
-      <span className="truncate font-mono text-[9.5px]" style={{ color: "var(--studio-ink-muted, oklch(0.7 0.01 80))" }}>{v}</span>
+      <span className="font-mono text-3xs uppercase tracking-[0.1em] text-studio-ink-faint">{k}</span>
+      <span className="truncate font-mono text-2xs" style={{ color: "var(--studio-ink-muted, oklch(0.7 0.01 80))" }}>{v}</span>
     </div>
   );
 }
@@ -236,7 +236,7 @@ function Caps() {
   return (
     <div className="flex flex-wrap gap-1">
       {["read", "edit", "shell", "ask", "spawn"].map((c) => (
-        <span key={c} className="rounded-[3px] px-1.5 py-[2px] font-mono text-[8px]" style={{ background: INK.module, color: "var(--studio-ink-muted, oklch(0.7 0.01 80))" }}>
+        <span key={c} className="rounded-[3px] px-1.5 py-[2px] font-mono text-3xs" style={{ background: INK.module, color: "var(--studio-ink-muted, oklch(0.7 0.01 80))" }}>
           {c}
         </span>
       ))}
@@ -249,11 +249,11 @@ function SessionCard() {
     <div className="rounded border px-2 py-1.5" style={{ borderColor: "color-mix(in srgb, var(--scout-accent) 40%, transparent)", background: "color-mix(in srgb, var(--scout-accent) 8%, transparent)" }}>
       <div className="flex items-center gap-1.5">
         <span className="h-1.5 w-1.5 rounded-full" style={{ background: ACCENT }} />
-        <span className="font-mono text-[9.5px]" style={{ color: "var(--studio-ink)" }}>a1b2c3d4</span>
-        <span className="rounded-sm px-1 font-mono text-[7px] uppercase tracking-[0.08em] text-studio-ink-faint" style={{ background: INK.module }}>tmux</span>
-        <span className="ml-auto font-mono text-[7.5px] uppercase tracking-[0.12em]" style={{ color: ACCENT }}>active</span>
+        <span className="font-mono text-2xs" style={{ color: "var(--studio-ink)" }}>a1b2c3d4</span>
+        <span className="rounded-sm px-1 font-mono text-3xs uppercase tracking-[0.08em] text-studio-ink-faint" style={{ background: INK.module }}>tmux</span>
+        <span className="ml-auto font-mono text-3xs uppercase tracking-[0.12em]" style={{ color: ACCENT }}>active</span>
       </div>
-      <div className="mt-0.5 font-mono text-[8px] text-studio-ink-faint">openscout</div>
+      <div className="mt-0.5 font-mono text-3xs text-studio-ink-faint">openscout</div>
     </div>
   );
 }
@@ -263,15 +263,15 @@ function Rail({ mode }: { mode: "before" | "after" }) {
   return (
     <div className="flex w-[228px] flex-none flex-col" style={{ background: INK.panel, borderLeft: `1px solid ${INK.edge}` }}>
       <div className="flex h-[30px] flex-none items-center px-3" style={{ borderBottom: `1px solid ${INK.edgeSoft}` }}>
-        <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">Context</span>
+        <span className="font-mono text-2xs font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">Context</span>
       </div>
       <div className="flex flex-col gap-3.5 p-3">
         {/* identity header */}
         <div className="flex items-center gap-2 pb-2.5" style={{ borderBottom: `1px solid ${INK.edgeSoft}` }}>
           <Avatar size={28} />
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[11px]" style={{ color: "var(--studio-ink)" }}>Openscout Card 0</div>
-            <div className="font-mono text-[8.5px]" style={{ color: "oklch(0.7 0.08 200)" }}>@openscout-card-0-lxrq1a</div>
+            <div className="truncate text-sm" style={{ color: "var(--studio-ink)" }}>Openscout Card 0</div>
+            <div className="font-mono text-3xs" style={{ color: "oklch(0.7 0.08 200)" }}>@openscout-card-0-lxrq1a</div>
             {after ? <div className="mt-1"><StatePill inline /></div> : null}
           </div>
         </div>
@@ -280,9 +280,9 @@ function Rail({ mode }: { mode: "before" | "after" }) {
           <RailSection label="State" echo>
             <div className="flex items-baseline gap-2">
               <span className="h-1.5 w-1.5 rounded-full" style={{ background: ACCENT }} />
-              <span className="text-[11px] capitalize" style={{ color: "var(--studio-ink)" }}>ready</span>
+              <span className="text-sm capitalize" style={{ color: "var(--studio-ink)" }}>ready</span>
             </div>
-            <div className="mt-1 font-mono text-[8.5px] text-studio-ink-faint">Updated 2m</div>
+            <div className="mt-1 font-mono text-3xs text-studio-ink-faint">Updated 2m</div>
           </RailSection>
         )}
 
@@ -318,7 +318,7 @@ function Rail({ mode }: { mode: "before" | "after" }) {
 
         {after ? (
           <div className="mt-1 rounded-[4px] px-2 py-1.5" style={{ border: `1px dashed ${INK.edgeSoft}` }}>
-            <span className="font-mono text-[7.5px] leading-relaxed text-studio-ink-faint">
+            <span className="font-mono text-3xs leading-relaxed text-studio-ink-faint">
               state · identity · project now owned by the center profile
             </span>
           </div>
@@ -346,7 +346,7 @@ function Frame({
     <div className="flex min-w-0 flex-col gap-2">
       <div className="flex items-center gap-2">
         <span
-          className="rounded-[3px] px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-[0.14em]"
+          className="rounded-[3px] px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-[0.14em]"
           style={
             mode === "after"
               ? { color: INK.canvas, background: ACCENT }
@@ -355,7 +355,7 @@ function Frame({
         >
           {label}
         </span>
-        <span className="font-mono text-[9px] text-studio-ink-faint">{caption}</span>
+        <span className="font-mono text-2xs text-studio-ink-faint">{caption}</span>
       </div>
       {screenshot ? (
         // eslint-disable-next-line @next/next/no-img-element
@@ -381,13 +381,13 @@ export default function AgentProfileTidyPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-6 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · agent-profile-tidy
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Agent Profile · tidy pass
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           Two cleanups to the live Agents → profile surface. The center metadata grid stops
           ballooning into 2 stretched cells, and the right rail stops re-printing the same
           facts the center already owns — it narrows to a live Instrument. Before / after below.
@@ -405,28 +405,28 @@ export default function AgentProfileTidyPage() {
       </div>
 
       <section className="mt-9 max-w-prose">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">
           What changed
         </div>
-        <ul className="flex flex-col gap-2 text-[12px] leading-relaxed text-studio-ink-faint">
+        <ul className="flex flex-col gap-2 text-md leading-relaxed text-studio-ink-faint">
           <li>
             <span style={{ color: "var(--studio-ink)" }}>Center facets →</span> stretchy flex-wrap
-            (<code className="font-mono text-[11px]">flex: 1 1 220px</code>) replaced with a uniform
-            <code className="font-mono text-[11px]"> grid</code>
-            (<code className="font-mono text-[11px]">auto-fill, minmax(220px, 1fr)</code>); the long
-            Agent-ID cell spans two columns. Bottom padding trimmed <code className="font-mono text-[11px]">7xl → 6xl</code>.
+            (<code className="font-mono text-sm">flex: 1 1 220px</code>) replaced with a uniform
+            <code className="font-mono text-sm"> grid</code>
+            (<code className="font-mono text-sm">auto-fill, minmax(220px, 1fr)</code>); the long
+            Agent-ID cell spans two columns. Bottom padding trimmed <code className="font-mono text-sm">7xl → 6xl</code>.
           </li>
           <li>
             <span style={{ color: "var(--studio-ink)" }}>Rail redundancy →</span> on the profile tab the
             rail drops <span style={{ color: DEL }}>State · Identity · Project</span>, folds a live state
             line into its header, and keeps only presence · capabilities · sessions. Guarded so the
-            Observe/Message tabs and the standalone <code className="font-mono text-[11px]">agent-info</code> rail
+            Observe/Message tabs and the standalone <code className="font-mono text-sm">agent-info</code> rail
             keep the full blocks.
           </li>
           <li>
             <span style={{ color: "var(--studio-ink)" }}>Trade-off →</span> hiding the rail&apos;s Identity
-            block also removes <code className="font-mono text-[11px]">Class</code> +
-            <code className="font-mono text-[11px]"> Transport</code> from the profile view (the center
+            block also removes <code className="font-mono text-sm">Class</code> +
+            <code className="font-mono text-sm"> Transport</code> from the profile view (the center
             facets don&apos;t carry those two). Everything else was pure duplication.
           </li>
         </ul>

@@ -111,15 +111,15 @@ export default function AgentPulsePage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-8 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · agent-pulse
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Agent pulse
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           Single primitive for "this agent is doing X." Visual lifted from{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
+          <code className="font-mono text-sm text-studio-ink">
             HomeAgentsInspector.AgentRow
           </code>{" "}
           and rebuilt against studio tokens. Six agent states, three densities.
@@ -165,10 +165,10 @@ function Section({
   return (
     <section className="mb-10">
       <div className="mb-3 flex items-baseline gap-3">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · {title}
         </div>
-        <div className="font-mono text-[10px] text-studio-ink-faint">{hint}</div>
+        <div className="font-mono text-xs text-studio-ink-faint">{hint}</div>
         <div className="ml-3 h-px flex-1 bg-studio-edge" />
       </div>
       {children}
@@ -210,19 +210,19 @@ function AgentRow({
                 : undefined,
           }}
         />
-        <span className="w-[80px] shrink-0 font-sans text-[13px] font-medium text-studio-ink">
+        <span className="w-[80px] shrink-0 font-sans text-lg font-medium text-studio-ink">
           {agent.name}
         </span>
         <span
-          className="w-[110px] shrink-0 font-mono text-[10px] uppercase tracking-eyebrow"
+          className="w-[110px] shrink-0 font-mono text-xs uppercase tracking-eyebrow"
           style={{ color: dotColor }}
         >
           {STATE_LABEL[agent.state]}
         </span>
-        <span className="min-w-0 flex-1 truncate font-sans text-[12.5px] text-studio-ink-faint group-hover:text-studio-ink">
+        <span className="min-w-0 flex-1 truncate font-sans text-md text-studio-ink-faint group-hover:text-studio-ink">
           {agent.task ?? "—"}
         </span>
-        <span className="shrink-0 font-mono text-[10px] tabular-nums text-studio-ink-faint group-hover:text-studio-ink-faint">
+        <span className="shrink-0 font-mono text-xs tabular-nums text-studio-ink-faint group-hover:text-studio-ink-faint">
           {agent.updatedAgo}
         </span>
       </div>
@@ -231,7 +231,7 @@ function AgentRow({
 
   const padY = density === "compact" ? "py-1" : "py-1.5";
   const avatarSize =
-    density === "compact" ? "h-5 w-5 text-[10px]" : "h-6 w-6 text-[10.5px]";
+    density === "compact" ? "h-5 w-5 text-xs" : "h-6 w-6 text-xs";
   const dotRing = density === "compact" ? "ring-1" : "ring-2";
 
   return (
@@ -266,11 +266,11 @@ function AgentRow({
         ) : null}
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate font-sans text-[12.5px] text-studio-ink">
+        <span className="truncate font-sans text-md text-studio-ink">
           {agent.name}
         </span>
         <span
-          className="truncate font-mono text-[10px]"
+          className="truncate font-mono text-xs"
           style={{ color: dotColor }}
         >
           {STATE_LABEL[agent.state]}
@@ -279,7 +279,7 @@ function AgentRow({
           ) : null}
         </span>
       </div>
-      <span className="shrink-0 font-mono text-[9.5px] tabular-nums text-studio-ink-faint group-hover:text-studio-ink-faint">
+      <span className="shrink-0 font-mono text-2xs tabular-nums text-studio-ink-faint group-hover:text-studio-ink-faint">
         {agent.updatedAgo}
       </span>
     </div>

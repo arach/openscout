@@ -228,9 +228,9 @@
   text-overflow: ellipsis; white-space: nowrap;
 }
 .ops__task { min-width: 0; overflow: hidden; margin: 0; color: #71716c; font: 500 9px/1.2 var(--deck-mono); text-overflow: ellipsis; white-space: nowrap; }
-.ops__console .deck-phase { min-height: 20px; gap: 8px; font-size: 8px; letter-spacing: .08em; }
-.ops__console .deck-phase__detail { font-size: 8px; }
-.ops__console .deck-phase__clock { font-size: 9px; }
+.ops__console .deck-phase { min-height: 20px; gap: 8px; font-size: var(--text-3xs); letter-spacing: .08em; }
+.ops__console .deck-phase__detail { font-size: var(--text-3xs); }
+.ops__console .deck-phase__clock { font-size: var(--text-2xs); }
 .ops__console .deck-lamp { width: 5px; height: 5px; }
 .ops__console-rows { min-height: 0; overflow: auto; padding-top: 2px; }
 .ops__console-row {
@@ -371,8 +371,8 @@
 
 .ops--standby { grid-template-rows: minmax(0, 1fr); }
 .ops__standby { margin: auto; max-width: 440px; display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; }
-.ops__standby > strong { color: #e2e2df; font-size: 18px; }
-.ops__standby > p { margin: 0; color: #71716c; font-size: 12px; line-height: 1.5; }
+.ops__standby > strong { color: #e2e2df; font-size: var(--text-3xl); }
+.ops__standby > p { margin: 0; color: #71716c; font-size: var(--text-md); line-height: 1.5; }
 
 /* The deck is intentionally dense at 4:3 iPad sizes. At narrower widths the
    channel strip scrolls horizontally while the console/feed remain legible. */

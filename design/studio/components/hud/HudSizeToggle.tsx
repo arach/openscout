@@ -23,7 +23,7 @@ export function HudSizeToggle({
   onChange: (s: HudSize) => void;
 }) {
   return (
-    <div className="flex items-baseline gap-3 font-mono text-[10px] font-bold uppercase tracking-eyebrow">
+    <div className="flex items-baseline gap-3 font-mono text-xs font-bold uppercase tracking-eyebrow">
       <span className="text-studio-ink-faint">· size</span>
       {ITEMS.map((it, i) => {
         const active = it.key === size;
@@ -46,7 +46,7 @@ export function HudSizeToggle({
             >
               <span className="group-hover:text-studio-ink">{it.label}</span>
               <span
-                className="font-mono text-[9px] font-medium tabular-nums"
+                className="font-mono text-2xs font-medium tabular-nums"
                 style={{
                   color: active
                     ? "var(--scout-accent)"

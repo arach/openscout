@@ -142,9 +142,12 @@ export function plansToStudioPages(plans: Plan[]): StudioPage[] {
     href: `/plans/${p.slug}`,
     label: p.title,
     bucket: "plans" as const,
-    family: "plan",
+    // No shared `family` — each plan is its own nav row. A shared
+    // family of "plan" collapsed every plan under the first entry as
+    // variants, which made sidebar sort a no-op (one group to order).
     status: p.status,
     source: p.source,
     blurb: p.blurb,
+    updatedAt: p.updatedAt,
   }));
 }

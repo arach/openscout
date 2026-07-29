@@ -81,7 +81,7 @@ function ThreadHeader({ size }: { size: HudSize }) {
     <div
       className={`flex items-baseline gap-3 border-b border-studio-edge ${PANEL_PAD_X[size]} py-2`}
     >
-      <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · DESKTOP THREAD · TODAY
       </span>
       <span className="ml-auto inline-flex items-baseline gap-1.5">
@@ -89,7 +89,7 @@ function ThreadHeader({ size }: { size: HudSize }) {
           className="inline-block h-[5px] w-[5px] translate-y-[-1px] rounded-full"
           style={{ background: "var(--scout-accent)" }}
         />
-        <span className="font-mono text-[10px] font-bold tracking-eyebrow text-studio-ink">
+        <span className="font-mono text-xs font-bold tracking-eyebrow text-studio-ink">
           ONLINE
         </span>
       </span>
@@ -127,21 +127,21 @@ function Message({
   const isScout = message.source === "scout";
   const sourceLabel = isScout ? "scout" : "you";
   const bodySize =
-    size === "compact" ? "text-[11.5px]" : size === "medium" ? "text-[12.5px]" : "text-[13px]";
+    size === "compact" ? "text-sm" : size === "medium" ? "text-md" : "text-lg";
 
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-baseline gap-2">
         {isScout ? <RobotGlyph size={12} /> : <YouGlyph size={12} />}
         <span
-          className="font-mono text-[10.5px] font-semibold lowercase"
+          className="font-mono text-xs font-semibold lowercase"
           style={{
             color: isScout ? "var(--scout-accent)" : "var(--studio-ink)",
           }}
         >
           @{sourceLabel}
         </span>
-        <span className="ml-auto font-mono text-[9.5px] tabular-nums text-studio-ink-faint">
+        <span className="ml-auto font-mono text-2xs tabular-nums text-studio-ink-faint">
           {message.at}
         </span>
       </div>
@@ -231,7 +231,7 @@ function RailSection({
 }) {
   return (
     <section className="flex flex-col gap-1.5">
-      <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · {label}
       </span>
       <div className="flex flex-col gap-1">{children}</div>
@@ -246,12 +246,12 @@ function RailCmd({ cmd, hint }: { cmd: string; hint: string }) {
       className="flex items-baseline gap-2 rounded-[3px] px-1.5 py-[3px] text-left transition-colors hover:bg-studio-canvas-alt"
     >
       <span
-        className="font-mono text-[10.5px] font-semibold"
+        className="font-mono text-xs font-semibold"
         style={{ color: "var(--scout-accent)" }}
       >
         {cmd}
       </span>
-      <span className="font-sans text-[10.5px] text-studio-ink-muted">{hint}</span>
+      <span className="font-sans text-xs text-studio-ink-muted">{hint}</span>
     </button>
   );
 }
@@ -263,12 +263,12 @@ function RailMention({ name, detail }: { name: string; detail: string }) {
       className="flex items-baseline gap-2 rounded-[3px] px-1.5 py-[3px] text-left transition-colors hover:bg-studio-canvas-alt"
     >
       <span
-        className="font-mono text-[10.5px] font-semibold"
+        className="font-mono text-xs font-semibold"
         style={{ color: "var(--scout-accent)" }}
       >
         @{name}
       </span>
-      <span className="font-mono text-[9.5px] text-studio-ink-faint">{detail}</span>
+      <span className="font-mono text-2xs text-studio-ink-faint">{detail}</span>
     </button>
   );
 }
@@ -276,8 +276,8 @@ function RailMention({ name, detail }: { name: string; detail: string }) {
 function RailRecent({ text, at }: { text: string; at: string }) {
   return (
     <div className="flex items-baseline gap-2 px-1.5 py-[2px]">
-      <span className="font-sans text-[10.5px] text-studio-ink-muted">{text}</span>
-      <span className="ml-auto font-mono text-[9px] tabular-nums text-studio-ink-faint">
+      <span className="font-sans text-xs text-studio-ink-muted">{text}</span>
+      <span className="ml-auto font-mono text-2xs tabular-nums text-studio-ink-faint">
         {at}
       </span>
     </div>

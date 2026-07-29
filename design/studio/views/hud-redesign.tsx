@@ -125,22 +125,22 @@ function Masthead({ active }: { active: Tab }) {
         <span className="mx-3" />
         {TABS.map((t, i) => (
           <span key={t.key} className="flex items-end">
-            {i > 0 ? <span className="mx-2 self-end pb-[3px] font-mono text-[10px] text-studio-ink-faint">·</span> : null}
+            {i > 0 ? <span className="mx-2 self-end pb-[3px] font-mono text-xs text-studio-ink-faint">·</span> : null}
             <span className="flex flex-col items-start">
               <span className="flex items-baseline gap-1">
                 {t.robot ? (
-                  <span className="translate-y-[1px] font-mono text-[10px]" style={{ color: active === t.key ? ACCENT : "var(--studio-ink-faint)" }}>
+                  <span className="translate-y-[1px] font-mono text-xs" style={{ color: active === t.key ? ACCENT : "var(--studio-ink-faint)" }}>
                     ▟
                   </span>
                 ) : null}
-                <span className="font-mono text-[10px] font-bold" style={{ color: active === t.key ? ACCENT : "var(--studio-ink-faint)" }}>
+                <span className="font-mono text-xs font-bold" style={{ color: active === t.key ? ACCENT : "var(--studio-ink-faint)" }}>
                   {t.num}
                 </span>
                 <span
                   className={
                     active === t.key
-                      ? "font-sans text-[12px] font-semibold lowercase text-studio-ink"
-                      : "font-sans text-[12px] lowercase text-studio-ink-faint"
+                      ? "font-sans text-md font-semibold lowercase text-studio-ink"
+                      : "font-sans text-md lowercase text-studio-ink-faint"
                   }
                 >
                   {t.label}
@@ -193,10 +193,10 @@ function Dock({ place, startOpen = false }: { place: string; startOpen?: boolean
             onClick={() => setEngaged(true)}
             className="group flex w-full items-center gap-2 rounded-[14px] border border-studio-edge bg-studio-surface px-3.5 py-2.5 text-left transition-colors hover:border-studio-ink/35"
           >
-            <span aria-hidden className="font-mono text-[10px]" style={{ color: ACCENT }}>▸</span>
-            <span className="font-mono text-[10px] text-studio-ink-muted">{place}</span>
+            <span aria-hidden className="font-mono text-xs" style={{ color: ACCENT }}>▸</span>
+            <span className="font-mono text-xs text-studio-ink-muted">{place}</span>
             <span aria-hidden className="mx-0.5 h-2.5 w-px bg-studio-edge" />
-            <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-studio-ink-faint">
+            <span className="min-w-0 flex-1 truncate font-mono text-sm text-studio-ink-faint">
               steer here · <span className="text-studio-ink-muted">@work</span> · <span className="text-studio-ink-muted">#project</span> · /
             </span>
             <MicGlyph />
@@ -240,7 +240,7 @@ function DockComposer({
           onChange={setText}
           placeholder="steer here · @work to reach · #project to scope · / for commands"
           header={
-            <div className="flex items-center gap-1.5 font-mono text-[10px]">
+            <div className="flex items-center gap-1.5 font-mono text-xs">
               <span aria-hidden style={{ color: ACCENT }}>▸</span>
               <span className="text-studio-ink-muted">{place}</span>
               <span className="text-studio-ink-faint">— steering here</span>
@@ -269,7 +269,7 @@ function SectionHead({ label, accent, dim }: { label: string; accent?: boolean; 
     <div className="flex items-center gap-1.5 border-b border-studio-edge bg-studio-canvas px-4 pt-3 pb-1.5">
       {accent ? <span className="h-[5px] w-[5px] rounded-full" style={{ background: ACCENT }} /> : null}
       <span
-        className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow"
+        className="font-mono text-xs font-semibold uppercase tracking-eyebrow"
         style={{ color: accent ? ACCENT : dim ? "var(--studio-ink-faint)" : "var(--studio-ink-muted)" }}
       >
         {label}
@@ -311,10 +311,10 @@ function WorkRow({ work, emphasize, muted }: { work: Work; emphasize?: boolean; 
       <button type="button" className="group w-full px-4 py-2.5 text-left transition-colors hover:bg-studio-canvas-alt">
         <div className="flex items-baseline gap-2">
           {work.live ? <span className="translate-y-[-1px] h-[5px] w-[5px] shrink-0 rounded-full" style={{ background: ACCENT }} /> : null}
-          <span className="min-w-0 flex-1 truncate font-sans text-[13px] font-medium text-studio-ink">{work.title}</span>
-          <span className="shrink-0 pl-2 font-mono text-[10px] tabular-nums text-studio-ink-faint">{work.ago}</span>
+          <span className="min-w-0 flex-1 truncate font-sans text-lg font-medium text-studio-ink">{work.title}</span>
+          <span className="shrink-0 pl-2 font-mono text-xs tabular-nums text-studio-ink-faint">{work.ago}</span>
         </div>
-        <div className="mt-0.5 flex items-baseline gap-1.5 font-mono text-[10px] text-studio-ink-faint">
+        <div className="mt-0.5 flex items-baseline gap-1.5 font-mono text-xs text-studio-ink-faint">
           <span className="text-studio-ink-muted">{work.agent}</span>
           <span aria-hidden>·</span>
           <span>#{work.project}</span>
@@ -345,13 +345,13 @@ function ThreadsBody() {
             <button type="button" className="group w-full px-4 py-2.5 text-left transition-colors hover:bg-studio-canvas-alt">
               <div className="flex items-baseline gap-2">
                 {t.tone === "live" ? <span className="translate-y-[-1px] h-[5px] w-[5px] shrink-0 rounded-full" style={{ background: ACCENT }} /> : null}
-                <span className="min-w-0 shrink-0 truncate font-sans text-[13px] font-medium leading-none text-studio-ink">{t.subject}</span>
-                <span className="shrink-0 whitespace-nowrap font-mono text-[10px] font-semibold uppercase tracking-eyebrow" style={{ color: attn ? ACCENT : "var(--studio-ink-faint)" }}>
+                <span className="min-w-0 shrink-0 truncate font-sans text-lg font-medium leading-none text-studio-ink">{t.subject}</span>
+                <span className="shrink-0 whitespace-nowrap font-mono text-xs font-semibold uppercase tracking-eyebrow" style={{ color: attn ? ACCENT : "var(--studio-ink-faint)" }}>
                   {t.status}
                 </span>
-                <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums text-studio-ink-faint">{t.ago}</span>
+                <span className="ml-auto shrink-0 font-mono text-xs tabular-nums text-studio-ink-faint">{t.ago}</span>
               </div>
-              <div className="mt-0.5 flex items-baseline gap-1.5 font-mono text-[10px] text-studio-ink-faint">
+              <div className="mt-0.5 flex items-baseline gap-1.5 font-mono text-xs text-studio-ink-faint">
                 <span className="shrink-0 text-studio-ink-muted">{t.agent}</span>
                 <span aria-hidden>·</span>
                 <span className="min-w-0 flex-1 truncate">{t.last}</span>
@@ -372,7 +372,7 @@ function TailBody() {
   return (
     <ul className="px-4 py-2">
       {TAIL.map((t, i) => (
-        <li key={i} className="flex items-baseline gap-2 py-[3px] font-mono text-[10px] leading-snug">
+        <li key={i} className="flex items-baseline gap-2 py-[3px] font-mono text-xs leading-snug">
           <span className="shrink-0 tabular-nums text-studio-ink-faint">{t.at}</span>
           <span className="w-[26px] shrink-0 font-semibold" style={{ color: t.attn ? ACCENT : "var(--studio-ink-faint)" }}>
             {t.kind}
@@ -422,8 +422,8 @@ function ScoutBody() {
 function ScoutMsg({ at, children }: { at: string; children: React.ReactNode }) {
   return (
     <div>
-      <div className="mb-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">scout · {at}</div>
-      <div className="font-sans text-[12px] leading-snug text-studio-ink">{children}</div>
+      <div className="mb-0.5 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">scout · {at}</div>
+      <div className="font-sans text-md leading-snug text-studio-ink">{children}</div>
     </div>
   );
 }
@@ -435,27 +435,27 @@ function OpMsg({ children }: { children: React.ReactNode }) {
 function StatusLine({ label, value, note, accent }: { label: string; value: string; note: string; accent?: boolean }) {
   return (
     <div className="flex items-baseline gap-2">
-      <span className="w-[52px] shrink-0 font-mono text-[10px] font-semibold uppercase tracking-eyebrow" style={{ color: accent ? ACCENT : "var(--studio-ink-faint)" }}>
+      <span className="w-[52px] shrink-0 font-mono text-xs font-semibold uppercase tracking-eyebrow" style={{ color: accent ? ACCENT : "var(--studio-ink-faint)" }}>
         {label}
       </span>
-      <span className="font-mono text-[11px] font-semibold tabular-nums text-studio-ink">{value}</span>
-      <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-studio-ink-muted">{note}</span>
+      <span className="font-mono text-sm font-semibold tabular-nums text-studio-ink">{value}</span>
+      <span className="min-w-0 flex-1 truncate font-mono text-xs text-studio-ink-muted">{note}</span>
     </div>
   );
 }
 
 function Mention({ children }: { children: React.ReactNode }) {
-  return <span className="font-mono text-[11px]" style={{ color: ACCENT }}>{children}</span>;
+  return <span className="font-mono text-sm" style={{ color: ACCENT }}>{children}</span>;
 }
 function Cmd({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded-[3px] border px-1.5 py-[1px] font-mono text-[11px]" style={{ borderColor: ACCENT, color: ACCENT }}>
+    <span className="rounded-[3px] border px-1.5 py-[1px] font-mono text-sm" style={{ borderColor: ACCENT, color: ACCENT }}>
       {children}
     </span>
   );
 }
 function Path({ children }: { children: React.ReactNode }) {
-  return <span className="font-mono text-[11px] text-studio-ink-muted">{children}</span>;
+  return <span className="font-mono text-sm text-studio-ink-muted">{children}</span>;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -466,13 +466,13 @@ export default function HudRedesignPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-8 max-w-prose">
-        <div className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · macos · hud-redesign
         </div>
-        <h1 className="mt-1 font-sans text-[28px] font-semibold leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-sans text-6xl font-semibold leading-none tracking-tight text-studio-ink">
           HUD Redesign
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           The HUD re-evaluated around one thesis: the object is{" "}
           <span className="text-studio-ink">work</span>, agent and project are facets, and
           attention is the precedence layer. Simplified pass — four tabs, two-line rows.
@@ -514,14 +514,14 @@ function Labeled({ caption, children }: { caption: string; children: React.React
   return (
     <figure className="flex flex-col gap-2">
       {children}
-      <figcaption className="max-w-[620px] font-sans text-[11px] leading-snug text-studio-ink-faint">{caption}</figcaption>
+      <figcaption className="max-w-[620px] font-sans text-sm leading-snug text-studio-ink-faint">{caption}</figcaption>
     </figure>
   );
 }
 
 function Research() {
   return (
-    <section className="mt-20 w-full max-w-[920px] font-sans text-[13px] leading-relaxed text-studio-ink-muted">
+    <section className="mt-20 w-full max-w-[920px] font-sans text-lg leading-relaxed text-studio-ink-muted">
       <ResearchHeader surface="hud · macos · redesign" />
 
       <ResearchBlock eyebrow="thesis">

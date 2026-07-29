@@ -132,7 +132,6 @@ export const ROUTE_AREA_BY_VIEW = {
   terminal: "sessions",
   messages: "chat",
   conversation: "chat",
-  channels: "chat",
   broker: "dispatch",
   work: "dispatch",
   follow: "dispatch",

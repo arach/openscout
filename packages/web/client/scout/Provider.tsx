@@ -31,10 +31,13 @@ import { ScoutbotStateProvider } from "./scoutbot/ScoutbotStateContext.tsx";
 import { ScoutbotRealtimeVoiceProvider } from "./scoutbot/ScoutbotRealtimeVoiceContext.tsx";
 import { ContextCaptureHost } from "./ContextCaptureHost.tsx";
 import type { Agent, BrokerRouteAttempt, Route } from "../lib/types.ts";
-import type { ScoutTheme } from "../lib/theme.ts";
+import type { ScoutAppearanceDetails, ScoutTheme } from "../lib/theme.ts";
 import {
   applyScoutThemeToDocument,
+  SCOUT_THEME_STORAGE_KEY,
+  resolveScoutStartupAppearanceDetails,
   resolveScoutNativeThemeVars,
+  writeScoutAppearanceDetails,
 } from "../lib/theme.ts";
 import type { KnowledgeHit } from "../lib/knowledge-search.ts";
 import type { FocusedSession } from "../lib/session-catalog.ts";
@@ -77,6 +80,9 @@ export interface ScoutContextValue {
   agentsLoaded: boolean;
   onlineCount: number;
   apiConnection: ApiConnectionState;
+
+  appearanceDetails: ScoutAppearanceDetails;
+  updateAppearanceDetails: (patch: Partial<ScoutAppearanceDetails>) => void;
 
   reload: () => Promise<void>;
 
@@ -296,6 +302,9 @@ export function ScoutProvider({
     message: null,
     lastCheckedAt: null,
   });
+  const [appearanceDetails, setAppearanceDetails] = useState<ScoutAppearanceDetails>(
+    resolveScoutStartupAppearanceDetails,
+  );
   const [onboarding, setOnboarding] = useState<OnboardingState | null>(null);
   const [onboardingSkipped, setOnboardingSkipped] = useState(false);
   // Selection objects are cached for immediate inspector payload; the URL is
@@ -418,9 +427,23 @@ export function ScoutProvider({
     [nativeThemeVars, resolvedTheme],
   );
 
+  const updateAppearanceDetails = useCallback((patch: Partial<ScoutAppearanceDetails>) => {
+    setAppearanceDetails((current) => ({ ...current, ...patch }));
+  }, []);
+
   useEffect(() => {
-    applyScoutThemeToDocument(resolvedTheme);
-  }, [resolvedTheme]);
+    applyScoutThemeToDocument(resolvedTheme, activeTemplate, appearanceDetails);
+    writeScoutAppearanceDetails(appearanceDetails);
+  }, [activeTemplate, appearanceDetails, resolvedTheme]);
+
+  useEffect(() => {
+    const syncAppearance = (event: StorageEvent) => {
+      if (event.key !== null && event.key !== SCOUT_THEME_STORAGE_KEY) return;
+      setAppearanceDetails(resolveScoutStartupAppearanceDetails());
+    };
+    window.addEventListener("storage", syncAppearance);
+    return () => window.removeEventListener("storage", syncAppearance);
+  }, []);
   const scoutbotAgent = useMemo(() => resolveScoutbotAgent(agents), [agents]);
   const scoutbotAgentId = scoutbotAgent?.id ?? resolveScoutbotAgentId(agents);
   const scoutbotDmConversationId = scoutbotAgent?.conversationId ?? null;
@@ -603,6 +626,7 @@ export function ScoutProvider({
   const value = useMemo<ScoutContextValue>(
     () => ({
       route, navigate, agents, agentsLoaded, onlineCount, apiConnection, reload,
+      appearanceDetails, updateAppearanceDetails,
       onboarding, refreshOnboarding, onboardingSkipped, skipOnboarding,
       settingsOpen, openSettings, closeSettings,
       scoutbotAgentId, scoutbotConversationId: scoutbotDmConversationId, applyScoutbotUiAction,
@@ -614,6 +638,7 @@ export function ScoutProvider({
     }),
     [
       route, navigate, agents, agentsLoaded, onlineCount, apiConnection, reload,
+      appearanceDetails, updateAppearanceDetails,
       onboarding, refreshOnboarding, onboardingSkipped, skipOnboarding,
       settingsOpen, openSettings, closeSettings,
       scoutbotAgentId, scoutbotDmConversationId, applyScoutbotUiAction,
@@ -627,32 +652,49 @@ export function ScoutProvider({
 
   return (
     <ScoutContext.Provider value={value}>
+      {/* Two nested scopes, and the nesting is load-bearing. The outer element
+        * hosts Hudson's and Scout's *raw* palette input (`--accent: 0.86 0.17
+        * 125`), which HudsonKit resolves into `--hud-*` colors. The inner
+        * element hosts Scout's legacy aliases (`--accent: var(--hud-accent)`).
+        * They cannot share an element: HudsonKit declares the raw triplets at
+        * [data-hudson-template][data-hudson-theme] (0,2,0) and appearance.css
+        * at [data-scout-theme-mode][data-scout-palette] (0,2,0), both of which
+        * outrank [data-scout-theme] (0,1,0) — so `--accent`/`--border`/
+        * `--muted` would compute to bare triplets and every `var(--accent)` in
+        * Scout's own CSS would be invalid (SVG strokes fall back to black,
+        * hairlines to currentColor). Raising the alias specificity is not an
+        * option either: on one element the two contracts form a var() cycle. */}
       <div
-        data-scout-theme={resolvedTheme}
         data-scout-theme-mode={resolvedTheme}
+        data-scout-palette={appearanceDetails.palette}
+        data-scout-contrast={appearanceDetails.contrast}
+        data-scout-accent={appearanceDetails.accent}
         data-hudson-theme={resolvedTheme}
         data-hudson-template={activeTemplate}
         style={{
           ...themeVars,
         }}
       >
-        <ContextMenuProvider>
-          <ScoutbotStateProvider>
-            {realtimeVoiceEnabled
-              ? <ScoutbotRealtimeVoiceProvider>{children}</ScoutbotRealtimeVoiceProvider>
-              : children}
-            <FilePreviewOverlay
-              path={filePreviewPath}
-              onOpenPath={openFilePreview}
-              onClose={closeFilePreview}
-            />
-            <ContextCaptureHost
-              request={contextCaptureRequest}
-              onClose={closeContextCapture}
-              onOpenCapture={openContextCapture}
-            />
-          </ScoutbotStateProvider>
-        </ContextMenuProvider>
+        {/* display:contents so the alias scope adds no box to the layout. */}
+        <div data-scout-theme={resolvedTheme} style={{ display: "contents" }}>
+          <ContextMenuProvider>
+            <ScoutbotStateProvider>
+              {realtimeVoiceEnabled
+                ? <ScoutbotRealtimeVoiceProvider>{children}</ScoutbotRealtimeVoiceProvider>
+                : children}
+              <FilePreviewOverlay
+                path={filePreviewPath}
+                onOpenPath={openFilePreview}
+                onClose={closeFilePreview}
+              />
+              <ContextCaptureHost
+                request={contextCaptureRequest}
+                onClose={closeContextCapture}
+                onOpenCapture={openContextCapture}
+              />
+            </ScoutbotStateProvider>
+          </ContextMenuProvider>
+        </div>
       </div>
     </ScoutContext.Provider>
   );

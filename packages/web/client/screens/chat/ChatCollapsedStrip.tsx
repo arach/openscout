@@ -72,7 +72,6 @@ export function ChatCollapsedStrip() {
   const activeId =
     route.view === "messages" ? route.conversationId :
     route.view === "conversation" ? route.conversationId :
-    route.view === "channels" ? route.channelId :
     undefined;
 
   useEffect(() => {
@@ -108,14 +107,7 @@ export function ChatCollapsedStrip() {
 
   const open = (s: SessionEntry) => {
     setLastViewed(saveLastViewed(s.id));
-    if (isChannelConversation(s)) {
-      navigate({
-        view: "channels",
-        channelId: s.id,
-        ...(machineId ? { machineId } : {}),
-      });
-      return;
-    }
+    // Channels and DMs share one conversation route.
     navigate({
       view: "messages",
       conversationId: s.id,

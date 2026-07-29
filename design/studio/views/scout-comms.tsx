@@ -118,10 +118,10 @@ export default function ScoutCommsStudy() {
           labeled filters, unread emphasis, ask answered/pending chips, a pinned
           originating Ask, collapsible long turns, and a composer hint bar. The
           list also defines the new data the native side needs —{" "}
-          <code className="font-mono text-[11px] text-studio-ink">unreadCount</code>{" "}
-          and <code className="font-mono text-[11px] text-studio-ink">askState</code>.
+          <code className="font-mono text-sm text-studio-ink">unreadCount</code>{" "}
+          and <code className="font-mono text-sm text-studio-ink">askState</code>.
           The raw{" "}
-          <code className="font-mono text-[11px] text-studio-ink">[ask:&lt;flightId&gt;]</code>{" "}
+          <code className="font-mono text-sm text-studio-ink">[ask:&lt;flightId&gt;]</code>{" "}
           tag agents echo (and the broker matches on) stays in the body, but at
           render it&rsquo;s lifted into a clickable{" "}
           <strong className="text-studio-ink">reply-context backlink</strong> on the

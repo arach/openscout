@@ -97,14 +97,14 @@
   padding-top: 1px;
 }
 .title {
-  font-size: 17px;
+  font-size: var(--text-3xl);
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--s-ink);
 }
 .subtitle {
   font-family: var(--s-font-mono);
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
   white-space: nowrap;
   overflow: hidden;
@@ -144,7 +144,7 @@
 }
 .label {
   font-family: var(--s-font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.13em;
   text-transform: uppercase;
@@ -170,7 +170,7 @@
   height: 28px;
   border-radius: 6px;
   font-family: var(--s-font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
   border: 0;
   transition: background 0.12s, color 0.12s;
@@ -215,7 +215,7 @@
   align-items: center;
   gap: 3px;
   font-family: var(--s-font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 600;
   color: var(--s-ink);
   background: transparent;
@@ -228,20 +228,20 @@
   background: color-mix(in srgb, var(--s-ink) 7%, transparent);
 }
 .caret {
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
   transform: translateY(-1px);
 }
 .dotSep {
   color: var(--s-dim);
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 .targetTok {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   font-family: var(--s-font-mono);
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   font-weight: 600;
   color: var(--s-muted);
   padding: 3px 8px;
@@ -290,7 +290,7 @@
   outline: 0;
   background: transparent;
   font-family: var(--s-font-sans);
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-weight: 600;
   color: var(--s-ink);
   caret-color: var(--s-accent);
@@ -308,7 +308,7 @@
   display: flex;
   align-items: center;
   font-family: var(--s-font-sans);
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-weight: 600;
   color: var(--s-dim);
   pointer-events: none;
@@ -325,7 +325,7 @@
   padding: 0 5px;
   border-radius: 5px;
   font-family: var(--s-font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--s-muted);
   background: var(--s-chrome);
   border: 1px solid var(--s-hairline);
@@ -384,7 +384,7 @@
   gap: 6px;
   padding: 6px 10px 3px;
   font-family: var(--s-font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -419,7 +419,7 @@
 }
 .comboName {
   font-family: var(--s-font-sans);
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-weight: 600;
   color: var(--s-ink);
 }
@@ -429,19 +429,19 @@
 }
 .comboRowMeta {
   font-family: var(--s-font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--s-dim);
 }
 .comboMeta {
   font-family: var(--s-font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--s-dim);
   white-space: nowrap;
 }
 .comboEmpty {
   padding: 10px;
   font-family: var(--s-font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--s-dim);
 }
 
@@ -476,7 +476,7 @@
 }
 .comboCreateText {
   font-family: var(--s-font-sans);
-  font-size: 13px;
+  font-size: var(--text-lg);
   color: var(--s-ink);
 }
 .comboCreateText strong {
@@ -514,7 +514,7 @@
 }
 .configKey {
   font-family: var(--s-font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -528,7 +528,7 @@
   gap: 6px;
   min-width: 0;
   font-family: var(--s-font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 600;
   color: var(--s-ink);
 }
@@ -568,7 +568,7 @@
   background: transparent;
   text-align: left;
   font-family: var(--s-font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 600;
   color: var(--s-ink);
   transition: background 0.1s;
@@ -595,7 +595,7 @@
 .configGroupLabel {
   padding: 5px 9px 3px;
   font-family: var(--s-font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -631,14 +631,14 @@
   min-width: 0;
 }
 .fieldTitle {
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-weight: 600;
   color: var(--s-ink);
   line-height: 1.25;
 }
 .fieldDetail {
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
   white-space: nowrap;
   overflow: hidden;
@@ -675,7 +675,7 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--s-accent) 14%, transparent);
 }
 .wellText {
-  font-size: 13px;
+  font-size: var(--text-lg);
   line-height: 1.45;
   color: var(--s-dim);
 }
@@ -703,12 +703,12 @@
 }
 .hint {
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
 }
 .hint kbd {
   font-family: var(--s-font-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   color: var(--s-muted);
   padding: 1px 4px;
   border-radius: 4px;
@@ -732,7 +732,7 @@
   /* the input zone — ~80% of the box */
   min-height: 98px;
   padding: 13px 14px;
-  font-size: 13px;
+  font-size: var(--text-lg);
   line-height: 1.45;
   color: var(--s-dim); /* placeholder tone */
 }
@@ -748,7 +748,7 @@
 }
 .barCancel {
   font-family: var(--s-font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--s-muted);
   background: transparent;
@@ -763,12 +763,12 @@
 }
 .barHint {
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
 }
 .barHint kbd {
   font-family: var(--s-font-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   color: var(--s-muted);
   padding: 1px 4px;
   border-radius: 4px;
@@ -838,7 +838,7 @@
 }
 .miniLabel {
   font-family: var(--s-font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -847,7 +847,7 @@
 .miniValue {
   margin-left: auto;
   font-family: var(--s-font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--s-ink);
 }
 
@@ -867,7 +867,7 @@
   padding: 0 16px;
   border-radius: 8px;
   font-family: var(--s-font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 600;
   transition: background 0.12s, border-color 0.12s, opacity 0.12s;
 }
@@ -890,6 +890,6 @@
 }
 .kbd {
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
 }

@@ -166,15 +166,15 @@ export default function ChoreographyPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-6 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · choreography
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Choreography
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           The fleet as a score. Each agent owns a staff line; events are notes
-          placed in time; <code className="font-mono text-[11px] text-studio-ink">@mentions</code> are arcs that cross
+          placed in time; <code className="font-mono text-sm text-studio-ink">@mentions</code> are arcs that cross
           voices. Silences are intentional — gaps carry meaning. A 90-minute
           window, frozen mid-performance.
         </p>
@@ -209,7 +209,7 @@ export default function ChoreographyPage() {
               <text
                 x={X(t)}
                 y={TIME_AXIS_H - 8}
-                fontSize={9.5}
+                fontSize={9}
                 fontFamily="JetBrains Mono, ui-monospace"
                 fill="var(--studio-ink-faint)"
                 textAnchor="start"
@@ -429,10 +429,10 @@ export default function ChoreographyPage() {
       <DetailRail hover={hover} hoverKind={hoverKind} />
 
       <section className="mt-12 max-w-prose">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · why this exists
         </div>
-        <p className="font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="font-sans text-lg leading-relaxed text-studio-ink-faint">
           The fleet&apos;s current ops surfaces — roster, inspector, tail — are all
           point-in-time slices. A long-running fleet has a temporal shape, and
           experienced operators read it the way a producer reads a session:
@@ -440,7 +440,7 @@ export default function ChoreographyPage() {
           treats the broker&apos;s event log as a score so that shape becomes
           legible at a glance. Backs naturally onto the existing tail
           firehose; mock data here is shaped like what a real{" "}
-          <code className="font-mono text-[11px] text-studio-ink">broker_feed</code>
+          <code className="font-mono text-sm text-studio-ink">broker_feed</code>
           {" "}cursor would return.
         </p>
       </section>
@@ -451,7 +451,7 @@ export default function ChoreographyPage() {
 // ── Legend ───────────────────────────────────────────────────────────
 function Legend() {
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-[10px] text-studio-ink-faint">
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-xs text-studio-ink-faint">
       <LegendChip glyph="bar" label="work — length = duration" />
       <LegendChip glyph="diamond" label="decision" />
       <LegendChip glyph="message" label="@mention" />
@@ -532,7 +532,7 @@ function DetailRail({
 }) {
   if (!hover || !hoverKind) {
     return (
-      <div className="mt-3 px-2 font-mono text-[10px] text-studio-ink-faint">
+      <div className="mt-3 px-2 font-mono text-xs text-studio-ink-faint">
         Hover any glyph or arc to inspect.
       </div>
     );
@@ -540,8 +540,8 @@ function DetailRail({
   if (hoverKind === "arc") {
     const arc = hover as Arc;
     return (
-      <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1 rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-3 py-2 font-mono text-[10.5px]">
-        <span className="text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1 rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-3 py-2 font-mono text-xs">
+        <span className="text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           arc
         </span>
         <span className="text-studio-ink">
@@ -565,8 +565,8 @@ function DetailRail({
   }
   const evt = hover as ScoreEvent;
   return (
-    <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1 rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-3 py-2 font-mono text-[10.5px]">
-      <span className="text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+    <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1 rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-3 py-2 font-mono text-xs">
+      <span className="text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         {evt.kind}
       </span>
       <span className="text-studio-ink">@{evt.agent}</span>

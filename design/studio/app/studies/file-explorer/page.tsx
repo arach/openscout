@@ -53,48 +53,48 @@ export default function FileExplorerPage() {
       )}
 
       <section className="mt-10 max-w-prose">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · what composes here
         </div>
-        <ul className="font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+        <ul className="font-sans text-md leading-relaxed text-studio-ink-faint">
           <li>
-            <code className="font-mono text-[11px] text-studio-ink">
+            <code className="font-mono text-sm text-studio-ink">
               TreeView
             </code>{" "}
             with new{" "}
-            <code className="font-mono text-[11px] text-studio-ink">
+            <code className="font-mono text-sm text-studio-ink">
               searchTerm
             </code>
             ,{" "}
-            <code className="font-mono text-[11px] text-studio-ink">
+            <code className="font-mono text-sm text-studio-ink">
               currentPath
             </code>
             , and{" "}
-            <code className="font-mono text-[11px] text-studio-ink">
+            <code className="font-mono text-sm text-studio-ink">
               onFileClick
             </code>{" "}
             wiring — left rail; indent guides + keyboard nav.
           </li>
           <li>
-            <code className="font-mono text-[11px] text-studio-ink">
+            <code className="font-mono text-sm text-studio-ink">
               BreadcrumbPath
             </code>{" "}
             — sticky header; clicking a segment clears the file selection.
           </li>
           <li>
-            <code className="font-mono text-[11px] text-studio-ink">
+            <code className="font-mono text-sm text-studio-ink">
               CodeExcerpt
             </code>{" "}
             — static 80-line slice with line-number gutter, no editor.
           </li>
           <li>
-            <code className="font-mono text-[11px] text-studio-ink">
+            <code className="font-mono text-sm text-studio-ink">
               SymbolOutline
             </code>{" "}
             — regex extractor for md / ts / tsx / swift, collapsible rail.
           </li>
           <li>
-            <code className="font-mono text-[11px] text-studio-ink">
+            <code className="font-mono text-sm text-studio-ink">
               DirSummary
             </code>{" "}
             — fallback right-pane card when nothing is selected.
@@ -107,7 +107,7 @@ export default function FileExplorerPage() {
 
 function Missing({ path }: { path: string }) {
   return (
-    <div className="rounded-md border border-studio-edge bg-studio-surface px-4 py-3 font-mono text-[11px] italic text-studio-ink-faint">
+    <div className="rounded-md border border-studio-edge bg-studio-surface px-4 py-3 font-mono text-sm italic text-studio-ink-faint">
       {path} not found on disk.
     </div>
   );

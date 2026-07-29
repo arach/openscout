@@ -22,21 +22,24 @@ export function Bench({ entries, now }: { entries: BenchEntry[]; now: number }) 
   const [lead, ...rest] = entries;
 
   return (
-    <section className="mb-10" aria-labelledby="bench-heading">
-      <div className="mb-3 flex items-baseline gap-3">
+    <section className="mb-12" aria-labelledby="bench-heading">
+      <div className="mb-3.5 flex items-baseline gap-3">
         <h2
           id="bench-heading"
-          className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint"
+          className="flex items-center gap-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint"
         >
-          · Where you left off
+          <span className="text-scout-accent" aria-hidden>
+            ·
+          </span>
+          Where you left off
         </h2>
-        <div className="ml-3 h-px flex-1 bg-studio-edge" />
+        <div className="studio-rule ml-2 flex-1" />
       </div>
 
-      <div className="border-t border-studio-edge">
+      <div className="overflow-hidden rounded-[6px] border border-studio-edge">
         <Link
           href={lead.href}
-          className="focus-ring group flex items-baseline gap-3 border-b border-studio-edge py-3.5"
+          className="focus-ring group flex items-baseline gap-3 border-b border-studio-edge px-4 py-3.5 transition-colors hover:bg-[color-mix(in_oklab,var(--studio-ink)_3.5%,transparent)]"
         >
           <Ember mtimeMs={lead.mtimeMs} now={now} sole className="self-center" />
           <span className="font-display text-3xl font-medium leading-none tracking-tight text-studio-ink">
@@ -51,7 +54,7 @@ export function Bench({ entries, now }: { entries: BenchEntry[]; now: number }) 
         </Link>
 
         {lead.blurb ? (
-          <p className="border-b border-studio-edge py-2.5 pl-[18px] font-sans text-lg leading-relaxed text-studio-ink-faint">
+          <p className="border-b border-studio-edge px-4 py-2.5 pl-[30px] font-sans text-lg leading-relaxed text-studio-ink-faint">
             {lead.blurb}
           </p>
         ) : null}
@@ -61,7 +64,7 @@ export function Bench({ entries, now }: { entries: BenchEntry[]; now: number }) 
             <li key={entry.href}>
               <Link
                 href={entry.href}
-                className="focus-ring group flex items-center gap-3 border-b border-studio-edge py-2 transition-colors hover:bg-studio-canvas-alt"
+                className="focus-ring group flex items-center gap-3 border-b border-studio-edge px-4 py-2 transition-colors last:border-b-0 hover:bg-[color-mix(in_oklab,var(--studio-ink)_3.5%,transparent)]"
               >
                 <Ember mtimeMs={entry.mtimeMs} now={now} />
                 <span className="truncate font-sans text-lg text-studio-ink-muted transition-colors group-hover:text-studio-ink">

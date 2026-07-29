@@ -52,9 +52,11 @@ describe("RailToggle rendering (SCO-086)", () => {
 
     expect(html).toContain('data-scout-rail-toggle=""');
     expect(html).toContain('data-side="left"');
+    expect(html).toContain('data-direction="right"');
     expect(html).toContain('data-collapsed="true"');
     expect(html).toContain('aria-label="Expand Sidebar"');
-    expect(html).toContain("›");
+    expect(html).toContain("<svg");
+    expect(html).toContain("M6 4.5 9.5 8 6 11.5");
     expect(html).not.toContain("data-sidebar");
     expect(html).not.toContain("data-hudson");
   });
@@ -70,7 +72,8 @@ describe("RailToggle rendering (SCO-086)", () => {
     );
 
     expect(html).toContain('data-collapsed="false"');
+    expect(html).toContain('data-direction="right"');
     expect(html).toContain('aria-label="Collapse Inspector"');
-    expect(html).toContain("›");
+    expect(html).toContain("M6 4.5 9.5 8 6 11.5");
   });
 });

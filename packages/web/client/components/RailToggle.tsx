@@ -5,7 +5,9 @@
  * Imports neither HudsonKit nor shadcn — shell/wrapper owns placement and
  * binding to collapse state.
  *
- * Renders ‹ / › at the rail boundary (callers position at header height).
+ * Renders a compact directional control at the rail boundary (callers position
+ * it at header height). The SVG keeps the mark optically consistent across
+ * platforms instead of depending on a font's ‹ / › glyph metrics.
  */
 import type { CSSProperties, MouseEventHandler } from "react";
 
@@ -48,12 +50,14 @@ export function RailToggle({
 }) {
   const title = railToggleLabel(collapsed, label);
   const chevron = railToggleChevron(side, collapsed);
+  const direction = chevron === "›" ? "right" : "left";
 
   return (
     <button
       type="button"
       data-scout-rail-toggle=""
       data-side={side}
+      data-direction={direction}
       data-collapsed={collapsed ? "true" : "false"}
       aria-expanded={!collapsed}
       aria-label={title}
@@ -63,9 +67,20 @@ export function RailToggle({
       onClick={onToggle}
       onMouseDown={onMouseDown}
     >
-      <span aria-hidden="true" className="scout-rail-toggle-glyph">
-        {chevron}
-      </span>
+      <svg
+        aria-hidden="true"
+        className="scout-rail-toggle-glyph"
+        viewBox="0 0 16 16"
+        fill="none"
+      >
+        <path
+          d={direction === "right" ? "M6 4.5 9.5 8 6 11.5" : "M10 4.5 6.5 8l3.5 3.5"}
+          stroke="currentColor"
+          strokeWidth="1.65"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
     </button>
   );
 }

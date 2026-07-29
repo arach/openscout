@@ -301,7 +301,7 @@ button.s-thread-participant-pill:hover {
   white-space: nowrap;
   color: var(--dim);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   letter-spacing: 0.01em;
 }
 
@@ -1888,7 +1888,7 @@ button.s-thread-sidebar-participant:focus-visible {
 
 .s-thread-mini-mesh-label {
   font-family: var(--font-mono);
-  font-size: 8px; /* below --text-2xs(9); left literal */
+  font-size: var(--text-3xs); /* below --text-2xs(9); left literal */
   letter-spacing: var(--tracking-md);
   text-transform: uppercase;
   fill: var(--dim);
@@ -1926,7 +1926,7 @@ button.s-thread-sidebar-participant:focus-visible {
 }
 
 .s-thread-empty-glyph {
-  font-size: 28px; /* large display glyph; left literal */
+  font-size: var(--text-6xl); /* large display glyph; left literal */
   font-weight: 100;
   color: color-mix(in srgb, var(--border) 90%, var(--muted));
   line-height: var(--leading-none);
@@ -3109,7 +3109,7 @@ button.s-thread-sidebar-participant:focus-visible {
 .s-thread-layout[data-thread-treatment="ledger"] .s-thread-msg-body {
   grid-column: 2;
   min-width: 0;
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   line-height: 1.5;
 }
 
@@ -3186,7 +3186,7 @@ button.s-thread-sidebar-participant:focus-visible {
 
 .s-thread-layout[data-thread-treatment="rail"] .s-thread-msg-body {
   max-width: 68ch;
-  font-size: 12.5px;
+  font-size: var(--text-md);
   line-height: 1.58;
 }
 
@@ -3233,7 +3233,7 @@ button.s-thread-sidebar-participant:focus-visible {
 
 .s-thread-layout[data-thread-treatment="document"] .s-thread-msg-body {
   max-width: 62ch;
-  font-size: 13.5px;
+  font-size: var(--text-lg);
   line-height: 1.78;
 }
 
@@ -3255,24 +3255,23 @@ button.s-thread-sidebar-participant:focus-visible {
   margin-left: 42px;
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-  border-left: 2px solid var(--muted);
   border-radius: 8px;
   background: color-mix(in srgb, var(--surface) 82%, transparent);
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  gap: 10px;
 }
 
-.s-thread-terminal-receipt[data-tone="failed"] {
-  border-left-color: var(--red);
+.s-thread-terminal-receipt[data-tone="failed"] > .dot {
+  color: var(--red);
 }
 
-.s-thread-terminal-receipt[data-tone="cancelled"] {
-  border-left-color: var(--amber);
+.s-thread-terminal-receipt[data-tone="cancelled"] > .dot {
+  color: var(--amber);
 }
 
 .s-thread-terminal-receipt-copy {
+  flex: 1;
   min-width: 0;
   display: flex;
   align-items: baseline;
@@ -3281,7 +3280,7 @@ button.s-thread-sidebar-participant:focus-visible {
 
 .s-thread-terminal-receipt-label {
   color: var(--ink);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 650;
   white-space: nowrap;
 }
@@ -3289,7 +3288,7 @@ button.s-thread-sidebar-participant:focus-visible {
 .s-thread-terminal-receipt-detail,
 .s-thread-terminal-receipt-meta {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 
 .s-thread-terminal-receipt-detail {
@@ -3303,6 +3302,7 @@ button.s-thread-sidebar-participant:focus-visible {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin-left: 6px;
 }
 
 .s-thread-terminal-receipt-meta button {
@@ -3321,8 +3321,23 @@ button.s-thread-sidebar-participant:focus-visible {
 @media (max-width: 720px) {
   .s-thread-terminal-receipt {
     margin-left: 0;
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 7px;
+    display: grid;
+    grid-template-columns: 6px minmax(0, 1fr);
+    align-items: start;
+    column-gap: 10px;
+    row-gap: 7px;
+  }
+
+  .s-thread-terminal-receipt > .dot {
+    margin-top: 4px;
+  }
+
+  .s-thread-terminal-receipt-copy,
+  .s-thread-terminal-receipt-meta {
+    grid-column: 2;
+  }
+
+  .s-thread-terminal-receipt-meta {
+    margin-left: 0;
   }
 }

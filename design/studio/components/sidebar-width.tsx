@@ -7,6 +7,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 
@@ -21,6 +22,8 @@ type SidebarWidthApi = {
   setWidth: (w: number) => void;
   nudge: (delta: number) => void;
   reset: () => void;
+  /** Bind to the drag handle: onPointerDown={beginResize} */
+  beginResize: (e: ReactPointerEvent<Element>) => void;
 };
 
 const Ctx = createContext<SidebarWidthApi | null>(null);
@@ -62,6 +65,13 @@ export function SidebarWidthProvider({ children }: { children: ReactNode }) {
   const widthRef = useRef(width);
   widthRef.current = width;
 
+  // Drag session lives outside React so re-renders never drop listeners.
+  const dragRef = useRef<{
+    startX: number;
+    startW: number;
+    pointerId: number;
+  } | null>(null);
+
   useEffect(() => {
     const w = readStored();
     widthRef.current = w;
@@ -89,58 +99,73 @@ export function SidebarWidthProvider({ children }: { children: ReactNode }) {
 
   const reset = useCallback(() => setWidth(DEFAULT_SIDEBAR_W), [setWidth]);
 
-  // Global drag protocol: any element with data-studio-resize-handle
-  // that receives pointerdown starts a window-level drag.
-  useEffect(() => {
-    let startX = 0;
-    let startW = 0;
-    let active = false;
+  const endDrag = useCallback(() => {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    setDragging(false);
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    writeStored(widthRef.current);
+  }, []);
 
-    const onMove = (e: PointerEvent | MouseEvent) => {
-      if (!active) return;
-      const next = clamp(startW + (e.clientX - startX));
+  const beginResize = useCallback((e: ReactPointerEvent<Element>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    dragRef.current = {
+      startX: e.clientX,
+      startW: widthRef.current,
+      pointerId: e.pointerId,
+    };
+    setDragging(true);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    // Capture on the handle so moves keep arriving after the pointer
+    // leaves the strip and travels over the main canvas.
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* some targets refuse capture */
+    }
+  }, []);
+
+  // Window-level move/up so drag keeps working if capture fails or the
+  // handle unmounts mid-gesture.
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const session = dragRef.current;
+      if (!session) return;
+      // Ignore secondary pointers (multi-touch); accept primary mouse/pen.
+      if (session.pointerId !== e.pointerId && e.isPrimary === false) return;
+      const next = clamp(session.startW + (e.clientX - session.startX));
+      if (next === widthRef.current) return;
       widthRef.current = next;
       setWidthState(next);
     };
 
-    const onUp = () => {
-      if (!active) return;
-      active = false;
-      setDragging(false);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      writeStored(widthRef.current);
+    const onUp = (e: PointerEvent) => {
+      const session = dragRef.current;
+      if (!session) return;
+      if (session.pointerId !== e.pointerId && e.isPrimary === false) return;
+      endDrag();
+    };
+
+    const onBlur = () => endDrag();
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      window.removeEventListener("blur", onBlur);
+      endDrag();
     };
-
-    const onDown = (e: PointerEvent) => {
-      if (e.button !== 0) return;
-      const t = e.target;
-      if (!(t instanceof Element)) return;
-      if (!t.closest("[data-studio-resize-handle]")) return;
-      e.preventDefault();
-      e.stopPropagation();
-      active = true;
-      startX = e.clientX;
-      startW = widthRef.current;
-      setDragging(true);
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onUp);
-      window.addEventListener("mousemove", onMove);
-      window.addEventListener("mouseup", onUp);
-    };
-
-    document.addEventListener("pointerdown", onDown, true);
-    return () => {
-      document.removeEventListener("pointerdown", onDown, true);
-      onUp();
-    };
-  }, []);
+  }, [endDrag]);
 
   // Keyboard: [ and ] resize when not typing
   useEffect(() => {
@@ -167,7 +192,9 @@ export function SidebarWidthProvider({ children }: { children: ReactNode }) {
   }, [nudge]);
 
   return (
-    <Ctx.Provider value={{ width, dragging, setWidth, nudge, reset }}>
+    <Ctx.Provider
+      value={{ width, dragging, setWidth, nudge, reset, beginResize }}
+    >
       {children}
     </Ctx.Provider>
   );

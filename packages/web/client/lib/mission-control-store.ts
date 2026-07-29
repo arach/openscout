@@ -35,7 +35,7 @@ export type MissionVisibleAgent = {
   lastActiveAt: number | null;
 };
 
-export type MissionCanvasFocusRequest = {
+export type MissionRevealRequest = {
   id: string;
   serial: number;
 };
@@ -47,7 +47,7 @@ type MissionControlState = {
   groupMode: MissionGroupMode;
   query: string;
   focusedId: string | null;
-  canvasFocusRequest: MissionCanvasFocusRequest | null;
+  revealRequest: MissionRevealRequest | null;
   visibleAgents: MissionVisibleAgent[];
   selectedIds: string[];
 };
@@ -59,13 +59,13 @@ let _state: MissionControlState = {
   groupMode: "activity",
   query: "",
   focusedId: null,
-  canvasFocusRequest: null,
+  revealRequest: null,
   visibleAgents: [],
   selectedIds: [],
 };
 
 const _listeners = new Set<() => void>();
-let _canvasFocusSerial = 0;
+let _revealSerial = 0;
 
 function _notify() {
   for (const fn of _listeners) fn();
@@ -110,18 +110,18 @@ export function setMissionFocusedId(focusedId: string | null): void {
   _notify();
 }
 
-export function requestMissionCanvasFocus(id: string): void {
-  _canvasFocusSerial += 1;
+export function requestMissionReveal(id: string): void {
+  _revealSerial += 1;
   _state = {
     ..._state,
-    canvasFocusRequest: { id, serial: _canvasFocusSerial },
+    revealRequest: { id, serial: _revealSerial },
   };
   _notify();
 }
 
-export function clearMissionCanvasFocusRequest(serial: number): void {
-  if (_state.canvasFocusRequest?.serial !== serial) return;
-  _state = { ..._state, canvasFocusRequest: null };
+export function clearMissionRevealRequest(serial: number): void {
+  if (_state.revealRequest?.serial !== serial) return;
+  _state = { ..._state, revealRequest: null };
   _notify();
 }
 
@@ -174,24 +174,4 @@ function _getSnapshot(): MissionControlState {
 
 export function useMissionControlStore(): MissionControlState {
   return useSyncExternalStore(_subscribe, _getSnapshot);
-}
-
-export function missionAgentMatchesQuery(
-  fields: { name?: string | null; handle?: string | null; project?: string | null; branch?: string | null; harness?: string | null; id?: string | null },
-  query: string,
-): boolean {
-  if (!query) return true;
-  const needle = query.trim().toLowerCase();
-  if (!needle) return true;
-  const haystack = [
-    fields.name,
-    fields.handle,
-    fields.project,
-    fields.branch,
-    fields.harness,
-    fields.id,
-  ]
-    .filter((v): v is string => Boolean(v))
-    .map((v) => v.toLowerCase());
-  return haystack.some((v) => v.includes(needle));
 }

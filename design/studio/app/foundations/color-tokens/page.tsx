@@ -90,8 +90,8 @@ function Section({ title, hint, children }: { title: string; hint: string; child
   return (
     <section className="mb-10">
       <div className="mb-3 flex items-baseline gap-3">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">· {title}</div>
-        <div className="font-mono text-[10px] text-studio-ink-faint">{hint}</div>
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">· {title}</div>
+        <div className="font-mono text-xs text-studio-ink-faint">{hint}</div>
         <div className="ml-3 h-px flex-1 bg-studio-edge" />
       </div>
       {children}
@@ -107,7 +107,7 @@ function Rows({ children }: { children: React.ReactNode }) {
 
 function SoloHeader() {
   return (
-    <div className={`${SOLO_COLS} mb-2 border-b border-studio-edge pb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint`}>
+    <div className={`${SOLO_COLS} mb-2 border-b border-studio-edge pb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint`}>
       <div>Token</div><div>Dark</div><div>Light</div><div>oklch · dark</div><div>oklch · light</div>
     </div>
   );
@@ -115,7 +115,7 @@ function SoloHeader() {
 
 function PairHeader() {
   return (
-    <div className={`${PAIR_COLS} mb-2 border-b border-studio-edge pb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint`}>
+    <div className={`${PAIR_COLS} mb-2 border-b border-studio-edge pb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint`}>
       <div>Tone</div><div>Dark · fg on bg</div><div>Light · fg on bg</div><div>oklch · fg</div><div>oklch · bg</div>
     </div>
   );
@@ -124,11 +124,11 @@ function PairHeader() {
 function SoloRow({ t }: { t: Solo }) {
   return (
     <div className={`${SOLO_COLS} py-3`}>
-      <code className="font-mono text-[11px] text-studio-ink">{t.name}</code>
+      <code className="font-mono text-sm text-studio-ink">{t.name}</code>
       <Swatch theme="dark" varName={t.name} ink={t.ink} />
       <Swatch theme="light" varName={t.name} ink={t.ink} />
-      <code className="font-mono text-[10.5px] text-studio-ink-faint">{t.dark}</code>
-      <code className="font-mono text-[10.5px] text-studio-ink-faint">{t.light}</code>
+      <code className="font-mono text-xs text-studio-ink-faint">{t.dark}</code>
+      <code className="font-mono text-xs text-studio-ink-faint">{t.light}</code>
     </div>
   );
 }
@@ -137,8 +137,8 @@ function PairRow({ p }: { p: Pair }) {
   return (
     <div className={`${PAIR_COLS} py-3`}>
       <div>
-        <div className="font-sans text-[13px] font-medium text-studio-ink">{p.label}</div>
-        <div className="mt-0.5 font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-faint">fg + bg</div>
+        <div className="font-sans text-lg font-medium text-studio-ink">{p.label}</div>
+        <div className="mt-0.5 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">fg + bg</div>
       </div>
       <PairSwatch theme="dark" fg={p.fg.name} bg={p.bg.name} label={p.label} />
       <PairSwatch theme="light" fg={p.fg.name} bg={p.bg.name} label={p.label} />
@@ -150,7 +150,7 @@ function PairRow({ p }: { p: Pair }) {
 
 function OklchCell({ name, dark, light }: { name: string; dark: string; light: string }) {
   return (
-    <div className="flex flex-col gap-0.5 font-mono text-[10px] text-studio-ink-faint">
+    <div className="flex flex-col gap-0.5 font-mono text-xs text-studio-ink-faint">
       <code>{name}</code>
       <code className="opacity-80">d: {dark}</code>
       <code className="opacity-80">l: {light}</code>
@@ -168,7 +168,7 @@ function Swatch({ theme, varName, ink }: { theme: "dark" | "light"; varName: str
         style={{ background: `var(${varName})` }}
       >
         {ink ? (
-          <span className="font-mono text-[10px] tracking-eyebrow" style={{ color: "var(--studio-canvas)" }}>
+          <span className="font-mono text-xs tracking-eyebrow" style={{ color: "var(--studio-canvas)" }}>
             INK
           </span>
         ) : null}
@@ -181,7 +181,7 @@ function PairSwatch({ theme, fg, bg, label }: { theme: "dark" | "light"; fg: str
   return (
     <div data-theme={theme} className="rounded-[4px] border border-studio-edge bg-studio-canvas p-2">
       <div className="flex h-10 w-full items-center justify-center rounded-[3px]" style={{ background: `var(${bg})` }}>
-        <span className="font-mono text-[10px] font-semibold uppercase tracking-status" style={{ color: `var(${fg})` }}>
+        <span className="font-mono text-xs font-semibold uppercase tracking-status" style={{ color: `var(${fg})` }}>
           {label}
         </span>
       </div>

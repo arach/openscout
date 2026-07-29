@@ -32,7 +32,8 @@ describe("top nav config", () => {
     expect(topNavKeyForRoute({ view: "sessions" })).toBe("sessions");
     expect(topNavKeyForRoute({ view: "conversation", conversationId: "c1" })).toBe("chat");
         expect(topNavKeyForRoute({ view: "messages" })).toBe("chat");
-    expect(topNavKeyForRoute({ view: "channels" })).toBe("chat");
+    // A channel is a conversation on the unified route, so it lands on chat too.
+    expect(topNavKeyForRoute({ view: "messages", conversationId: "chan-1" })).toBe("chat");
   });
 
   test("maps the ops/retrieval cluster to system — no fallback lies", () => {

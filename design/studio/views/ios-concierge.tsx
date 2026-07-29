@@ -77,8 +77,8 @@ const CG_CSS = `
   background:var(--cg-fill);color:var(--cg-sub);display:flex;align-items:center;
   justify-content:center}
 .cg-navmain{flex:1;min-width:0;text-align:center}
-.cg-navtitle{font-size:15px;font-weight:600;color:var(--cg-ink)}
-.cg-navctx{margin-top:1px;font-size:10.5px;color:var(--cg-faint)}
+.cg-navtitle{font-size: var(--text-2xl);font-weight:600;color:var(--cg-ink)}
+.cg-navctx{margin-top:1px;font-size: var(--text-xs);color:var(--cg-faint)}
 .cg-navctx b{font-weight:600;color:var(--cg-sub)}
 .cg-navtalk{width:30px;height:30px;border-radius:50%;flex:none;
   background:var(--cg-accent-soft);color:var(--cg-accent);display:flex;
@@ -90,18 +90,18 @@ const CG_CSS = `
 
 /* User bubble — right-aligned, calm accent tint */
 .cg-user{align-self:flex-end;max-width:78%;background:var(--cg-accent-soft);
-  color:var(--cg-ink);font-size:13.5px;line-height:1.35;padding:9px 13px;
+  color:var(--cg-ink);font-size: var(--text-lg);line-height:1.35;padding:9px 13px;
   border-radius:18px 18px 4px 18px}
 
 /* Tool-call row — the grounding, deliberately quiet */
 .cg-tool{display:flex;align-items:center;gap:7px;padding:0 2px;
-  font-family:var(--cg-mono);font-size:10px;color:var(--cg-faint)}
+  font-family:var(--cg-mono);font-size: var(--text-xs);color:var(--cg-faint)}
 .cg-tool svg{flex:none;color:var(--cg-faint)}
 .cg-tool .cg-tname{color:var(--cg-sub)}
 .cg-tool .cg-tdur{margin-left:auto;font-variant-numeric:tabular-nums}
 .cg-tool.gated .cg-tname{color:#B07A1E}
 .cg-tool.gated svg{color:#B07A1E}
-.cg-tool .cg-tflag{margin-left:auto;font-family:var(--cg-ui);font-size:9.5px;
+.cg-tool .cg-tflag{margin-left:auto;font-family:var(--cg-ui);font-size: var(--text-2xs);
   font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#B07A1E}
 
 /* Concierge reply card */
@@ -111,7 +111,7 @@ const CG_CSS = `
   justify-content:center}
 .cg-rcard{flex:1;min-width:0;background:var(--cg-card);border-radius:4px 18px 18px 18px;
   padding:10px 13px;box-shadow:0 1px 2px rgba(0,0,0,.05);
-  font-size:13.5px;line-height:1.4;color:var(--cg-ink)}
+  font-size: var(--text-lg);line-height:1.4;color:var(--cg-ink)}
 .cg-rcard b{font-weight:600}
 .cg-rcard .cg-attn{color:#B07A1E;font-weight:600}
 
@@ -121,19 +121,19 @@ const CG_CSS = `
   border:1px solid rgba(232,161,58,.45)}
 .cg-gatehead{display:flex;align-items:center;gap:6px;padding:9px 13px;
   background:var(--cg-amber-soft);
-  font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+  font-size: var(--text-xs);font-weight:600;letter-spacing:.05em;text-transform:uppercase;
   color:#B07A1E}
 .cg-gatehead .cg-gfrom{margin-left:auto;font-weight:500;letter-spacing:0;
   text-transform:none;color:#B07A1E;opacity:.85}
 .cg-gatebody{padding:10px 13px 11px}
-.cg-gatelabel{font-size:10.5px;font-weight:500;color:var(--cg-sub)}
+.cg-gatelabel{font-size: var(--text-xs);font-weight:500;color:var(--cg-sub)}
 .cg-gateact{margin-top:4px;display:flex;align-items:center;gap:8px}
-.cg-gateact .cg-cmd{font-family:var(--cg-mono);font-size:11.5px;
+.cg-gateact .cg-cmd{font-family:var(--cg-mono);font-size: var(--text-sm);
   color:var(--cg-ink);background:var(--cg-fill);border-radius:7px;padding:5px 8px}
-.cg-gatenote{margin-top:7px;font-size:11.5px;line-height:1.4;color:var(--cg-sub)}
+.cg-gatenote{margin-top:7px;font-size: var(--text-sm);line-height:1.4;color:var(--cg-sub)}
 .cg-gatebtns{display:flex;gap:8px;margin-top:9px}
 .cg-btn{flex:1;height:32px;border-radius:16px;display:flex;align-items:center;
-  justify-content:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer}
+  justify-content:center;gap:5px;font-size: var(--text-lg);font-weight:600;cursor:pointer}
 .cg-btn.primary{background:var(--cg-accent);color:#fff}
 .cg-btn.ghost{background:var(--cg-fill);color:var(--cg-ink)}
 .cg-btn.danger{background:transparent;border:1px solid var(--cg-hair);color:var(--cg-sub)}
@@ -143,20 +143,20 @@ const CG_CSS = `
   box-shadow:0 1px 2px rgba(0,0,0,.05);padding:10px 13px 11px;
   border:1px solid var(--cg-hair)}
 .cg-confhead{display:flex;align-items:center;gap:6px;
-  font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+  font-size: var(--text-xs);font-weight:600;letter-spacing:.05em;text-transform:uppercase;
   color:var(--cg-sub)}
 .cg-confhead .cg-cstate{margin-left:auto;font-weight:500;letter-spacing:0;
   text-transform:none;color:var(--cg-accent)}
 .cg-bubble{margin-top:9px;background:var(--cg-bg);border-radius:12px;
-  padding:9px 11px;font-size:12.5px;line-height:1.4;color:var(--cg-ink)}
-.cg-bubble .cg-to{display:block;margin-bottom:2px;font-size:10.5px;
+  padding:9px 11px;font-size: var(--text-md);line-height:1.4;color:var(--cg-ink)}
+.cg-bubble .cg-to{display:block;margin-bottom:2px;font-size: var(--text-xs);
   font-weight:600;color:var(--cg-accent)}
 
 /* Composer — chat composer with mic */
 .cg-composer{position:absolute;left:16px;right:16px;bottom:30px;z-index:21;
   display:flex;align-items:center;gap:8px;background:var(--cg-card);
   border-radius:24px;padding:6px 6px 6px 16px;box-shadow:0 1px 3px rgba(0,0,0,.07)}
-.cg-composer .cg-ph{flex:1;font-size:14.5px;color:var(--cg-faint)}
+.cg-composer .cg-ph{flex:1;font-size: var(--text-xl);color:var(--cg-faint)}
 .cg-cmic{width:32px;height:32px;border-radius:50%;flex:none;color:var(--cg-sub);
   display:flex;align-items:center;justify-content:center}
 .cg-csend{width:32px;height:32px;border-radius:50%;flex:none;
@@ -166,24 +166,24 @@ const CG_CSS = `
 /* ── Entry frame: concierge sheet over the Launch frame ── */
 .cg-launch{position:absolute;inset:0;padding:116px 20px 0;display:flex;
   flex-direction:column}
-.cg-lhost{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;
+.cg-lhost{display:flex;align-items:center;gap:6px;font-size: var(--text-md);font-weight:600;
   letter-spacing:.07em;text-transform:uppercase;color:var(--cg-sub)}
 .cg-lhost .cg-pdot{width:6px;height:6px;border-radius:50%;background:var(--cg-green)}
-.cg-launch h1{margin:10px 0 0;font-size:30px;font-weight:700;letter-spacing:-.02em;
+.cg-launch h1{margin:10px 0 0;font-size: var(--text-6xl);font-weight:700;letter-spacing:-.02em;
   color:var(--cg-ink)}
-.cg-lfleet{margin-top:7px;font-size:13px;color:var(--cg-sub)}
+.cg-lfleet{margin-top:7px;font-size: var(--text-lg);color:var(--cg-sub)}
 .cg-lfleet b{font-weight:600;color:var(--cg-accent)}
 .cg-lpre{margin-top:30px;border-top:.5px solid var(--cg-hair)}
 .cg-lprow{display:flex;align-items:center;gap:10px;padding:12px 2px;
   border-bottom:.5px solid var(--cg-hair)}
 .cg-lpmain{flex:1;min-width:0}
-.cg-lplabel{font-size:11px;font-weight:500;color:var(--cg-sub)}
-.cg-lpname{margin-top:1px;font-size:15px;font-weight:600;color:var(--cg-ink)}
-.cg-lppath{margin-top:2px;font-family:var(--cg-mono);font-size:10px;color:var(--cg-faint)}
+.cg-lplabel{font-size: var(--text-sm);font-weight:500;color:var(--cg-sub)}
+.cg-lpname{margin-top:1px;font-size: var(--text-2xl);font-weight:600;color:var(--cg-ink)}
+.cg-lppath{margin-top:2px;font-family:var(--cg-mono);font-size: var(--text-xs);color:var(--cg-faint)}
 .cg-lchips{display:flex;gap:6px;padding:12px 2px;border-bottom:.5px solid var(--cg-hair)}
 .cg-lchip{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 11px;
   border-radius:14px;border:1px solid var(--cg-hair);background:var(--cg-card);
-  font-size:12px;font-weight:500;color:var(--cg-ink)}
+  font-size: var(--text-md);font-weight:500;color:var(--cg-ink)}
 .cg-lchip .cg-cdot{width:6px;height:6px;border-radius:50%}
 .cg-lchip svg{color:var(--cg-faint)}
 
@@ -196,17 +196,17 @@ const CG_CSS = `
 .cg-sheetgrab{align-self:center;width:36px;height:5px;border-radius:2.5px;
   background:var(--cg-fill);flex:none}
 .cg-shethead{display:flex;align-items:center;gap:10px;margin-top:12px}
-.cg-shettitle{font-size:19px;font-weight:700;letter-spacing:-.01em;color:var(--cg-ink)}
+.cg-shettitle{font-size: var(--text-4xl);font-weight:700;letter-spacing:-.01em;color:var(--cg-ink)}
 .cg-shetbadge{margin-left:auto;display:inline-flex;align-items:center;gap:6px;
   height:30px;padding:0 13px;border-radius:15px;background:var(--cg-accent);
-  color:#fff;font-size:12.5px;font-weight:600;cursor:pointer}
-.cg-greet{margin-top:10px;font-size:13.5px;line-height:1.45;color:var(--cg-sub)}
+  color:#fff;font-size: var(--text-md);font-weight:600;cursor:pointer}
+.cg-greet{margin-top:10px;font-size: var(--text-lg);line-height:1.45;color:var(--cg-sub)}
 .cg-greet b{font-weight:600;color:var(--cg-ink)}
 .cg-greet .cg-attn{color:#B07A1E;font-weight:600}
 .cg-chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:14px}
 .cg-chip{display:inline-flex;align-items:center;height:32px;padding:0 13px;
   border-radius:16px;background:var(--cg-card);border:1px solid var(--cg-hair);
-  font-size:12.5px;font-weight:500;color:var(--cg-ink);cursor:pointer;
+  font-size: var(--text-md);font-weight:500;color:var(--cg-ink);cursor:pointer;
   box-shadow:0 1px 2px rgba(0,0,0,.04)}
 .cg-sheetcomposer{margin-top:auto;margin-bottom:26px;display:flex;align-items:center;
   gap:8px;background:var(--cg-card);border-radius:24px;padding:6px 6px 6px 16px;
@@ -215,7 +215,7 @@ const CG_CSS = `
 /* ── Privacy ladder frame ── */
 .cg-lscroll{position:absolute;inset:0;padding:112px 16px 0;display:flex;
   flex-direction:column}
-.cg-lsect{font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+.cg-lsect{font-size: var(--text-md);font-weight:600;letter-spacing:.05em;text-transform:uppercase;
   color:var(--cg-sub);padding:0 8px 6px}
 .cg-lcard{background:var(--cg-card);border-radius:18px;
   box-shadow:0 1px 2px rgba(0,0,0,.05)}
@@ -228,18 +228,18 @@ const CG_CSS = `
   background:var(--cg-fill);color:var(--cg-sub)}
 .cg-lrow.on .cg-licon{background:var(--cg-accent-soft);color:var(--cg-accent)}
 .cg-lmain{flex:1;min-width:0}
-.cg-lname{font-size:14px;font-weight:600;color:var(--cg-ink);display:flex;
+.cg-lname{font-size: var(--text-xl);font-weight:600;color:var(--cg-ink);display:flex;
   align-items:center;gap:6px}
-.cg-ltag{font-size:9.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
+.cg-ltag{font-size: var(--text-2xs);font-weight:600;letter-spacing:.04em;text-transform:uppercase;
   padding:2px 6px;border-radius:5px;background:var(--cg-fill);color:var(--cg-sub)}
 .cg-ltag.default{background:var(--cg-accent-soft);color:var(--cg-accent)}
-.cg-lsub{margin-top:1px;font-size:11.5px;color:var(--cg-sub)}
-.cg-lcons{margin-top:4px;font-size:11px;line-height:1.35;color:var(--cg-faint)}
+.cg-lsub{margin-top:1px;font-size: var(--text-sm);color:var(--cg-sub)}
+.cg-lcons{margin-top:4px;font-size: var(--text-sm);line-height:1.35;color:var(--cg-faint)}
 .cg-lradio{width:20px;height:20px;border-radius:50%;flex:none;margin-top:5px;
   border:1.5px solid var(--cg-faint)}
 .cg-lrow.on .cg-lradio{border:none;background:var(--cg-accent);color:#fff;
   display:flex;align-items:center;justify-content:center}
-.cg-lfoot{margin:12px 8px 0;font-size:11px;line-height:1.45;color:var(--cg-faint)}
+.cg-lfoot{margin:12px 8px 0;font-size: var(--text-sm);line-height:1.45;color:var(--cg-faint)}
 .cg-lfoot b{font-weight:600;color:var(--cg-sub)}
 `;
 
@@ -535,7 +535,7 @@ function LadderFrame() {
 
 function FrameCaption({ name, role }: { name: string; role: string }) {
   return (
-    <div className="mt-4 flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.14em] text-studio-ink-faint">
+    <div className="mt-4 flex items-center gap-2 font-mono text-2xs uppercase tracking-[0.14em] text-studio-ink-faint">
       <span className="text-studio-ink-muted">{name}</span>
       <span>·</span>
       <span>{role}</span>
@@ -557,20 +557,20 @@ function Notes({
   callouts: { mark: string; text: string }[];
 }) {
   return (
-    <div className="max-w-[440px] font-sans text-[12px] leading-relaxed text-studio-ink-muted">
+    <div className="max-w-[440px] font-sans text-md leading-relaxed text-studio-ink-muted">
       <span
-        className="font-mono text-[9px] uppercase tracking-[0.14em]"
+        className="font-mono text-2xs uppercase tracking-[0.14em]"
         style={{ color: rec ? "var(--scout-accent)" : "var(--studio-ink-faint)" }}
       >
         {tag}
       </span>
-      <h2 className="mb-2 mt-1.5 font-display text-[16px] font-medium tracking-tight text-studio-ink">{title}</h2>
+      <h2 className="mb-2 mt-1.5 font-display text-2xl font-medium tracking-tight text-studio-ink">{title}</h2>
       <div className="space-y-3 [&_b]:font-semibold [&_b]:text-studio-ink [&_ul]:list-disc [&_ul]:space-y-1.5 [&_ul]:pl-4">
         {children}
       </div>
       <div className="mt-4 space-y-1.5 border-t border-studio-edge pt-3">
         {callouts.map((c) => (
-          <div key={c.text} className="flex gap-2 text-[10.5px] text-studio-ink-faint">
+          <div key={c.text} className="flex gap-2 text-xs text-studio-ink-faint">
             <span className="w-4 flex-none not-italic" style={{ color: "var(--scout-accent)" }}>
               {c.mark}
             </span>
@@ -603,10 +603,10 @@ export default function IosConciergeStudy() {
 
       <header className="mb-7 max-w-prose">
         <EyebrowLabel size="sm">· studies · ios · everyday lane</EyebrowLabel>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           The Concierge
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           A conversational interface over the app&apos;s <b className="font-semibold text-studio-ink">own
           functions and state</b> — not an agent orchestrator. The concierge answers questions and
           performs bounded actions against the data model via tool calls.{" "}
@@ -618,7 +618,7 @@ export default function IosConciergeStudy() {
         </p>
       </header>
 
-      <div className="mb-9 flex max-w-[840px] flex-wrap items-center gap-x-6 gap-y-2 border-y border-studio-edge py-2.5 font-mono text-[10px] text-studio-ink-faint">
+      <div className="mb-9 flex max-w-[840px] flex-wrap items-center gap-x-6 gap-y-2 border-y border-studio-edge py-2.5 font-mono text-xs text-studio-ink-faint">
         <span className="text-studio-ink-muted">Deep-link:</span>
         <span>
           <code className="text-studio-ink-muted">?frame=chat</code> ·{" "}
@@ -752,7 +752,7 @@ export default function IosConciergeStudy() {
         </section>
       )}
 
-      <p className="mt-2 border-t border-studio-edge pt-5 font-sans text-[11px] leading-relaxed text-studio-ink-faint">
+      <p className="mt-2 border-t border-studio-edge pt-5 font-sans text-sm leading-relaxed text-studio-ink-faint">
         Grammar and palette mirror <code className="font-mono text-studio-ink-muted">/studies/ios-home-vanilla</code>{" "}
         (grouped #F2F2F7 canvas, white cards, one emerald accent); the Launch frame underneath the
         sheet is that study&apos;s v2 composer-first home. Fleet content matches the vanilla study

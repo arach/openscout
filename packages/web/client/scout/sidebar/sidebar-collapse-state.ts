@@ -6,6 +6,18 @@
 /** Shared collapsed width for all rails (sidebar, side rail, inspector). */
 export const RAIL_COLLAPSED_WIDTH = 48;
 
+/**
+ * Chevron band geometry, shared so every rail's toggle lands on ONE baseline.
+ * The shell positions the sidebar-edge chevron from these; CollapsedRail offsets
+ * its own chevron from its top edge by the same amount. Previously the collapsed
+ * rail hardcoded 8px against a 44px band, so it sat 2px below its neighbour.
+ */
+export const RAIL_HEADER_HEIGHT = 44;
+export const RAIL_TOGGLE_HEIGHT = 32;
+export const RAIL_TOGGLE_HEADER_TOP = Math.round(
+  (RAIL_HEADER_HEIGHT - RAIL_TOGGLE_HEIGHT) / 2,
+);
+
 /** @deprecated Prefer RAIL_COLLAPSED_WIDTH — same value, shared across rails. */
 export const SIDEBAR_COLLAPSED_WIDTH = RAIL_COLLAPSED_WIDTH;
 
@@ -13,7 +25,10 @@ export const SIDEBAR_COLLAPSED_WIDTH = RAIL_COLLAPSED_WIDTH;
 export const SIDEBAR_EXPANDED_WIDTH = 260;
 export const SIDEBAR_MIN_WIDTH = 200;
 export const SIDEBAR_MAX_WIDTH = 360;
-export const SIDEBAR_AUTO_COLLAPSE_MAX_WIDTH = 1023;
+// Auto-collapse only when the window is genuinely cramped: expanded sidebar
+// (260) + ~600px of usable content. 1023 collapsed on ordinary half-screen
+// windows, which read as the shell fighting the operator.
+export const SIDEBAR_AUTO_COLLAPSE_MAX_WIDTH = 880;
 
 /**
  * Side rail (context panel) drag-resize band (SCO-088 §3).

@@ -95,11 +95,11 @@ const CSS = `
 
 /* ── page masthead ───────────────────────────────────────────────── */
 .lc-head{margin:0 auto 38px}
-.lc-eyebrow{font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.16em;
+.lc-eyebrow{font-family:var(--mono);font-size: var(--text-xs);font-weight:500;letter-spacing:.16em;
   text-transform:uppercase;color:var(--ink3)}
-.lc-head h1{margin:9px 0 0;font-size:37px;font-weight:600;letter-spacing:-.028em;
+.lc-head h1{margin:9px 0 0;font-size: var(--text-6xl);font-weight:600;letter-spacing:-.028em;
   line-height:1.03;color:var(--ink)}
-.lc-head p{margin:11px 0 0;max-width:660px;font-size:14.5px;line-height:1.55;color:var(--ink2)}
+.lc-head p{margin:11px 0 0;max-width:660px;font-size: var(--text-xl);line-height:1.55;color:var(--ink2)}
 .lc-head p b{font-weight:600;color:var(--ink)}
 
 .lc-board{margin:0 auto;display:flex;align-items:flex-start;gap:60px}
@@ -128,7 +128,7 @@ const CSS = `
   background:rgba(255,255,255,.62);box-shadow:var(--e-glass);
   -webkit-backdrop-filter:blur(14px) saturate(180%);backdrop-filter:blur(14px) saturate(180%)}
 .lc-anchor svg{position:absolute;inset:0}
-.lc-anchor b{font-size:14.5px;font-weight:600;letter-spacing:-.02em;color:var(--ink);
+.lc-anchor b{font-size: var(--text-xl);font-weight:600;letter-spacing:-.02em;color:var(--ink);
   font-variant-numeric:tabular-nums;line-height:1}
 .lc-mic{color:var(--ink2)}
 
@@ -138,7 +138,7 @@ const CSS = `
 .lc-ctx{padding:13px 20px 18px;flex:none}
 
 /* the one calm status line — present in every treatment */
-.lc-state{display:flex;align-items:center;gap:7px;font-size:14.5px;letter-spacing:-.012em;
+.lc-state{display:flex;align-items:center;gap:7px;font-size: var(--text-xl);letter-spacing:-.012em;
   color:var(--ink2)}
 .lc-state b{font-weight:600;color:var(--ink)}
 .lc-livedot{width:7px;height:7px;border-radius:50%;flex:none;background:var(--accent);
@@ -153,13 +153,13 @@ const CSS = `
    value keeps flowing with the sentence but sits on a soft fill, so it
    reads as tappable without ever becoming a control. No inline chevrons
    — one caret per value is exactly what made this look cluttered. */
-.lc-state.lead{font-size:15px;color:var(--ink2)}
-.lc-sentence{margin:12px 0 0;font-size:17.5px;line-height:1.6;letter-spacing:-.022em;
+.lc-state.lead{font-size: var(--text-2xl);color:var(--ink2)}
+.lc-sentence{margin:12px 0 0;font-size: var(--text-3xl);line-height:1.6;letter-spacing:-.022em;
   color:var(--ink3)}
 .lc-tok{display:inline-block;padding:2px 7px;margin:0 -1px;border-radius:7px;
   background:rgba(60,52,40,.07);color:var(--ink);font-weight:600;white-space:nowrap;
   letter-spacing:-.018em}
-.lc-spath{margin:13px 0 0;font-family:var(--mono);font-size:10.5px;letter-spacing:-.01em;
+.lc-spath{margin:13px 0 0;font-family:var(--mono);font-size: var(--text-xs);letter-spacing:-.01em;
   color:var(--ink4)}
 .lc-spath s{text-decoration:none;color:rgba(182,176,166,.7);padding:0 3px}
 
@@ -168,14 +168,14 @@ const CSS = `
   margin-top:12px}
 .lc-pmain{display:flex;align-items:center;gap:8px;min-width:0}
 .lc-pmain .lcg{color:var(--ink3);flex:none;display:flex}
-.lc-pmain h2{margin:0;font-size:23px;font-weight:600;letter-spacing:-.028em;line-height:1.05;
+.lc-pmain h2{margin:0;font-size: var(--text-5xl);font-weight:600;letter-spacing:-.028em;line-height:1.05;
   color:var(--ink);white-space:nowrap}
 .lc-pmain .lcv{color:var(--ink4);display:flex;flex:none;margin-left:1px}
 .lc-host{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;flex:none;
-  border-radius:8px;background:var(--fill);font-size:12.5px;font-weight:500;color:var(--ink2)}
+  border-radius:8px;background:var(--fill);font-size: var(--text-md);font-weight:500;color:var(--ink2)}
 .lc-host .lcv{color:var(--ink4);display:flex}
 .lc-hdot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}
-.lc-ppath{margin:5px 0 0 25px;font-family:var(--mono);font-size:10.5px;letter-spacing:-.01em;
+.lc-ppath{margin:5px 0 0 25px;font-family:var(--mono);font-size: var(--text-xs);letter-spacing:-.01em;
   color:var(--ink4)}
 .lc-mrule{height:.5px;background:var(--hair);margin:13px 0 11px}
 
@@ -192,11 +192,11 @@ const CSS = `
   box-shadow:inset 0 0 0 .5px var(--hair)}
 .lc-routebar > .lcg{color:var(--ink3);flex:none;display:flex}
 .lc-rt{flex:1;min-width:0;display:block;overflow:hidden}
-.lc-rtline{display:block;font-size:13.5px;letter-spacing:-.012em;color:var(--ink2);
+.lc-rtline{display:block;font-size: var(--text-lg);letter-spacing:-.012em;color:var(--ink2);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lc-rtline b{font-weight:600;color:var(--ink)}
 .lc-rtline s{text-decoration:none;color:var(--ink4);padding:0 4px}
-.lc-rtpath{display:block;margin-top:3px;font-family:var(--mono);font-size:10px;
+.lc-rtpath{display:block;margin-top:3px;font-family:var(--mono);font-size: var(--text-xs);
   letter-spacing:-.01em;color:var(--ink4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lc-routebar .lcv{color:var(--ink3);flex:none;display:flex}
 
@@ -207,7 +207,7 @@ const CSS = `
   padding:6px 0 2px}
 .lc-sheet.t3 .lc-field{min-height:0;padding-top:8px}
 .lc-caret{width:2px;height:27px;border-radius:1px;background:var(--accent);margin-top:1px;flex:none}
-.lc-ph{margin-left:9px;font-size:25px;font-weight:600;letter-spacing:-.03em;line-height:1.18;
+.lc-ph{margin-left:9px;font-size: var(--text-6xl);font-weight:600;letter-spacing:-.03em;line-height:1.18;
   color:#C8C2B8}
 
 /* composer action row — ComposerKit.swift, in everyday material */
@@ -226,15 +226,15 @@ const CSS = `
 .lc-addrkey{width:26px;height:26px;border-radius:8px;background:rgba(60,52,40,.055);
   box-shadow:inset 0 0 0 .5px rgba(40,34,26,.11);
   display:flex;align-items:center;justify-content:center;
-  font-family:var(--mono);font-size:12.5px;font-weight:500;color:var(--ink3);line-height:1}
+  font-family:var(--mono);font-size: var(--text-md);font-weight:500;color:var(--ink3);line-height:1}
 .lc-barspace{flex:1}
 /* the model token — an OUTLINED capsule, not a filled chip: paper fill,
    a crisp 1.5px ink stroke, fully rounded. It is the one control in the
    action row, so it is drawn, not tinted. */
 .lc-token{height:30px;padding:0 10px 0 12px;border-radius:999px;background:var(--sheet);
   border:1.5px solid rgba(25,23,20,.86);flex:none;display:flex;align-items:center;gap:5px;
-  font-size:12.5px;font-weight:600;letter-spacing:-.01em;color:var(--ink)}
-.lc-token em{font-style:normal;font-size:11px;font-weight:500;color:var(--ink3)}
+  font-size: var(--text-md);font-weight:600;letter-spacing:-.01em;color:var(--ink)}
+.lc-token em{font-style:normal;font-size: var(--text-sm);font-weight:500;color:var(--ink3)}
 .lc-token .lcv{color:var(--ink3);display:flex;margin-left:1px}
 .lc-micbtn{width:36px;height:36px;border-radius:50%;background:rgba(60,52,40,.075);
   color:var(--ink2);box-shadow:inset 0 0 0 .5px rgba(40,34,26,.14);
@@ -251,60 +251,60 @@ const CSS = `
   padding:0 6px;border-bottom:.5px solid rgba(40,34,26,.09)}
 .lc-akey{width:34px;height:30px;border-radius:7px;background:var(--key);box-shadow:var(--e-key);
   display:flex;align-items:center;justify-content:center;
-  font-family:var(--mono);font-size:14px;font-weight:500;color:var(--ink2);line-height:1}
+  font-family:var(--mono);font-size: var(--text-xl);font-weight:500;color:var(--ink2);line-height:1}
 .lc-akey.g{color:var(--ink3)}
 .lc-keys{padding:9px 3px 0}
 .lc-krow{display:flex;gap:6px;margin-bottom:11px}
 .lc-krow:last-child{margin-bottom:0}
 .lc-key{height:44px;border-radius:5.5px;background:var(--key);box-shadow:var(--e-key);
   display:flex;align-items:center;justify-content:center;color:var(--key-ink);
-  font-size:22.5px;font-weight:400;line-height:1}
+  font-size: var(--text-5xl);font-weight:400;line-height:1}
 .lc-key.mod{background:var(--key-mod);box-shadow:0 1px 0 rgba(28,24,18,.26)}
-.lc-key.mod.lab{font-size:15.5px}
-.lc-key.space{font-size:15.5px;color:#4A4A50}
+.lc-key.mod.lab{font-size: var(--text-2xl)}
+.lc-key.space{font-size: var(--text-2xl);color:#4A4A50}
 .lc-key.send{background:linear-gradient(180deg,#0F9668 0%,var(--accent) 55%,var(--accent-deep) 100%);
-  color:#fff;font-size:15.5px;font-weight:500;letter-spacing:-.005em;
+  color:#fff;font-size: var(--text-2xl);font-weight:500;letter-spacing:-.005em;
   box-shadow:0 1px 0 rgba(6,58,40,.45), inset 0 .5px 0 rgba(255,255,255,.28)}
 
 /* caption under the device */
 .lc-cap{margin:22px 0 0;text-align:center}
-.lc-cap .n{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.15em;
+.lc-cap .n{font-family:var(--mono);font-size: var(--text-xs);font-weight:600;letter-spacing:.15em;
   text-transform:uppercase;color:var(--ink2)}
-.lc-cap .d{margin-top:6px;font-size:12px;line-height:1.5;color:var(--ink3);
+.lc-cap .d{margin-top:6px;font-size: var(--text-md);line-height:1.5;color:var(--ink3);
   max-width:330px;margin-left:auto;margin-right:auto}
 
 /* ── lane tokens strip ───────────────────────────────────────────── */
 .lc-tokens{flex:1;min-width:0;max-width:648px;padding-top:6px}
-.lc-tk-head{font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.16em;
+.lc-tk-head{font-family:var(--mono);font-size: var(--text-xs);font-weight:500;letter-spacing:.16em;
   text-transform:uppercase;color:var(--ink3)}
-.lc-tk-lede{margin:10px 0 0;max-width:580px;font-size:13px;line-height:1.6;color:var(--ink2)}
+.lc-tk-lede{margin:10px 0 0;max-width:580px;font-size: var(--text-lg);line-height:1.6;color:var(--ink2)}
 .lc-tk-lede b{font-weight:600;color:var(--ink)}
 .lc-cols{margin-top:4px;display:grid;grid-template-columns:1fr 1fr;gap:0 40px;align-items:start}
 .lc-sec{margin-top:22px;padding-top:11px;border-top:.5px solid rgba(40,34,26,.16)}
-.lc-sec > h3{margin:0 0 8px;font-family:var(--mono);font-size:9.5px;font-weight:600;
+.lc-sec > h3{margin:0 0 8px;font-family:var(--mono);font-size: var(--text-2xs);font-weight:600;
   letter-spacing:.14em;text-transform:uppercase;color:var(--ink)}
-.lc-row{display:flex;align-items:baseline;gap:10px;padding:3px 0;font-size:11.5px;
+.lc-row{display:flex;align-items:baseline;gap:10px;padding:3px 0;font-size: var(--text-sm);
   line-height:1.5;color:var(--ink2)}
-.lc-row dt{flex:none;width:82px;font-size:11px;color:var(--ink3)}
+.lc-row dt{flex:none;width:82px;font-size: var(--text-sm);color:var(--ink3)}
 .lc-row dd{margin:0;flex:1;min-width:0}
 .lc-row dd b{font-weight:600;color:var(--ink)}
-.lc-row code,.lc-mono{font-family:var(--mono);font-size:10px;letter-spacing:-.01em;color:var(--ink2)}
+.lc-row code,.lc-mono{font-family:var(--mono);font-size: var(--text-xs);letter-spacing:-.01em;color:var(--ink2)}
 .lc-sw{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;
   vertical-align:-1px;box-shadow:inset 0 0 0 .5px rgba(40,34,26,.28)}
 .lc-note{margin-top:10px;padding:9px 11px;border-radius:11px;background:rgba(255,255,255,.66);
-  box-shadow:inset 0 0 0 .5px rgba(40,34,26,.10);font-size:11px;line-height:1.55;color:var(--ink2)}
+  box-shadow:inset 0 0 0 .5px rgba(40,34,26,.10);font-size: var(--text-sm);line-height:1.55;color:var(--ink2)}
 .lc-note b{font-weight:600;color:var(--ink)}
 .lc-scale{display:flex;align-items:baseline;gap:10px;padding:4.5px 0;
   border-bottom:.5px solid rgba(40,34,26,.08)}
 .lc-scale:last-child{border-bottom:none}
-.lc-scale .sp{flex:none;width:82px;color:var(--ink3);font-size:11px}
+.lc-scale .sp{flex:none;width:82px;color:var(--ink3);font-size: var(--text-sm)}
 .lc-scale .sv{flex:1;color:var(--ink);letter-spacing:-.02em;white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis}
-.lc-scale .sm{flex:none;font-family:var(--mono);font-size:9px;color:var(--ink4)}
+.lc-scale .sm{flex:none;font-family:var(--mono);font-size: var(--text-2xs);color:var(--ink4)}
 
 /* ── the disclosed picker (03) ───────────────────────────────────── */
 .lc-pickwrap{margin-top:26px;padding-top:11px;border-top:.5px solid rgba(40,34,26,.16)}
-.lc-pickwrap > h3{margin:0 0 12px;font-family:var(--mono);font-size:9.5px;font-weight:600;
+.lc-pickwrap > h3{margin:0 0 12px;font-family:var(--mono);font-size: var(--text-2xs);font-weight:600;
   letter-spacing:.14em;text-transform:uppercase;color:var(--ink)}
 .lc-plate{width:352px;background:#fff;border-radius:20px;padding:10px 14px 13px;
   box-shadow:0 0 0 .5px rgba(40,34,26,.06), 0 2px 6px rgba(40,34,26,.06),
@@ -312,7 +312,7 @@ const CSS = `
 .lc-pgrab{width:36px;height:4px;border-radius:2px;background:rgba(40,34,26,.14);margin:0 auto 13px}
 .lc-stop{margin-bottom:13px}
 .lc-stoplab{display:flex;align-items:baseline;gap:7px;margin-bottom:7px;font-family:var(--mono);
-  font-size:9px;letter-spacing:.1em;text-transform:uppercase}
+  font-size: var(--text-2xs);letter-spacing:.1em;text-transform:uppercase}
 .lc-stoplab .n{color:var(--ink4);letter-spacing:.08em}
 .lc-stoplab .t{color:var(--ink2);font-weight:600;letter-spacing:.14em}
 .lc-stoplab .c{margin-left:auto;color:var(--ink4);text-transform:none;letter-spacing:0}
@@ -322,32 +322,32 @@ const CSS = `
   box-shadow:inset 0 0 0 .5px var(--hair)}
 .lc-hplate.on{background:var(--accent-soft);box-shadow:inset 0 0 0 1px rgba(11,138,95,.34)}
 .lc-htile{width:42px;height:42px;border-radius:12px;background:#fff;display:flex;
-  align-items:center;justify-content:center;font-size:19px;color:var(--ink3);
+  align-items:center;justify-content:center;font-size: var(--text-4xl);color:var(--ink3);
   box-shadow:inset 0 0 0 .5px var(--hair)}
 .lc-hplate.on .lc-htile{color:var(--accent);box-shadow:inset 0 0 0 1px rgba(11,138,95,.30)}
-.lc-hplate .lb{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--ink)}
+.lc-hplate .lb{font-family:var(--mono);font-size: var(--text-sm);font-weight:600;color:var(--ink)}
 .lc-hplate.on .lb{color:var(--accent-deep)}
 .lc-fchips{display:flex;gap:8px}
 .lc-fchip{display:inline-flex;align-items:baseline;gap:6px;padding:7px 12px;border-radius:9px;
   background:var(--fill);box-shadow:inset 0 0 0 .5px var(--hair);
-  font-family:var(--mono);font-size:11px;font-weight:600;color:var(--ink)}
-.lc-fchip .v{font-weight:400;font-size:10px;color:var(--ink4)}
-.lc-fchip .df{font-size:8.5px;letter-spacing:.06em;color:var(--ink3);font-weight:500}
+  font-family:var(--mono);font-size: var(--text-sm);font-weight:600;color:var(--ink)}
+.lc-fchip .v{font-weight:400;font-size: var(--text-xs);color:var(--ink4)}
+.lc-fchip .df{font-size: var(--text-3xs);letter-spacing:.06em;color:var(--ink3);font-weight:500}
 .lc-fchip.on{background:var(--accent-soft);box-shadow:inset 0 0 0 1px rgba(11,138,95,.34);
   color:var(--accent-deep)}
 .lc-fchip.on .df{color:rgba(7,107,74,.62)}
 .lc-track{display:flex;gap:4px;padding:3px;border-radius:10px;background:var(--fill);
   box-shadow:inset 0 0 0 .5px var(--hair)}
 .lc-track span{flex:1;text-align:center;padding:7px 0;border-radius:8px;font-family:var(--mono);
-  font-size:11px;color:var(--ink3)}
+  font-size: var(--text-sm);color:var(--ink3)}
 .lc-track span.on{background:#fff;color:var(--accent-deep);font-weight:600;
   box-shadow:0 1px 2px rgba(40,34,26,.10), inset 0 0 0 .5px rgba(11,138,95,.22)}
 .lc-pfoot{margin-top:14px;padding-top:11px;border-top:.5px solid var(--hair);
   display:flex;align-items:center;gap:10px}
-.lc-psum{flex:1;min-width:0;font-family:var(--mono);font-size:11px;color:var(--ink3);
+.lc-psum{flex:1;min-width:0;font-family:var(--mono);font-size: var(--text-sm);color:var(--ink3);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lc-psum b{color:var(--ink);font-weight:600}
-.lc-done{padding:8px 18px;border-radius:10px;font-family:var(--mono);font-size:11px;
+.lc-done{padding:8px 18px;border-radius:10px;font-family:var(--mono);font-size: var(--text-sm);
   font-weight:700;letter-spacing:.06em;color:#fff;
   background:linear-gradient(180deg,#0F9668 0%,var(--accent) 55%,var(--accent-deep) 100%);
   box-shadow:0 1px 2px rgba(6,58,40,.30), inset 0 .5px 0 rgba(255,255,255,.28)}

@@ -46,4 +46,21 @@
   /* Code viewer */
   --code-bg:             var(--hud-bg-2, var(--hud-surface));
   --code-border:         var(--hud-border);
+
+  /* ── Type scale (whole px only) ─────────────────────────────────────────
+   * Same ladder as Scout web (`docs/design/tokens.md`), densified one step
+   * at the top end so study titles and chrome read a touch smaller.
+   * CSS modules use these vars; Tailwind `fontSize` mirrors them. */
+  --text-3xs: 8px;   /* dense instrument chrome (was ad-hoc 7.5 / 8) */
+  --text-2xs: 9px;   /* eyebrows, captions */
+  --text-xs:  10px;  /* mono meta, chips */
+  --text-sm:  11px;  /* secondary UI */
+  --text-md:  12px;  /* body default */
+  --text-lg:  13px;  /* comfortable body / lede */
+  --text-xl:  14px;  /* emphasis body */
+  --text-2xl: 15px;  /* was 16 — slightly smaller subheads */
+  --text-3xl: 17px;  /* was 18 */
+  --text-4xl: 19px;  /* was 20 — study titles */
+  --text-5xl: 22px;  /* was 24 */
+  --text-6xl: 26px;  /* was 28 — landing mastheads */
 }

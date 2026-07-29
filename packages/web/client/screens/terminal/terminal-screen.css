@@ -2183,7 +2183,7 @@
 }
 
 .s-term-preview-peek {
-  --tmux-peek-font-size: 8px;
+  --tmux-peek-font-size: var(--text-3xs);
   border-color: rgba(94, 234, 212, 0.16);
   background:
     linear-gradient(180deg, rgba(94, 234, 212, 0.05), transparent 46%),

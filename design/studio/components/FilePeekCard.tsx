@@ -49,11 +49,11 @@ export function FilePeekCard({
           className="h-2 w-2 shrink-0 rounded-[2px]"
           style={{ background: accent }}
         />
-        <span className="min-w-0 flex-1 truncate font-mono text-[12px] font-medium text-studio-ink">
+        <span className="min-w-0 flex-1 truncate font-mono text-md font-medium text-studio-ink">
           {stat.name}
         </span>
         <span
-          className="rounded-[2px] px-1 py-px font-mono text-[8.5px] font-semibold uppercase tracking-[0.18em]"
+          className="rounded-[2px] px-1 py-px font-mono text-3xs font-semibold uppercase tracking-[0.18em]"
           style={{ color: accent, background: "var(--studio-canvas-alt)" }}
         >
           {langLabel(stat.extension)}
@@ -61,12 +61,12 @@ export function FilePeekCard({
       </div>
 
       {dir ? (
-        <div className="truncate px-3 font-mono text-[10px] text-studio-ink-faint">
+        <div className="truncate px-3 font-mono text-xs text-studio-ink-faint">
           {dir}/
         </div>
       ) : null}
 
-      <div className="flex items-baseline gap-4 border-t border-studio-edge px-3 py-1.5 font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="flex items-baseline gap-4 border-t border-studio-edge px-3 py-1.5 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         {stat.lines !== null ? (
           <span>
             <span className="tabular-nums text-studio-ink">{stat.lines}</span>{" "}
@@ -85,7 +85,7 @@ export function FilePeekCard({
 
       {previewLines.length > 0 ? (
         <pre
-          className="m-0 overflow-hidden border-t border-studio-edge px-3 py-2 font-mono text-[10.5px] leading-[1.5] text-studio-ink-muted"
+          className="m-0 overflow-hidden border-t border-studio-edge px-3 py-2 font-mono text-xs leading-[1.5] text-studio-ink-muted"
           style={{ background: "var(--code-bg)" }}
         >
           {previewLines.join("\n")}

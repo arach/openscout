@@ -114,8 +114,9 @@ function FocusToggleInner() {
       onClick={() => setFocus(!active)}
       title="Fullscreen this study — hides the sidebar and page strip (f)"
       className={cn(
-        "focus-ring group flex shrink-0 items-center gap-1.5 rounded-[3px] px-1.5 py-1",
-        "text-studio-ink-faint transition-colors hover:text-studio-ink",
+        "focus-ring group flex shrink-0 items-center gap-1.5 rounded-[4px] border border-transparent px-1.5 py-1",
+        "text-studio-ink-faint transition-colors hover:border-studio-edge hover:text-studio-ink",
+        active && "border-studio-edge bg-studio-canvas-alt text-studio-ink",
       )}
     >
       <span className="text-2xs uppercase tracking-eyebrow">Focus</span>

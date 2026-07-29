@@ -17,7 +17,7 @@ export function DirSummary({ tree }: { tree: TreeNode }) {
   return (
     <div className="flex flex-col gap-5 rounded-md border border-studio-edge bg-studio-surface p-5">
       <header className="flex flex-col gap-2">
-        <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · directory
         </div>
         <BreadcrumbPath relPath={tree.relPath || tree.name} />
@@ -32,11 +32,11 @@ export function DirSummary({ tree }: { tree: TreeNode }) {
 
       {stats.topLangs.length > 0 ? (
         <div className="flex flex-col gap-2 border-t border-studio-edge pt-4">
-          <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             Top languages
           </div>
           <LangBar entries={stats.topLangs} total={stats.langCountedTotal} />
-          <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-[10px] text-studio-ink-faint">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-studio-ink-faint">
             {stats.topLangs.map(([lang, count]) => (
               <span key={lang} className="inline-flex items-baseline gap-1.5">
                 <span
@@ -60,10 +60,10 @@ export function DirSummary({ tree }: { tree: TreeNode }) {
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         {label}
       </div>
-      <div className="font-mono text-[15px] tabular-nums text-studio-ink">
+      <div className="font-mono text-2xl tabular-nums text-studio-ink">
         {value}
       </div>
     </div>

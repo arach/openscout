@@ -122,11 +122,11 @@ function Dot({ on = true, size = 6 }: { on?: boolean; size?: number }) {
 function Eyebrow({ children, meta }: { children: React.ReactNode; meta?: React.ReactNode }) {
   return (
     <div className="mb-2 flex items-baseline justify-between">
-      <span className="font-mono text-[8px] font-semibold uppercase tracking-[0.18em]" style={{ color: FAINT }}>
+      <span className="font-mono text-3xs font-semibold uppercase tracking-[0.18em]" style={{ color: FAINT }}>
         {children}
       </span>
       {meta != null ? (
-        <span className="font-mono text-[8.5px] tabular-nums" style={{ color: FAINT }}>
+        <span className="font-mono text-3xs tabular-nums" style={{ color: FAINT }}>
           {meta}
         </span>
       ) : null}
@@ -175,7 +175,7 @@ const CARD_W = 332;
 function Card({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-2">
-      <div className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>
+      <div className="font-mono text-2xs font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>
         {label}
       </div>
       <div
@@ -204,14 +204,14 @@ function Section({ children, last = false }: { children: React.ReactNode; last?:
    never in your own DM — that's the rule that unifies the contexts. */
 function NewBtn() {
   return (
-    <button type="button" className="flex-none cursor-pointer rounded-[4px] px-2.5 py-[5px] font-mono text-[8px] font-semibold uppercase tracking-[0.1em]" style={{ background: ACCENT, color: INK.canvas }}>
+    <button type="button" className="flex-none cursor-pointer rounded-[4px] px-2.5 py-[5px] font-mono text-3xs font-semibold uppercase tracking-[0.1em]" style={{ background: ACCENT, color: INK.canvas }}>
       + New
     </button>
   );
 }
 function MsgBtn({ label = "Message" }: { label?: string }) {
   return (
-    <button type="button" className="flex-none cursor-pointer rounded-[4px] px-2.5 py-[5px] font-mono text-[8px] font-semibold uppercase tracking-[0.1em]" style={{ border: `1px solid ${INK.edge}`, color: MUTED }}>
+    <button type="button" className="flex-none cursor-pointer rounded-[4px] px-2.5 py-[5px] font-mono text-3xs font-semibold uppercase tracking-[0.1em]" style={{ border: `1px solid ${INK.edge}`, color: MUTED }}>
       {label}
     </button>
   );
@@ -228,16 +228,16 @@ function HeaderBlock({ a = CLAUDE, trailing, compact = false }: { a?: Ident; tra
               <span className="font-display leading-none" style={{ color: INKC, fontSize: compact ? 13 : 15 }}>
                 {a.name}
               </span>
-              <span className="font-mono text-[9px]" style={{ color: FAINT }}>
+              <span className="font-mono text-2xs" style={{ color: FAINT }}>
                 {a.handle}
               </span>
             </div>
             {compact ? (
-              <div className="mt-1 truncate font-mono text-[9px]" style={{ color: FAINT }}>
+              <div className="mt-1 truncate font-mono text-2xs" style={{ color: FAINT }}>
                 ⎇ {a.branch} <Sep /> {a.harness} · {a.model}
               </div>
             ) : (
-              <div className="mt-1.5 flex flex-col gap-0.5 font-mono text-[9px] leading-tight" style={{ color: MUTED }}>
+              <div className="mt-1.5 flex flex-col gap-0.5 font-mono text-2xs leading-tight" style={{ color: MUTED }}>
                 <span className="truncate">
                   {a.cwd} <Sep /> ⎇ {a.branch}
                 </span>
@@ -271,8 +271,8 @@ function ActivityBlock() {
         {stats.map(([v, k], i) => (
           <span key={k} className="inline-flex items-baseline gap-1">
             {i > 0 ? <span className="mr-0.5" style={{ color: INK.edge }}>·</span> : null}
-            <span className="text-[11px] tabular-nums" style={{ color: INKC }}>{v}</span>
-            <span className="text-[8px] uppercase tracking-[0.08em]" style={{ color: FAINT }}>{k}</span>
+            <span className="text-sm tabular-nums" style={{ color: INKC }}>{v}</span>
+            <span className="text-3xs uppercase tracking-[0.08em]" style={{ color: FAINT }}>{k}</span>
           </span>
         ))}
       </div>
@@ -280,7 +280,7 @@ function ActivityBlock() {
         <div className="h-[3px] flex-1 overflow-hidden rounded-full" style={{ background: INK.module }}>
           <div className="h-full rounded-full" style={{ width: `${a.fill}%`, background: MUTED }} />
         </div>
-        <span className="font-mono text-[8.5px]" style={{ color: FAINT }}>{a.fill}% ctx</span>
+        <span className="font-mono text-3xs" style={{ color: FAINT }}>{a.fill}% ctx</span>
       </div>
     </Section>
   );
@@ -297,7 +297,7 @@ function FilesBlock() {
           const dir = parts.length ? `${parts.join("/")}/` : "";
           const mark = f.state === "created" ? "+" : "~";
           return (
-            <div key={f.path} className="flex items-baseline justify-between gap-2 font-mono text-[9.5px] leading-tight">
+            <div key={f.path} className="flex items-baseline justify-between gap-2 font-mono text-2xs leading-tight">
               <span className="flex min-w-0 items-baseline gap-1.5">
                 <span className="flex-none" style={{ color: ACCENT }}>{mark}</span>
                 <span className="flex min-w-0 items-baseline">
@@ -305,11 +305,11 @@ function FilesBlock() {
                   <span className="flex-none" style={{ color: MUTED }}>{name}</span>
                 </span>
               </span>
-              <span className="flex-none tabular-nums text-[8.5px]" style={{ color: FAINT }}>{f.delta}</span>
+              <span className="flex-none tabular-nums text-3xs" style={{ color: FAINT }}>{f.delta}</span>
             </div>
           );
         })}
-        <button type="button" className="mt-0.5 w-fit cursor-pointer font-mono text-[9px] uppercase tracking-[0.1em]" style={{ color: ACCENT }}>
+        <button type="button" className="mt-0.5 w-fit cursor-pointer font-mono text-2xs uppercase tracking-[0.1em]" style={{ color: ACCENT }}>
           Open full diff →
         </button>
       </div>
@@ -335,12 +335,12 @@ function EngageCurrent() {
       <div className="flex flex-col gap-1.5">
         {rows.map(([label, verb, filled]) => (
           <div key={label} className="flex items-center gap-2.5">
-            <span className="w-[84px] flex-none font-mono text-[8px] uppercase tracking-[0.13em]" style={{ color: FAINT }}>
+            <span className="w-[84px] flex-none font-mono text-3xs uppercase tracking-[0.13em]" style={{ color: FAINT }}>
               {label}
             </span>
             <button
               type="button"
-              className="cursor-pointer rounded-[4px] px-2.5 py-1.5 font-mono text-[8px] font-semibold uppercase tracking-[0.1em]"
+              className="cursor-pointer rounded-[4px] px-2.5 py-1.5 font-mono text-3xs font-semibold uppercase tracking-[0.1em]"
               style={
                 filled
                   ? { background: ACCENT, color: INK.canvas }
@@ -364,13 +364,13 @@ function SessionsCurrent() {
         <span className="mt-[3px]"><Dot size={5} /></span>
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-1.5">
-            <span className="font-mono text-[10px]" style={{ color: INKC }}>Openscout</span>
-            <span className="rounded-sm px-1 font-mono text-[7px] uppercase tracking-[0.08em]" style={{ background: INK.module, color: FAINT }}>
+            <span className="font-mono text-xs" style={{ color: INKC }}>Openscout</span>
+            <span className="rounded-sm px-1 font-mono text-3xs uppercase tracking-[0.08em]" style={{ background: INK.module, color: FAINT }}>
               relay agent
             </span>
-            <span className="ml-auto font-mono text-[8px]" style={{ color: FAINT }}>6h</span>
+            <span className="ml-auto font-mono text-3xs" style={{ color: FAINT }}>6h</span>
           </div>
-          <div className="mt-1 truncate font-mono text-[8.5px]" style={{ color: FAINT }}>
+          <div className="mt-1 truncate font-mono text-3xs" style={{ color: FAINT }}>
             codex/scoutd-apple-silicon-install-path · 4 msgs
           </div>
         </div>
@@ -392,8 +392,8 @@ function RuntimeCurrent() {
       <div className="flex flex-col gap-1.5">
         {rows.map(([k, v]) => (
           <div key={k} className="flex items-baseline justify-between gap-3">
-            <span className="flex-none font-mono text-[7.5px] uppercase tracking-[0.12em]" style={{ color: FAINT }}>{k}</span>
-            <span className="truncate text-right font-mono text-[9px]" style={{ color: k === "Session" ? MUTED : INKC }}>{v}</span>
+            <span className="flex-none font-mono text-3xs uppercase tracking-[0.12em]" style={{ color: FAINT }}>{k}</span>
+            <span className="truncate text-right font-mono text-2xs" style={{ color: k === "Session" ? MUTED : INKC }}>{v}</span>
           </div>
         ))}
       </div>
@@ -441,7 +441,7 @@ function SessionCTAs() {
           key={c.t}
           type="button"
           title={c.t}
-          className="inline-flex cursor-pointer items-center gap-1.5 rounded-[4px] px-2.5 py-1.5 font-mono text-[8px] font-semibold uppercase tracking-[0.1em]"
+          className="inline-flex cursor-pointer items-center gap-1.5 rounded-[4px] px-2.5 py-1.5 font-mono text-3xs font-semibold uppercase tracking-[0.1em]"
           style={
             c.lead
               ? {
@@ -483,7 +483,7 @@ function SessionBlock({ s = ATTACHED, last = false }: { s?: SessionT; last?: boo
         Session
       </Eyebrow>
 
-      <div className="truncate font-mono text-[10px]" style={{ color: MUTED }} title={s.id}>
+      <div className="truncate font-mono text-xs" style={{ color: MUTED }} title={s.id}>
         {s.id}
       </div>
 
@@ -491,8 +491,8 @@ function SessionBlock({ s = ATTACHED, last = false }: { s?: SessionT; last?: boo
         {facts.map(([k, v], i) => (
           <span key={k} className="inline-flex items-baseline gap-1.5">
             {i > 0 ? <span style={{ color: INK.edge }}>·</span> : null}
-            <span className="text-[7.5px] uppercase tracking-[0.12em]" style={{ color: FAINT }}>{k}</span>
-            <span className="text-[9.5px]" style={{ color: INKC }}>{v}</span>
+            <span className="text-3xs uppercase tracking-[0.12em]" style={{ color: FAINT }}>{k}</span>
+            <span className="text-2xs" style={{ color: INKC }}>{v}</span>
           </span>
         ))}
       </div>
@@ -519,19 +519,19 @@ function OtherSessions() {
             style={{ borderTop: i ? `1px solid ${INK.edgeSoft}` : undefined }}
           >
             <Dot on={s.live} size={5} />
-            <span className="font-mono text-[9.5px]" style={{ color: MUTED }}>{s.id}</span>
-            <span className="rounded-sm px-1 font-mono text-[7px] uppercase tracking-[0.08em]" style={{ background: INK.module, color: FAINT }}>
+            <span className="font-mono text-2xs" style={{ color: MUTED }}>{s.id}</span>
+            <span className="rounded-sm px-1 font-mono text-3xs uppercase tracking-[0.08em]" style={{ background: INK.module, color: FAINT }}>
               {s.role}
             </span>
-            <span className="font-mono text-[8px]" style={{ color: FAINT }}>{s.msgs} msgs</span>
+            <span className="font-mono text-3xs" style={{ color: FAINT }}>{s.msgs} msgs</span>
             <span className="ml-auto flex items-center gap-2">
               {/* on-hover actions live HERE — these ARE other conversations, so
                   Message/Observe are meaningful (unlike the attached session). */}
-              <span className="font-mono text-[8px] opacity-100 transition-opacity group-hover:opacity-0" style={{ color: FAINT }}>
+              <span className="font-mono text-3xs opacity-100 transition-opacity group-hover:opacity-0" style={{ color: FAINT }}>
                 {s.ago}
               </span>
               <span className="pointer-events-none absolute -ml-1 flex gap-1.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
-                <span className="font-mono text-[7.5px] uppercase tracking-[0.1em]" style={{ color: FAINT }}>msg · obs</span>
+                <span className="font-mono text-3xs uppercase tracking-[0.1em]" style={{ color: FAINT }}>msg · obs</span>
               </span>
             </span>
           </div>
@@ -571,10 +571,10 @@ function SessionsListBlock() {
             <div key={s.id} className="py-2" style={{ borderTop: i ? `1px solid ${INK.edgeSoft}` : undefined }}>
               <div className="flex items-center gap-2">
                 <Dot on={s.live} size={5} />
-                <span className="font-mono text-[9.5px]" style={{ color: lead ? INKC : MUTED }}>{s.id}</span>
-                <span className="rounded-sm px-1 font-mono text-[7px] uppercase tracking-[0.08em]" style={{ background: INK.module, color: FAINT }}>{s.role}</span>
-                <span className="font-mono text-[8px]" style={{ color: FAINT }}>{s.msgs} msgs</span>
-                <span className="ml-auto font-mono text-[8px]" style={{ color: s.live ? ACCENT : FAINT }}>{s.live ? "live" : s.ago}</span>
+                <span className="font-mono text-2xs" style={{ color: lead ? INKC : MUTED }}>{s.id}</span>
+                <span className="rounded-sm px-1 font-mono text-3xs uppercase tracking-[0.08em]" style={{ background: INK.module, color: FAINT }}>{s.role}</span>
+                <span className="font-mono text-3xs" style={{ color: FAINT }}>{s.msgs} msgs</span>
+                <span className="ml-auto font-mono text-3xs" style={{ color: s.live ? ACCENT : FAINT }}>{s.live ? "live" : s.ago}</span>
               </div>
               {lead ? <div className="mt-2"><SessionCTAs /></div> : null}
             </div>
@@ -609,7 +609,7 @@ function AgentSide({ a, s, last = false }: { a: Ident; s: SessionT; last?: boole
       <HeaderBlock
         a={a}
         compact
-        trailing={<span className="font-mono text-[8px] uppercase tracking-[0.1em]" style={{ color: s.live ? ACCENT : FAINT }}>{s.live ? "live" : "idle"}</span>}
+        trailing={<span className="font-mono text-3xs uppercase tracking-[0.1em]" style={{ color: s.live ? ACCENT : FAINT }}>{s.live ? "live" : "idle"}</span>}
       />
       <SessionBlock s={s} last={last} />
     </>
@@ -624,11 +624,11 @@ function DmPairCard() {
       <Section>
         <Eyebrow meta="2 agents">Conversation</Eyebrow>
         <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 font-mono text-[10px]" style={{ color: MUTED }}>
+          <span className="inline-flex items-center gap-1.5 font-mono text-xs" style={{ color: MUTED }}>
             <SpriteAvatar name={CLAUDE.name} size={16} tile /> {CLAUDE.name}
           </span>
           <span style={{ color: INK.edge }}>⇄</span>
-          <span className="inline-flex items-center gap-1.5 font-mono text-[10px]" style={{ color: MUTED }}>
+          <span className="inline-flex items-center gap-1.5 font-mono text-xs" style={{ color: MUTED }}>
             <SpriteAvatar name={OPERATOR.name} size={16} tile /> {OPERATOR.name}
           </span>
           <span className="ml-auto"><MsgBtn label="Interject" /></span>
@@ -661,14 +661,14 @@ export default function AgentInspectorDmPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-6 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · macos · agent-inspector-dm
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Agent Inspector · contexts
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
-          One inspector card (<code className="font-mono text-[12px] text-studio-ink">ScoutAgentInspector</code>),
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
+          One inspector card (<code className="font-mono text-md text-studio-ink">ScoutAgentInspector</code>),
           flexed across the contexts it has to serve. The constant: a live session shows{" "}
           <span className="text-studio-ink">Traces · Watch · Take over</span>. What flexes is the{" "}
           <span className="text-studio-ink">session region</span> (one bound session, elevated — vs a peer
@@ -691,7 +691,7 @@ export default function AgentInspectorDmPage() {
               type="button"
               onClick={() => setCtx(c.id)}
               aria-pressed={active}
-              className="cursor-pointer rounded-[4px] px-3 py-[6px] font-mono text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors"
+              className="cursor-pointer rounded-[4px] px-3 py-[6px] font-mono text-xs font-semibold uppercase tracking-[0.1em] transition-colors"
               style={active ? { background: ACCENT, color: INK.canvas } : { color: "var(--studio-ink-faint)" }}
             >
               {c.label}
@@ -713,10 +713,10 @@ export default function AgentInspectorDmPage() {
       </div>
 
       <section className="mt-10 max-w-prose">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">
           One component, three axes
         </div>
-        <ul className="flex flex-col gap-2 text-[12px] leading-relaxed text-studio-ink-faint">
+        <ul className="flex flex-col gap-2 text-md leading-relaxed text-studio-ink-faint">
           <li>
             <span className="text-studio-ink">Scope — bound vs list.</span> In a DM the conversation&apos;s
             session is elevated as the primary block (others demote to &ldquo;Other sessions&rdquo;). In the agent

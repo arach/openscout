@@ -1,5 +1,5 @@
-import { ExternalLink, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ClipboardPaste, ExternalLink, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { HarnessMark, harnessLabel as sharedHarnessLabel } from "../../components/HarnessMark.tsx";
 import { api } from "../../lib/api.ts";
@@ -76,7 +76,7 @@ const SUBSCRIPTION_PROVIDERS = [
   },
   {
     id: "grok",
-    description: "SuperGrok subscription and shared weekly usage allowance.",
+    description: "SuperGrok quota from an explicit dashboard capture, with local Grok activity as a fallback.",
     links: [
       { label: "Open Grok", href: "https://grok.com/" },
       { label: "Billing", href: "https://grok.com/?_s=billing" },
@@ -93,7 +93,7 @@ const SUBSCRIPTION_PROVIDERS = [
   },
   {
     id: "cursor",
-    description: "Cursor membership detected locally; usage stays on its dashboard.",
+    description: "Cursor membership detected locally, plus usage totals from an exported dashboard capture.",
     links: [
       { label: "Usage", href: "https://cursor.com/dashboard/usage" },
       { label: "Manage plan", href: "https://cursor.com/dashboard/billing" },
@@ -235,13 +235,91 @@ function formatResetRelative(resetAt: number): string {
 }
 
 function budgetLatestAt(gauge: ServiceGauge | null): number | null {
-  if (!gauge || gauge.kind !== "quota") return null;
+  if (!gauge) return null;
+  const direct = normalizeTimestampMs(gauge.capturedAt);
+  if (direct) return direct;
+  if (gauge.kind !== "quota") return null;
+  const windowCapture = quotaWindows(gauge).reduce<number | null>((latest, window) => {
+    const capturedAt = normalizeTimestampMs(window.capturedAt);
+    return Math.max(latest ?? 0, capturedAt ?? 0) || latest;
+  }, null);
+  if (windowCapture) return windowCapture;
   return quotaWindows(gauge)
     .flatMap((window) => window.history ?? [])
     .reduce<number | null>((latest, point) => {
       const capturedAt = normalizeTimestampMs(point.capturedAt);
       return Math.max(latest ?? 0, capturedAt ?? 0) || latest;
     }, null);
+}
+
+function DashboardCapture({
+  provider,
+  onImported,
+}: {
+  provider: "grok" | "cursor";
+  onImported: () => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const fieldId = `hs-${provider}-dashboard-capture`;
+  const providerLabel = harnessLabel(provider);
+
+  if (!open) {
+    return (
+      <button type="button" className="hs-dashboard-capture-trigger" onClick={() => setOpen(true)}>
+        <ClipboardPaste size={12} aria-hidden="true" />
+        Import dashboard
+      </button>
+    );
+  }
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!text.trim() || submitting) return;
+    setSubmitting(true);
+    setMessage(null);
+    try {
+      await api<{ ok: true; gauge: ServiceGauge }>("/api/service-budgets/dashboard-import", {
+        method: "POST",
+        body: JSON.stringify({ provider, text }),
+      });
+      setText("");
+      setMessage("Usage snapshot imported.");
+      await onImported();
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form className="hs-dashboard-capture" onSubmit={(event) => void submit(event)}>
+      <label htmlFor={fieldId}>{providerLabel} usage snapshot</label>
+      <p>
+        {provider === "cursor"
+          ? "Paste the exported Usage CSV or copied usage table."
+          : "Copy the signed-in Usage panel and paste it here."}
+        {" "}Scout keeps only normalized totals, not this text.
+      </p>
+      <textarea
+        id={fieldId}
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        maxLength={128 * 1024}
+        rows={5}
+        placeholder={provider === "cursor" ? "Date (UTC),Type,Model,Tokens,Cost…" : "Weekly SuperGrok… Limit · 12% used · Resets…"}
+        aria-describedby={message ? `${fieldId}-message` : undefined}
+      />
+      {message ? <span id={`${fieldId}-message`} className="hs-dashboard-capture-message" role="status">{message}</span> : null}
+      <div className="hs-dashboard-capture-actions">
+        <button type="button" onClick={() => { setOpen(false); setMessage(null); }} disabled={submitting}>Cancel</button>
+        <button type="submit" disabled={!text.trim() || submitting}>{submitting ? "Importing…" : "Use snapshot"}</button>
+      </div>
+    </form>
+  );
 }
 
 function buildHarnessRows(gauges: ServiceGauge[]): HarnessRow[] {
@@ -330,7 +408,7 @@ function SubscriptionLoadingState() {
   );
 }
 
-function SubscriptionSection({ rows, loading }: { rows: HarnessRow[]; loading: boolean }) {
+function SubscriptionSection({ rows, loading, onImported }: { rows: HarnessRow[]; loading: boolean; onImported: () => Promise<void> }) {
   const subscriptions = SUBSCRIPTION_PROVIDERS.map((provider) => ({
     provider,
     row: rows.find((row) => row.id === provider.id) ?? null,
@@ -409,8 +487,15 @@ function SubscriptionSection({ rows, loading }: { rows: HarnessRow[]; loading: b
                 </div>
               )}
 
+              {provider.id === "grok" || provider.id === "cursor" ? (
+                <DashboardCapture provider={provider.id} onImported={onImported} />
+              ) : null}
+
               <footer className="hs-subscription-footer">
-                <span>{pending ? "checking local feed" : latestAt ? `updated ${timeAgo(latestAt) || "now"}` : gauge ? "detected locally" : "waiting for provider data"}</span>
+                <span>
+                  {pending ? "checking local feed" : latestAt ? `updated ${timeAgo(latestAt) || "now"}` : gauge ? "detected locally" : "waiting for provider data"}
+                  {gauge?.source ? ` · ${gauge.source}` : ""}
+                </span>
                 <nav aria-label={`${harnessLabel(provider.id)} quick links`}>
                   {provider.links.map((link) => (
                     <a key={link.href} href={link.href} target="_blank" rel="noreferrer">
@@ -574,7 +659,7 @@ export function HarnessesScreen({ navigate }: { navigate: (r: Route) => void }) 
           </header>
 
           {error && <div className="hs-error" role="status" aria-live="polite">refresh: {error}</div>}
-          <SubscriptionSection rows={rows} loading={loading} />
+          <SubscriptionSection rows={rows} loading={loading} onImported={() => load(false)} />
           <CloudAccountsSection accounts={cloudAccounts} loading={loading} />
         </div>
       </div>

@@ -105,16 +105,16 @@ export function FileCardCompact({
         className="h-1.5 w-1.5 shrink-0 rounded-[1px]"
         style={{ background: accent }}
       />
-      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-studio-ink">
+      <span className="min-w-0 flex-1 truncate font-mono text-sm text-studio-ink">
         {stat.relPath}
       </span>
-      <span className="shrink-0 font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <span className="shrink-0 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         {langLabel(stat.extension)}
       </span>
-      <span className="shrink-0 font-mono text-[9.5px] tabular-nums text-studio-ink-faint">
+      <span className="shrink-0 font-mono text-2xs tabular-nums text-studio-ink-faint">
         {stat.lines !== null ? `${stat.lines} L` : ""}
       </span>
-      <span className="shrink-0 font-mono text-[9.5px] tabular-nums text-studio-ink-faint">
+      <span className="shrink-0 font-mono text-2xs tabular-nums text-studio-ink-faint">
         {formatBytes(stat.bytes)}
       </span>
     </Link>
@@ -143,11 +143,11 @@ export function FileCardStandard({
           className="h-2 w-2 shrink-0 rounded-[2px]"
           style={{ background: accent }}
         />
-        <span className="min-w-0 flex-1 truncate font-mono text-[13px] font-medium text-studio-ink">
+        <span className="min-w-0 flex-1 truncate font-mono text-lg font-medium text-studio-ink">
           {stat.name}
         </span>
         <span
-          className="rounded-[2px] px-1 py-px font-mono text-[8.5px] font-semibold uppercase tracking-[0.18em]"
+          className="rounded-[2px] px-1 py-px font-mono text-3xs font-semibold uppercase tracking-[0.18em]"
           style={{
             color: accent,
             background: "var(--studio-canvas-alt)",
@@ -157,11 +157,11 @@ export function FileCardStandard({
         </span>
       </div>
       {dir ? (
-        <div className="truncate font-mono text-[10px] text-studio-ink-faint">
+        <div className="truncate font-mono text-xs text-studio-ink-faint">
           {dir}/
         </div>
       ) : null}
-      <div className="flex items-baseline gap-4 border-t border-studio-edge pt-1.5 font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="flex items-baseline gap-4 border-t border-studio-edge pt-1.5 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         {stat.lines !== null ? (
           <span>
             <span className="tabular-nums text-studio-ink">{stat.lines}</span>{" "}
@@ -202,20 +202,20 @@ export function FileCardPreview({
           className="h-2 w-2 shrink-0 rounded-[2px]"
           style={{ background: accent }}
         />
-        <span className="min-w-0 flex-1 truncate font-mono text-[13px] font-medium text-studio-ink">
+        <span className="min-w-0 flex-1 truncate font-mono text-lg font-medium text-studio-ink">
           {stat.name}
         </span>
-        <span className="font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           {langLabel(stat.extension)}
         </span>
       </div>
-      <div className="truncate px-4 font-mono text-[10px] text-studio-ink-faint">
+      <div className="truncate px-4 font-mono text-xs text-studio-ink-faint">
         {stat.relPath}
       </div>
-      <pre className="m-0 max-h-[180px] overflow-hidden border-t border-studio-edge px-4 py-2 font-mono text-[11px] leading-[1.55] text-studio-ink-muted">
+      <pre className="m-0 max-h-[180px] overflow-hidden border-t border-studio-edge px-4 py-2 font-mono text-sm leading-[1.55] text-studio-ink-muted">
         {excerpt}
       </pre>
-      <div className="flex items-baseline gap-4 border-t border-studio-edge px-4 py-2 font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="flex items-baseline gap-4 border-t border-studio-edge px-4 py-2 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         {stat.lines !== null ? (
           <span>
             <span className="tabular-nums text-studio-ink">{stat.lines}</span>{" "}

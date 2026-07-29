@@ -137,7 +137,7 @@ function AreaMenuItems({
               aria-current={active ? "page" : undefined}
               data-area={area.id}
               className={cn(
-                "font-mono text-[11px] font-medium tracking-[0.02em]",
+                "font-mono text-sm font-medium tracking-[0.02em]",
                 ACTIVE_MENU_CLASS,
               )}
               onClick={() => onNavigateArea(area.id)}
@@ -156,7 +156,7 @@ function AreaMenuItems({
                         isActive={itemActive}
                         aria-current={itemActive ? "page" : undefined}
                         data-subnav={item.id}
-                        className="font-mono text-[10px]"
+                        className="font-mono text-xs"
                         onClick={() => navigate(item.route)}
                       >
                         <span>{item.label}</span>
@@ -247,8 +247,8 @@ export function ScoutSidebar({
                 title="Home"
                 className="font-mono data-[slot=sidebar-menu-button]:!p-2"
               >
-                <ScoutMark className="size-[18px] shrink-0" />
-                <span className="truncate text-[11px] font-bold tracking-[0.08em] uppercase">
+                <ScoutMark className="size-[22px] shrink-0" />
+                <span className="truncate text-sm font-bold tracking-[0.08em] uppercase">
                   {brandLabel}
                 </span>
               </SidebarMenuButton>
@@ -260,7 +260,7 @@ export function ScoutSidebar({
       <SidebarContent className="gap-0">
         {model.kind === "scope" ? (
           <SidebarGroup>
-            <SidebarGroupLabel className="font-mono text-[9px] tracking-[0.12em] uppercase">
+            <SidebarGroupLabel className="font-mono text-2xs tracking-[0.12em] uppercase">
               Surfaces
             </SidebarGroupLabel>
             <SidebarGroupContent>
@@ -276,14 +276,14 @@ export function ScoutSidebar({
                       aria-label={item.label}
                       title={item.label}
                       className={cn(
-                        "font-mono text-[11px] font-medium",
+                        "font-mono text-sm font-medium",
                         ACTIVE_MENU_CLASS,
                       )}
                       onClick={() => navigate(item.route)}
                     >
                       {/* Scope items have no icons — initial-letter fallback for icon rail. */}
                       <span
-                        className="flex size-4 shrink-0 items-center justify-center text-[11px] font-bold uppercase"
+                        className="flex size-4 shrink-0 items-center justify-center text-sm font-bold uppercase"
                         aria-hidden
                       >
                         {item.label.slice(0, 1)}
@@ -298,7 +298,7 @@ export function ScoutSidebar({
         ) : (
           <>
             <SidebarGroup>
-              <SidebarGroupLabel className="font-mono text-[9px] tracking-[0.12em] uppercase">
+              <SidebarGroupLabel className="font-mono text-2xs tracking-[0.12em] uppercase">
                 Navigate
               </SidebarGroupLabel>
               <SidebarGroupContent>
@@ -313,7 +313,7 @@ export function ScoutSidebar({
               </SidebarGroupContent>
             </SidebarGroup>
             <SidebarGroup>
-              <SidebarGroupLabel className="font-mono text-[9px] tracking-[0.12em] uppercase">
+              <SidebarGroupLabel className="font-mono text-2xs tracking-[0.12em] uppercase">
                 System
               </SidebarGroupLabel>
               <SidebarGroupContent>
@@ -342,13 +342,13 @@ export function ScoutSidebar({
               aria-label={NEW_TASK_ACTION_LABEL}
               aria-keyshortcuts={NEW_CHAT_SHORTCUT_LABEL}
               data-action="new-task"
-              className="font-mono text-[11px] font-semibold tracking-[0.02em] [&_svg]:text-[var(--hud-accent)]"
+              className="font-mono text-sm font-semibold tracking-[0.02em] [&_svg]:text-[var(--hud-accent)]"
               onClick={startNewTask}
             >
               <Plus size={16} strokeWidth={1.8} aria-hidden />
               <span>{NEW_TASK_ACTION_LABEL}</span>
             </SidebarMenuButton>
-            <SidebarMenuBadge className="font-mono text-[9px] text-sidebar-foreground/55">
+            <SidebarMenuBadge className="font-mono text-2xs text-sidebar-foreground/55">
               {NEW_CHAT_SHORTCUT_LABEL}
             </SidebarMenuBadge>
           </SidebarMenuItem>
@@ -360,7 +360,7 @@ export function ScoutSidebar({
               aria-current={settingsActive ? "page" : undefined}
               data-area="settings"
               className={cn(
-                "font-mono text-[11px] font-medium tracking-[0.02em]",
+                "font-mono text-sm font-medium tracking-[0.02em]",
                 ACTIVE_MENU_CLASS,
               )}
               onClick={() => openSettings()}

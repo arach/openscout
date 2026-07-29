@@ -211,7 +211,7 @@ function Titlebar() {
         <span className="block h-[10px] w-[10px] rounded-full" style={{ background: "#FEBC2E" }} />
         <span className="block h-[10px] w-[10px] rounded-full" style={{ background: "#28C840" }} />
       </div>
-      <span className="ml-2 font-mono text-[9.5px] text-studio-ink-faint">scout · comms</span>
+      <span className="ml-2 font-mono text-2xs text-studio-ink-faint">scout · comms</span>
     </div>
   );
 }
@@ -229,7 +229,7 @@ function NavRail({ active }: { active: ActiveSection }) {
       className="flex w-[40px] flex-none flex-col items-center gap-1 border-r border-studio-edge py-2"
       style={{ background: "var(--studio-canvas-alt)" }}
     >
-      <div className="mb-1 grid h-[26px] w-[26px] place-items-center rounded-[6px] bg-scout-accent font-display text-[12px] font-semibold text-studio-canvas">
+      <div className="mb-1 grid h-[26px] w-[26px] place-items-center rounded-[6px] bg-scout-accent font-display text-md font-semibold text-studio-canvas">
         S
       </div>
       {NAV_ITEMS.map((it) => (
@@ -254,7 +254,7 @@ function NavRail({ active }: { active: ActiveSection }) {
 function StatusBar() {
   return (
     <div
-      className="flex h-[22px] flex-none items-center gap-2 border-t border-studio-edge px-3 font-mono text-[9px] uppercase tracking-eyebrow"
+      className="flex h-[22px] flex-none items-center gap-2 border-t border-studio-edge px-3 font-mono text-2xs uppercase tracking-eyebrow"
       style={{ background: "var(--studio-canvas-alt)" }}
     >
       <span className="inline-block h-1.5 w-1.5 rounded-full bg-status-ok-fg" />
@@ -274,7 +274,7 @@ function CommsList({ selectedCid }: { selectedCid: string }) {
   return (
     <div className="flex w-[228px] flex-none flex-col border-r border-studio-edge">
       <div className="flex flex-none items-center justify-between border-b border-studio-edge px-3 py-2">
-        <span className="font-sans text-[12px] font-semibold tracking-tight text-studio-ink">Chats</span>
+        <span className="font-sans text-md font-semibold tracking-tight text-studio-ink">Chats</span>
         <span className="inline-block h-1.5 w-1.5 rounded-full bg-status-ok-fg" />
       </div>
       <div className="flex flex-none items-center gap-1.5 border-b border-studio-edge px-3 py-2">
@@ -282,7 +282,7 @@ function CommsList({ selectedCid }: { selectedCid: string }) {
           <span
             key={f}
             className={[
-              "rounded-[3px] px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow",
+              "rounded-[3px] px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow",
               i === 0 ? "bg-studio-surface text-studio-ink" : "text-studio-ink-faint",
             ].join(" ")}
           >
@@ -296,7 +296,7 @@ function CommsList({ selectedCid }: { selectedCid: string }) {
           if (rows.length === 0) return null;
           return (
             <div key={g}>
-              <div className="px-3 py-1 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+              <div className="px-3 py-1 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
                 {groupLabels[g]}
               </div>
               {rows.map((c) => {
@@ -312,24 +312,24 @@ function CommsList({ selectedCid }: { selectedCid: string }) {
                     <div className="flex items-baseline justify-between gap-2">
                       <span
                         className={[
-                          "truncate font-sans text-[11px] text-studio-ink",
+                          "truncate font-sans text-sm text-studio-ink",
                           c.unread ? "font-bold" : "font-semibold",
                         ].join(" ")}
                       >
                         {c.name}
                       </span>
-                      <span className="font-mono text-[8.5px] text-studio-ink-faint">{c.time}</span>
+                      <span className="font-mono text-3xs text-studio-ink-faint">{c.time}</span>
                     </div>
                     <div className="flex items-baseline gap-1.5">
-                      <span className="line-clamp-1 font-sans text-[9.5px] text-studio-ink-faint">{c.preview}</span>
+                      <span className="line-clamp-1 font-sans text-2xs text-studio-ink-faint">{c.preview}</span>
                       {c.unread && c.unreadCount > 0 ? (
-                        <span className="ml-auto shrink-0 rounded-full bg-status-info-fg px-1 font-mono text-[7.5px] font-semibold text-studio-canvas">
+                        <span className="ml-auto shrink-0 rounded-full bg-status-info-fg px-1 font-mono text-3xs font-semibold text-studio-canvas">
                           {c.unreadCount}
                         </span>
                       ) : null}
                     </div>
                     {c.ask === "pending" ? (
-                      <span className="self-start rounded-[2px] bg-status-warn-bg px-1 py-px font-mono text-[7.5px] font-semibold uppercase tracking-eyebrow text-status-warn-fg">
+                      <span className="self-start rounded-[2px] bg-status-warn-bg px-1 py-px font-mono text-3xs font-semibold uppercase tracking-eyebrow text-status-warn-fg">
                         ASK pending
                       </span>
                     ) : null}
@@ -354,27 +354,27 @@ function Thread({ conversation }: { conversation: Conversation }) {
     <div className="flex min-w-0 flex-1 flex-col">
       {/* header — name + sub-line (repo · branch · path · cId) + actions */}
       <div className="flex flex-none items-center gap-2 border-b border-studio-edge px-3 py-2">
-        <div className="grid h-[26px] w-[26px] place-items-center rounded-full bg-studio-canvas-alt font-mono text-[11px] text-studio-ink">
+        <div className="grid h-[26px] w-[26px] place-items-center rounded-full bg-studio-canvas-alt font-mono text-sm text-studio-ink">
           {conversation.avatar}
         </div>
         <div className="min-w-0">
-          <div className="truncate font-sans text-[13px] font-semibold tracking-tight text-studio-ink">
+          <div className="truncate font-sans text-lg font-semibold tracking-tight text-studio-ink">
             {conversation.name}
           </div>
-          <div className="truncate font-mono text-[8.5px] text-studio-ink-faint">
+          <div className="truncate font-mono text-3xs text-studio-ink-faint">
             {conversation.project?.name} · {conversation.project?.branch} · {conversation.project?.path} · c.{conversation.cId}
           </div>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
           <button
             type="button"
-            className="inline-flex items-center gap-1 rounded-[5px] border border-studio-edge bg-transparent px-2 py-1 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted"
+            className="inline-flex items-center gap-1 rounded-[5px] border border-studio-edge bg-transparent px-2 py-1 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-muted"
           >
             <EyeGlyph /> Observe
           </button>
           <button
             type="button"
-            className="rounded-[5px] border px-2 py-1 font-mono text-[9px] font-semibold uppercase tracking-eyebrow"
+            className="rounded-[5px] border px-2 py-1 font-mono text-2xs font-semibold uppercase tracking-eyebrow"
             style={{ background: "var(--scout-accent-soft)", borderColor: "var(--scout-accent)", color: "var(--scout-accent)" }}
           >
             Message
@@ -410,14 +410,14 @@ function PinnedAskBand({ conversation }: { conversation: Conversation }) {
           <PinGlyph />
         </span>
         <span
-          className="font-mono text-[8px] font-semibold uppercase tracking-eyebrow"
+          className="font-mono text-3xs font-semibold uppercase tracking-eyebrow"
           style={{ color: pending ? "var(--status-warn-fg)" : "var(--status-ok-fg)" }}
         >
           Pinned ask · {pending ? "Awaiting reply" : "Answered"}
         </span>
-        <span className="font-mono text-[8px] text-studio-ink-faint">from {conversation.askDetail?.from}</span>
+        <span className="font-mono text-3xs text-studio-ink-faint">from {conversation.askDetail?.from}</span>
       </div>
-      <div className="font-sans text-[10.5px] leading-snug text-studio-ink-muted">{conversation.askDetail?.text}</div>
+      <div className="font-sans text-xs leading-snug text-studio-ink-muted">{conversation.askDetail?.text}</div>
     </div>
   );
 }
@@ -427,7 +427,7 @@ function TurnRow({ turn }: { turn: Turn }) {
     <div className="flex gap-2">
       <div
         className={[
-          "grid h-[24px] w-[24px] flex-none place-items-center rounded-full font-mono text-[10px]",
+          "grid h-[24px] w-[24px] flex-none place-items-center rounded-full font-mono text-xs",
           turn.me ? "text-studio-canvas" : "bg-studio-canvas-alt text-studio-ink",
         ].join(" ")}
         style={turn.me ? { background: "var(--scout-accent)" } : undefined}
@@ -436,15 +436,15 @@ function TurnRow({ turn }: { turn: Turn }) {
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-1.5">
-          <span className="font-sans text-[11px] font-semibold text-studio-ink">{turn.author}</span>
-          <span className="font-mono text-[8.5px] text-studio-ink-faint">{turn.time}</span>
+          <span className="font-sans text-sm font-semibold text-studio-ink">{turn.author}</span>
+          <span className="font-mono text-3xs text-studio-ink-faint">{turn.time}</span>
         </div>
 
         {/* reply-context backlink — resolved from the raw [ask:<flightId>] tag */}
         {turn.replyContext ? (
           <button
             type="button"
-            className="group mt-1 flex max-w-full items-center gap-1.5 font-mono text-[9px] text-studio-ink-faint"
+            className="group mt-1 flex max-w-full items-center gap-1.5 font-mono text-2xs text-studio-ink-faint"
             title="Open the originating ask"
           >
             <ReplyGlyph />
@@ -461,14 +461,14 @@ function TurnRow({ turn }: { turn: Turn }) {
           </button>
         ) : null}
 
-        <div className="mt-1 font-sans text-[10.5px] leading-relaxed text-studio-ink-muted">{turn.body}</div>
+        <div className="mt-1 font-sans text-xs leading-relaxed text-studio-ink-muted">{turn.body}</div>
 
         {turn.card ? (
           <div className="mt-2 overflow-hidden rounded-[7px] border border-studio-edge bg-studio-surface">
-            <div className="flex items-center gap-1.5 border-b border-studio-edge px-2.5 py-1.5 font-mono text-[9px] text-studio-ink">
+            <div className="flex items-center gap-1.5 border-b border-studio-edge px-2.5 py-1.5 font-mono text-2xs text-studio-ink">
               <FileGlyph /> {turn.card.head}
             </div>
-            <div className="px-2.5 py-1.5 font-sans text-[9.5px] leading-snug text-studio-ink-faint">{turn.card.body}</div>
+            <div className="px-2.5 py-1.5 font-sans text-2xs leading-snug text-studio-ink-faint">{turn.card.body}</div>
           </div>
         ) : null}
       </div>
@@ -491,10 +491,10 @@ function Inspector({ conversation }: { conversation: Conversation }) {
       <div className="flex items-center justify-between border-b border-studio-edge px-3 py-2">
         <div className="flex items-center gap-1.5">
           <div className="h-3 w-0.5 rounded-sm bg-scout-accent" />
-          <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">DM</span>
+          <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">DM</span>
         </div>
         <span
-          className="inline-flex items-center gap-1 rounded-[3px] px-1.5 py-0.5 font-mono text-[8px] font-semibold uppercase tracking-eyebrow"
+          className="inline-flex items-center gap-1 rounded-[3px] px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow"
           style={{ background: "var(--status-ok-bg)", color: "var(--status-ok-fg)" }}
         >
           <span className="block h-1.5 w-1.5 rounded-full bg-current" />
@@ -504,14 +504,14 @@ function Inspector({ conversation }: { conversation: Conversation }) {
       <div className="flex flex-1 flex-col gap-3 overflow-hidden p-3">
         {/* identity */}
         <div className="flex items-center gap-2">
-          <div className="grid h-[28px] w-[28px] place-items-center rounded-full bg-studio-canvas-alt font-mono text-[11px] text-studio-ink">
+          <div className="grid h-[28px] w-[28px] place-items-center rounded-full bg-studio-canvas-alt font-mono text-sm text-studio-ink">
             {conversation.avatar}
           </div>
           <div className="min-w-0">
-            <div className="truncate font-sans text-[14px] font-semibold leading-tight tracking-tight text-studio-ink">
+            <div className="truncate font-sans text-xl font-semibold leading-tight tracking-tight text-studio-ink">
               {conversation.name}
             </div>
-            <div className="truncate font-mono text-[9.5px] text-studio-ink-faint">{conversation.agentId}</div>
+            <div className="truncate font-mono text-2xs text-studio-ink-faint">{conversation.agentId}</div>
           </div>
         </div>
 
@@ -519,14 +519,14 @@ function Inspector({ conversation }: { conversation: Conversation }) {
         <div className="flex items-center gap-1.5">
           <button
             type="button"
-            className="rounded-[5px] border px-2.5 py-1 font-mono text-[9.5px] font-semibold uppercase tracking-eyebrow"
+            className="rounded-[5px] border px-2.5 py-1 font-mono text-2xs font-semibold uppercase tracking-eyebrow"
             style={{ background: "var(--scout-accent-soft)", borderColor: "var(--scout-accent)", color: "var(--scout-accent)" }}
           >
             Open
           </button>
           <button
             type="button"
-            className="rounded-[5px] border border-studio-edge bg-transparent px-2.5 py-1 font-mono text-[9.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted"
+            className="rounded-[5px] border border-studio-edge bg-transparent px-2.5 py-1 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-muted"
           >
             + New
           </button>
@@ -555,17 +555,17 @@ function Inspector({ conversation }: { conversation: Conversation }) {
             <div className="flex flex-col gap-1">
               <div className="flex items-center gap-1.5">
                 <span
-                  className="rounded-[2px] px-1 py-px font-mono text-[7.5px] font-semibold uppercase tracking-eyebrow"
+                  className="rounded-[2px] px-1 py-px font-mono text-3xs font-semibold uppercase tracking-eyebrow"
                   style={{ background: `var(--status-${askTone}-bg)`, color: `var(--status-${askTone}-fg)` }}
                 >
                   {conversation.ask}
                 </span>
-                <span className="font-mono text-[8.5px] text-studio-ink-faint">
+                <span className="font-mono text-3xs text-studio-ink-faint">
                   from {conversation.askDetail?.from ?? "—"}
                 </span>
               </div>
               {conversation.askDetail ? (
-                <div className="font-sans text-[10.5px] leading-snug text-studio-ink-muted">
+                <div className="font-sans text-xs leading-snug text-studio-ink-muted">
                   {conversation.askDetail.text}
                 </div>
               ) : null}
@@ -601,7 +601,7 @@ function ISec({
                   : "var(--studio-edge-strong)",
           }}
         />
-        <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">{label}</div>
+        <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">{label}</div>
       </div>
       {children}
     </div>
@@ -611,8 +611,8 @@ function ISec({
 function KV({ k, v, vColor }: { k: string; v: string; vColor?: string }) {
   return (
     <div className="grid grid-cols-[60px_1fr] items-baseline gap-x-2">
-      <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">{k}</span>
-      <span className="truncate text-right font-mono text-[10px]" style={{ color: vColor ?? "var(--studio-ink-muted)" }}>
+      <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">{k}</span>
+      <span className="truncate text-right font-mono text-xs" style={{ color: vColor ?? "var(--studio-ink-muted)" }}>
         {v}
       </span>
     </div>
@@ -635,7 +635,7 @@ function Tag({ kind }: { kind: Disposition }) {
   const s = DISPOSITION_STYLE[kind];
   return (
     <span
-      className="inline-block rounded-[2px] px-1 py-px font-mono text-[7.5px] font-semibold uppercase tracking-eyebrow"
+      className="inline-block rounded-[2px] px-1 py-px font-mono text-3xs font-semibold uppercase tracking-eyebrow"
       style={{ background: s.bg, color: s.fg }}
     >
       {s.label}
@@ -685,7 +685,7 @@ const LEDGER: { area: string; change: string; kind: Disposition; symbol: string 
 function RefreshLedger() {
   return (
     <div className="overflow-hidden rounded-[8px] border border-studio-edge">
-      <div className="grid grid-cols-[150px_1fr_70px] gap-x-3 border-b border-studio-edge bg-studio-canvas-alt px-3 py-1.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="grid grid-cols-[150px_1fr_70px] gap-x-3 border-b border-studio-edge bg-studio-canvas-alt px-3 py-1.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         <span>Area</span>
         <span>Change · macOS symbol</span>
         <span className="text-right">Status</span>
@@ -698,10 +698,10 @@ function RefreshLedger() {
             i > 0 ? "border-t border-studio-edge" : "",
           ].join(" ")}
         >
-          <span className="font-sans text-[11px] font-semibold text-studio-ink">{row.area}</span>
+          <span className="font-sans text-sm font-semibold text-studio-ink">{row.area}</span>
           <span className="flex flex-col gap-0.5">
-            <span className="font-sans text-[10.5px] leading-snug text-studio-ink-muted">{row.change}</span>
-            <span className="font-mono text-[8.5px] text-studio-ink-faint">{row.symbol}</span>
+            <span className="font-sans text-xs leading-snug text-studio-ink-muted">{row.change}</span>
+            <span className="font-mono text-3xs text-studio-ink-faint">{row.symbol}</span>
           </span>
           <span className="text-right">
             <Tag kind={row.kind} />
@@ -807,10 +807,10 @@ export default function ScoutMacosRefreshPage() {
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-10 max-w-prose">
         <EyebrowLabel size="sm">· studies · macos · refresh</EyebrowLabel>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Scout macOS · Refresh
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           The consolidated macOS direction from the design review. One projection
           of the refreshed Comms window — list · thread · inspector — that lands
           the ask-context story end to end and adopts the signed-off inspector
@@ -834,8 +834,8 @@ export default function ScoutMacosRefreshPage() {
 
       {/* §1 — The projection */}
       <section className="mb-12">
-        <h2 className="mb-1 font-display text-[18px] font-medium tracking-tight text-studio-ink">§1 · The projection</h2>
-        <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <h2 className="mb-1 font-display text-3xl font-medium tracking-tight text-studio-ink">§1 · The projection</h2>
+        <p className="mb-5 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
           The full three-pane Comms surface. The list keeps its recency groups and
           ask chip; the thread gains the repo sub-line + actions, the pinned
           originating-ask band, and the reply-context backlink on the turn that
@@ -851,8 +851,8 @@ export default function ScoutMacosRefreshPage() {
 
       {/* §2 — Ask context, in close-up */}
       <section className="mb-12">
-        <h2 className="mb-1 font-display text-[18px] font-medium tracking-tight text-studio-ink">§2 · Ask context, end to end</h2>
-        <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <h2 className="mb-1 font-display text-3xl font-medium tracking-tight text-studio-ink">§2 · Ask context, end to end</h2>
+        <p className="mb-5 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
           One ask, four coherent affordances. The raw correlation token never
           reaches the prose; it becomes the backlink. The pinned band, the list
           chip, and the inspector Ask block all read the same state.
@@ -861,41 +861,41 @@ export default function ScoutMacosRefreshPage() {
           {/* before / after backlink */}
           <div className="flex flex-col gap-3 rounded-[8px] border border-studio-edge p-4">
             <div className="flex items-center gap-2">
-              <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+              <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
                 Reply-context backlink
               </span>
               <Tag kind="new" />
             </div>
             <div className="rounded-[6px] border border-dashed border-studio-edge bg-studio-canvas-alt px-3 py-2">
-              <div className="mb-1 font-mono text-[8px] uppercase tracking-eyebrow text-studio-ink-faint">Today (leaks)</div>
-              <div className="font-mono text-[10px] text-studio-ink-muted">
+              <div className="mb-1 font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">Today (leaks)</div>
+              <div className="font-mono text-xs text-studio-ink-muted">
                 <span className="rounded-[2px] bg-status-warn-bg px-1 text-status-warn-fg">[ask:f-mq8ubzy0-8qm0]</span>{" "}
                 Three changes, highest-impact first…
               </div>
             </div>
             <div className="rounded-[6px] border border-studio-edge bg-studio-surface px-3 py-2">
-              <div className="mb-1 font-mono text-[8px] uppercase tracking-eyebrow text-studio-ink-faint">Refresh (lifted)</div>
-              <div className="group flex max-w-full items-center gap-1.5 font-mono text-[9px] text-studio-ink-faint">
+              <div className="mb-1 font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">Refresh (lifted)</div>
+              <div className="group flex max-w-full items-center gap-1.5 font-mono text-2xs text-studio-ink-faint">
                 <ReplyGlyph />
                 <span className="font-semibold uppercase tracking-eyebrow">reply to</span>
                 <span className="truncate text-studio-ink-muted group-hover:text-scout-accent">inspector theme badge</span>
                 <span className="flex-none">· Art</span>
                 <span className="flex-none">· done</span>
               </div>
-              <div className="mt-1 font-sans text-[10px] text-studio-ink-muted">Three changes, highest-impact first…</div>
+              <div className="mt-1 font-sans text-xs text-studio-ink-muted">Three changes, highest-impact first…</div>
             </div>
           </div>
 
           {/* pinned band */}
           <div className="flex flex-col gap-3 rounded-[8px] border border-studio-edge p-4">
             <div className="flex items-center gap-2">
-              <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+              <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
                 Pinned originating ask
               </span>
               <Tag kind="refine" />
             </div>
             <PinnedAskBand conversation={focus} />
-            <p className="font-sans text-[10.5px] leading-snug text-studio-ink-faint">
+            <p className="font-sans text-xs leading-snug text-studio-ink-faint">
               The band pins while the ask awaits a reply and mirrors the list-row
               chip + the inspector Ask block. Once answered it tones to the ok
               color; the answering turn carries the reply-context backlink.
@@ -906,8 +906,8 @@ export default function ScoutMacosRefreshPage() {
 
       {/* §3 — Refresh ledger */}
       <section className="mb-8">
-        <h2 className="mb-1 font-display text-[18px] font-medium tracking-tight text-studio-ink">§3 · Refresh ledger</h2>
-        <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <h2 className="mb-1 font-display text-3xl font-medium tracking-tight text-studio-ink">§3 · Refresh ledger</h2>
+        <p className="mb-5 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
           What ships today, what refines an existing surface, and what is net-new
           — each mapped to the macOS symbol an implementer would touch.
         </p>

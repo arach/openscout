@@ -218,7 +218,7 @@ import {
   SCOUTBOT_AGENT_ID,
   SCOUTBOT_DEFAULT_THREAD_ID,
 } from "./scoutbot/role.ts";
-import { loadServiceBudgets } from "./service-budgets.ts";
+import { importProviderDashboardUsage, loadServiceBudgets } from "./service-budgets.ts";
 import {
   buildWorkMaterialsInventory,
   readWorkMaterialContent,
@@ -6138,6 +6138,18 @@ export async function createOpenScoutWebServer(
   app.get("/api/service-budgets", async (c) => {
     const refresh = c.req.query("refresh");
     return c.json(await loadServiceBudgets(refresh === "1" || refresh === "true"));
+  });
+  app.post("/api/service-budgets/dashboard-import", async (c) => {
+    const body = await c.req.json<{ provider?: unknown; text?: unknown }>().catch(() => null);
+    try {
+      const gauge = importProviderDashboardUsage({
+        provider: body?.provider,
+        text: body?.text,
+      });
+      return c.json({ ok: true, gauge });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : "Dashboard import failed." }, 400);
+    }
   });
   app.get("/api/fleet", (c) =>
     c.json(

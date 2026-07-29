@@ -58,7 +58,7 @@ export function PageStrip({ extraPages }: { extraPages: StudioPage[] }) {
         {page.blurb ? (
           <>
             <span className="mx-1 text-studio-ink-faint">·</span>
-            <span className="font-sans text-sm italic text-studio-ink-faint">
+            <span className="max-w-[52ch] truncate font-sans text-sm text-studio-ink-faint">
               {page.blurb}
             </span>
           </>

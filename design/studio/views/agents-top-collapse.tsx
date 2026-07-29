@@ -88,13 +88,13 @@ export default function AgentsTopCollapsePage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-6 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · agents-top-collapse
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Agents · Top Collapse
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           The live Agents top stacks five control bands — two searches, two status filters, time, harness, view —
           before the first card. Lead with one decision (cards vs tree) and one search that carries every filter.
           Status is roster vocab → deleted; harness and time recede. Toggle the three takes in place.

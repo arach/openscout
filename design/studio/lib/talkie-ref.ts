@@ -81,7 +81,7 @@ export const TYPE = {
 export const STATUS_BAR = {
   height: 38, // src: Talkie design/studio components/studies/primitives/StatusBar.tsx:14
   time: "9:41", // src: Talkie design/studio components/studies/primitives/StatusBar.tsx:7
-  timeFontSize: 12, // src: Talkie design/studio components/studies/primitives/StatusBar.tsx:10 (text-[12px])
+  timeFontSize: 12, // src: Talkie design/studio components/studies/primitives/StatusBar.tsx:10 (text-md)
   timeWeight: 600, // src: Talkie design/studio components/studies/primitives/StatusBar.tsx:10 (font-semibold)
   paddingX: 20, // src: Talkie design/studio components/studies/primitives/StatusBar.tsx:10 (px-5)
   island: {

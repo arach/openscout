@@ -139,20 +139,20 @@ export default function InspectorBarStudy() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-6 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · inspector
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Inspector Bar
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           Every right-rail inspector reduced to its section skeleton, color-coded
           by shape. The point is to see at a glance which inspectors duplicate
           which structures — and which ones the proposed Tier-1 atoms can collapse.
         </p>
       </header>
 
-      <div className="mb-6 flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-[10px] text-studio-ink-faint">
+      <div className="mb-6 flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-xs text-studio-ink-faint">
         <span className="uppercase tracking-eyebrow">Legend</span>
         {(Object.keys(KIND_COLOR) as SectionKind[]).map((k) => (
           <span key={k} className="inline-flex items-center gap-1.5">
@@ -178,12 +178,12 @@ function InspectorMockCard({ variant }: { variant: InspectorMock }) {
   return (
     <div className="rounded-md border border-studio-edge bg-studio-surface p-3">
       <div className="mb-2 flex items-baseline justify-between gap-2">
-        <div className="font-display text-[14px] font-medium tracking-tight text-studio-ink">
+        <div className="font-display text-xl font-medium tracking-tight text-studio-ink">
           {variant.name}
         </div>
         <Verdict v={variant.verdict} />
       </div>
-      <div className="mb-3 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="mb-3 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         {variant.route}
       </div>
       <ul className="flex flex-col gap-1">
@@ -196,11 +196,11 @@ function InspectorMockCard({ variant }: { variant: InspectorMock }) {
               borderLeft: `2px solid ${KIND_COLOR[s.kind]}`,
             }}
           >
-            <span className="font-sans text-[11px] text-studio-ink">
+            <span className="font-sans text-sm text-studio-ink">
               {s.label}
             </span>
             {s.note ? (
-              <span className="font-mono text-[9px] text-studio-ink-faint">
+              <span className="font-mono text-2xs text-studio-ink-faint">
                 {s.note}
               </span>
             ) : null}
@@ -220,7 +220,7 @@ function Verdict({ v }: { v: InspectorMock["verdict"] }) {
         : { bg: "#F0DCDC", fg: "#8A3030" };
   return (
     <span
-      className="rounded-[2px] px-1 py-px font-mono text-[8.5px] font-semibold tracking-[0.18em]"
+      className="rounded-[2px] px-1 py-px font-mono text-3xs font-semibold tracking-[0.18em]"
       style={{ background: tone.bg, color: tone.fg }}
     >
       {v.toUpperCase()}

@@ -67,13 +67,13 @@ export default function HudChromePage() {
 function PageHeader() {
   return (
     <header className="mb-9 max-w-prose">
-      <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · studies · web · hud-chrome
       </div>
-      <h1 className="mt-1.5 font-display text-[40px] font-medium leading-[1.05] tracking-tight text-studio-ink">
+      <h1 className="mt-1.5 font-display text-6xl font-medium leading-[1.05] tracking-tight text-studio-ink">
         HUD chrome
       </h1>
-      <p className="mt-3 font-sans text-[14px] leading-relaxed text-studio-ink-muted">
+      <p className="mt-3 font-sans text-xl leading-relaxed text-studio-ink-muted">
         A different chrome direction for the studio. Strip the
         220-pixel sidebar and the full-width header strip; replace them
         with a thin glyph rail, a floating breadcrumb capsule, a
@@ -81,7 +81,7 @@ function PageHeader() {
         along the bottom. The reading column gets the page; the
         chrome gets the corners.
       </p>
-      <p className="mt-3 font-sans text-[13px] italic leading-relaxed text-studio-ink-faint">
+      <p className="mt-3 font-sans text-lg italic leading-relaxed text-studio-ink-faint">
         Honest about the trade-off: this looks better and feels more
         modern, but nav becomes hover-or-cmd-k. That is a real cost.
         The study exists so we can see the look before we commit to
@@ -159,7 +159,7 @@ function ViewportBackdrop() {
 
 function Caption() {
   return (
-    <div className="mt-3 text-center font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+    <div className="mt-3 text-center font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
       viewport mock — actual HUD components rendered at scale
     </div>
   );
@@ -185,7 +185,7 @@ function MockSCODoc() {
     >
       <div className="mx-auto max-w-prose">
         {/* Eyebrow above the title — feels like a real numbered SCO. */}
-        <div className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-xs uppercase tracking-eyebrow text-studio-ink-faint">
           · proposal · in-flight · last touched 4 min ago
         </div>
 
@@ -332,20 +332,20 @@ function AnatomyItem({
     <li className="flex list-none gap-3">
       <span
         aria-hidden
-        className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-[3px] border border-studio-edge font-mono text-[10px] font-semibold text-studio-ink-faint"
+        className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-[3px] border border-studio-edge font-mono text-xs font-semibold text-studio-ink-faint"
       >
         {marker}
       </span>
       <div className="flex-1">
         <div className="flex items-baseline gap-2">
-          <span className="font-display text-[16px] text-studio-ink">
+          <span className="font-display text-2xl text-studio-ink">
             {name}
           </span>
-          <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
             {role}
           </span>
         </div>
-        <p className="mt-1 font-sans text-[12.5px] leading-relaxed text-studio-ink-muted">
+        <p className="mt-1 font-sans text-md leading-relaxed text-studio-ink-muted">
           {body}
         </p>
       </div>
@@ -410,7 +410,7 @@ function Column({
           className="inline-block h-2 w-2 rounded-full"
           style={{ background: accent }}
         />
-        <h3 className="m-0 font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <h3 className="m-0 font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           {heading}
         </h3>
       </div>
@@ -418,7 +418,7 @@ function Column({
         {items.map((item, i) => (
           <li
             key={i}
-            className="list-none border-l border-studio-edge pl-3 font-sans text-[12.5px] leading-relaxed text-studio-ink-muted"
+            className="list-none border-l border-studio-edge pl-3 font-sans text-md leading-relaxed text-studio-ink-muted"
           >
             {item}
           </li>
@@ -464,14 +464,14 @@ function ConstructionNotes() {
               className="m-0 list-none p-4 [&+li]:border-t [&+li]:border-studio-edge"
             >
               <div className="flex items-baseline justify-between gap-4">
-                <code className="font-mono text-[11.5px] text-studio-ink">
+                <code className="font-mono text-sm text-studio-ink">
                   {item.path}
                 </code>
-                <span className="hidden font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint sm:inline">
+                <span className="hidden font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint sm:inline">
                   new
                 </span>
               </div>
-              <p className="mt-1.5 font-sans text-[12px] leading-relaxed text-studio-ink-muted">
+              <p className="mt-1.5 font-sans text-md leading-relaxed text-studio-ink-muted">
                 {item.role}
               </p>
             </li>
@@ -495,13 +495,13 @@ function SectionHead({
 }) {
   return (
     <header className="max-w-prose">
-      <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · {kicker}
       </div>
-      <h2 className="mt-1 m-0 font-display text-[26px] font-medium leading-tight tracking-tight text-studio-ink">
+      <h2 className="mt-1 m-0 font-display text-6xl font-medium leading-tight tracking-tight text-studio-ink">
         {title}
       </h2>
-      <p className="mt-2 font-sans text-[13.5px] leading-relaxed text-studio-ink-muted">
+      <p className="mt-2 font-sans text-lg leading-relaxed text-studio-ink-muted">
         {lede}
       </p>
     </header>
@@ -512,7 +512,7 @@ function SectionHead({
 
 function PageFooter() {
   return (
-    <footer className="mt-14 border-t border-studio-edge pt-3 font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+    <footer className="mt-14 border-t border-studio-edge pt-3 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
       <span>study · </span>
       <span className="text-studio-ink">hud-chrome</span>
       <span className="mx-1.5">·</span>

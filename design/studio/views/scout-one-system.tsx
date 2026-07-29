@@ -53,7 +53,7 @@ function Toggle<T extends string>({
             key={o.id}
             type="button"
             onClick={() => onChange(o.id)}
-            className="rounded-[6px] px-3 py-1.5 font-mono text-[10.5px] uppercase tracking-[0.1em] transition-colors"
+            className="rounded-[6px] px-3 py-1.5 font-mono text-xs uppercase tracking-[0.1em] transition-colors"
             style={
               on
                 ? { color: "var(--scout-accent)", background: "var(--studio-surface)", border: "1px solid var(--studio-edge-strong)" }
@@ -70,7 +70,7 @@ function Toggle<T extends string>({
 
 function SectionEyebrow({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mb-1 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+    <div className="mb-1 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
       {children}
     </div>
   );
@@ -126,8 +126,8 @@ function BlockA() {
   return (
     <section className="mb-14">
       <SectionEyebrow>Block A · Diagnosis — four internally-coherent dialects</SectionEyebrow>
-      <h2 className="mb-1 font-display text-[19px] font-medium tracking-tight text-studio-ink">Four dialects today</h2>
-      <p className="mb-5 max-w-[76ch] text-[13px] leading-relaxed text-studio-ink-muted">
+      <h2 className="mb-1 font-display text-4xl font-medium tracking-tight text-studio-ink">Four dialects today</h2>
+      <p className="mb-5 max-w-[76ch] text-lg leading-relaxed text-studio-ink-muted">
         Not a criticism — each surface is coherent on its own. But identity, status, icon language, and theming
         are decided four separate times, so the fleet reads as four apps. This is the gap the One System grammar closes.
       </p>
@@ -140,8 +140,8 @@ function BlockA() {
                 style={{ background: d.accent, boxShadow: "inset 0 0 0 1px color-mix(in oklab, var(--studio-ink) 18%, transparent)" }}
               />
               <div className="min-w-0">
-                <div className="text-[12.5px] font-semibold text-studio-ink">{d.name}</div>
-                <div className="font-mono text-[9px] uppercase tracking-[0.08em] text-studio-ink-faint">{d.accent}</div>
+                <div className="text-md font-semibold text-studio-ink">{d.name}</div>
+                <div className="font-mono text-2xs uppercase tracking-[0.08em] text-studio-ink-faint">{d.accent}</div>
               </div>
             </div>
             <dl className="px-3 py-2.5">
@@ -153,7 +153,7 @@ function BlockA() {
           </div>
         ))}
       </div>
-      <p className="mt-3 max-w-[76ch] text-[11.5px] leading-snug text-studio-ink-faint">
+      <p className="mt-3 max-w-[76ch] text-sm leading-snug text-studio-ink-faint">
         Read closely, the four accents are two families: one blue main window, and three near-neighbor greens —
         HUD lime, menu green, iOS emerald. The greens could converge far more cheaply than &ldquo;four apps&rdquo; implies;
         the strip diagnoses decision fragmentation, not equal distance.
@@ -165,8 +165,8 @@ function BlockA() {
 function DialectRow({ k, v }: { k: string; v: string }) {
   return (
     <div className="border-t border-studio-edge/70 py-1.5 first:border-t-0 first:pt-0">
-      <dt className="font-mono text-[8px] font-semibold uppercase tracking-[0.1em] text-studio-ink-faint">{k}</dt>
-      <dd className="mt-0.5 text-[11px] leading-snug text-studio-ink-muted">{v}</dd>
+      <dt className="font-mono text-3xs font-semibold uppercase tracking-[0.1em] text-studio-ink-faint">{k}</dt>
+      <dd className="mt-0.5 text-sm leading-snug text-studio-ink-muted">{v}</dd>
     </div>
   );
 }
@@ -347,8 +347,8 @@ function BlockB({ treatment, skin }: { treatment: Treatment; skin: ScoutSkinId }
   return (
     <section className="mb-14">
       <SectionEyebrow>Block B · macOS — donates the system</SectionEyebrow>
-      <h2 className="mb-1 font-display text-[19px] font-medium tracking-tight text-studio-ink">macOS · Comms</h2>
-      <p className="mb-4 max-w-[76ch] text-[13px] leading-relaxed text-studio-ink-muted">
+      <h2 className="mb-1 font-display text-4xl font-medium tracking-tight text-studio-ink">macOS · Comms</h2>
+      <p className="mb-4 max-w-[76ch] text-lg leading-relaxed text-studio-ink-muted">
         macOS is the source of truth for the theme system, so it changes least. The One System deltas here are
         three small grammar alignments — the flat ruled-panel idiom, sprite identity, and indigo accent all stay.
         Skin follows the toggle top-right ({skin === "juniper-l" ? "Juniper Light — the live app theme" : skin === "juniper-d" ? "Juniper Dark" : "Graphite"}).
@@ -363,12 +363,12 @@ function BlockB({ treatment, skin }: { treatment: Treatment; skin: ScoutSkinId }
             {MAC_LEGEND.map((l) => (
               <div key={l.n} className="flex items-start gap-2.5">
                 <DeltaMark n={l.n} />
-                <span className="text-[11.5px] leading-snug text-studio-ink-muted">{l.text}</span>
+                <span className="text-sm leading-snug text-studio-ink-muted">{l.text}</span>
               </div>
             ))}
           </div>
         ) : (
-          <p className="font-mono text-[10.5px] text-studio-ink-faint">
+          <p className="font-mono text-xs text-studio-ink-faint">
             Current · the app as it ships — flat hairline list, sprite identity, generic rail placeholders, indigo accent.
           </p>
         )}
@@ -480,8 +480,8 @@ function BlockC({ treatment, skin }: { treatment: Treatment; skin: ScoutSkinId }
   return (
     <section className="mb-14">
       <SectionEyebrow>Block C · iOS — inherits the theme · the headline demo</SectionEyebrow>
-      <h2 className="mb-1 font-display text-[19px] font-medium tracking-tight text-studio-ink">iOS · Agents</h2>
-      <p className="mb-5 max-w-[76ch] text-[13px] leading-relaxed text-studio-ink-muted">
+      <h2 className="mb-1 font-display text-4xl font-medium tracking-tight text-studio-ink">iOS · Agents</h2>
+      <p className="mb-5 max-w-[76ch] text-lg leading-relaxed text-studio-ink-muted">
         The phone keeps its raised-card depth idiom — top-lit edges, insets, cockpit key-light — it is never flattened to
         the desktop language. What changes is the grammar: sprite identity, a paired-theme control, and the shared
         eyebrow / status vocabulary.
@@ -497,10 +497,10 @@ function BlockC({ treatment, skin }: { treatment: Treatment; skin: ScoutSkinId }
           {one ? (
             <>
               <div className="mb-2 flex items-center gap-2.5">
-                <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-studio-ink-faint">Paired Mac theme</span>
+                <span className="font-mono text-2xs uppercase tracking-[0.16em] text-studio-ink-faint">Paired Mac theme</span>
                 <Toggle value={paired} onChange={(v) => setPairedOverride(v)} options={PAIRED_OPTS} />
               </div>
-              <p className="mb-4 max-w-[42ch] text-[12.5px] leading-relaxed text-studio-ink-muted">
+              <p className="mb-4 max-w-[42ch] text-md leading-relaxed text-studio-ink-muted">
                 {PAIRED_NOTE[activePaired]} Defaults to the page skin&rsquo;s dark kin — flip the study skin top-right
                 and the phone follows its Mac.
               </p>
@@ -509,14 +509,14 @@ function BlockC({ treatment, skin }: { treatment: Treatment; skin: ScoutSkinId }
                 <IosDelta n={2}>Theme follows pairing — opt-in: the phone overrides its <code className="os1-code">--i-*</code> accent + dark-surface tokens with the paired Mac&rsquo;s skin. The phone stays dark (a light Mac pairs to its dark kin), and with multiple Macs one explicit primary is inherited — never a blend.</IosDelta>
                 <IosDelta n={3}>Shared eyebrow / status vocabulary — mono micro-caps section header with a leading <code className="os1-code">·</code> and a live pulse (the roster is an instrument surface; Comms keeps plain labels).</IosDelta>
               </ul>
-              <p className="mt-5 max-w-[42ch] text-[12.5px] font-medium leading-relaxed text-studio-ink">
+              <p className="mt-5 max-w-[42ch] text-md font-medium leading-relaxed text-studio-ink">
                 Pair your phone, and it picks up your Mac&rsquo;s accent and dark palette.
               </p>
             </>
           ) : (
             <>
-              <div className="mb-2 font-mono text-[9px] uppercase tracking-[0.16em] text-studio-ink-faint">Current · shipped</div>
-              <p className="max-w-[42ch] text-[12.5px] leading-relaxed text-studio-ink-muted">
+              <div className="mb-2 font-mono text-2xs uppercase tracking-[0.16em] text-studio-ink-faint">Current · shipped</div>
+              <p className="max-w-[42ch] text-md leading-relaxed text-studio-ink-muted">
                 The dark-locked emerald build. Agent rows carry plain state dots — a pulsing accent dot for live, a filled
                 muted dot for idle, a hollow ring for offline — and no per-agent identity mark. The theme cannot follow a
                 paired Mac. Flip to <span className="text-studio-ink">One System</span> to see sprites, theme inheritance,
@@ -534,7 +534,7 @@ function IosDelta({ n, children }: { n: number; children: React.ReactNode }) {
   return (
     <li className="flex items-start gap-2.5">
       <DeltaMark n={n} />
-      <span className="text-[11.5px] leading-snug text-studio-ink-muted">{children}</span>
+      <span className="text-sm leading-snug text-studio-ink-muted">{children}</span>
     </li>
   );
 }
@@ -593,13 +593,13 @@ function BlockD() {
   return (
     <section className="mb-6">
       <SectionEyebrow>Block D · Ledger</SectionEyebrow>
-      <h2 className="mb-1 font-display text-[19px] font-medium tracking-tight text-studio-ink">What ships, what refines, what defers</h2>
-      <p className="mb-5 max-w-[76ch] text-[13px] leading-relaxed text-studio-ink-muted">
+      <h2 className="mb-1 font-display text-4xl font-medium tracking-tight text-studio-ink">What ships, what refines, what defers</h2>
+      <p className="mb-5 max-w-[76ch] text-lg leading-relaxed text-studio-ink-muted">
         Each proposal mapped to a disposition, its native touch points, and the principle it honors.
       </p>
       <div className="overflow-hidden rounded-[8px] border border-studio-edge">
         <div
-          className="grid gap-x-4 border-b border-studio-edge bg-studio-canvas-alt px-4 py-2 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint"
+          className="grid gap-x-4 border-b border-studio-edge bg-studio-canvas-alt px-4 py-2 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint"
           style={{ gridTemplateColumns: "1.5fr 84px 2fr 1.1fr" }}
         >
           <span>Proposal</span>
@@ -615,17 +615,17 @@ function BlockD() {
               className={["grid items-start gap-x-4 px-4 py-3", i > 0 ? "border-t border-studio-edge" : ""].join(" ")}
               style={{ gridTemplateColumns: "1.5fr 84px 2fr 1.1fr" }}
             >
-              <span className="text-[12px] font-semibold leading-snug text-studio-ink">{r.proposal}</span>
+              <span className="text-md font-semibold leading-snug text-studio-ink">{r.proposal}</span>
               <span>
                 <span
-                  className="inline-block rounded-[3px] px-1.5 py-px font-mono text-[8px] font-semibold uppercase tracking-eyebrow"
+                  className="inline-block rounded-[3px] px-1.5 py-px font-mono text-3xs font-semibold uppercase tracking-eyebrow"
                   style={{ background: d.bg, color: d.fg }}
                 >
                   {d.label}
                 </span>
               </span>
-              <span className="text-[11px] leading-snug text-studio-ink-muted">{r.touch}</span>
-              <span className="text-[11px] leading-snug text-studio-ink-muted">{r.honors}</span>
+              <span className="text-sm leading-snug text-studio-ink-muted">{r.touch}</span>
+              <span className="text-sm leading-snug text-studio-ink-muted">{r.honors}</span>
             </div>
           );
         })}
@@ -653,7 +653,7 @@ export default function ScoutOneSystemStudy() {
           idiom — flat ruled panels on desktop, raised cards on phone, the broadsheet HUD — and unifies the{" "}
           <strong className="text-studio-ink">grammar</strong>: identity, status vocabulary, icon language, and theme
           inheritance (a paired phone picks up the Mac&rsquo;s accent and dark palette). Toggle{" "}
-          <code className="font-mono text-[11px] text-studio-ink">Current ⇄ One System</code> to flip both platforms at
+          <code className="font-mono text-sm text-studio-ink">Current ⇄ One System</code> to flip both platforms at
           once; the phone&rsquo;s paired theme follows the study skin.
         </>
       }
@@ -665,13 +665,13 @@ export default function ScoutOneSystemStudy() {
 
           {/* Master treatment toggle — drives both the macOS and iOS panes. */}
           <div className="mb-10 flex flex-wrap items-center gap-x-4 gap-y-2">
-            <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-studio-ink-faint">Treatment · current vs one system</span>
+            <span className="font-mono text-2xs uppercase tracking-[0.16em] text-studio-ink-faint">Treatment · current vs one system</span>
             <Toggle
               value={treatment}
               onChange={setTreatment}
               options={[{ id: "current", label: "Current" }, { id: "one-system", label: "One System" }]}
             />
-            <span className="font-mono text-[10px] text-studio-ink-faint">
+            <span className="font-mono text-xs text-studio-ink-faint">
               {treatment === "current"
                 ? "Four dialects as they ship — coherent apart, disjoint together."
                 : "One grammar across platforms — each keeps its own depth idiom."}
@@ -740,10 +740,10 @@ const ONE_SYSTEM_CSS = `
   width:14px; height:14px; margin-left:1px;
   border-radius:50%; border:1px solid color-mix(in oklab, var(--scout-accent) 55%, transparent);
   color:var(--scout-accent); background:transparent;
-  font-family:"JetBrains Mono", ui-monospace, monospace; font-size:8.5px; font-weight:700; line-height:1;
+  font-family:"JetBrains Mono", ui-monospace, monospace; font-size: var(--text-3xs); font-weight:700; line-height:1;
 }
 .os1-code {
-  font-family:"JetBrains Mono", ui-monospace, monospace; font-size:10.5px;
+  font-family:"JetBrains Mono", ui-monospace, monospace; font-size: var(--text-xs);
   color:var(--studio-ink); background:color-mix(in oklab, var(--studio-ink) 8%, transparent);
   padding:0 4px; border-radius:3px;
 }
@@ -752,8 +752,8 @@ const ONE_SYSTEM_CSS = `
 .os1mac { display:grid; grid-template-columns:134px 300px 1fr; min-height:456px; font-family:var(--s-font-sans); }
 
 .os1mac-rail { display:flex; flex-direction:column; gap:1px; padding:10px 8px; background:var(--s-chrome); border-right:1px solid var(--s-hairline); }
-.os1mac-navcap { font-family:var(--s-font-mono); font-size:8px; font-weight:700; letter-spacing:0.14em; text-transform:uppercase; color:var(--s-dim); padding:2px 8px 8px; }
-.os1mac-nav { display:flex; align-items:center; gap:9px; padding:6px 9px; border-radius:7px; color:var(--s-muted); font-size:12.5px; font-weight:500; }
+.os1mac-navcap { font-family:var(--s-font-mono); font-size: var(--text-3xs); font-weight:700; letter-spacing:0.14em; text-transform:uppercase; color:var(--s-dim); padding:2px 8px 8px; }
+.os1mac-nav { display:flex; align-items:center; gap:9px; padding:6px 9px; border-radius:7px; color:var(--s-muted); font-size: var(--text-md); font-weight:500; }
 .os1mac-nav.on { background:var(--s-accent-soft); color:var(--s-accent); }
 .os1mac-navicon { width:16px; height:16px; display:grid; place-items:center; color:var(--s-dim); flex:none; }
 .os1mac-nav.on .os1mac-navicon { color:var(--s-accent); }
@@ -762,45 +762,45 @@ const ONE_SYSTEM_CSS = `
 
 .os1mac-list { display:flex; flex-direction:column; min-width:0; background:var(--s-bg); border-right:1px solid var(--s-hairline); }
 .os1mac-listhead { display:flex; align-items:baseline; justify-content:space-between; padding:13px 15px 8px; }
-.os1mac-listtitle { font-size:14px; font-weight:600; color:var(--s-ink); }
-.os1mac-listcount { font-family:var(--s-font-mono); font-size:10px; color:var(--s-dim); }
-.os1mac-grp { display:flex; align-items:center; gap:6px; padding:7px 15px 4px; font-size:12px; font-weight:600; color:var(--s-muted); }
-.os1mac-grp[data-g="mono"] { font-family:var(--s-font-mono); font-size:9px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:var(--s-dim); }
+.os1mac-listtitle { font-size: var(--text-xl); font-weight:600; color:var(--s-ink); }
+.os1mac-listcount { font-family:var(--s-font-mono); font-size: var(--text-xs); color:var(--s-dim); }
+.os1mac-grp { display:flex; align-items:center; gap:6px; padding:7px 15px 4px; font-size: var(--text-md); font-weight:600; color:var(--s-muted); }
+.os1mac-grp[data-g="mono"] { font-family:var(--s-font-mono); font-size: var(--text-2xs); font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:var(--s-dim); }
 .os1mac-row { display:grid; grid-template-columns:32px 1fr auto; gap:10px; padding:9px 15px; border-left:2px solid transparent; align-items:start; }
 .os1mac-row.sel { background:var(--s-accent-soft); border-left-color:var(--s-accent); }
 .os1mac-ava { width:32px; height:32px; border-radius:9px; display:grid; place-items:center; flex:none; }
-.os1mac-ava.ch { font-family:var(--s-font-mono); font-size:15px; font-weight:700; color:var(--s-muted); background:var(--s-surface); border:1px solid var(--s-hairline-strong); }
+.os1mac-ava.ch { font-family:var(--s-font-mono); font-size: var(--text-2xl); font-weight:700; color:var(--s-muted); background:var(--s-surface); border:1px solid var(--s-hairline-strong); }
 .os1mac-body { min-width:0; display:flex; flex-direction:column; gap:2px; }
 .os1mac-top { display:flex; align-items:center; gap:6px; }
 .os1mac-undot { width:6px; height:6px; border-radius:50%; background:var(--s-accent); flex:none; }
-.os1mac-name { font-size:13px; font-weight:500; color:var(--s-ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.os1mac-name { font-size: var(--text-lg); font-weight:500; color:var(--s-ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .os1mac-row.un .os1mac-name { font-weight:700; }
-.os1mac-age { margin-left:auto; font-family:var(--s-font-mono); font-size:10px; color:var(--s-dim); flex:none; }
-.os1mac-prev { font-size:12px; line-height:1.4; color:var(--sec, var(--s-dim)); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
-.os1mac-num { align-self:center; font-family:var(--s-font-mono); font-size:11px; font-weight:600; color:var(--s-accent); }
+.os1mac-age { margin-left:auto; font-family:var(--s-font-mono); font-size: var(--text-xs); color:var(--s-dim); flex:none; }
+.os1mac-prev { font-size: var(--text-md); line-height:1.4; color:var(--sec, var(--s-dim)); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.os1mac-num { align-self:center; font-family:var(--s-font-mono); font-size: var(--text-sm); font-weight:600; color:var(--s-accent); }
 
 .os1mac-thread { display:flex; flex-direction:column; min-width:0; background:var(--s-bg); }
 .os1mac-thead { display:flex; align-items:center; gap:11px; padding:11px 16px; border-bottom:1px solid var(--s-hairline); }
 .os1mac-tava { flex:none; }
 .os1mac-tident { min-width:0; flex:1; }
-.os1mac-teyebrow { font-size:11px; font-weight:600; color:var(--s-muted); }
-.os1mac-teyebrow[data-g="mono"] { font-family:var(--s-font-mono); font-size:8.5px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:var(--s-dim); }
-.os1mac-tname { font-size:14px; font-weight:600; color:var(--s-ink); margin-top:1px; }
-.os1mac-tfacts { font-family:var(--s-font-mono); font-size:10.5px; color:var(--sec, var(--s-dim)); margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.os1mac-teyebrow { font-size: var(--text-sm); font-weight:600; color:var(--s-muted); }
+.os1mac-teyebrow[data-g="mono"] { font-family:var(--s-font-mono); font-size: var(--text-3xs); font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:var(--s-dim); }
+.os1mac-tname { font-size: var(--text-xl); font-weight:600; color:var(--s-ink); margin-top:1px; }
+.os1mac-tfacts { font-family:var(--s-font-mono); font-size: var(--text-xs); color:var(--sec, var(--s-dim)); margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .os1mac-tactions { display:flex; gap:8px; flex:none; }
-.os1mac-ghost { padding:6px 12px; border-radius:8px; font-size:12px; font-weight:600; color:var(--s-muted); background:var(--s-surface); border:1px solid var(--s-hairline-strong); cursor:pointer; }
-.os1mac-primary { padding:6px 14px; border-radius:8px; font-size:12px; font-weight:600; color:var(--s-bg); background:var(--s-accent); border:1px solid var(--s-accent); cursor:pointer; }
+.os1mac-ghost { padding:6px 12px; border-radius:8px; font-size: var(--text-md); font-weight:600; color:var(--s-muted); background:var(--s-surface); border:1px solid var(--s-hairline-strong); cursor:pointer; }
+.os1mac-primary { padding:6px 14px; border-radius:8px; font-size: var(--text-md); font-weight:600; color:var(--s-bg); background:var(--s-accent); border:1px solid var(--s-accent); cursor:pointer; }
 
 .os1mac-stream { flex:1; min-height:0; padding:16px; display:flex; flex-direction:column; gap:18px; }
 .os1mac-turn { display:flex; gap:11px; }
-.os1mac-tuava { width:26px; height:26px; border-radius:7px; flex:none; display:grid; place-items:center; font-size:12px; font-weight:700; color:var(--s-bg); background:var(--s-accent); }
+.os1mac-tuava { width:26px; height:26px; border-radius:7px; flex:none; display:grid; place-items:center; font-size: var(--text-md); font-weight:700; color:var(--s-bg); background:var(--s-accent); }
 .os1mac-tuava.me { color:var(--s-muted); background:var(--s-surface); border:1px solid var(--s-hairline-strong); }
 .os1mac-tubody { min-width:0; flex:1; max-width:60ch; }
 .os1mac-tuhead { display:flex; align-items:baseline; gap:8px; margin-bottom:3px; }
-.os1mac-tuauthor { font-size:12.5px; font-weight:600; color:var(--s-ink); }
-.os1mac-tutime { font-family:var(--s-font-mono); font-size:10px; color:var(--s-dim); }
-.os1mac-tutext { font-size:13px; line-height:1.55; color:color-mix(in srgb, var(--s-ink) 90%, transparent); }
+.os1mac-tuauthor { font-size: var(--text-md); font-weight:600; color:var(--s-ink); }
+.os1mac-tutime { font-family:var(--s-font-mono); font-size: var(--text-xs); color:var(--s-dim); }
+.os1mac-tutext { font-size: var(--text-lg); line-height:1.55; color:color-mix(in srgb, var(--s-ink) 90%, transparent); }
 
 .os1mac-composer { display:flex; align-items:center; gap:10px; padding:12px 16px 14px; border-top:1px solid var(--s-hairline); }
-.os1mac-cfield { flex:1; padding:9px 13px; border-radius:10px; font-size:12.5px; color:var(--s-dim); background:var(--s-surface); border:1px solid color-mix(in srgb, var(--s-accent) 30%, var(--s-hairline-strong)); }
+.os1mac-cfield { flex:1; padding:9px 13px; border-radius:10px; font-size: var(--text-md); color:var(--s-dim); background:var(--s-surface); border:1px solid color-mix(in srgb, var(--s-accent) 30%, var(--s-hairline-strong)); }
 `;

@@ -51,7 +51,7 @@
 .title {
   margin: 0;
   font-family: "Space Grotesk", var(--s-font-sans);
-  font-size: 23px;
+  font-size: var(--text-5xl);
   font-weight: 600;
   letter-spacing: -0.015em;
   line-height: 1;
@@ -70,7 +70,7 @@
 /* quiet status — sentence case, not a banner; recedes behind the title */
 .status {
   font-family: var(--s-font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 500;
   letter-spacing: 0;
   color: var(--s-dim);
@@ -119,7 +119,7 @@
   border: 1px solid var(--s-hairline);
   color: var(--s-dim);
   font-family: var(--s-font-mono);
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   cursor: text;
 }
 .search svg { color: var(--s-muted); flex: none; }
@@ -136,7 +136,7 @@
   background: transparent;
   color: var(--s-muted);
   font-family: var(--s-font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
@@ -178,7 +178,7 @@
   padding: 0 11px;
   border-radius: 6px;
   font-family: var(--s-font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--s-dim);
   cursor: pointer;
@@ -215,7 +215,7 @@
 }
 .colhead > span {
   font-family: var(--s-font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -234,7 +234,7 @@
   height: 26px;
   padding: 0 22px;
   font-family: var(--s-font-mono);
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   color: var(--s-muted);
 }
 .row:hover { background: color-mix(in srgb, var(--s-accent) 6%, transparent); }
@@ -250,7 +250,7 @@
 /* ── Tail cell treatments ────────────────────────────────────────────── */
 .time {
   color: var(--s-dim);
-  font-size: 11px;
+  font-size: var(--text-sm);
   letter-spacing: 0.01em;
   font-variant-numeric: tabular-nums;
 }
@@ -281,7 +281,7 @@
 .provider { display: inline-flex; align-items: center; gap: 7px; color: color-mix(in srgb, var(--s-ink) 82%, transparent); }
 .harnessName {
   font-family: var(--s-font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--s-muted);
   text-transform: capitalize;
 }

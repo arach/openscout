@@ -164,7 +164,7 @@ export function AgentPresenceMesh({ focus, peers }: AgentPresenceMeshProps) {
               y={n.y + 19}
               textAnchor="middle"
               fontFamily="var(--font-mono, monospace)"
-              fontSize={7.5}
+              fontSize={8}
               fill="var(--studio-ink-faint)"
               letterSpacing="0.04em"
             >

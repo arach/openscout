@@ -24,14 +24,14 @@ export function ScoutbotIconButton({
       aria-label={title}
       onClick={onClick}
       disabled={disabled}
-      className={`flex shrink-0 items-center gap-1 rounded border p-1 text-[10px] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+      className={`flex shrink-0 items-center gap-1 rounded border p-1 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
         active
           ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
           : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
       }`}
     >
       {icon}
-      {badge && <span className="font-mono text-[8.5px] tracking-tight">{badge}</span>}
+      {badge && <span className="font-mono text-3xs tracking-tight">{badge}</span>}
     </button>
   );
 }
@@ -58,7 +58,7 @@ export function ScoutbotActionButton({
       aria-label={label}
       onClick={onClick}
       disabled={disabled}
-      className={`flex min-h-8 items-center justify-center gap-1.5 rounded border border-[var(--scout-chrome-border-soft)] font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink)] transition-colors hover:bg-[var(--scout-chrome-hover)] disabled:cursor-not-allowed disabled:opacity-45 ${
+      className={`flex min-h-8 items-center justify-center gap-1.5 rounded border border-[var(--scout-chrome-border-soft)] font-mono text-xs uppercase tracking-[0.12em] text-[var(--scout-chrome-ink)] transition-colors hover:bg-[var(--scout-chrome-hover)] disabled:cursor-not-allowed disabled:opacity-45 ${
         compact ? "w-8 shrink-0 px-0" : "min-w-0 flex-1 px-2"
       }`}
     >
@@ -86,7 +86,7 @@ export function ScoutVoiceSetupPanel({
   const isBusy = probeState === "probing" || probeState === "launching";
 
   return (
-    <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-black/15 px-2.5 py-2 font-mono text-[10px] text-[var(--scout-chrome-ink)]">
+    <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-black/15 px-2.5 py-2 font-mono text-xs text-[var(--scout-chrome-ink)]">
       <div className="flex items-start gap-2">
         <Rocket size={13} className="mt-0.5 shrink-0 text-[var(--scout-chrome-ink-faint)]" />
         <div className="min-w-0 flex-1">
@@ -159,7 +159,7 @@ function ScoutVoiceSetupButton({
       title={title}
       onClick={onClick}
       disabled={disabled}
-      className="flex min-h-7 items-center justify-center gap-1.5 rounded border border-[var(--scout-chrome-border-soft)] px-2 text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)] transition-colors hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)] disabled:cursor-not-allowed disabled:opacity-45"
+      className="flex min-h-7 items-center justify-center gap-1.5 rounded border border-[var(--scout-chrome-border-soft)] px-2 text-2xs uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)] transition-colors hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)] disabled:cursor-not-allowed disabled:opacity-45"
     >
       {icon}
       {label}

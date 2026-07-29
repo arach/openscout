@@ -238,15 +238,15 @@ const SF_NAV = [SfBubbles, SfPeople, SfWaveform, SfBranch];
 function CurrentComms({ p }: { p: Pal }) {
   const kv = (k: string, v: string, c?: string) => (
     <div className="grid items-baseline gap-x-2" style={{ gridTemplateColumns: "62px 1fr" }}>
-      <span className="text-[9px] font-bold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.08em", color: p.dim }}>{k}</span>
-      <span className="truncate text-right text-[10px]" style={{ fontFamily: MONO, color: c ?? p.muted }}>{v}</span>
+      <span className="text-2xs font-bold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.08em", color: p.dim }}>{k}</span>
+      <span className="truncate text-right text-xs" style={{ fontFamily: MONO, color: c ?? p.muted }}>{v}</span>
     </div>
   );
   const section = (label: string, rule: string, body: React.ReactNode) => (
     <div className="flex flex-col gap-1.5">
       <div>
         <div aria-hidden className="mb-1.5 h-px w-3.5" style={{ background: rule }} />
-        <div className="text-[9px] font-bold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.1em", color: p.dim }}>{label}</div>
+        <div className="text-2xs font-bold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.1em", color: p.dim }}>{label}</div>
       </div>
       {body}
     </div>
@@ -259,8 +259,8 @@ function CurrentComms({ p }: { p: Pal }) {
         <span className="block h-[11px] w-[11px] rounded-full" style={{ background: "#FF5F57" }} />
         <span className="block h-[11px] w-[11px] rounded-full" style={{ background: "#FEBC2E" }} />
         <span className="block h-[11px] w-[11px] rounded-full" style={{ background: "#28C840" }} />
-        <span className="ml-2 text-[12px] font-semibold tracking-tight" style={{ color: p.ink }}>Scout</span>
-        <span className="text-[12px]" style={{ color: p.dim }}>— Comms</span>
+        <span className="ml-2 text-md font-semibold tracking-tight" style={{ color: p.ink }}>Scout</span>
+        <span className="text-md" style={{ color: p.dim }}>— Comms</span>
       </div>
 
       <div className="flex" style={{ height: 532 }}>
@@ -281,14 +281,14 @@ function CurrentComms({ p }: { p: Pal }) {
         {/* list */}
         <div className="flex flex-col shrink-0" style={{ width: 248, borderRight: `1px solid ${p.hairline}`, background: p.bg }}>
           <div className="flex items-center px-3.5 shrink-0" style={{ height: 44, borderBottom: `1px solid ${p.hairline}` }}>
-            <span className="text-[13px] font-semibold tracking-tight" style={{ color: p.ink }}>Chats</span>
-            <span className="ml-auto inline-flex items-center gap-1 text-[12px] font-medium" style={{ color: p.accent }}>
+            <span className="text-lg font-semibold tracking-tight" style={{ color: p.ink }}>Chats</span>
+            <span className="ml-auto inline-flex items-center gap-1 text-md font-medium" style={{ color: p.accent }}>
               <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden><path d="M8 3.5v9M3.5 8h9" /></svg>New
             </span>
           </div>
           <div className="flex items-center gap-1 px-3 py-2 shrink-0" style={{ borderBottom: `1px solid ${p.hairline}` }}>
             {["All", "Direct", "Shared"].map((f, i) => (
-              <span key={f} className="rounded-[5px] px-2 py-[3px] text-[10.5px] font-medium" style={i === 0 ? { background: p.surface, color: p.ink, border: `1px solid ${p.hairlineStrong}` } : { color: p.muted }}>{f}</span>
+              <span key={f} className="rounded-[5px] px-2 py-[3px] text-xs font-medium" style={i === 0 ? { background: p.surface, color: p.ink, border: `1px solid ${p.hairlineStrong}` } : { color: p.muted }}>{f}</span>
             ))}
           </div>
           <div className="flex-1 overflow-hidden">
@@ -297,26 +297,26 @@ function CurrentComms({ p }: { p: Pal }) {
               if (!rows.length) return null;
               return (
                 <div key={grp.id}>
-                  <div className="px-3.5 pt-2.5 pb-1 text-[9px] font-bold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.12em", color: p.dim }}>{grp.label}</div>
+                  <div className="px-3.5 pt-2.5 pb-1 text-2xs font-bold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.12em", color: p.dim }}>{grp.label}</div>
                   {rows.map((c) => {
                     const sel = c.name === SELECTED;
                     const unread = c.unread > 0;
                     return (
                       <div key={c.name} className="flex items-center gap-2.5 px-3.5 py-2" style={{ borderBottom: `1px solid ${p.hairline}`, borderLeft: `2px solid ${sel ? p.accent : "transparent"}`, background: sel ? p.accentSoft : "transparent" }}>
-                        <span className="grid place-items-center rounded-[8px] shrink-0 text-[12px] font-semibold" style={{ height: 30, width: 30, background: p.surface, border: `1px solid ${p.hairlineStrong}`, color: p.muted }}>{c.monogram}</span>
+                        <span className="grid place-items-center rounded-[8px] shrink-0 text-md font-semibold" style={{ height: 30, width: 30, background: p.surface, border: `1px solid ${p.hairlineStrong}`, color: p.muted }}>{c.monogram}</span>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
                             {unread && <span className="inline-block h-[6px] w-[6px] rounded-full shrink-0" style={{ background: p.accent }} />}
-                            <span className="truncate text-[12.5px]" style={{ color: p.ink, fontWeight: unread ? 700 : 600 }}>{c.name}</span>
-                            <span className="ml-auto text-[10px] shrink-0" style={{ fontFamily: MONO, color: p.dim }}>{c.time}</span>
+                            <span className="truncate text-md" style={{ color: p.ink, fontWeight: unread ? 700 : 600 }}>{c.name}</span>
+                            <span className="ml-auto text-xs shrink-0" style={{ fontFamily: MONO, color: p.dim }}>{c.time}</span>
                           </div>
                           <div className="flex items-center gap-1.5 mt-0.5">
-                            <span className="truncate text-[11px]" style={{ color: unread ? p.muted : p.dim }}>{c.preview}</span>
-                            {unread && <span className="ml-auto shrink-0 rounded-full px-1.5 text-[8.5px] font-bold" style={{ background: p.accent, color: p.accentOn }}>{c.unread}</span>}
+                            <span className="truncate text-sm" style={{ color: unread ? p.muted : p.dim }}>{c.preview}</span>
+                            {unread && <span className="ml-auto shrink-0 rounded-full px-1.5 text-3xs font-bold" style={{ background: p.accent, color: p.accentOn }}>{c.unread}</span>}
                           </div>
                           {/* amber reserved for the one actionable state — a pending ask.
                               answered needs no badge (resolved = no attention = no color). */}
-                          {c.ask === "pending" && <span className="mt-1 inline-block rounded-[3px] px-1 py-px text-[8px] font-bold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.08em", background: p.warnBg, color: p.warnFg }}>ask pending</span>}
+                          {c.ask === "pending" && <span className="mt-1 inline-block rounded-[3px] px-1 py-px text-3xs font-bold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.08em", background: p.warnBg, color: p.warnFg }}>ask pending</span>}
                         </div>
                       </div>
                     );
@@ -330,16 +330,16 @@ function CurrentComms({ p }: { p: Pal }) {
         {/* thread */}
         <div className="flex flex-col min-w-0 flex-1" style={{ background: p.bg }}>
           <div className="flex items-center gap-2.5 px-4 shrink-0" style={{ height: 52, borderBottom: `1px solid ${p.hairline}` }}>
-            <span className="grid place-items-center rounded-full shrink-0 text-[12px] font-semibold" style={{ height: 28, width: 28, background: p.surface, border: `1px solid ${p.hairlineStrong}`, color: p.muted }}>D</span>
+            <span className="grid place-items-center rounded-full shrink-0 text-md font-semibold" style={{ height: 28, width: 28, background: p.surface, border: `1px solid ${p.hairlineStrong}`, color: p.muted }}>D</span>
             <div className="min-w-0">
-              <div className="text-[14px] font-semibold tracking-tight leading-none" style={{ color: p.ink }}>Dewey</div>
-              <div className="truncate text-[10px] mt-1" style={{ fontFamily: MONO, color: p.dim }}>dewey · main · ~/dev/dewey · c.a4d433a9</div>
+              <div className="text-xl font-semibold tracking-tight leading-none" style={{ color: p.ink }}>Dewey</div>
+              <div className="truncate text-xs mt-1" style={{ fontFamily: MONO, color: p.dim }}>dewey · main · ~/dev/dewey · c.a4d433a9</div>
             </div>
             <div className="ml-auto flex items-center gap-1.5">
-              <button type="button" className="inline-flex items-center gap-1 rounded-[6px] px-2 py-1 text-[10px] font-semibold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.06em", color: p.muted, border: `1px solid ${p.hairlineStrong}`, background: p.surface }}>
+              <button type="button" className="inline-flex items-center gap-1 rounded-[6px] px-2 py-1 text-xs font-semibold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.06em", color: p.muted, border: `1px solid ${p.hairlineStrong}`, background: p.surface }}>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="2.6" /></svg>Observe
               </button>
-              <button type="button" className="rounded-[6px] px-2.5 py-1 text-[10px] font-semibold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.06em", color: p.accent, border: `1px solid ${p.accent}`, background: p.accentSoft }}>Message</button>
+              <button type="button" className="rounded-[6px] px-2.5 py-1 text-xs font-semibold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.06em", color: p.accent, border: `1px solid ${p.accent}`, background: p.accentSoft }}>Message</button>
             </div>
           </div>
 
@@ -352,10 +352,10 @@ function CurrentComms({ p }: { p: Pal }) {
               <div className="px-4 py-2 shrink-0" style={{ background: pending ? p.warnBg : p.surface, boxShadow: `inset 2px 0 0 ${edge}`, borderBottom: `1px solid ${p.hairline}` }}>
                 <div className="flex items-center gap-1.5">
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: fg }} aria-hidden><path d="M12 17v5" /><path d="M9 10.76 5.5 14h13L15 10.76V4h1a1 1 0 0 0 0-2H8a1 1 0 0 0 0 2h1z" /></svg>
-                  <span className="text-[8.5px] font-bold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.1em", color: fg }}>Pinned ask · {pending ? "Awaiting reply" : "Answered"}</span>
-                  <span className="text-[8.5px]" style={{ fontFamily: MONO, color: p.dim }}>from {PINNED_ASK.from}</span>
+                  <span className="text-3xs font-bold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.1em", color: fg }}>Pinned ask · {pending ? "Awaiting reply" : "Answered"}</span>
+                  <span className="text-3xs" style={{ fontFamily: MONO, color: p.dim }}>from {PINNED_ASK.from}</span>
                 </div>
-                <div className="text-[11px] leading-snug mt-0.5" style={{ color: p.muted }}>{PINNED_ASK.text}</div>
+                <div className="text-sm leading-snug mt-0.5" style={{ color: p.muted }}>{PINNED_ASK.text}</div>
               </div>
             );
           })()}
@@ -364,14 +364,14 @@ function CurrentComms({ p }: { p: Pal }) {
           <div className="flex-1 overflow-hidden px-4 py-3.5" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             {TURNS.map((t, i) => (
               <div key={i} className="flex gap-2.5">
-                <span className="grid place-items-center rounded-full shrink-0 text-[11px] font-semibold" style={{ height: 26, width: 26, background: t.me ? p.accent : p.surface, color: t.me ? p.accentOn : p.muted, border: t.me ? `1px solid ${p.accent}` : `1px solid ${p.hairlineStrong}`, boxShadow: t.me ? `0 0 0 2px ${p.accentSoft}` : undefined }}>{t.monogram}</span>
+                <span className="grid place-items-center rounded-full shrink-0 text-sm font-semibold" style={{ height: 26, width: 26, background: t.me ? p.accent : p.surface, color: t.me ? p.accentOn : p.muted, border: t.me ? `1px solid ${p.accent}` : `1px solid ${p.hairlineStrong}`, boxShadow: t.me ? `0 0 0 2px ${p.accentSoft}` : undefined }}>{t.monogram}</span>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline gap-1.5">
-                    <span className="text-[12px] font-semibold" style={{ color: p.ink }}>{t.author}</span>
-                    <span className="text-[10px]" style={{ fontFamily: MONO, color: p.dim }}>{t.time}</span>
+                    <span className="text-md font-semibold" style={{ color: p.ink }}>{t.author}</span>
+                    <span className="text-xs" style={{ fontFamily: MONO, color: p.dim }}>{t.time}</span>
                   </div>
                   {t.replyTo && (
-                    <div className="mt-1 flex items-center gap-1.5 text-[9.5px]" style={{ fontFamily: MONO, color: p.dim }}>
+                    <div className="mt-1 flex items-center gap-1.5 text-2xs" style={{ fontFamily: MONO, color: p.dim }}>
                       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><polyline points="9 14 4 9 9 4" /><path d="M20 20v-7a4 4 0 0 0-4-4H4" /></svg>
                       <span className="font-bold uppercase" style={{ letterSpacing: "0.08em" }}>reply to</span>
                       <span className="truncate" style={{ color: p.muted }}>{t.replyTo.title}</span>
@@ -381,13 +381,13 @@ function CurrentComms({ p }: { p: Pal }) {
                   )}
                   {/* Current = honest baseline: flat sender-led body, no bubble (that
                       nicety lives in the Proposal). Don't cheat the current. */}
-                  <div className="mt-1 text-[12.5px] leading-relaxed" style={{ color: p.ink2, maxWidth: 560 }}>{t.body}</div>
+                  <div className="mt-1 text-md leading-relaxed" style={{ color: p.ink2, maxWidth: 560 }}>{t.body}</div>
                   {t.card && (
                     <div className="mt-2 overflow-hidden rounded-[7px]" style={{ border: `1px solid ${p.hairlineStrong}`, background: p.surface, maxWidth: 560 }}>
-                      <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-[10px]" style={{ fontFamily: MONO, color: p.ink, borderBottom: `1px solid ${p.hairline}` }}>
+                      <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs" style={{ fontFamily: MONO, color: p.ink, borderBottom: `1px solid ${p.hairline}` }}>
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>{t.card.head}
                       </div>
-                      <div className="px-2.5 py-1.5 text-[10.5px] leading-snug" style={{ color: p.muted }}>{t.card.body}</div>
+                      <div className="px-2.5 py-1.5 text-xs leading-snug" style={{ color: p.muted }}>{t.card.body}</div>
                     </div>
                   )}
                 </div>
@@ -398,9 +398,9 @@ function CurrentComms({ p }: { p: Pal }) {
           {/* composer */}
           <div className="px-4 pb-3.5 pt-1 shrink-0">
             <div className="rounded-[8px]" style={{ background: p.surface, border: `1px solid ${p.hairlineStrong}`, borderTop: `1px solid ${p.accent}`, boxShadow: p.accentShadow }}>
-              <div className="px-3 pt-2.5 pb-1.5 text-[11px]" style={{ fontFamily: MONO, color: p.dim }}>Message Dewey…</div>
+              <div className="px-3 pt-2.5 pb-1.5 text-sm" style={{ fontFamily: MONO, color: p.dim }}>Message Dewey…</div>
               <div className="flex items-center gap-2 px-3 py-1.5" style={{ borderTop: `1px solid ${p.hairline}` }}>
-                <span className="text-[9px] uppercase" style={{ fontFamily: MONO, letterSpacing: "0.08em", color: p.dim }}>⌘↵ to send</span>
+                <span className="text-2xs uppercase" style={{ fontFamily: MONO, letterSpacing: "0.08em", color: p.dim }}>⌘↵ to send</span>
                 <span className="ml-auto inline-flex items-center gap-2" style={{ color: p.dim }}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" /><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v3" /></svg>
@@ -418,31 +418,31 @@ function CurrentComms({ p }: { p: Pal }) {
           <div className="flex items-center justify-between px-3.5 shrink-0" style={{ height: 38, borderBottom: `1px solid ${p.hairline}` }}>
             <div className="flex items-center gap-1.5">
               <span className="block rounded-sm" style={{ height: 12, width: 2, background: p.accent }} />
-              <span className="text-[9px] font-bold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.1em", color: p.dim }}>DM</span>
+              <span className="text-2xs font-bold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.1em", color: p.dim }}>DM</span>
             </div>
-            <span className="inline-flex items-center gap-1 rounded-[3px] px-1.5 py-0.5 text-[8px] font-bold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.08em", color: p.dim, border: `1px solid ${p.hairlineStrong}` }}>Open</span>
+            <span className="inline-flex items-center gap-1 rounded-[3px] px-1.5 py-0.5 text-3xs font-bold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.08em", color: p.dim, border: `1px solid ${p.hairlineStrong}` }}>Open</span>
           </div>
           <div className="flex flex-col gap-3.5 p-3.5 overflow-hidden">
             <div className="flex items-center gap-2.5">
-              <span className="grid place-items-center rounded-full text-[13px] font-semibold" style={{ height: 32, width: 32, background: p.bg, border: `1px solid ${p.hairlineStrong}`, color: p.muted }}>D</span>
+              <span className="grid place-items-center rounded-full text-lg font-semibold" style={{ height: 32, width: 32, background: p.bg, border: `1px solid ${p.hairlineStrong}`, color: p.muted }}>D</span>
               <div className="min-w-0">
-                <div className="text-[14px] font-semibold tracking-tight leading-tight" style={{ color: p.ink }}>Dewey</div>
-                <div className="truncate text-[9.5px]" style={{ fontFamily: MONO, color: p.dim }}>dewey.main.arts-mac-mini-local</div>
+                <div className="text-xl font-semibold tracking-tight leading-tight" style={{ color: p.ink }}>Dewey</div>
+                <div className="truncate text-2xs" style={{ fontFamily: MONO, color: p.dim }}>dewey.main.arts-mac-mini-local</div>
               </div>
             </div>
             <div className="flex items-center gap-1.5">
-              <button type="button" className="rounded-[6px] px-3 py-1 text-[10px] font-semibold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.06em", color: p.accentOn, background: p.accent }}>Open</button>
-              <button type="button" className="rounded-[6px] px-2.5 py-1 text-[10px] font-semibold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.06em", color: p.muted, border: `1px solid ${p.hairlineStrong}`, background: p.surface }}>+ New</button>
+              <button type="button" className="rounded-[6px] px-3 py-1 text-xs font-semibold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.06em", color: p.accentOn, background: p.accent }}>Open</button>
+              <button type="button" className="rounded-[6px] px-2.5 py-1 text-xs font-semibold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.06em", color: p.muted, border: `1px solid ${p.hairlineStrong}`, background: p.surface }}>+ New</button>
             </div>
             {section("Conversation", p.hairlineStrong, <div className="flex flex-col gap-1">{kv("Last", "2m")}{kv("Unread", "2", p.accent)}{kv("Channel", "DM")}</div>)}
             {section("Project", p.hairlineStrong, <div className="flex flex-col gap-1">{kv("Repo", "dewey")}{kv("Branch", "main")}{kv("Path", "~/dev/dewey")}</div>)}
             {section("Ask", p.hairlineStrong, (
               <div className="flex flex-col gap-1">
                 <div className="flex items-center gap-1.5">
-                  <span className="rounded-[3px] px-1 py-px text-[8px] font-bold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.06em", color: p.dim, border: `1px solid ${p.hairlineStrong}` }}>answered</span>
-                  <span className="text-[8.5px]" style={{ fontFamily: MONO, color: p.dim }}>from Art</span>
+                  <span className="rounded-[3px] px-1 py-px text-3xs font-bold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.06em", color: p.dim, border: `1px solid ${p.hairlineStrong}` }}>answered</span>
+                  <span className="text-3xs" style={{ fontFamily: MONO, color: p.dim }}>from Art</span>
                 </div>
-                <div className="text-[10.5px] leading-snug" style={{ color: p.muted }}>Surface the resolved skin in the inspector.</div>
+                <div className="text-xs leading-snug" style={{ color: p.muted }}>Surface the resolved skin in the inspector.</div>
               </div>
             ))}
           </div>
@@ -450,8 +450,8 @@ function CurrentComms({ p }: { p: Pal }) {
       </div>
 
       <div className="flex items-center gap-2 px-3.5 shrink-0" style={{ height: 24, background: p.chrome, borderTop: `1px solid ${p.hairline}` }}>
-        <span className="text-[9px] uppercase" style={{ fontFamily: MONO, letterSpacing: "0.08em", color: p.muted }}>Comms · 24 chats · 2 need you</span>
-        <span className="ml-auto text-[9px] uppercase" style={{ fontFamily: MONO, letterSpacing: "0.08em", color: p.dim }}>broker online</span>
+        <span className="text-2xs uppercase" style={{ fontFamily: MONO, letterSpacing: "0.08em", color: p.muted }}>Comms · 24 chats · 2 need you</span>
+        <span className="ml-auto text-2xs uppercase" style={{ fontFamily: MONO, letterSpacing: "0.08em", color: p.dim }}>broker online</span>
       </div>
     </div>
   );
@@ -530,7 +530,7 @@ function ProposalComms({ p }: { p: Pal }) {
         .pcw .pc-spine{position:absolute;left:27px;top:8px;bottom:8px;width:1px;background:var(--pc-spine);pointer-events:none}
         .pcw .pc-turn{position:relative;display:flex;gap:12px;align-items:flex-start}
         .pcw .pc-turn + .pc-turn{margin-top:15px}
-        .pcw .pc-av{position:relative;z-index:1;flex:none;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:600;color:var(--pc-dim);background:var(--pc-bg);box-shadow:0 0 0 3px var(--pc-bg), inset 0 0 0 1px var(--pc-hairS)}
+        .pcw .pc-av{position:relative;z-index:1;flex:none;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size: var(--text-sm);font-weight:600;color:var(--pc-dim);background:var(--pc-bg);box-shadow:0 0 0 3px var(--pc-bg), inset 0 0 0 1px var(--pc-hairS)}
         .pcw .pc-av.is-me{color:var(--pc-accentOn);background:var(--pc-accent);box-shadow:0 0 0 3px var(--pc-bg), inset 0 0 0 1px var(--pc-accent)}
         .pcw .pc-elbow{position:absolute;left:24px;top:11px;width:11px;height:1px;background:var(--pc-elbow);pointer-events:none}
         .pcw .pc-body{min-width:0;flex:1}
@@ -544,7 +544,7 @@ function ProposalComms({ p }: { p: Pal }) {
         <span className="block h-[10px] w-[10px] rounded-full" style={{ background: "#FF5F57" }} />
         <span className="block h-[10px] w-[10px] rounded-full" style={{ background: "#FEBC2E" }} />
         <span className="block h-[10px] w-[10px] rounded-full" style={{ background: "#28C840" }} />
-        <span className="ml-2 text-[11px] tracking-[0.04em]" style={{ fontFamily: MONO, color: p.dim }}>Scout — Comms</span>
+        <span className="ml-2 text-sm tracking-[0.04em]" style={{ fontFamily: MONO, color: p.dim }}>Scout — Comms</span>
       </div>
 
       <div className="flex" style={{ height: 532 }}>
@@ -565,7 +565,7 @@ function ProposalComms({ p }: { p: Pal }) {
         {/* list */}
         <div className="flex flex-col shrink-0" style={{ width: 248, borderRight: `1px solid ${x.hair}` }}>
           <div className="flex items-center px-3.5 shrink-0" style={{ height: 44, borderBottom: `1px solid ${x.hair}` }}>
-            <span className="text-[13px] font-semibold tracking-[-0.01em]" style={{ color: p.ink }}>Chats</span>
+            <span className="text-lg font-semibold tracking-[-0.01em]" style={{ color: p.ink }}>Chats</span>
             <span className="ml-2" style={{ fontFamily: MONO, fontSize: 9.5, color: p.dim }}>24</span>
             <span className="ml-auto pc-gbtn is-accent" title="New session"><svg {...mg(13)} aria-hidden><path d="M6 2.4v7.2M2.4 6h7.2" /></svg></span>
           </div>
@@ -586,16 +586,16 @@ function ProposalComms({ p }: { p: Pal }) {
                     const unread = c.unread > 0;
                     return (
                       <div key={c.name} className="flex items-center gap-2.5 px-3.5 py-2" style={{ borderBottom: `1px solid ${x.hair}`, background: sel ? x.pill : "transparent" }}>
-                        <span className="grid place-items-center rounded-full shrink-0 text-[11px] font-semibold" style={{ height: 28, width: 28, background: x.inset, boxShadow: `inset 0 0 0 1px ${sel ? p.accent : x.hairS}`, color: sel ? p.ink : p.muted }}>{c.monogram}</span>
+                        <span className="grid place-items-center rounded-full shrink-0 text-sm font-semibold" style={{ height: 28, width: 28, background: x.inset, boxShadow: `inset 0 0 0 1px ${sel ? p.accent : x.hairS}`, color: sel ? p.ink : p.muted }}>{c.monogram}</span>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
                             {unread && <span className="inline-block h-[5px] w-[5px] rounded-full shrink-0" style={{ background: p.accent }} />}
-                            <span className="truncate text-[12px]" style={{ color: p.ink, fontWeight: unread ? 700 : 500, letterSpacing: "-0.01em" }}>{c.name}</span>
+                            <span className="truncate text-md" style={{ color: p.ink, fontWeight: unread ? 700 : 500, letterSpacing: "-0.01em" }}>{c.name}</span>
                             <span className="ml-auto" style={{ fontFamily: MONO, fontSize: 9.5, color: p.dim }}>{c.time}</span>
                             {unread && <span style={{ fontFamily: MONO, fontSize: 9.5, color: p.accent }}>{c.unread}</span>}
                           </div>
                           <div className="flex items-center gap-1.5 mt-[3px]">
-                            <span className="truncate text-[10.5px]" style={{ color: p.dim }}>{c.preview}</span>
+                            <span className="truncate text-xs" style={{ color: p.dim }}>{c.preview}</span>
                           </div>
                           {c.ask === "pending" && <div className="mt-1">{pillTag("ask pending", "amber")}</div>}
                         </div>
@@ -612,9 +612,9 @@ function ProposalComms({ p }: { p: Pal }) {
         <div className="flex flex-col min-w-0 flex-1">
           {/* header — name + glyph-led sub-line + quiet ghost actions */}
           <div className="flex items-center gap-2.5 px-4 shrink-0" style={{ height: 52, borderBottom: `1px solid ${x.hair}` }}>
-            <span className="grid place-items-center rounded-full shrink-0 text-[12px] font-semibold" style={{ height: 28, width: 28, background: x.inset, boxShadow: `inset 0 0 0 1px ${x.hairS}`, color: p.muted }}>D</span>
+            <span className="grid place-items-center rounded-full shrink-0 text-md font-semibold" style={{ height: 28, width: 28, background: x.inset, boxShadow: `inset 0 0 0 1px ${x.hairS}`, color: p.muted }}>D</span>
             <div className="min-w-0">
-              <div className="text-[14px] font-semibold tracking-[-0.01em] leading-none" style={{ color: p.ink }}>Dewey</div>
+              <div className="text-xl font-semibold tracking-[-0.01em] leading-none" style={{ color: p.ink }}>Dewey</div>
               <div className="flex items-center gap-3 mt-1.5 min-w-0" style={{ fontFamily: MONO, fontSize: 10, color: p.muted }}>
                 <span className="flex items-center gap-1.5 min-w-0"><span style={{ color: p.dim, display: "inline-flex" }}><GFolder /></span><span className="truncate">dewey</span></span>
                 <span className="flex items-center gap-1.5"><span style={{ color: p.dim, display: "inline-flex" }}><GBranch /></span>main</span>
@@ -634,7 +634,7 @@ function ProposalComms({ p }: { p: Pal }) {
               <span style={{ fontFamily: MONO, fontSize: 8.5, fontWeight: 700, letterSpacing: ".12em", textTransform: "uppercase", color: p.dim }}>Pinned ask · answered</span>
               <span style={{ fontFamily: MONO, fontSize: 8.5, color: p.dim }}>· from Art</span>
             </div>
-            <div className="text-[11px] leading-snug mt-1" style={{ color: p.muted }}>{PINNED_ASK.text}</div>
+            <div className="text-sm leading-snug mt-1" style={{ color: p.muted }}>{PINNED_ASK.text}</div>
           </div>
 
           {/* transcript — connected spine + nodes + elbows */}
@@ -647,7 +647,7 @@ function ProposalComms({ p }: { p: Pal }) {
                   <span className="pc-elbow" />
                   <div className="pc-body">
                     <div className="flex items-baseline gap-1.5">
-                      <span className="text-[12px] font-semibold" style={{ color: p.ink }}>{t.author}</span>
+                      <span className="text-md font-semibold" style={{ color: p.ink }}>{t.author}</span>
                       <span style={{ fontFamily: MONO, fontSize: 9.5, color: p.dim }}>{t.time}</span>
                     </div>
                     {t.replyTo && (
@@ -657,7 +657,7 @@ function ProposalComms({ p }: { p: Pal }) {
                         <span className="shrink-0">· {t.replyTo.from} · {t.replyTo.status}</span>
                       </div>
                     )}
-                    <div className="mt-1.5 inline-block rounded-[11px] px-3 py-2 text-[12.5px] leading-[1.5]" style={t.me
+                    <div className="mt-1.5 inline-block rounded-[11px] px-3 py-2 text-md leading-[1.5]" style={t.me
                       ? { background: p.accent, color: p.accentOn, maxWidth: 520 }
                       : { background: p.surface, color: p.ink, border: `1px solid ${x.hair}`, boxShadow: x.bubbleShadow, maxWidth: 510 }}>{t.body}</div>
                     {t.card && (
@@ -665,7 +665,7 @@ function ProposalComms({ p }: { p: Pal }) {
                         <div className="flex items-center gap-1.5 px-2.5 py-1.5" style={{ fontFamily: MONO, fontSize: 10, color: p.muted, borderBottom: `1px solid ${x.hair}` }}>
                           <span style={{ color: p.dim, display: "inline-flex" }}><svg {...mg(11)} aria-hidden><path d="M3 1.6h4l2 2v6.8H3z" /><path d="M7 1.6v2h2" /></svg></span>{t.card.head}
                         </div>
-                        <div className="px-2.5 py-1.5 text-[10.5px] leading-snug" style={{ color: p.dim }}>{t.card.body}</div>
+                        <div className="px-2.5 py-1.5 text-xs leading-snug" style={{ color: p.dim }}>{t.card.body}</div>
                       </div>
                     )}
                   </div>
@@ -677,7 +677,7 @@ function ProposalComms({ p }: { p: Pal }) {
           {/* composer — clean native field (no terminal chrome) */}
           <div className="px-4 pb-4 pt-1 shrink-0">
             <div className="flex items-center gap-2 rounded-[10px] px-3 py-2" style={{ background: p.surface, border: `1px solid ${x.hairS}` }}>
-              <span className="flex-1 text-[12px]" style={{ color: p.dim }}>Message Dewey…</span>
+              <span className="flex-1 text-md" style={{ color: p.dim }}>Message Dewey…</span>
               <span className="pc-gbtn" title="Attach"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg></span>
               <span className="pc-gbtn" title="Dictate"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" /><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v3" /></svg></span>
               <span className="grid place-items-center rounded-[8px]" style={{ height: 26, width: 30, background: p.accent, color: p.accentOn }}><GSend /></span>
@@ -695,9 +695,9 @@ function ProposalComms({ p }: { p: Pal }) {
           </div>
           <div className="flex flex-col gap-4 p-3.5 overflow-hidden">
             <div className="flex items-center gap-2.5">
-              <span className="grid place-items-center rounded-full text-[13px] font-semibold" style={{ height: 32, width: 32, background: x.inset, boxShadow: `inset 0 0 0 1px ${x.hairS}`, color: p.muted }}>D</span>
+              <span className="grid place-items-center rounded-full text-lg font-semibold" style={{ height: 32, width: 32, background: x.inset, boxShadow: `inset 0 0 0 1px ${x.hairS}`, color: p.muted }}>D</span>
               <div className="min-w-0">
-                <div className="text-[14px] font-semibold tracking-[-0.01em] leading-tight" style={{ color: p.ink }}>Dewey</div>
+                <div className="text-xl font-semibold tracking-[-0.01em] leading-tight" style={{ color: p.ink }}>Dewey</div>
                 <div className="truncate" style={{ fontFamily: MONO, fontSize: 9.5, color: p.dim }}>dewey.main.arts-mac-mini-local</div>
               </div>
             </div>
@@ -723,7 +723,7 @@ function ProposalComms({ p }: { p: Pal }) {
                   <span style={{ color: p.dim, display: "inline-flex" }}><GPin /></span>
                   <span style={{ fontFamily: MONO, fontSize: 9, letterSpacing: ".04em", textTransform: "uppercase", color: p.dim }}>answered · from Art</span>
                 </div>
-                <div className="text-[10.5px] leading-snug mt-1" style={{ color: p.muted }}>Surface the resolved skin in the inspector.</div>
+                <div className="text-xs leading-snug mt-1" style={{ color: p.muted }}>Surface the resolved skin in the inspector.</div>
               </div>
             </div>
             <div className="flex flex-col gap-2">
@@ -778,7 +778,7 @@ function A2AComms({ p }: { p: Pal }) {
         .pcw .pc-spine{position:absolute;left:27px;top:8px;bottom:8px;width:1px;background:var(--pc-spine);pointer-events:none}
         .pcw .pc-turn{position:relative;display:flex;gap:12px;align-items:flex-start}
         .pcw .pc-turn + .pc-turn{margin-top:15px}
-        .pcw .pc-av{position:relative;z-index:1;flex:none;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:600}
+        .pcw .pc-av{position:relative;z-index:1;flex:none;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size: var(--text-sm);font-weight:600}
         .pcw .pc-elbow{position:absolute;left:24px;top:11px;width:11px;height:1px;background:var(--pc-elbow);pointer-events:none}
         .pcw .pc-body{min-width:0;flex:1}
       `}</style>
@@ -788,7 +788,7 @@ function A2AComms({ p }: { p: Pal }) {
         <span className="block h-[10px] w-[10px] rounded-full" style={{ background: "#FF5F57" }} />
         <span className="block h-[10px] w-[10px] rounded-full" style={{ background: "#FEBC2E" }} />
         <span className="block h-[10px] w-[10px] rounded-full" style={{ background: "#28C840" }} />
-        <span className="ml-2 text-[11px] tracking-[0.04em]" style={{ fontFamily: MONO, color: p.dim }}>Scout — Comms · Observing</span>
+        <span className="ml-2 text-sm tracking-[0.04em]" style={{ fontFamily: MONO, color: p.dim }}>Scout — Comms · Observing</span>
       </div>
 
       <div className="flex" style={{ height: 532 }}>
@@ -804,7 +804,7 @@ function A2AComms({ p }: { p: Pal }) {
         {/* list — agent ↔ agent threads, paired nodes */}
         <div className="flex flex-col shrink-0" style={{ width: 248, borderRight: `1px solid ${x.hair}` }}>
           <div className="flex items-center px-3.5 shrink-0" style={{ height: 44, borderBottom: `1px solid ${x.hair}` }}>
-            <span className="text-[13px] font-semibold tracking-[-0.01em]" style={{ color: p.ink }}>Threads</span>
+            <span className="text-lg font-semibold tracking-[-0.01em]" style={{ color: p.ink }}>Threads</span>
             <span className="ml-2" style={{ fontFamily: MONO, fontSize: 9.5, color: p.dim }}>agent ↔ agent</span>
           </div>
           <div className="flex-1 overflow-hidden">
@@ -812,15 +812,15 @@ function A2AComms({ p }: { p: Pal }) {
             {A2A_THREADS.map((th) => (
               <div key={th.a + th.b} className="flex items-center gap-2.5 px-3.5 py-2.5" style={{ borderBottom: `1px solid ${x.hair}`, background: th.sel ? x.pill : "transparent" }}>
                 <span className="relative shrink-0" style={{ width: 36, height: 26 }}>
-                  <span className="grid place-items-center rounded-full text-[9px] font-semibold" style={{ position: "absolute", left: 0, top: 1, height: 22, width: 22, background: p.bg, boxShadow: `0 0 0 2px ${p.bg}, inset 0 0 0 1.5px ${IDENT[th.a] ?? p.dim}`, color: IDENT[th.a] ?? p.muted }}>{th.a[0]}</span>
-                  <span className="grid place-items-center rounded-full text-[9px] font-semibold" style={{ position: "absolute", left: 13, top: 3, height: 22, width: 22, background: p.bg, boxShadow: `0 0 0 2px ${p.bg}, inset 0 0 0 1.5px ${IDENT[th.b] ?? p.dim}`, color: IDENT[th.b] ?? p.muted }}>{th.b[0]}</span>
+                  <span className="grid place-items-center rounded-full text-2xs font-semibold" style={{ position: "absolute", left: 0, top: 1, height: 22, width: 22, background: p.bg, boxShadow: `0 0 0 2px ${p.bg}, inset 0 0 0 1.5px ${IDENT[th.a] ?? p.dim}`, color: IDENT[th.a] ?? p.muted }}>{th.a[0]}</span>
+                  <span className="grid place-items-center rounded-full text-2xs font-semibold" style={{ position: "absolute", left: 13, top: 3, height: 22, width: 22, background: p.bg, boxShadow: `0 0 0 2px ${p.bg}, inset 0 0 0 1.5px ${IDENT[th.b] ?? p.dim}`, color: IDENT[th.b] ?? p.muted }}>{th.b[0]}</span>
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
-                    <span className="truncate text-[12px]" style={{ color: p.ink, fontWeight: 500, letterSpacing: "-0.01em" }}>{th.a} <span style={{ color: p.dim }}>→</span> {th.b}</span>
+                    <span className="truncate text-md" style={{ color: p.ink, fontWeight: 500, letterSpacing: "-0.01em" }}>{th.a} <span style={{ color: p.dim }}>→</span> {th.b}</span>
                     <span className="ml-auto" style={{ fontFamily: MONO, fontSize: 9.5, color: p.dim }}>{th.time}</span>
                   </div>
-                  <div className="truncate text-[10.5px] mt-[3px]" style={{ color: p.dim }}>{th.preview}</div>
+                  <div className="truncate text-xs mt-[3px]" style={{ color: p.dim }}>{th.preview}</div>
                 </div>
               </div>
             ))}
@@ -847,7 +847,7 @@ function A2AComms({ p }: { p: Pal }) {
                     <span className="pc-elbow" />
                     <div className="pc-body">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-[12px] font-semibold" style={{ color: p.ink }}>{t.author}</span>
+                        <span className="text-md font-semibold" style={{ color: p.ink }}>{t.author}</span>
                         {t.working
                           ? <><span style={{ fontFamily: MONO, fontSize: 9.5, color: ident }}>● working</span><span style={{ fontFamily: MONO, fontSize: 9.5, color: p.dim }}>· seen 30s ago</span></>
                           : <span style={{ fontFamily: MONO, fontSize: 9.5, color: p.dim }}>{t.time}</span>}
@@ -865,7 +865,7 @@ function A2AComms({ p }: { p: Pal }) {
                         </div>
                       ) : (
                         // no accent — every bubble floats; nobody here is "me"
-                        <div className="mt-1.5 inline-block rounded-[11px] px-3 py-2 text-[12.5px] leading-[1.5]" style={{ background: p.surface, color: p.ink, border: `1px solid ${x.hair}`, boxShadow: x.bubbleShadow, maxWidth: 470 }}>{t.body}</div>
+                        <div className="mt-1.5 inline-block rounded-[11px] px-3 py-2 text-md leading-[1.5]" style={{ background: p.surface, color: p.ink, border: `1px solid ${x.hair}`, boxShadow: x.bubbleShadow, maxWidth: 470 }}>{t.body}</div>
                       )}
                       {t.receipt && (
                         <div className="mt-1 flex items-center gap-1" style={{ fontFamily: MONO, fontSize: 9, color: p.dim }}>
@@ -883,7 +883,7 @@ function A2AComms({ p }: { p: Pal }) {
           <div className="px-4 pb-4 pt-1 shrink-0">
             <div className="flex items-center gap-2 rounded-[10px] px-3 py-2" style={{ background: "transparent", border: `1px dashed ${x.hairS}` }}>
               <span style={{ color: p.dim, display: "inline-flex" }}><GMsg s={14} /></span>
-              <span className="flex-1 text-[12px]" style={{ color: p.dim }}>Jump in… <span style={{ opacity: .7 }}>— your reply joins as Art</span></span>
+              <span className="flex-1 text-md" style={{ color: p.dim }}>Jump in… <span style={{ opacity: .7 }}>— your reply joins as Art</span></span>
               <span className="grid place-items-center rounded-[8px]" style={{ height: 26, width: 30, background: p.accent, color: p.accentOn }}><GSend /></span>
             </div>
           </div>
@@ -900,8 +900,8 @@ function A2AComms({ p }: { p: Pal }) {
               {eyebrow("Participants")}
               {[{ n: "Dewey", s: "waiting" }, { n: "Hudson", s: "working" }].map((m) => (
                 <div key={m.n} className="flex items-center gap-2">
-                  <span className="grid place-items-center rounded-full text-[10px] font-semibold" style={{ height: 22, width: 22, background: x.inset, boxShadow: `inset 0 0 0 1.5px ${IDENT[m.n]}`, color: IDENT[m.n] }}>{m.n[0]}</span>
-                  <span className="text-[12px]" style={{ color: p.ink }}>{m.n}</span>
+                  <span className="grid place-items-center rounded-full text-xs font-semibold" style={{ height: 22, width: 22, background: x.inset, boxShadow: `inset 0 0 0 1.5px ${IDENT[m.n]}`, color: IDENT[m.n] }}>{m.n[0]}</span>
+                  <span className="text-md" style={{ color: p.ink }}>{m.n}</span>
                   <span className="ml-auto flex items-center gap-1" style={{ fontFamily: MONO, fontSize: 9.5, color: p.dim }}><span style={{ width: 5, height: 5, borderRadius: 9, background: m.s === "working" ? IDENT[m.n] : p.dim }} />{m.s}</span>
                 </div>
               ))}
@@ -980,14 +980,14 @@ function ElevatedComms({ p }: { p: Pal }) {
       warn: { color: p.warnFg, border: `1px solid ${p.warnFg}`, background: p.warnBg },
       ok: { color: p.okFg, border: `1px solid ${p.okFg}`, background: p.okBg },
     };
-    return <span className="text-[9px] uppercase tracking-[0.1em] px-1.5 py-[2px] rounded-[4px] inline-flex items-center gap-1" style={{ fontFamily: MONO, ...styles[tone] }}>{children}</span>;
+    return <span className="text-2xs uppercase tracking-[0.1em] px-1.5 py-[2px] rounded-[4px] inline-flex items-center gap-1" style={{ fontFamily: MONO, ...styles[tone] }}>{children}</span>;
   };
   const segments = (items: string[], active: string) => (
     <div className="flex items-center gap-1">
       {items.map((it) => {
         const on = it === active;
         return (
-          <span key={it} className="text-[10px] uppercase tracking-[0.13em] px-1.5 py-[3px] rounded-[5px] inline-flex items-center gap-1" style={{ fontFamily: MONO, ...(on ? { color: p.accent, ...glassRaised(p) } : { color: p.muted }) }}>
+          <span key={it} className="text-xs uppercase tracking-[0.13em] px-1.5 py-[3px] rounded-[5px] inline-flex items-center gap-1" style={{ fontFamily: MONO, ...(on ? { color: p.accent, ...glassRaised(p) } : { color: p.muted }) }}>
             {on && <span style={{ color: p.accent, opacity: 0.7 }}>⌜</span>}{it}{on && <span style={{ color: p.accent, opacity: 0.7 }}>⌝</span>}
           </span>
         );
@@ -996,14 +996,14 @@ function ElevatedComms({ p }: { p: Pal }) {
   );
   const evkv = (k: string, v: React.ReactNode, tint?: string) => (
     <div className="flex items-baseline justify-between gap-3">
-      <span className="text-[10px] uppercase tracking-[0.08em]" style={{ fontFamily: MONO, color: p.dim }}>{k}</span>
-      <span className="text-[11px] tabular-nums text-right" style={{ fontFamily: MONO, color: tint ?? p.ink }}>{v}</span>
+      <span className="text-xs uppercase tracking-[0.08em]" style={{ fontFamily: MONO, color: p.dim }}>{k}</span>
+      <span className="text-sm tabular-nums text-right" style={{ fontFamily: MONO, color: tint ?? p.ink }}>{v}</span>
     </div>
   );
   const evsection = (title: string, body: React.ReactNode) => (
     <div className="relative rounded-lg px-3 py-2.5" style={glassPanel(p)}>
       <CornerTicks color={p.glassBorder} />
-      <div className="text-[9px] font-bold uppercase mb-2" style={{ fontFamily: MONO, letterSpacing: "0.16em", color: p.muted }}>{title}</div>
+      <div className="text-2xs font-bold uppercase mb-2" style={{ fontFamily: MONO, letterSpacing: "0.16em", color: p.muted }}>{title}</div>
       <div className="space-y-[5px]">{body}</div>
     </div>
   );
@@ -1018,11 +1018,11 @@ function ElevatedComms({ p }: { p: Pal }) {
           <span className="h-[11px] w-[11px] rounded-full" style={{ background: "#28C840", boxShadow: "inset 0 0 0 1px rgba(0,0,0,.2)" }} />
         </div>
         <div className="flex items-baseline gap-2 ml-1">
-          <span className="text-[11px] tracking-[0.04em] font-semibold" style={{ fontFamily: MONO, color: p.ink }}>Scout</span>
-          <span className="text-[11px]" style={{ color: p.dim }}>—</span>
-          <span className="text-[11px] tracking-[0.06em] uppercase" style={{ fontFamily: MONO, color: p.muted }}>Comms</span>
+          <span className="text-sm tracking-[0.04em] font-semibold" style={{ fontFamily: MONO, color: p.ink }}>Scout</span>
+          <span className="text-sm" style={{ color: p.dim }}>—</span>
+          <span className="text-sm tracking-[0.06em] uppercase" style={{ fontFamily: MONO, color: p.muted }}>Comms</span>
         </div>
-        <span className="ml-auto inline-flex items-center gap-1 rounded-[7px] px-2 py-[5px] text-[10px] uppercase tracking-[0.1em]" style={{ fontFamily: MONO, color: p.accent, ...glassRaised(p) }}>
+        <span className="ml-auto inline-flex items-center gap-1 rounded-[7px] px-2 py-[5px] text-xs uppercase tracking-[0.1em]" style={{ fontFamily: MONO, color: p.accent, ...glassRaised(p) }}>
           <svg {...ev(12)} aria-hidden><path d="M8 3.5v9M3.5 8h9" /></svg>New
         </span>
       </div>
@@ -1051,7 +1051,7 @@ function ElevatedComms({ p }: { p: Pal }) {
               if (!rows.length) return null;
               return (
                 <div key={grp.id}>
-                  <div className="px-1.5 mb-1 text-[8.5px] font-bold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.2em", color: p.dim }}>{grp.label.charAt(0) + grp.label.slice(1).toLowerCase()}</div>
+                  <div className="px-1.5 mb-1 text-3xs font-bold uppercase" style={{ fontFamily: MONO, letterSpacing: "0.2em", color: p.dim }}>{grp.label.charAt(0) + grp.label.slice(1).toLowerCase()}</div>
                   {rows.map((c) => {
                     const sel = c.name === SELECTED;
                     return (
@@ -1059,12 +1059,12 @@ function ElevatedComms({ p }: { p: Pal }) {
                         <span className="mt-[3px]">{pip(c.state)}</span>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
-                            <span className="font-medium text-[12px] truncate" style={{ color: p.ink }}>{c.name}</span>
+                            <span className="font-medium text-md truncate" style={{ color: p.ink }}>{c.name}</span>
                             {c.ask === "pending" && pill("ask", "warn")}
-                            <span className="ml-auto text-[10px] tabular-nums" style={{ fontFamily: MONO, color: p.dim }}>{c.time}</span>
-                            {c.unread > 0 && <span className="text-[9px] tabular-nums rounded-full px-1.5 py-[1px]" style={{ fontFamily: MONO, color: p.accentOn, background: p.accent }}>{c.unread}</span>}
+                            <span className="ml-auto text-xs tabular-nums" style={{ fontFamily: MONO, color: p.dim }}>{c.time}</span>
+                            {c.unread > 0 && <span className="text-2xs tabular-nums rounded-full px-1.5 py-[1px]" style={{ fontFamily: MONO, color: p.accentOn, background: p.accent }}>{c.unread}</span>}
                           </div>
-                          <p className="mt-0.5 text-[11px] leading-snug line-clamp-1" style={{ color: p.muted }}>{c.preview}</p>
+                          <p className="mt-0.5 text-sm leading-snug line-clamp-1" style={{ color: p.muted }}>{c.preview}</p>
                         </div>
                       </div>
                     );
@@ -1080,8 +1080,8 @@ function ElevatedComms({ p }: { p: Pal }) {
           <div className="flex items-center gap-2.5 px-4 h-[44px] shrink-0" style={{ borderBottom: `1px solid ${p.glassBorder}` }}>
             {pip("working", 8)}
             <div>
-              <div className="text-[12.5px] font-semibold leading-none" style={{ color: p.ink }}>Dewey</div>
-              <div className="text-[9.5px] mt-1" style={{ fontFamily: MONO, color: p.dim }}>~/dev/dewey · main · c.a4d433a9</div>
+              <div className="text-md font-semibold leading-none" style={{ color: p.ink }}>Dewey</div>
+              <div className="text-2xs mt-1" style={{ fontFamily: MONO, color: p.dim }}>~/dev/dewey · main · c.a4d433a9</div>
             </div>
             <div className="ml-auto flex items-center gap-1.5">{pill("Observe")}{pill("Message", "accent")}</div>
           </div>
@@ -1089,27 +1089,27 @@ function ElevatedComms({ p }: { p: Pal }) {
           {/* pinned ask */}
           <div className="mx-4 mt-3 flex items-center gap-2 rounded-[8px] px-3 py-2" style={glassPanel(p)}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={p.dim} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 17v5" /><path d="M9 10.76 5.5 14h13L15 10.76V4h1a1 1 0 0 0 0-2H8a1 1 0 0 0 0 2h1z" /></svg>
-            <span className="text-[8.5px] uppercase tracking-[0.1em]" style={{ fontFamily: MONO, color: p.muted }}>Pinned ask · answered</span>
-            <span className="text-[8.5px]" style={{ fontFamily: MONO, color: p.dim }}>from Art</span>
+            <span className="text-3xs uppercase tracking-[0.1em]" style={{ fontFamily: MONO, color: p.muted }}>Pinned ask · answered</span>
+            <span className="text-3xs" style={{ fontFamily: MONO, color: p.dim }}>from Art</span>
           </div>
 
           <div className="flex-1 overflow-hidden px-4 py-3.5 space-y-3.5">
             <div className="flex items-center gap-2 rounded-[7px] px-2.5 py-1.5 w-fit" style={glassPanel(p)}>
-              <span className="text-[9px] uppercase tracking-[0.1em]" style={{ fontFamily: MONO, color: p.dim }}>reply ▸</span>
-              <span className="text-[11px]" style={{ color: p.ink }}>surface active theme in inspector</span>
+              <span className="text-2xs uppercase tracking-[0.1em]" style={{ fontFamily: MONO, color: p.dim }}>reply ▸</span>
+              <span className="text-sm" style={{ color: p.ink }}>surface active theme in inspector</span>
               {pill("done", "accent")}
             </div>
             {TURNS.map((t, i) => (
               <div key={i} className={t.me ? "flex justify-end" : "flex justify-start"}>
-                <div className="max-w-[78%] rounded-[11px] px-3 py-2 text-[12px] leading-snug" style={t.me ? { color: p.accentOn, background: p.accent, boxShadow: p.meBubbleShadow } : { color: p.ink, ...glassRaised(p) }}>{t.body}</div>
+                <div className="max-w-[78%] rounded-[11px] px-3 py-2 text-md leading-snug" style={t.me ? { color: p.accentOn, background: p.accent, boxShadow: p.meBubbleShadow } : { color: p.ink, ...glassRaised(p) }}>{t.body}</div>
               </div>
             ))}
           </div>
 
           <div className="px-4 pb-3 pt-1 shrink-0">
             <div className="rounded-[9px] px-3 py-2 flex items-center" style={glassPanel(p)}>
-              <span className="text-[11px]" style={{ color: p.dim }}>Message Dewey…</span>
-              <span className="ml-auto text-[9px] uppercase tracking-[0.1em]" style={{ fontFamily: MONO, color: p.dim }}>⌘↵</span>
+              <span className="text-sm" style={{ color: p.dim }}>Message Dewey…</span>
+              <span className="ml-auto text-2xs uppercase tracking-[0.1em]" style={{ fontFamily: MONO, color: p.dim }}>⌘↵</span>
             </div>
           </div>
         </div>
@@ -1117,21 +1117,21 @@ function ElevatedComms({ p }: { p: Pal }) {
         {/* inspector */}
         <div className="shrink-0 flex flex-col gap-2.5 px-2.5 py-2.5" style={{ width: 210, borderLeft: `1px solid ${p.glassBorder}`, background: p.mode === "light" ? "rgba(255,255,255,0.2)" : "rgba(11,14,21,0.3)" }}>
           <div className="flex items-center gap-2.5 px-1">
-            <span className="flex h-9 w-9 items-center justify-center rounded-[10px] font-semibold text-[13px]" style={{ color: p.ink, ...glassRaised(p) }}>D</span>
+            <span className="flex h-9 w-9 items-center justify-center rounded-[10px] font-semibold text-lg" style={{ color: p.ink, ...glassRaised(p) }}>D</span>
             <div>
-              <div className="text-[13px] font-semibold leading-none" style={{ color: p.ink }}>Dewey</div>
-              <div className="mt-1 flex items-center gap-1.5">{pip("working", 6)}<span className="text-[9.5px] uppercase tracking-[0.08em]" style={{ fontFamily: MONO, color: p.muted }}>working</span></div>
+              <div className="text-lg font-semibold leading-none" style={{ color: p.ink }}>Dewey</div>
+              <div className="mt-1 flex items-center gap-1.5">{pip("working", 6)}<span className="text-2xs uppercase tracking-[0.08em]" style={{ fontFamily: MONO, color: p.muted }}>working</span></div>
             </div>
           </div>
           {evsection("Conversation", <>{evkv("Last", "2m")}{evkv("Unread", "2", p.accent)}{evkv("Channel", "DM")}</>)}
           {evsection("Project", <>{evkv("Repo", "dewey")}{evkv("Branch", "main")}</>)}
-          {evsection("Ask", <div className="flex items-center gap-1.5">{pill("answered")}<span className="text-[10.5px]" style={{ color: p.muted }}>from Art</span></div>)}
+          {evsection("Ask", <div className="flex items-center gap-1.5">{pill("answered")}<span className="text-xs" style={{ color: p.muted }}>from Art</span></div>)}
         </div>
       </div>
 
       <div className="flex items-center gap-2 px-3.5 h-[26px]" style={{ borderTop: `1px solid ${p.glassBorder}`, background: p.mode === "light" ? "rgba(255,255,255,0.25)" : "rgba(11,14,21,0.4)" }}>
-        <span className="text-[9.5px] tracking-[0.08em] uppercase" style={{ fontFamily: MONO, color: p.dim }}>24 conversations · 2 need you</span>
-        <span className="ml-auto text-[9.5px] tracking-[0.08em] uppercase" style={{ fontFamily: MONO, color: p.dim }}>broker online</span>
+        <span className="text-2xs tracking-[0.08em] uppercase" style={{ fontFamily: MONO, color: p.dim }}>24 conversations · 2 need you</span>
+        <span className="ml-auto text-2xs tracking-[0.08em] uppercase" style={{ fontFamily: MONO, color: p.dim }}>broker online</span>
       </div>
     </div>
   );
@@ -1164,16 +1164,16 @@ const LEDGER: { move: string; detail: string; verdict: Verdict }[] = [
 function Ledger() {
   return (
     <div className="overflow-hidden rounded-[8px] border border-studio-edge">
-      <div className="grid gap-x-3 border-b border-studio-edge bg-studio-canvas-alt px-3 py-1.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint" style={{ gridTemplateColumns: "180px 1fr 116px" }}>
+      <div className="grid gap-x-3 border-b border-studio-edge bg-studio-canvas-alt px-3 py-1.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint" style={{ gridTemplateColumns: "180px 1fr 116px" }}>
         <span>Elevated move</span><span>What it actually is, once mode + accent are controlled</span><span className="text-right">Verdict</span>
       </div>
       {LEDGER.map((row, i) => {
         const v = VERDICT[row.verdict];
         return (
           <div key={row.move} className={["grid items-start gap-x-3 px-3 py-2", i > 0 ? "border-t border-studio-edge" : ""].join(" ")} style={{ gridTemplateColumns: "180px 1fr 116px" }}>
-            <span className="font-sans text-[11px] font-semibold text-studio-ink">{row.move}</span>
-            <span className="font-sans text-[10.5px] leading-snug text-studio-ink-muted">{row.detail}</span>
-            <span className="text-right"><span className="inline-block rounded-[2px] px-1 py-px font-mono text-[7.5px] font-semibold uppercase tracking-eyebrow" style={{ background: v.bg, color: v.fg }}>{v.label}</span></span>
+            <span className="font-sans text-sm font-semibold text-studio-ink">{row.move}</span>
+            <span className="font-sans text-xs leading-snug text-studio-ink-muted">{row.detail}</span>
+            <span className="text-right"><span className="inline-block rounded-[2px] px-1 py-px font-mono text-3xs font-semibold uppercase tracking-eyebrow" style={{ background: v.bg, color: v.fg }}>{v.label}</span></span>
           </div>
         );
       })}
@@ -1193,7 +1193,7 @@ function Toggle<T extends string>({ value, onChange, options }: { value: T; onCh
       {options.map((o) => {
         const on = o.id === value;
         return (
-          <button key={o.id} type="button" onClick={() => onChange(o.id)} className="rounded-[6px] px-3 py-1.5 font-mono text-[10.5px] uppercase tracking-[0.1em] transition-colors" style={on ? { color: "var(--scout-accent)", background: "var(--studio-surface)", border: "1px solid var(--studio-edge-strong)" } : { color: "var(--studio-ink-muted)", border: "1px solid transparent" }}>{o.label}</button>
+          <button key={o.id} type="button" onClick={() => onChange(o.id)} className="rounded-[6px] px-3 py-1.5 font-mono text-xs uppercase tracking-[0.1em] transition-colors" style={on ? { color: "var(--scout-accent)", background: "var(--studio-surface)", border: "1px solid var(--studio-edge-strong)" } : { color: "var(--studio-ink-muted)", border: "1px solid transparent" }}>{o.label}</button>
         );
       })}
     </div>
@@ -1216,14 +1216,14 @@ export default function ScoutMacOSControlPage() {
       <div className="mx-auto max-w-[1180px] px-6 py-10">
         <header className="mb-9 max-w-[68ch]">
           <EyebrowLabel className="mb-3">Studies · macOS · Control</EyebrowLabel>
-          <h1 className="text-[30px] font-semibold tracking-tight text-studio-ink leading-none">The existing style, reconstructed</h1>
-          <p className="mt-3 text-[13.5px] leading-relaxed text-studio-ink-muted">
+          <h1 className="text-6xl font-semibold tracking-tight text-studio-ink leading-none">The existing style, reconstructed</h1>
+          <p className="mt-3 text-lg leading-relaxed text-studio-ink-muted">
             The refresh has been chasing a “more elevated” direction, and those renders read as a big leap.
             But a chunk of the leap was <span className="text-studio-ink">plating the studio handed over for free</span> — its default
             skin is dark with a neon-green accent, so the elevated windows inherited dark canvas, glow, and green before one
             deliberate decision was made.
           </p>
-          <p className="mt-3 text-[13.5px] leading-relaxed text-studio-ink-muted">
+          <p className="mt-3 text-lg leading-relaxed text-studio-ink-muted">
             So this control is built as an honest test. <span className="text-studio-ink">Mode and treatment are separate axes.</span> The
             before/after is the <span className="text-studio-ink">treatment</span>, always within one mode — a dark↔light swap never
             stands in for the improvement. Both treatments use the app's real <span className="text-studio-ink">indigo</span> accent;
@@ -1233,15 +1233,15 @@ export default function ScoutMacOSControlPage() {
 
           <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-3">
             <div className="flex items-center gap-2.5">
-              <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-studio-ink-faint">Treatment · current vs proposal</span>
+              <span className="font-mono text-2xs uppercase tracking-[0.16em] text-studio-ink-faint">Treatment · current vs proposal</span>
               <Toggle value={treatment} onChange={setTreatment} options={[{ id: "current", label: "Current" }, { id: "proposal", label: "Proposal" }, { id: "elevated", label: "Elevated" }]} />
             </div>
             <div className="flex items-center gap-2.5">
-              <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-studio-ink-faint">Mode · independent</span>
+              <span className="font-mono text-2xs uppercase tracking-[0.16em] text-studio-ink-faint">Mode · independent</span>
               <Toggle value={mode} onChange={setMode} options={[{ id: "light", label: "Light" }, { id: "dark", label: "Dark" }]} />
             </div>
           </div>
-          <p className="mt-2.5 font-mono text-[10px] text-studio-ink-faint">
+          <p className="mt-2.5 font-mono text-xs text-studio-ink-faint">
             {treatment === "current" ? "Current · honest flat baseline — the app as it ships" : treatment === "proposal" ? "Proposal · fine hairlines · connected spine · glyph-led facts · quiet ghost actions" : "Elevated (reference) · frosted glass · the studio's flattered render"}
             {"  ·  "}{mode === "light" ? "Juniper Light · Indigo" : "Juniper Dark · Indigo"}
           </p>
@@ -1249,7 +1249,7 @@ export default function ScoutMacOSControlPage() {
 
         <section className="mb-12">
           {treatment === "current" ? <CurrentComms p={p} /> : treatment === "proposal" ? <ProposalComms p={p} /> : <ElevatedComms p={p} />}
-          <p className="mt-3 max-w-[74ch] text-[12px] leading-relaxed text-studio-ink-faint">
+          <p className="mt-3 max-w-[74ch] text-md leading-relaxed text-studio-ink-faint">
             {treatment === "current"
               ? "The honest baseline — the existing style reconstructed flat (sender-led transcript, no bubble). The “don't cheat the current” reference; a real screenshot of the running app is the next step toward true fidelity."
               : treatment === "proposal"
@@ -1259,8 +1259,8 @@ export default function ScoutMacOSControlPage() {
         </section>
 
         <section className="mb-12">
-          <h2 className="mb-1 text-[18px] font-medium tracking-tight text-studio-ink">Agent ↔ agent · observer-first</h2>
-          <p className="mb-5 max-w-[74ch] text-[13px] leading-relaxed text-studio-ink-muted">
+          <h2 className="mb-1 text-3xl font-medium tracking-tight text-studio-ink">Agent ↔ agent · observer-first</h2>
+          <p className="mb-5 max-w-[74ch] text-lg leading-relaxed text-studio-ink-muted">
             The window above is operator-anchored: <span className="text-studio-ink">accent = “me”</span>, everything else floats. An
             agent↔agent thread has no “me”, so here <span className="text-studio-ink">no bubble takes the accent</span> — it’s reserved
             for the moment you <span className="text-studio-ink">jump in</span> (the dashed well’s send). Identity moves to the{" "}
@@ -1269,7 +1269,7 @@ export default function ScoutMacOSControlPage() {
             “composing” node, and <span className="text-studio-ink">handoff provenance</span> on every turn. Uses the Mode toggle above.
           </p>
           <A2AComms p={p} />
-          <p className="mt-3 max-w-[74ch] text-[12px] leading-relaxed text-studio-ink-faint">
+          <p className="mt-3 max-w-[74ch] text-md leading-relaxed text-studio-ink-faint">
             You’re watching Dewey delegate to Hudson. The absence of accent reads as “you’re not in this thread”; the dashed
             jump-in well — with the accent send — is the one place the accent returns, because injecting makes you a participant.
             Delivery state (delivered → seen → working → replied) lives on the node and in the inspector’s ack timeline.
@@ -1277,8 +1277,8 @@ export default function ScoutMacOSControlPage() {
         </section>
 
         <section className="mb-10">
-          <h2 className="mb-1 text-[18px] font-medium tracking-tight text-studio-ink">Plating vs. substance</h2>
-          <p className="mb-5 max-w-[74ch] text-[13px] leading-relaxed text-studio-ink-muted">
+          <h2 className="mb-1 text-3xl font-medium tracking-tight text-studio-ink">Plating vs. substance</h2>
+          <p className="mb-5 max-w-[74ch] text-lg leading-relaxed text-studio-ink-muted">
             With mode and accent now controlled, the two moves that did the heavy lifting earlier — <span style={{ color: "var(--status-info-fg)" }}>dark
             canvas</span> and the <span style={{ color: "var(--status-info-fg)" }}>green accent</span> — drop out of the comparison entirely.
             What's left sorts cleanly into <span style={{ color: "var(--status-ok-fg)" }}>substance</span> (real improvements that ship in

@@ -285,7 +285,7 @@ export default async function SessionSearchStudyPage({
       {/* ── Header ─────────────────────────────────────────────────── */}
       <header className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div className="max-w-prose">
-          <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             studies / web / session-search
           </div>
           <h1 className="mt-1.5 font-display text-4xl font-medium leading-tight tracking-tight text-studio-ink">
@@ -297,7 +297,7 @@ export default async function SessionSearchStudyPage({
             input.
           </p>
         </div>
-        <div className="flex items-center gap-3 font-mono text-[10px] text-studio-ink-faint">
+        <div className="flex items-center gap-3 font-mono text-xs text-studio-ink-faint">
           <span>
             this week · <span className="text-studio-ink">{weekFootprint}</span>
             <span className="ml-1.5 text-studio-ink-faint/70">
@@ -527,15 +527,15 @@ function StageBodySkeleton({
     <div className="p-5">
       <div className="overflow-hidden rounded-[4px] border border-studio-edge bg-studio-canvas">
         <div className="flex items-center justify-between gap-3 border-b border-studio-edge bg-studio-canvas-alt px-3 py-1.5">
-          <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
             running {stageLabel.toLowerCase()}
           </span>
-          <span className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-eyebrow text-status-info-fg">
+          <span className="flex items-center gap-1.5 font-mono text-2xs uppercase tracking-eyebrow text-status-info-fg">
             <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-status-info-fg" />
             in flight
           </span>
         </div>
-        <ul className="divide-y divide-studio-edge font-mono text-[10.5px]">
+        <ul className="divide-y divide-studio-edge font-mono text-xs">
           {expected.map((cmd, i) => (
             <li
               key={cmd.id}
@@ -554,7 +554,7 @@ function StageBodySkeleton({
             </li>
           ))}
         </ul>
-        <div className="border-t border-studio-edge bg-studio-canvas-alt px-3 py-2 font-sans text-[11.5px] text-studio-ink-faint">
+        <div className="border-t border-studio-edge bg-studio-canvas-alt px-3 py-2 font-sans text-sm text-studio-ink-faint">
           Chrome rendered; panel and run trace stream in when commands resolve.
         </div>
       </div>
@@ -611,7 +611,7 @@ function SessionPickerRow({
   return (
     <div className="mt-4 overflow-hidden rounded-md border border-studio-edge bg-studio-surface">
       <div className="flex items-stretch gap-px overflow-x-auto bg-studio-edge">
-        <div className="flex shrink-0 items-center bg-studio-canvas-alt px-3.5 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="flex shrink-0 items-center bg-studio-canvas-alt px-3.5 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           input
         </div>
         {sessions.map((session) => {
@@ -632,22 +632,22 @@ function SessionPickerRow({
               <TierDot tier={session.tier} />
               <span
                 className={[
-                  "font-mono text-[10.5px]",
+                  "font-mono text-xs",
                   active ? "text-studio-ink" : "text-studio-ink-faint group-hover:text-studio-ink",
                 ].join(" ")}
               >
                 {session.harness.toLowerCase()}/{session.tier}
               </span>
-              <span className="font-mono text-[9.5px] tabular-nums text-studio-ink-faint">
+              <span className="font-mono text-2xs tabular-nums text-studio-ink-faint">
                 {formatBytes(session.sizeBytes)}
               </span>
-              <span className="hidden font-mono text-[9.5px] tabular-nums text-studio-ink-faint xl:inline">
+              <span className="hidden font-mono text-2xs tabular-nums text-studio-ink-faint xl:inline">
                 · {formatCount(session.events)} ev
               </span>
             </a>
           );
         })}
-        <div className="ml-auto flex shrink-0 items-center bg-studio-surface px-3 font-mono text-[9.5px] text-studio-ink-faint">
+        <div className="ml-auto flex shrink-0 items-center bg-studio-surface px-3 font-mono text-2xs text-studio-ink-faint">
           6 representative samples
         </div>
       </div>
@@ -680,7 +680,7 @@ function PipelineStrip({
   return (
     <div className="border-b border-studio-edge bg-studio-canvas-alt">
       <div className="flex items-stretch overflow-x-auto">
-        <div className="flex shrink-0 items-center bg-studio-canvas-alt px-3.5 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="flex shrink-0 items-center bg-studio-canvas-alt px-3.5 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           pipeline
         </div>
         {stages.map((stage, index) => {
@@ -701,7 +701,7 @@ function PipelineStrip({
               >
                 <span
                   className={[
-                    "inline-flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full border font-mono text-[9px] font-semibold",
+                    "inline-flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full border font-mono text-2xs font-semibold",
                     active
                       ? "border-scout-accent bg-scout-accent text-[color:var(--studio-canvas)]"
                       : "border-studio-edge bg-studio-canvas text-studio-ink-faint",
@@ -712,7 +712,7 @@ function PipelineStrip({
                 </span>
                 <span
                   className={[
-                    "font-sans text-[12px] font-semibold tracking-tight",
+                    "font-sans text-md font-semibold tracking-tight",
                     active ? "text-studio-ink" : "text-studio-ink-faint group-hover:text-studio-ink",
                   ].join(" ")}
                 >
@@ -725,7 +725,7 @@ function PipelineStrip({
               {!isLast ? (
                 <div
                   aria-hidden
-                  className="flex w-4 shrink-0 items-center justify-center bg-studio-canvas-alt text-[11px] text-studio-ink-faint"
+                  className="flex w-4 shrink-0 items-center justify-center bg-studio-canvas-alt text-sm text-studio-ink-faint"
                 >
                   →
                 </div>
@@ -760,20 +760,20 @@ function StageHeader({
   return (
     <div className="flex flex-wrap items-end justify-between gap-3 border-b border-studio-edge bg-studio-surface px-5 py-4">
       <div className="min-w-0">
-        <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           step {String(index + 1).padStart(2, "0")} / {String(total).padStart(2, "0")} · {stage.verb}
         </div>
-        <h2 className="mt-1 flex flex-wrap items-baseline gap-2 font-sans text-[16px] font-semibold tracking-tight text-studio-ink">
+        <h2 className="mt-1 flex flex-wrap items-baseline gap-2 font-sans text-2xl font-semibold tracking-tight text-studio-ink">
           {stage.label}
-          <span className="font-mono text-[11px] font-normal text-studio-ink-faint">
+          <span className="font-mono text-sm font-normal text-studio-ink-faint">
             {stage.input} <span aria-hidden>→</span> {stage.output}
           </span>
         </h2>
-        <p className="mt-1.5 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-1.5 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
           {stage.summary}
         </p>
       </div>
-      <div className="flex items-center gap-2 font-mono text-[10px]">
+      <div className="flex items-center gap-2 font-mono text-xs">
         {prev ? (
           <a
             href={studyHref(selection, { stageId: prev.id })}
@@ -896,7 +896,7 @@ async function AskPanel({
     <div className="p-5">
       <div className="overflow-hidden rounded-[4px] border border-studio-edge bg-studio-canvas">
         <div className="flex items-center justify-between gap-3 border-b border-studio-edge bg-studio-canvas-alt px-3 py-1.5">
-          <span className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink">
+          <span className="flex items-center gap-2 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink">
             <span className="text-studio-ink-faint">step 6 ·</span>
             <span>ask · {sessionSlug}</span>
           </span>
@@ -904,14 +904,14 @@ async function AskPanel({
             {trimmed ? (
               <RerunLink
                 href={studyHref(selection, { force: "ask" })}
-                className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint underline-offset-4 hover:text-studio-ink hover:underline"
+                className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint underline-offset-4 hover:text-studio-ink hover:underline"
                 title="Force re-run, bypassing the cache"
                 pendingLabel="running ↻"
               >
                 re-run ↻
               </RerunLink>
             ) : null}
-            <span className={`font-mono text-[9px] uppercase tracking-eyebrow ${badge.tone}`}>
+            <span className={`font-mono text-2xs uppercase tracking-eyebrow ${badge.tone}`}>
               {badge.label}
             </span>
           </span>
@@ -927,7 +927,7 @@ async function AskPanel({
         />
 
         <div className="flex flex-wrap items-center gap-1.5 border-t border-studio-canvas-alt bg-studio-canvas-alt/40 px-3 py-2">
-          <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
             try ·
           </span>
           {ASK_SUGGESTIONS.map((s) => (
@@ -936,36 +936,36 @@ async function AskPanel({
               href={studyHref(selection, { ask: s.question, force: undefined })}
               scroll={false}
               title={s.question}
-              className="rounded border border-studio-canvas-alt bg-studio-canvas px-2 py-0.5 font-mono text-[10px] text-studio-ink-faint hover:border-studio-edge hover:text-studio-ink"
+              className="rounded border border-studio-canvas-alt bg-studio-canvas px-2 py-0.5 font-mono text-xs text-studio-ink-faint hover:border-studio-edge hover:text-studio-ink"
             >
               {s.label}
             </Link>
           ))}
         </div>
 
-        <div className="border-t border-studio-canvas-alt bg-studio-canvas-alt px-3 py-1.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="border-t border-studio-canvas-alt bg-studio-canvas-alt px-3 py-1.5 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           {trimmed
             ? `answer · ${out?.hits.length ?? 0} chunks`
             : "answer"}
         </div>
 
         {run.error ? (
-          <pre className="overflow-x-auto px-3 py-2 font-mono text-[10.5px] leading-relaxed text-status-error-fg">
+          <pre className="overflow-x-auto px-3 py-2 font-mono text-xs leading-relaxed text-status-error-fg">
             {run.error}
           </pre>
         ) : (
           <AskPanelBody result={out} hasQuestion={trimmed.length > 0} />
         )}
 
-        <div className="border-t border-studio-canvas-alt bg-studio-canvas-alt px-3 py-2 font-sans text-[11.5px] leading-relaxed text-studio-ink-faint">
+        <div className="border-t border-studio-canvas-alt bg-studio-canvas-alt px-3 py-2 font-sans text-sm leading-relaxed text-studio-ink-faint">
           {askPanelFootnote(out, trimmed.length > 0)}
         </div>
 
         <details className="border-t border-studio-canvas-alt bg-studio-canvas-alt/40 group">
-          <summary className="cursor-pointer list-none px-3 py-1 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint hover:text-studio-ink">
+          <summary className="cursor-pointer list-none px-3 py-1 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint hover:text-studio-ink">
             as shell ›
           </summary>
-          <pre className="overflow-x-auto border-t border-studio-canvas-alt px-3 py-1.5 font-mono text-[10px] leading-relaxed text-studio-ink-faint">
+          <pre className="overflow-x-auto border-t border-studio-canvas-alt px-3 py-1.5 font-mono text-xs leading-relaxed text-studio-ink-faint">
             $ {dbAskCommand.shell({ dbPath: ASK_DB_PATH, question: trimmed || "<question>" })}
           </pre>
         </details>
@@ -983,7 +983,7 @@ function AskPanelBody({
 }) {
   if (!hasQuestion) {
     return (
-      <pre className="px-3 py-2 font-mono text-[11px] text-studio-ink-faint">
+      <pre className="px-3 py-2 font-mono text-sm text-studio-ink-faint">
         Type a question above, or click a suggestion to load one.
       </pre>
     );
@@ -991,14 +991,14 @@ function AskPanelBody({
   if (!result) return null;
   if (result.rejectedReason && result.hits.length === 0) {
     return (
-      <pre className="px-3 py-2 font-mono text-[11px] text-status-error-fg">
+      <pre className="px-3 py-2 font-mono text-sm text-status-error-fg">
         {result.rejectedReason}
       </pre>
     );
   }
   return (
     <div className="flex flex-col">
-      <div className="border-b border-studio-canvas-alt bg-studio-canvas-alt/40 px-3 py-1.5 font-mono text-[10px] text-studio-ink-faint">
+      <div className="border-b border-studio-canvas-alt bg-studio-canvas-alt/40 px-3 py-1.5 font-mono text-xs text-studio-ink-faint">
         <span className="uppercase tracking-eyebrow">tokens · </span>
         {result.extractedTerms.length === 0 ? (
           <span className="italic">no content tokens</span>
@@ -1025,7 +1025,7 @@ function AskPanelBody({
         ) : null}
       </div>
       {result.hits.length === 0 ? (
-        <pre className="px-3 py-2 font-mono text-[11px] text-studio-ink-faint">
+        <pre className="px-3 py-2 font-mono text-sm text-studio-ink-faint">
           (no chunks matched these tokens)
         </pre>
       ) : (
@@ -1043,16 +1043,16 @@ function AskHitRow({ hit }: { hit: AskHit }) {
   return (
     <li className="px-3 py-2">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-xs uppercase tracking-eyebrow text-studio-ink-faint">
           {hit.session_id ?? "?"} • {hit.document_kind ?? "?"}
           {hit.source_ref ? ` • ${hit.source_ref}` : ""}
         </span>
-        <span className="font-mono text-[10px] tabular-nums text-studio-ink-faint">
+        <span className="font-mono text-xs tabular-nums text-studio-ink-faint">
           rank {hit.rank.toFixed(3)}
         </span>
       </div>
       <p
-        className="mt-1 whitespace-pre-wrap font-sans text-[12px] leading-relaxed text-studio-ink"
+        className="mt-1 whitespace-pre-wrap font-sans text-md leading-relaxed text-studio-ink"
         dangerouslySetInnerHTML={{ __html: renderAskSnippet(hit.snippet) }}
       />
     </li>
@@ -1123,10 +1123,10 @@ function DiscoverPanel({
             <>
               Filesystem-only — size, mtime, line count. The{" "}
               <span className="text-studio-ink">events</span> column is a real{" "}
-              <code className="font-mono text-[11px] text-studio-ink">wc -l</code>{" "}
+              <code className="font-mono text-sm text-studio-ink">wc -l</code>{" "}
               on the {inventory.rows.length} most-recent files.{" "}
               Selected for walkthrough:{" "}
-              <span className="font-mono text-[11px] text-studio-ink">
+              <span className="font-mono text-sm text-studio-ink">
                 {session.harness.toLowerCase()}/{session.tier}
               </span>
               .
@@ -1147,7 +1147,7 @@ function InventoryRowsBody({
 }) {
   if (!inventory || inventory.error) {
     return (
-      <pre className="px-3 py-2 font-mono text-[10.5px] text-studio-ink-faint">
+      <pre className="px-3 py-2 font-mono text-xs text-studio-ink-faint">
         {inventory?.error ?? "no inventory available"}
       </pre>
     );
@@ -1163,8 +1163,8 @@ function InventoryRowsBody({
     inventory.totalBytes - inventory.rows.reduce((a, r) => a + r.sizeBytes, 0),
   );
   return (
-    <div className="font-mono text-[10.5px]">
-      <div className="grid grid-cols-[80px_minmax(0,1fr)_72px_60px_minmax(0,112px)] gap-3 border-b border-studio-edge px-3 py-1.5 text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+    <div className="font-mono text-xs">
+      <div className="grid grid-cols-[80px_minmax(0,1fr)_72px_60px_minmax(0,112px)] gap-3 border-b border-studio-edge px-3 py-1.5 text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         <span>harness</span>
         <span>session_id</span>
         <span className="text-right">size</span>
@@ -1189,13 +1189,13 @@ function InventoryRowsBody({
             <span className="text-right tabular-nums text-studio-ink">
               {row.events != null ? formatCount(row.events) : "—"}
             </span>
-            <span className="text-right text-[10px] text-studio-ink-faint">
+            <span className="text-right text-xs text-studio-ink-faint">
               {row.modified}
             </span>
           </li>
         ))}
         {remaining > 0 ? (
-          <li className="grid grid-cols-[80px_minmax(0,1fr)_72px_60px_minmax(0,112px)] items-center gap-3 px-3 py-1.5 italic text-[10px] text-studio-ink-faint">
+          <li className="grid grid-cols-[80px_minmax(0,1fr)_72px_60px_minmax(0,112px)] items-center gap-3 px-3 py-1.5 italic text-xs text-studio-ink-faint">
             <span>…</span>
             <span>{formatCount(remaining)} more in window</span>
             <span className="text-right tabular-nums">{formatBytes(remainingBytes)}</span>
@@ -1242,17 +1242,17 @@ function NormalizePanel({
             <>
               Parsed the first {run.output.scannedLines} JSONL lines (
               {formatBytes(run.output.bytesRead)}) from{" "}
-              <code className="font-mono text-[11px] text-studio-ink">
+              <code className="font-mono text-sm text-studio-ink">
                 {run.output.harness}
               </code>
               . Normalization remaps the source schema to a uniform record
               shape:{" "}
-              <code className="font-mono text-[11px] text-studio-ink">kind</code>,{" "}
-              <code className="font-mono text-[11px] text-studio-ink">text</code>,{" "}
-              <code className="font-mono text-[11px] text-studio-ink">tool</code>,{" "}
-              <code className="font-mono text-[11px] text-studio-ink">result</code>,{" "}
-              <code className="font-mono text-[11px] text-studio-ink">refs</code>,{" "}
-              <code className="font-mono text-[11px] text-studio-ink">sourceOffset</code>.
+              <code className="font-mono text-sm text-studio-ink">kind</code>,{" "}
+              <code className="font-mono text-sm text-studio-ink">text</code>,{" "}
+              <code className="font-mono text-sm text-studio-ink">tool</code>,{" "}
+              <code className="font-mono text-sm text-studio-ink">result</code>,{" "}
+              <code className="font-mono text-sm text-studio-ink">refs</code>,{" "}
+              <code className="font-mono text-sm text-studio-ink">sourceOffset</code>.
             </>
           ) : null
         }
@@ -1285,27 +1285,27 @@ function NormalizeInspect({
   return (
     <div className="overflow-hidden rounded-[4px] border border-studio-edge bg-studio-canvas">
       <div className="flex items-center justify-between gap-3 border-b border-studio-edge bg-studio-canvas-alt px-3 py-1.5">
-        <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           inspect record [{String(record.i).padStart(3, "0")}] · {record.kind}
         </span>
-        <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           source offset {record.sourceOffset}
         </span>
       </div>
       <div className="grid grid-cols-1 gap-px bg-studio-edge md:grid-cols-2">
         <div className="bg-studio-canvas">
-          <div className="border-b border-studio-edge px-3 py-1.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="border-b border-studio-edge px-3 py-1.5 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
             raw · {record.sourceType}
           </div>
-          <pre className="max-h-[260px] overflow-auto px-3 py-2 font-mono text-[10.5px] leading-relaxed text-studio-ink">
+          <pre className="max-h-[260px] overflow-auto px-3 py-2 font-mono text-xs leading-relaxed text-studio-ink">
             {formatRaw(raw)}
           </pre>
         </div>
         <div className="bg-studio-canvas">
-          <div className="border-b border-studio-edge px-3 py-1.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="border-b border-studio-edge px-3 py-1.5 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
             normalized record
           </div>
-          <pre className="max-h-[260px] overflow-auto px-3 py-2 font-mono text-[10.5px] leading-relaxed text-studio-ink">
+          <pre className="max-h-[260px] overflow-auto px-3 py-2 font-mono text-xs leading-relaxed text-studio-ink">
             {JSON.stringify(stripUndefined(record), null, 2)}
           </pre>
         </div>
@@ -1378,7 +1378,7 @@ function NormalizedStreamBody({
 }) {
   if (!result || result.error) {
     return (
-      <pre className="px-3 py-2 font-mono text-[10.5px] text-studio-ink-faint">
+      <pre className="px-3 py-2 font-mono text-xs text-studio-ink-faint">
         {result?.error ?? "no parse result"}
       </pre>
     );
@@ -1387,8 +1387,8 @@ function NormalizedStreamBody({
   const cappedHere = Math.max(0, result.records.length - visible.length);
   const totalTail = cappedHere + moreCount;
   return (
-    <div className="font-mono text-[10.5px]">
-      <div className="grid grid-cols-[40px_148px_72px_minmax(0,1fr)] gap-3 border-b border-studio-edge px-3 py-1.5 text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+    <div className="font-mono text-xs">
+      <div className="grid grid-cols-[40px_148px_72px_minmax(0,1fr)] gap-3 border-b border-studio-edge px-3 py-1.5 text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         <span>idx</span>
         <span>kind</span>
         <span>tag</span>
@@ -1399,7 +1399,7 @@ function NormalizedStreamBody({
           <NormalizedRow key={r.i} record={r} />
         ))}
         {totalTail > 0 ? (
-          <li className="grid grid-cols-[40px_148px_72px_minmax(0,1fr)] items-baseline gap-3 px-3 py-1.5 italic text-[10px] text-studio-ink-faint">
+          <li className="grid grid-cols-[40px_148px_72px_minmax(0,1fr)] items-baseline gap-3 px-3 py-1.5 italic text-xs text-studio-ink-faint">
             <span>…</span>
             <span>{formatCount(totalTail)} more</span>
             <span>—</span>
@@ -1470,7 +1470,7 @@ async function ExtractPanel({
           result && !result.error ? (
             <>
               Wrote {files.length} files to{" "}
-              <code className="font-mono text-[10.5px] text-studio-ink" title={result.outDir}>
+              <code className="font-mono text-xs text-studio-ink" title={result.outDir}>
                 {shortenTmpPath(result.outDir)}
               </code>{" "}
               · {result.mechanicalMs} ms · {result.recordsScanned} records scanned
@@ -1528,7 +1528,7 @@ async function EnrichPanel({
         footnote={
           result && !result.error && result.model ? (
             <>
-              <code className="font-mono text-[10.5px] text-studio-ink">{result.model}</code>{" "}
+              <code className="font-mono text-xs text-studio-ink">{result.model}</code>{" "}
               · prompt {result.promptChars.toLocaleString()} chars (
               {result.usage.promptTokens}t) · completion{" "}
               {result.usage.completionTokens}t ({result.usage.reasoningTokens}{" "}
@@ -1540,10 +1540,10 @@ async function EnrichPanel({
       />
       {result?.reasoning ? (
         <details className="overflow-hidden rounded-[4px] border border-studio-edge bg-studio-canvas">
-          <summary className="cursor-pointer border-b border-studio-edge bg-studio-canvas-alt px-3 py-1.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <summary className="cursor-pointer border-b border-studio-edge bg-studio-canvas-alt px-3 py-1.5 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
             model reasoning · {result.reasoning.length.toLocaleString()} chars
           </summary>
-          <pre className="max-h-[300px] overflow-auto px-3 py-2 font-mono text-[10.5px] leading-relaxed text-studio-ink">
+          <pre className="max-h-[300px] overflow-auto px-3 py-2 font-mono text-xs leading-relaxed text-studio-ink">
             {result.reasoning}
           </pre>
         </details>
@@ -1578,7 +1578,7 @@ function IndexPanel({
             <>
               {result.schemaWasFresh ? "Created schema · " : "Reused schema · "}
               db at{" "}
-              <code className="font-mono text-[10.5px] text-studio-ink" title={result.dbPath}>
+              <code className="font-mono text-xs text-studio-ink" title={result.dbPath}>
                 {shortenTmpPath(result.dbPath)}
               </code>{" "}
               · {formatBytes(result.dbBytes)} ·{" "}
@@ -1601,7 +1601,7 @@ function IndexBody({
 }) {
   if (!result) {
     return (
-      <pre className="px-3 py-2 font-mono text-[10.5px] text-studio-ink-faint">
+      <pre className="px-3 py-2 font-mono text-xs text-studio-ink-faint">
         no index result
       </pre>
     );
@@ -1615,10 +1615,10 @@ function IndexBody({
   return (
     <div className="grid grid-cols-1 gap-px bg-studio-edge md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <div className="bg-studio-canvas">
-        <div className="border-b border-studio-edge px-3 py-1.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="border-b border-studio-edge px-3 py-1.5 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           schema · row counts
         </div>
-        <ul className="divide-y divide-studio-edge font-mono text-[10.5px]">
+        <ul className="divide-y divide-studio-edge font-mono text-xs">
           {schemaRows.map((r) => (
             <li
               key={r.table}
@@ -1634,10 +1634,10 @@ function IndexBody({
         </ul>
       </div>
       <div className="bg-studio-canvas">
-        <div className="border-b border-studio-edge px-3 py-1.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="border-b border-studio-edge px-3 py-1.5 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           this session
         </div>
-        <div className="px-3 py-2 font-mono text-[10.5px] text-studio-ink">
+        <div className="px-3 py-2 font-mono text-xs text-studio-ink">
           {indexedHere ? (
             <>
               <div>session_id = <span>{indexedHere.sessionId}</span></div>
@@ -1650,12 +1650,12 @@ function IndexBody({
             </span>
           )}
         </div>
-        <div className="border-t border-studio-edge px-3 py-2 font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+        <div className="border-t border-studio-edge px-3 py-2 font-sans text-md leading-relaxed text-studio-ink-faint">
           Event files are split into 50-record search chunks. Other markdown is split by{" "}
-          <code className="font-mono text-[11px] text-studio-ink">##</code>{" "}
+          <code className="font-mono text-sm text-studio-ink">##</code>{" "}
           sections. Walks every file in{" "}
-          <code className="font-mono text-[11px] text-studio-ink">$TMPDIR/scout-study/qmd/&lt;session&gt;/</code>{" "}
-          (skipping <code className="font-mono text-[11px] text-studio-ink">_</code>-prefixed metadata).
+          <code className="font-mono text-sm text-studio-ink">$TMPDIR/scout-study/qmd/&lt;session&gt;/</code>{" "}
+          (skipping <code className="font-mono text-sm text-studio-ink">_</code>-prefixed metadata).
         </div>
       </div>
     </div>
@@ -1694,7 +1694,7 @@ function isStageId(value: string): value is StageId {
 function TraceRowInspect({ entry }: { entry: RunLogEntry }) {
   if (!entry.trace) {
     return (
-      <div className="border-t border-studio-edge bg-studio-canvas-alt px-4 py-3 font-mono text-[10.5px] text-studio-ink-faint">
+      <div className="border-t border-studio-edge bg-studio-canvas-alt px-4 py-3 font-mono text-xs text-studio-ink-faint">
         no trace data
         {entry.error ? <> · error: {entry.error}</> : null}
       </div>
@@ -1703,20 +1703,20 @@ function TraceRowInspect({ entry }: { entry: RunLogEntry }) {
   const { shell, input, output, cacheKey } = entry.trace;
   return (
     <div className="border-t border-studio-edge bg-studio-canvas-alt">
-      <dl className="grid grid-cols-[88px_minmax(0,1fr)] gap-x-3 px-4 py-3 font-mono text-[10.5px]">
-        <dt className="text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <dl className="grid grid-cols-[88px_minmax(0,1fr)] gap-x-3 px-4 py-3 font-mono text-xs">
+        <dt className="text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           shell
         </dt>
         <dd className="break-all text-studio-ink">$ {shell}</dd>
-        <dt className="mt-1.5 text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <dt className="mt-1.5 text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           input
         </dt>
         <dd className="mt-1.5 break-all text-studio-ink">{input}</dd>
-        <dt className="mt-1.5 text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <dt className="mt-1.5 text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           output
         </dt>
         <dd className="mt-1.5 break-all text-studio-ink">{output}</dd>
-        <dt className="mt-1.5 text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <dt className="mt-1.5 text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           cache key
         </dt>
         <dd className="mt-1.5 break-all text-studio-ink-faint">{cacheKey}</dd>
@@ -1746,10 +1746,10 @@ function RunSummary({
   return (
     <section className="mt-4 overflow-hidden rounded-md border border-studio-edge bg-studio-surface">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-studio-edge px-4 py-2.5">
-        <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           run trace · what just happened
         </div>
-        <div className="font-mono text-[10px] text-studio-ink-faint">
+        <div className="font-mono text-xs text-studio-ink-faint">
           {entries.length} command{entries.length === 1 ? "" : "s"} ·{" "}
           <span className="text-studio-ink">{sum.wallMs} ms this request</span>
           {sum.cached > 0 ? (
@@ -1781,23 +1781,23 @@ function RunSummary({
             <li key={`${e.id}-${i}`}>
               <details className="group">
                 <summary className="grid cursor-pointer grid-cols-[28px_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,180px)] items-baseline gap-3 px-4 py-2 transition-colors hover:bg-studio-canvas-alt [&::-webkit-details-marker]:hidden">
-                  <span className="flex items-center gap-1 font-mono text-[10px] tabular-nums text-studio-ink-faint">
-                    <span aria-hidden className="select-none text-[8px] text-studio-ink-faint/60 transition-transform group-open:rotate-90">
+                  <span className="flex items-center gap-1 font-mono text-xs tabular-nums text-studio-ink-faint">
+                    <span aria-hidden className="select-none text-3xs text-studio-ink-faint/60 transition-transform group-open:rotate-90">
                       ▶
                     </span>
                     {String(i + 1).padStart(2, "0")}
                   </span>
                   <span className="flex items-baseline gap-2">
-                    <span className="font-sans text-[12.5px] font-semibold tracking-tight text-studio-ink">
+                    <span className="font-sans text-md font-semibold tracking-tight text-studio-ink">
                       {e.label}
                     </span>
-                    <span className="font-mono text-[9.5px] text-studio-ink-faint">
+                    <span className="font-mono text-2xs text-studio-ink-faint">
                       {e.id}
                     </span>
                     {targetStage ? (
                       <RerunLink
                         href={studyHref(selection, { force: targetStage })}
-                        className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint underline-offset-4 hover:text-studio-ink hover:underline"
+                        className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint underline-offset-4 hover:text-studio-ink hover:underline"
                         title={`Force re-run ${e.label}`}
                         pendingLabel="running ↻"
                       >
@@ -1805,7 +1805,7 @@ function RunSummary({
                       </RerunLink>
                     ) : null}
                   </span>
-                  <span className="font-mono text-[10.5px] text-studio-ink-faint">
+                  <span className="font-mono text-xs text-studio-ink-faint">
                     {e.error ? (
                       <span className="text-status-error-fg">error · {e.error}</span>
                     ) : e.cached ? (
@@ -1819,7 +1819,7 @@ function RunSummary({
                       <span className="text-status-ok-fg">● ran · {e.durationMs} ms</span>
                     )}
                   </span>
-                  <span className="text-right font-mono text-[10px] text-studio-ink-faint">
+                  <span className="text-right font-mono text-xs text-studio-ink-faint">
                     {e.llm ? (
                       <>
                         <span className="text-studio-ink">{e.llm.model}</span> ·{" "}

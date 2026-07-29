@@ -94,14 +94,14 @@
 }
 .pi-stateTitle {
   color: var(--pi-muted);
-  font-size: 12.5px;
+  font-size: var(--text-md);
   font-weight: 650;
 }
 .pi-stateDetail {
   max-width: 420px;
   color: var(--pi-dim);
   font-family: var(--pi-mono);
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   line-height: 1.45;
 }
 
@@ -159,7 +159,7 @@
   border: none;
   outline: none;
   color: var(--pi-ink);
-  font-size: 12px;
+  font-size: var(--text-md);
   font-family: var(--pi-sans);
 }
 .pi-railFindInput::placeholder { color: var(--pi-dim); }
@@ -186,7 +186,7 @@
 .pi-railGroup { display: flex; flex-direction: column; gap: 2px; margin-bottom: 14px; }
 .pi-railGroup--projects { gap: 0; }
 .pi-railLabel {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 650;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -204,16 +204,16 @@
   border: none;
   cursor: pointer;
   padding: 4px 9px 6px;
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--pi-dim);
 }
 .pi-railDisclosure:hover { color: var(--pi-muted); }
-.pi-railChev { display: inline-block; transition: transform 0.15s var(--pi-ease); font-size: 9px; }
+.pi-railChev { display: inline-block; transition: transform 0.15s var(--pi-ease); font-size: var(--text-2xs); }
 .pi-railDisclosure[data-open] .pi-railChev { transform: rotate(90deg); }
 
-.pi-railEmpty { padding: 6px 9px; font-size: 11px; color: var(--pi-dim); }
+.pi-railEmpty { padding: 6px 9px; font-size: var(--text-sm); color: var(--pi-dim); }
 
 .pi-railFoot {
   flex: none;
@@ -231,7 +231,7 @@
   cursor: pointer;
   padding: 6px 9px;
   border-radius: 7px;
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   font-weight: 560;
   color: var(--pi-dim);
   transition: background 0.12s var(--pi-ease), color 0.12s var(--pi-ease);
@@ -294,7 +294,7 @@
   outline: none;
   color: var(--pi-ink);
   font-family: var(--pi-mono);
-  font-size: 11.5px;
+  font-size: var(--text-sm);
 }
 .pi-addProjectInput::placeholder {
   color: var(--pi-dim);
@@ -305,7 +305,7 @@
   background: none;
   padding: 2px 2px;
   color: var(--pi-accent);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
   cursor: pointer;
 }
@@ -315,7 +315,7 @@
 }
 .pi-addProjectNote {
   padding: 0 2px;
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--pi-muted);
 }
 .pi-addProjectNote[data-tone="error"] {
@@ -347,7 +347,7 @@
   outline: 0;
   background: none;
   color: var(--pi-muted);
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   font-family: var(--pi-sans);
   cursor: pointer;
 }
@@ -362,7 +362,7 @@
 }
 .pi-pinnedLabel {
   padding: 0 8px 4px;
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -434,7 +434,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 620;
 }
 .pi-projectPathToggle {
@@ -508,7 +508,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 .pi-projectSessionTitle::before {
   content: "";
@@ -537,7 +537,7 @@
 .pi-projectSessionWhen {
   padding-right: 5px;
   font-family: var(--pi-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-variant-numeric: tabular-nums;
   color: var(--pi-dim);
 }
@@ -593,7 +593,7 @@
 }
 .pi-projectSessionEmpty {
   padding: 5px 8px 5px 35px;
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--pi-dim);
 }
 .pi-projectShowMore {
@@ -604,7 +604,7 @@
   border: 0;
   background: none;
   color: color-mix(in srgb, var(--pi-dim) 72%, transparent);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 600;
   text-align: left;
   cursor: pointer;
@@ -634,12 +634,12 @@
   justify-content: space-between;
   gap: 12px;
   color: var(--pi-dim);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   font-family: var(--pi-mono);
   font-variant-numeric: tabular-nums;
 }
 .pi-sessionHoverTitle {
-  font-size: 12.5px;
+  font-size: var(--text-md);
   font-weight: 680;
   color: var(--pi-ink);
   overflow: hidden;
@@ -647,7 +647,7 @@
   white-space: nowrap;
 }
 .pi-sessionHoverContext {
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   color: var(--pi-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -668,13 +668,13 @@
   border: 1px solid var(--pi-hairline);
   border-radius: 6px;
   color: var(--pi-muted);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-family: var(--pi-mono);
 }
 .pi-sessionHoverRef {
   margin-top: auto;
   color: var(--pi-dim);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-family: var(--pi-mono);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -712,14 +712,14 @@
 }
 .pi-inboxTitle {
   flex: none;
-  font-size: 15px;
+  font-size: var(--text-2xl);
   font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--pi-ink);
   margin: 0;
 }
 .pi-inboxDigest {
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-family: var(--pi-mono);
   font-variant-numeric: tabular-nums;
   color: var(--pi-dim);
@@ -751,7 +751,7 @@
   border-radius: 7px;
   background: color-mix(in srgb, var(--hud-surface) 28%, transparent);
   color: var(--pi-muted);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 560;
   cursor: pointer;
   transition: color 0.12s var(--pi-ease), border-color 0.12s var(--pi-ease);
@@ -821,7 +821,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12.5px;
+  font-size: var(--text-md);
   font-weight: 600;
   color: var(--pi-ink);
 }
@@ -831,7 +831,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--pi-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   color: var(--pi-dim);
 }
 .pi-recentMeta {
@@ -840,7 +840,7 @@
   align-items: baseline;
   gap: 10px;
   font-family: var(--pi-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   font-variant-numeric: tabular-nums;
   color: var(--pi-dim);
 }
@@ -875,7 +875,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 600;
   color: var(--pi-ink);
 }
@@ -885,7 +885,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--pi-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   color: var(--pi-dim);
 }
 .pi-diffChurn {
@@ -894,18 +894,18 @@
   align-items: baseline;
   gap: 7px;
   font-family: var(--pi-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   font-variant-numeric: tabular-nums;
 }
 .pi-diffChurn small {
   color: var(--pi-dim);
-  font-size: 9px;
+  font-size: var(--text-2xs);
 }
 .pi-metaEmpty {
   padding: 16px 12px;
   border-bottom: 1px solid var(--pi-hairline);
   color: var(--pi-dim);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 /* project-scope header */
 .pi-projectHead {
@@ -932,7 +932,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 16px;
+  font-size: var(--text-2xl);
   font-weight: 680;
   letter-spacing: -0.01em;
   color: var(--pi-ink);
@@ -945,7 +945,7 @@
   overflow: hidden;
   color: var(--pi-dim);
   font-family: var(--pi-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 .pi-projectMeta > span {
   min-width: 0;
@@ -974,7 +974,7 @@
   border-radius: 5px;
   background: transparent;
   color: var(--pi-muted);
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   font-weight: 600;
   cursor: pointer;
   transition: color 0.12s var(--pi-ease), background 0.12s var(--pi-ease);
@@ -982,7 +982,7 @@
 .pi-projectFacet b {
   font-family: var(--pi-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--pi-dim);
 }
 .pi-projectFacet:hover {
@@ -1044,7 +1044,7 @@
   gap: 8px;
   padding: 0 8px;
   color: var(--pi-muted);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 680;
 }
 .pi-projectRepositoryHead {
@@ -1055,7 +1055,7 @@
 .pi-projectWorktreesHead span,
 .pi-projectPullRequestsHead span {
   color: var(--pi-muted);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 740;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1076,13 +1076,13 @@
 }
 .pi-projectRepositoryIdentity b {
   color: var(--pi-ink);
-  font-size: 14px;
+  font-size: var(--text-xl);
   font-weight: 680;
 }
 .pi-projectRepositoryIdentity span {
   color: var(--pi-dim);
   font-family: var(--pi-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
 }
 .pi-projectRepositoryCurrent {
   min-width: 0;
@@ -1114,12 +1114,12 @@
 .pi-projectRepositoryCurrent time {
   color: var(--pi-dim);
   font-family: var(--pi-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
 }
 .pi-projectRepositoryCurrent b {
   color: var(--pi-muted);
   font-family: var(--pi-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 550;
 }
 .pi-projectRepositoryCurrent time { flex: none; }
@@ -1145,7 +1145,7 @@
   overflow: hidden;
   color: var(--pi-dim);
   font-family: var(--pi-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1162,7 +1162,7 @@
 .pi-projectPullRequestsHead b {
   color: var(--pi-dim);
   font-family: var(--pi-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   font-variant-numeric: tabular-nums;
 }
 .pi-projectWorktreeList {
@@ -1220,14 +1220,14 @@
 }
 .pi-projectWorktree b {
   color: var(--pi-ink);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 650;
 }
 .pi-projectWorktree em,
 .pi-projectWorktree small {
   color: var(--pi-dim);
   font-family: var(--pi-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   font-style: normal;
 }
 .pi-projectWorktreeMeta small + small::before {
@@ -1243,7 +1243,7 @@
   gap: 10px;
   min-height: 30px;
   font-family: var(--pi-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
 }
 .pi-projectWorktreeDiff b { font-weight: 620; }
 .pi-projectWorktreeDiff small { color: var(--pi-dim); }
@@ -1278,7 +1278,7 @@
   color: var(--pi-muted);
   font: inherit;
   font-family: var(--pi-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   cursor: pointer;
 }
 .pi-projectWorktreeOpenDiff { margin-left: auto; }
@@ -1293,7 +1293,7 @@
   overflow: hidden;
   color: var(--pi-dim);
   font-family: var(--pi-mono);
-  font-size: 8.5px;
+  font-size: var(--text-3xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1301,7 +1301,7 @@
   padding: 0 10px 9px;
   color: var(--pi-dim);
   font-family: var(--pi-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
 }
 .pi-projectPullRequests { overflow: hidden; }
 .pi-projectPullRequestList {
@@ -1330,7 +1330,7 @@
   gap: 12px;
   padding: 8px 10px;
   color: var(--pi-dim);
-  font-size: 10.5px;
+  font-size: var(--text-xs);
 }
 .pi-projectPullRequestState[data-loading] span::before {
   content: "";
@@ -1346,7 +1346,7 @@
 .pi-projectPullRequestNumber {
   color: var(--pi-accent);
   font-family: var(--pi-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
 }
 .pi-projectPullRequest b,
 .pi-projectPullRequestBranch {
@@ -1357,7 +1357,7 @@
 }
 .pi-projectPullRequest b {
   color: var(--pi-ink);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 520;
 }
 .pi-projectPullRequestBranch,
@@ -1365,7 +1365,7 @@
 .pi-projectPullRequest time {
   color: var(--pi-dim);
   font-family: var(--pi-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-style: normal;
   white-space: nowrap;
 }
@@ -1408,7 +1408,7 @@
   flex: none;
   color: var(--pi-muted);
   font-family: var(--pi-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   font-weight: 720;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1417,7 +1417,7 @@
   min-width: 0;
   margin: 0;
   color: var(--pi-ink);
-  font-size: 16px;
+  font-size: var(--text-2xl);
   font-weight: 680;
   letter-spacing: 0;
   overflow: hidden;
@@ -1432,7 +1432,7 @@
   gap: 6px;
   color: var(--pi-muted);
   font-family: var(--pi-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
 .pi-sessionLiveDot {
@@ -1449,7 +1449,7 @@
   gap: 2px 0;
   color: var(--pi-dim);
   font-family: var(--pi-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
 .pi-sessionMeta > span {
@@ -1532,13 +1532,13 @@
   align-items: baseline;
   gap: 6px;
   font-family: var(--pi-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   font-variant-numeric: tabular-nums;
 }
 .pi-sessionGlanceField span {
   flex: none;
   color: var(--pi-dim);
-  font-size: 8.5px;
+  font-size: var(--text-3xs);
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -1554,7 +1554,7 @@
 }
 .pi-sessionGlanceField small {
   color: var(--pi-dim);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
 }
 .pi-sessionContextVital {
   display: inline-flex;
@@ -1565,7 +1565,7 @@
 }
 .pi-sessionContextVital > span:first-child {
   color: var(--pi-dim);
-  font-size: 8.5px;
+  font-size: var(--text-3xs);
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -1590,7 +1590,7 @@
 }
 .pi-sessionContextVital b {
   color: var(--pi-ink);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 640;
 }
 .pi-sessionTokenToggle {
@@ -1607,19 +1607,19 @@
 }
 .pi-sessionTokenToggle span {
   color: var(--pi-dim);
-  font-size: 8.5px;
+  font-size: var(--text-3xs);
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 .pi-sessionTokenToggle b {
   color: var(--pi-ink);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 640;
 }
 .pi-sessionTokenToggle i {
   color: var(--pi-dim);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-style: normal;
 }
 .pi-sessionGlanceTokens {
@@ -1665,7 +1665,7 @@
   gap: 4px 16px;
   color: var(--pi-muted);
   font-family: var(--pi-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
 .pi-sessionGlanceTokenLegend span {
@@ -1715,20 +1715,20 @@
   margin-bottom: 9px;
   color: var(--pi-dim);
   font-family: var(--pi-mono);
-  font-size: 8.5px;
+  font-size: var(--text-3xs);
   font-weight: 740;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 .pi-sessionSignalHead b {
   color: var(--pi-muted);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
 .pi-sessionSignalEmpty {
   color: var(--pi-dim);
   font-family: var(--pi-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
 }
 .pi-sessionFileList,
 .pi-sessionContextList,
@@ -1743,11 +1743,11 @@
   gap: 2px 10px;
   align-items: baseline;
   font-family: var(--pi-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 .pi-sessionFileRow span {
   color: var(--pi-dim);
-  font-size: 8.5px;
+  font-size: var(--text-3xs);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1767,7 +1767,7 @@
 .pi-sessionFileRow small {
   grid-column: 2;
   color: var(--pi-muted);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
 }
 .pi-sessionToolGrid {
   display: flex;
@@ -1784,7 +1784,7 @@
   border-radius: 6px;
   background: color-mix(in srgb, var(--hud-surface) 22%, transparent);
   font-family: var(--pi-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 .pi-sessionToolPill b {
   color: var(--pi-ink);
@@ -1801,11 +1801,11 @@
   gap: 8px;
   align-items: baseline;
   font-family: var(--pi-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 .pi-sessionContextRow span {
   color: var(--pi-dim);
-  font-size: 8.5px;
+  font-size: var(--text-3xs);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1846,7 +1846,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--pi-ink);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 620;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1857,7 +1857,7 @@
   gap: 7px;
   color: var(--pi-dim);
   font-family: var(--pi-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-variant-numeric: tabular-nums;
 }
 .pi-sessionThreadMeta b {
@@ -1876,7 +1876,7 @@
   flex: none;
   color: var(--pi-dim);
   font-family: var(--pi-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1935,7 +1935,7 @@
   border-bottom: 1px solid var(--pi-hairline);
 }
 .pi-sectionLabel {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1944,7 +1944,7 @@
 .pi-sectionHead[data-tone="needs"] .pi-sectionLabel,
 .pi-sectionHead[data-tone="working"] .pi-sectionLabel { color: var(--pi-accent); }
 .pi-sectionCount {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-family: var(--pi-mono);
   font-variant-numeric: tabular-nums;
   color: var(--pi-dim);
@@ -2010,7 +2010,7 @@
 
 .pi-rowBody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .pi-rowWork {
-  font-size: 13px;
+  font-size: var(--text-lg);
   color: var(--pi-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2025,7 +2025,7 @@
 .pi-rowAvatar { flex: none; display: inline-flex; }
 .pi-rowAgent {
   flex: none;
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--pi-muted);
   max-width: 40%;
@@ -2036,7 +2036,7 @@
 .pi-rowHmark { flex: none; display: inline-flex; color: var(--pi-dim); }
 .pi-rowChip {
   flex: none;
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-family: var(--pi-mono);
   color: var(--pi-dim);
   border: 1px solid var(--pi-hairline);
@@ -2050,7 +2050,7 @@
 .pi-rowBranch {
   flex: 1;
   min-width: 0;
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   font-family: var(--pi-mono);
   color: var(--pi-dim);
   overflow: hidden;
@@ -2067,19 +2067,19 @@
   min-width: 44px;
 }
 .pi-rowAgo {
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   font-family: var(--pi-mono);
   font-variant-numeric: tabular-nums;
   color: var(--pi-dim);
 }
 .pi-rowCtx {
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   font-family: var(--pi-mono);
   font-variant-numeric: tabular-nums;
   color: var(--pi-muted);
 }
 .pi-rowNeedsTag {
-  font-size: 8px;
+  font-size: var(--text-3xs);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -2089,7 +2089,7 @@
   border-radius: 999px;
 }
 .pi-rowLiveTag {
-  font-size: 8.5px;
+  font-size: var(--text-3xs);
   font-weight: 650;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -2106,7 +2106,7 @@
   justify-content: flex-end;
   gap: 3px;
   color: var(--pi-dim);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 650;
   transition: color 0.12s var(--pi-ease);
 }
@@ -2135,10 +2135,10 @@
   gap: 6px;
   padding: 60px 20px;
   color: var(--pi-dim);
-  font-size: 12.5px;
+  font-size: var(--text-md);
   text-align: center;
 }
-.pi-emptyHint { font-size: 11px; color: var(--pi-dim); }
+.pi-emptyHint { font-size: var(--text-sm); color: var(--pi-dim); }
 
 .pi-zero {
   width: min(680px, 100%);
@@ -2158,7 +2158,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -2167,7 +2167,7 @@
 .pi-zeroHead h2 {
   margin: 0;
   color: var(--pi-ink);
-  font-size: 18px;
+  font-size: var(--text-3xl);
   font-weight: 680;
   letter-spacing: 0;
 }
@@ -2209,7 +2209,7 @@
   background: none;
   color: var(--pi-muted);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 .pi-zeroHarness {
   flex: none;
@@ -2228,7 +2228,7 @@
   border-radius: 5px;
   background: none;
   color: var(--pi-dim);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 650;
   cursor: pointer;
 }
@@ -2254,7 +2254,7 @@
   background: color-mix(in srgb, var(--pi-bg) 70%, transparent);
   color: var(--pi-ink);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-lg);
   line-height: 1.35;
 }
 .pi-zeroInputRow textarea::placeholder { color: var(--pi-dim); }
@@ -2272,7 +2272,7 @@
   border-radius: 7px;
   background: var(--pi-accent);
   color: var(--pi-bg);
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 700;
   cursor: pointer;
 }
@@ -2319,13 +2319,13 @@
   white-space: nowrap;
 }
 .pi-zeroMatchTitle {
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 650;
   color: inherit;
 }
 .pi-zeroMatchRoot,
 .pi-zeroMatchMeta {
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   font-family: var(--pi-mono);
   color: var(--pi-dim);
 }
@@ -2338,7 +2338,7 @@
 .pi-zeroError,
 .pi-zeroStatus {
   padding: 2px 4px 0;
-  font-size: 11px;
+  font-size: var(--text-sm);
   text-align: left;
 }
 .pi-zeroEmpty { color: var(--pi-dim); }
@@ -2371,7 +2371,7 @@
 .pi-asideIdent { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .pi-asideTop { display: flex; align-items: center; gap: 8px; }
 .pi-asideName {
-  font-size: 15px;
+  font-size: var(--text-2xl);
   font-weight: 680;
   letter-spacing: -0.01em;
   color: var(--pi-ink);
@@ -2380,10 +2380,10 @@
   white-space: nowrap;
 }
 .pi-asideHmark { flex: none; display: inline-flex; color: var(--pi-muted); }
-.pi-asideProj { flex: none; font-size: 11px; font-family: var(--pi-mono); color: var(--pi-dim); }
+.pi-asideProj { flex: none; font-size: var(--text-sm); font-family: var(--pi-mono); color: var(--pi-dim); }
 .pi-asideSub { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
 .pi-asideBranch {
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-family: var(--pi-mono);
   color: var(--pi-muted);
   border: 1px solid var(--pi-hairline);
@@ -2394,7 +2394,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
 }
 .pi-asideStatus[data-tone="working"] { color: var(--pi-accent); }
@@ -2404,7 +2404,7 @@
   background: var(--pi-accent);
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.03em;
   text-transform: uppercase;
 }
@@ -2429,7 +2429,7 @@
 }
 .pi-asideHeadline {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--text-2xl);
   font-weight: 600;
   line-height: 1.35;
   letter-spacing: -0.01em;
@@ -2439,7 +2439,7 @@
   margin: 0;
   color: var(--pi-dim);
   font-family: var(--pi-mono);
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   line-height: 1.5;
 }
 
@@ -2455,14 +2455,14 @@
   gap: 2px;
 }
 .pi-statLabel {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--pi-muted);
 }
 .pi-statValue {
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-family: var(--pi-mono);
   font-variant-numeric: tabular-nums;
   color: var(--pi-ink);
@@ -2470,7 +2470,7 @@
 
 .pi-asideSection { display: flex; flex-direction: column; gap: 6px; }
 .pi-asideSectionHead {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -2480,7 +2480,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 12.5px;
+  font-size: var(--text-md);
   line-height: 1.5;
   color: var(--pi-muted);
   background: var(--pi-surface);
@@ -2500,7 +2500,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 600;
   color: var(--pi-muted);
   background: none;

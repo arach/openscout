@@ -48,7 +48,7 @@ export function StudioShell({ children, extraPages, studyMtimes }: ShellProps) {
 }
 
 function ShellBody({ children, extraPages, studyMtimes }: ShellProps) {
-  const { width, dragging, nudge, reset } = useSidebarWidth();
+  const { width, dragging, nudge, reset, beginResize } = useSidebarWidth();
   const [focusMode, setFocusMode] = useState(false);
   const pathname = usePathname();
   const page = pageForPath(pathname, extraPages);
@@ -67,6 +67,10 @@ function ShellBody({ children, extraPages, studyMtimes }: ShellProps) {
     return { label: "STUDIO", color: "emerald" as const };
   }, [page?.status]);
 
+  // Explicit px strings — never rely on React's unit coercion alone for
+  // layout chrome, so a bad number never silently becomes invalid CSS.
+  const widthPx = `${width}px`;
+
   return (
     <>
       <Suspense fallback={null}>
@@ -82,9 +86,9 @@ function ShellBody({ children, extraPages, studyMtimes }: ShellProps) {
         <div className="min-h-screen bg-studio-canvas text-studio-ink">
           {/* ── Left rail (fully owned) ───────────────────────────── */}
           <aside
-            className="fixed left-0 top-0 z-40 flex flex-col border-r border-studio-edge bg-studio-canvas"
+            className="studio-rail fixed left-0 top-0 z-40 flex flex-col border-r border-studio-edge"
             style={{
-              width,
+              width: widthPx,
               bottom: STATUS_H,
             }}
             data-studio-rail=""
@@ -92,9 +96,10 @@ function ShellBody({ children, extraPages, studyMtimes }: ShellProps) {
             <header className="flex shrink-0 items-center justify-between gap-2 border-b border-studio-edge px-3 py-3">
               <Link
                 href="/"
-                className="focus-ring rounded-[2px] font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink"
+                className="studio-mark focus-ring rounded-[2px] font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink transition-colors hover:text-studio-ink"
               >
-                Scout · Studio
+                <span className="studio-mark__sigil" aria-hidden />
+                <span>Scout · Studio</span>
               </Link>
               <div className="flex items-center gap-1">
                 <WidthButtons width={width} onNudge={nudge} onReset={reset} />
@@ -108,58 +113,68 @@ function ShellBody({ children, extraPages, studyMtimes }: ShellProps) {
               />
             </div>
 
-            <footer className="shrink-0 border-t border-studio-edge p-3">
+            <footer className="shrink-0 border-t border-studio-edge px-3 py-2.5">
               <ThemeToggle />
             </footer>
+          </aside>
 
-            {/* Drag handle — right edge of rail, always visible */}
-            <div
-              data-studio-resize-handle=""
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="Resize sidebar"
-              aria-valuenow={width}
-              aria-valuemin={MIN_SIDEBAR_W}
-              aria-valuemax={MAX_SIDEBAR_W}
-              title={`Drag to resize (${width}px) · [ ] keys also work`}
-              data-dragging={dragging ? "true" : undefined}
+          {/* Resize handle lives as a FIXED sibling of the rail (not inside
+           *  it) so it can straddle the rail/main seam and sit above main
+           *  content. Hit target is wider than the visual hairline. */}
+          <div
+            data-studio-resize-handle=""
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize sidebar"
+            aria-valuenow={width}
+            aria-valuemin={MIN_SIDEBAR_W}
+            aria-valuemax={MAX_SIDEBAR_W}
+            title={`Drag to resize (${width}px) · [ ] keys also work`}
+            data-dragging={dragging ? "true" : undefined}
+            onPointerDown={beginResize}
+            className={
+              "fixed z-[55] w-3 cursor-col-resize touch-none " +
+              "transition-colors " +
+              "hover:bg-[color-mix(in_oklab,var(--scout-accent)_16%,transparent)] " +
+              (dragging
+                ? "bg-[color-mix(in_oklab,var(--scout-accent)_26%,transparent)]"
+                : "")
+            }
+            style={{
+              left: width - 6,
+              top: 0,
+              bottom: STATUS_H,
+            }}
+          >
+            <span
+              aria-hidden
               className={
-                "absolute inset-y-0 right-0 z-50 w-2 cursor-col-resize touch-none " +
-                "hover:bg-[color-mix(in_srgb,var(--scout-accent)_18%,transparent)] " +
+                "pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 " +
                 (dragging
-                  ? "bg-[color-mix(in_srgb,var(--scout-accent)_28%,transparent)]"
-                  : "")
+                  ? "bg-[color:var(--scout-accent)]"
+                  : "bg-studio-edge")
+              }
+            />
+            <span
+              aria-hidden
+              className={
+                "pointer-events-none absolute left-1/2 top-1/2 flex h-9 w-2.5 " +
+                "-translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center gap-[3px] " +
+                "rounded-[3px] border border-studio-edge bg-studio-canvas " +
+                "transition-colors " +
+                (dragging ? "border-[color:var(--scout-accent)]" : "")
               }
             >
-              <span
-                aria-hidden
-                className={
-                  "pointer-events-none absolute inset-y-0 left-1/2 w-[2px] -translate-x-1/2 " +
-                  (dragging
-                    ? "bg-[color:var(--scout-accent)]"
-                    : "bg-studio-edge")
-                }
-              />
-              <span
-                aria-hidden
-                className={
-                  "pointer-events-none absolute left-1/2 top-1/2 flex h-10 w-3 " +
-                  "-translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center gap-[3px] " +
-                  "rounded-sm border border-studio-edge bg-studio-canvas-alt " +
-                  (dragging ? "border-[color:var(--scout-accent)]" : "")
-                }
-              >
-                <i className="block h-[2px] w-[2px] rounded-full bg-studio-ink-faint" />
-                <i className="block h-[2px] w-[2px] rounded-full bg-studio-ink-faint" />
-                <i className="block h-[2px] w-[2px] rounded-full bg-studio-ink-faint" />
-              </span>
-            </div>
-          </aside>
+              <i className="block h-[2px] w-[2px] rounded-full bg-studio-ink-faint" />
+              <i className="block h-[2px] w-[2px] rounded-full bg-studio-ink-faint" />
+              <i className="block h-[2px] w-[2px] rounded-full bg-studio-ink-faint" />
+            </span>
+          </div>
 
           {/* ── Main ──────────────────────────────────────────────── */}
           <div
             className="flex min-h-screen flex-col"
-            style={{ marginLeft: width, paddingBottom: STATUS_H }}
+            style={{ marginLeft: widthPx, paddingBottom: STATUS_H }}
           >
             <PageStrip extraPages={extraPages} />
             <main className="flex-1">{children}</main>
@@ -218,13 +233,13 @@ function WidthButtons({
 }) {
   return (
     <div
-      className="flex shrink-0 items-center gap-0.5"
+      className="flex shrink-0 items-center gap-0.5 rounded-[4px] border border-studio-edge p-0.5"
       style={{ pointerEvents: "auto" }}
     >
       <button
         type="button"
         onClick={() => onNudge(-32)}
-        className="rounded-[3px] border border-studio-edge px-1.5 py-0.5 font-mono text-[10px] text-studio-ink-faint hover:bg-studio-canvas-alt hover:text-studio-ink"
+        className="focus-ring rounded-[3px] px-1.5 py-0.5 font-mono text-xs text-studio-ink-faint transition-colors hover:bg-studio-canvas-alt hover:text-studio-ink"
         title="Narrower (−32px) · key ["
         aria-label="Narrow sidebar"
       >
@@ -233,7 +248,7 @@ function WidthButtons({
       <button
         type="button"
         onClick={onReset}
-        className="min-w-[2.75rem] rounded-[3px] border border-studio-edge px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-studio-ink-faint hover:bg-studio-canvas-alt hover:text-studio-ink"
+        className="focus-ring min-w-[2.5rem] rounded-[3px] px-1 py-0.5 font-mono text-xs tabular-nums text-studio-ink-muted transition-colors hover:bg-studio-canvas-alt hover:text-studio-ink"
         title={`Reset to ${DEFAULT_SIDEBAR_W}px`}
         aria-label={`Sidebar width ${width} pixels, click to reset`}
       >
@@ -242,7 +257,7 @@ function WidthButtons({
       <button
         type="button"
         onClick={() => onNudge(32)}
-        className="rounded-[3px] border border-studio-edge px-1.5 py-0.5 font-mono text-[10px] text-studio-ink-faint hover:bg-studio-canvas-alt hover:text-studio-ink"
+        className="focus-ring rounded-[3px] px-1.5 py-0.5 font-mono text-xs text-studio-ink-faint transition-colors hover:bg-studio-canvas-alt hover:text-studio-ink"
         title="Wider (+32px) · key ]"
         aria-label="Widen sidebar"
       >

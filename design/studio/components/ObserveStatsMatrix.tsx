@@ -25,10 +25,10 @@ export function ObserveStatsMatrix({ metrics }: ObserveStatsMatrixProps) {
           key={m.label}
           className="rounded border border-studio-edge bg-studio-canvas-alt px-2 py-1.5"
         >
-          <div className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
             {m.label}
           </div>
-          <div className="mt-0.5 font-display text-[18px] leading-none tracking-tight text-studio-ink tabular-nums">
+          <div className="mt-0.5 font-display text-3xl leading-none tracking-tight text-studio-ink tabular-nums">
             {m.value}
           </div>
         </div>

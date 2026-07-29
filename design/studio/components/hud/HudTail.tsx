@@ -110,14 +110,14 @@ function TailMeter({ count, size }: { count: number; size: HudSize }) {
           className="inline-block h-[5px] w-[5px] translate-y-[-1px] rounded-full"
           style={{ background: "var(--scout-accent)" }}
         />
-        <span className="font-mono text-[10px] font-bold uppercase tracking-eyebrow text-studio-ink">
+        <span className="font-mono text-xs font-bold uppercase tracking-eyebrow text-studio-ink">
           live
         </span>
-        <span className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-xs uppercase tracking-eyebrow text-studio-ink-faint">
           · firehose
         </span>
       </span>
-      <span className="font-mono text-[10px] tabular-nums text-studio-ink-muted">
+      <span className="font-mono text-xs tabular-nums text-studio-ink-muted">
         {count} evt
       </span>
     </div>
@@ -235,7 +235,7 @@ function TailDetail({
 
   const line = (e: FirehoseEvent | undefined, label: string) =>
     e ? (
-      <div className="truncate font-mono text-[10px] leading-snug text-studio-ink-faint">
+      <div className="truncate font-mono text-xs leading-snug text-studio-ink-faint">
         <span className="mr-1.5 uppercase tracking-eyebrow">{label}</span>
         {e.at} {e.kind} @{e.source} · {e.line}
       </div>
@@ -245,10 +245,10 @@ function TailDetail({
     <div
       className={`border-t border-studio-edge bg-studio-canvas-alt ${padX} py-2`}
     >
-      <div className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · raw
       </div>
-      <div className="mt-1 break-all font-mono text-[11px] leading-snug text-studio-ink">
+      <div className="mt-1 break-all font-mono text-sm leading-snug text-studio-ink">
         [{event.at}] [{event.kind}] @{event.source} · {event.line}
       </div>
       <div className="mt-2 flex flex-col gap-[2px]">
@@ -270,32 +270,32 @@ function TailDetailLarge({
 }) {
   return (
     <div className="flex min-h-0 flex-col gap-3">
-      <div className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · raw line
       </div>
-      <div className="break-all font-mono text-[12px] leading-relaxed text-studio-ink">
+      <div className="break-all font-mono text-md leading-relaxed text-studio-ink">
         [{event.at}] [{event.kind}] @{event.source} · {event.line}
       </div>
 
       <div className="border-t border-studio-edge pt-2.5">
-        <div className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · window
         </div>
         <div className="mt-1 flex flex-col gap-[2px]">
           {prev ? (
-            <div className="truncate font-mono text-[11px] leading-snug text-studio-ink-faint">
+            <div className="truncate font-mono text-sm leading-snug text-studio-ink-faint">
               <span className="mr-1.5 uppercase tracking-eyebrow">PRV</span>
               {prev.at} {prev.kind} @{prev.source} · {prev.line}
             </div>
           ) : null}
-          <div className="truncate font-mono text-[11px] leading-snug text-studio-ink">
+          <div className="truncate font-mono text-sm leading-snug text-studio-ink">
             <span className="mr-1.5 uppercase tracking-eyebrow text-scout-accent" style={{ color: "var(--scout-accent)" }}>
               CUR
             </span>
             {event.at} {event.kind} @{event.source} · {event.line}
           </div>
           {next ? (
-            <div className="truncate font-mono text-[11px] leading-snug text-studio-ink-faint">
+            <div className="truncate font-mono text-sm leading-snug text-studio-ink-faint">
               <span className="mr-1.5 uppercase tracking-eyebrow">NXT</span>
               {next.at} {next.kind} @{next.source} · {next.line}
             </div>
@@ -303,7 +303,7 @@ function TailDetailLarge({
         </div>
       </div>
 
-      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-[3px] font-mono text-[10px] leading-snug">
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-[3px] font-mono text-xs leading-snug">
         <dt className="uppercase tracking-eyebrow text-studio-ink-faint">kind</dt>
         <dd className="font-bold uppercase tracking-eyebrow text-studio-ink-muted">
           {event.kind}

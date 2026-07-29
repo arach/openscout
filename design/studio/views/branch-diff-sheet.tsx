@@ -326,13 +326,13 @@ export default function BranchDiffSheetPage() {
       <style>{STYLES}</style>
 
       <header className="mb-6 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · macos · branch-diff-sheet
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Branch diff sheet
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           Click a branch in the rail and its diff comes into view — the full
           recap of that branch&rsquo;s changes. Two dials:{" "}
           <span className="text-studio-ink-muted">which edge</span> it enters
@@ -341,7 +341,7 @@ export default function BranchDiffSheetPage() {
           wander off to a chat, or its own page. Drag the seam to size it
           (double-click to reset). The diff is real — the actual patch from
           commit{" "}
-          <code className="font-mono text-[11px] text-studio-ink-muted">
+          <code className="font-mono text-sm text-studio-ink-muted">
             {COMMIT.sha}
           </code>
           .
@@ -351,7 +351,7 @@ export default function BranchDiffSheetPage() {
       {/* Toolbar — the presentation exploration this study is for */}
       <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-2">
         <div className="flex items-center gap-2">
-          <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             Presentation
           </span>
           <Segmented
@@ -371,7 +371,7 @@ export default function BranchDiffSheetPage() {
             pointerEvents: present === "page" ? "none" : undefined,
           }}
         >
-          <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             Enters from
           </span>
           <Segmented
@@ -383,7 +383,7 @@ export default function BranchDiffSheetPage() {
             ]}
           />
         </div>
-        <span className="font-mono text-[10px] text-studio-ink-faint">
+        <span className="font-mono text-xs text-studio-ink-faint">
           one component · <span className="text-studio-ink-muted">edge</span> +{" "}
           <span className="text-studio-ink-muted">persistence</span> are
           parameters →{" "}
@@ -438,53 +438,53 @@ export default function BranchDiffSheetPage() {
 
       {/* Ports-to */}
       <section className="mt-9 max-w-prose">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · ports to
         </div>
-        <ul className="space-y-1 font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+        <ul className="space-y-1 font-sans text-md leading-relaxed text-studio-ink-faint">
           <li>
-            <code className="font-mono text-[11px] text-studio-ink">
+            <code className="font-mono text-sm text-studio-ink">
               ScoutReposView.swift
             </code>{" "}
             — branch row gains an activate → present action
           </li>
           <li>
-            <code className="font-mono text-[11px] text-studio-ink">
+            <code className="font-mono text-sm text-studio-ink">
               ScoutBranchDiffSheet.swift
             </code>{" "}
             <span className="text-studio-ink-muted">(new)</span> — the diff
             content; files rail + unified/split body
           </li>
           <li>
-            <code className="font-mono text-[11px] text-studio-ink">
+            <code className="font-mono text-sm text-studio-ink">
               hudson · HudEdgeSheet.swift
             </code>{" "}
             <span className="text-studio-ink-muted">(new primitive)</span> —{" "}
-            <code className="font-mono text-[11px]">edge</code> +{" "}
-            <code className="font-mono text-[11px]">persistence</code> params, a
+            <code className="font-mono text-sm">edge</code> +{" "}
+            <code className="font-mono text-sm">persistence</code> params, a
             resizable{" "}
-            <code className="font-mono text-[11px]">.move(edge:)</code>{" "}
+            <code className="font-mono text-sm">.move(edge:)</code>{" "}
             transition + scrim on{" "}
-            <code className="font-mono text-[11px]">HudMotion</code>
+            <code className="font-mono text-sm">HudMotion</code>
           </li>
           <li>
             <span className="text-studio-ink-muted">docked vs page</span> — a
             docked sheet maps to a kept{" "}
-            <code className="font-mono text-[11px]">HudSidebarPanel</code>/
-            <code className="font-mono text-[11px]">HudTerminalDrawer</code>;
+            <code className="font-mono text-sm">HudSidebarPanel</code>/
+            <code className="font-mono text-sm">HudTerminalDrawer</code>;
             &ldquo;its own page&rdquo; is a Repos detail route you leave open and
             return to
           </li>
           <li className="pt-1 text-studio-ink-faint">
             <span className="text-status-warn-fg">data gap</span> — the snapshot
-            carries only <code className="font-mono text-[11px]">--shortstat</code>{" "}
+            carries only <code className="font-mono text-sm">--shortstat</code>{" "}
             today; patch text needs an{" "}
-            <code className="font-mono text-[11px]">includePatch=1</code> path
+            <code className="font-mono text-sm">includePatch=1</code> path
             through{" "}
-            <code className="font-mono text-[11px]">
+            <code className="font-mono text-sm">
               openscout-repo-service
             </code>{" "}
-            → <code className="font-mono text-[11px]">RepoDiff</code>
+            → <code className="font-mono text-sm">RepoDiff</code>
           </li>
         </ul>
       </section>
@@ -504,10 +504,10 @@ function ReposRail({
   return (
     <div className="flex h-full w-[300px] shrink-0 flex-col border-r border-studio-edge">
       <div className="flex items-center gap-2 border-b border-studio-edge px-3 py-2">
-        <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           Repos
         </span>
-        <span className="ml-auto font-mono text-[10px] tabular-nums text-studio-ink-faint">
+        <span className="ml-auto font-mono text-xs tabular-nums text-studio-ink-faint">
           1 repo
         </span>
       </div>
@@ -515,13 +515,13 @@ function ReposRail({
       <div className="flex-1 overflow-y-auto py-1.5">
         {/* repo node */}
         <div className="flex items-center gap-2 px-3 py-1">
-          <span className="text-[9px] leading-none text-studio-ink-faint">
+          <span className="text-2xs leading-none text-studio-ink-faint">
             ▾
           </span>
-          <span className="font-mono text-[12px] font-semibold text-studio-ink">
+          <span className="font-mono text-md font-semibold text-studio-ink">
             openscout
           </span>
-          <span className="font-mono text-[10px] text-studio-ink-faint">
+          <span className="font-mono text-xs text-studio-ink-faint">
             ~/dev/openscout
           </span>
         </div>
@@ -536,7 +536,7 @@ function ReposRail({
         ))}
       </div>
 
-      <div className="flex items-center gap-3 border-t border-studio-edge px-3 py-1.5 font-mono text-[9px] text-studio-ink-faint">
+      <div className="flex items-center gap-3 border-t border-studio-edge px-3 py-1.5 font-mono text-2xs text-studio-ink-faint">
         <span>
           <Kbd>↵</Kbd> open diff
         </span>
@@ -581,23 +581,23 @@ function BranchRow({
           animation: dirty ? "bd-pulse 2s ease-in-out infinite" : undefined,
         }}
       />
-      <span className="min-w-0 flex-1 truncate font-mono text-[12px]">
+      <span className="min-w-0 flex-1 truncate font-mono text-md">
         <span className="text-studio-ink-faint">{prefix}</span>
         <span className="text-studio-ink">{leaf}</span>
         {branch.isCurrent ? (
-          <span className="ml-1.5 font-sans text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="ml-1.5 font-sans text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
             HEAD
           </span>
         ) : null}
       </span>
 
       {dirty ? (
-        <span className="shrink-0 font-mono text-[10px] tabular-nums">
+        <span className="shrink-0 font-mono text-xs tabular-nums">
           <span style={{ color: "var(--status-ok-fg)" }}>+{c.add}</span>{" "}
           <span style={{ color: "var(--status-error-fg)" }}>−{c.del}</span>
         </span>
       ) : (
-        <span className="shrink-0 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="shrink-0 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           clean
         </span>
       )}
@@ -610,7 +610,7 @@ function Position({ ahead, behind }: { ahead: number; behind: number }) {
   if (!ahead && !behind)
     return <span className="w-9 shrink-0" aria-hidden />;
   return (
-    <span className="w-9 shrink-0 text-right font-mono text-[9px] tabular-nums text-studio-ink-faint">
+    <span className="w-9 shrink-0 text-right font-mono text-2xs tabular-nums text-studio-ink-faint">
       {ahead ? `↑${ahead}` : ""}
       {behind ? ` ↓${behind}` : ""}
     </span>
@@ -634,10 +634,10 @@ function ReposBackdrop({
         className="text-center transition-opacity duration-300"
         style={{ opacity: hasOpen ? 0.25 : 1 }}
       >
-        <div className="font-mono text-[11px] text-studio-ink-faint">
+        <div className="font-mono text-sm text-studio-ink-faint">
           {docked ? "diff docked" : "select a branch"}
         </div>
-        <div className="mt-1 font-mono text-[10px] text-studio-ink-faint opacity-60">
+        <div className="mt-1 font-mono text-xs text-studio-ink-faint opacity-60">
           {docked
             ? "pick another branch — it stays open"
             : "its diffs recap into a sheet"}
@@ -869,11 +869,11 @@ function DiffContent({
           style={{ background: "var(--status-warn-fg)" }}
         />
         <div className="min-w-0">
-          <div className="truncate font-mono text-[13px]">
+          <div className="truncate font-mono text-lg">
             <span className="text-studio-ink-faint">{prefix}</span>
             <span className="font-semibold text-studio-ink">{leaf}</span>
           </div>
-          <div className="mt-0.5 font-mono text-[10px] tabular-nums text-studio-ink-faint">
+          <div className="mt-0.5 font-mono text-xs tabular-nums text-studio-ink-faint">
             {branch.files.length} file
             {branch.files.length === 1 ? "" : "s"}
             {" · "}
@@ -908,10 +908,10 @@ function DiffContent({
       {branch.files.length === 0 ? (
         <div className="flex flex-1 items-center justify-center">
           <div className="text-center">
-            <div className="font-mono text-[12px] text-studio-ink-muted">
+            <div className="font-mono text-md text-studio-ink-muted">
               working tree clean
             </div>
-            <div className="mt-1 font-mono text-[10px] text-studio-ink-faint">
+            <div className="mt-1 font-mono text-xs text-studio-ink-faint">
               nothing to diff on this branch
             </div>
           </div>
@@ -941,7 +941,7 @@ function FilesRail({
 }) {
   return (
     <div className="flex w-[230px] shrink-0 flex-col border-r border-studio-edge bg-studio-canvas-alt">
-      <div className="border-b border-studio-edge px-3 py-1.5 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="border-b border-studio-edge px-3 py-1.5 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         Changed files
       </div>
       <div className="flex-1 overflow-y-auto py-1">
@@ -960,7 +960,7 @@ function FilesRail({
             }}
           >
             <span
-              className="grid h-3.5 w-3.5 shrink-0 place-items-center rounded-[3px] font-mono text-[8px] font-bold"
+              className="grid h-3.5 w-3.5 shrink-0 place-items-center rounded-[3px] font-mono text-3xs font-bold"
               style={{
                 color: STATUS_COLOR[f.status],
                 background: "color-mix(in oklab, currentColor 16%, transparent)",
@@ -969,14 +969,14 @@ function FilesRail({
               {STATUS_GLYPH[f.status]}
             </span>
             <span className="min-w-0 flex-1 leading-tight">
-              <span className="block truncate font-mono text-[11px] text-studio-ink">
+              <span className="block truncate font-mono text-sm text-studio-ink">
                 {f.name}
               </span>
-              <span className="block truncate font-mono text-[9px] text-studio-ink-faint">
+              <span className="block truncate font-mono text-2xs text-studio-ink-faint">
                 {f.dir}
               </span>
             </span>
-            <span className="shrink-0 text-right font-mono text-[9px] tabular-nums leading-tight">
+            <span className="shrink-0 text-right font-mono text-2xs tabular-nums leading-tight">
               <span className="block" style={{ color: "var(--status-ok-fg)" }}>
                 +{f.additions}
               </span>
@@ -1001,16 +1001,16 @@ function DiffBody({ file, mode }: { file: FileDiff; mode: Mode }) {
     <div className="flex min-w-0 flex-1 flex-col">
       {/* file breadcrumb */}
       <div className="flex items-center gap-2 border-b border-studio-edge px-4 py-1.5">
-        <span className="truncate font-mono text-[11px]">
+        <span className="truncate font-mono text-sm">
           <span className="text-studio-ink-faint">{file.dir}/</span>
           <span className="text-studio-ink">{file.name}</span>
         </span>
         {file.lang ? (
-          <span className="shrink-0 rounded-[3px] border border-studio-edge px-1 py-px font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="shrink-0 rounded-[3px] border border-studio-edge px-1 py-px font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
             {file.lang}
           </span>
         ) : null}
-        <span className="ml-auto shrink-0 font-mono text-[9px] tabular-nums text-studio-ink-faint">
+        <span className="ml-auto shrink-0 font-mono text-2xs tabular-nums text-studio-ink-faint">
           {file.hunks.length} hunk{file.hunks.length === 1 ? "" : "s"}
         </span>
       </div>
@@ -1019,7 +1019,7 @@ function DiffBody({ file, mode }: { file: FileDiff; mode: Mode }) {
         className="min-h-0 flex-1 overflow-auto"
         style={{ background: "var(--code-bg)" }}
       >
-        <div className="min-w-max font-mono text-[11px] leading-[1.5]">
+        <div className="min-w-max font-mono text-sm leading-[1.5]">
           {file.hunks.map((h, i) =>
             mode === "unified" ? (
               <UnifiedHunk key={i} hunk={h} />
@@ -1209,7 +1209,7 @@ function Segmented({
           <button
             key={opt.value}
             onClick={() => onChange(opt.value)}
-            className="focus-ring px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-eyebrow transition-colors"
+            className="focus-ring px-2.5 py-1 font-mono text-xs font-semibold uppercase tracking-eyebrow transition-colors"
             style={{
               borderLeft: i ? "1px solid var(--studio-edge)" : undefined,
               background: on
@@ -1228,7 +1228,7 @@ function Segmented({
 
 function Kbd({ children }: { children: React.ReactNode }) {
   return (
-    <kbd className="rounded-[3px] border border-studio-edge bg-studio-canvas px-1 py-px font-mono text-[10px] text-studio-ink-muted">
+    <kbd className="rounded-[3px] border border-studio-edge bg-studio-canvas px-1 py-px font-mono text-xs text-studio-ink-muted">
       {children}
     </kbd>
   );

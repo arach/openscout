@@ -24,12 +24,26 @@ body {
   color: var(--studio-ink);
   font-family: theme("fontFamily.mono");
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "ss01" on, "cv11" on;
+}
+
+/* Text selection — accent-soft wash, not browser blue. */
+::selection {
+  background: color-mix(in oklab, var(--scout-accent) 28%, transparent);
+  color: var(--studio-ink);
 }
 
 /* StatusBar ships a locale clock (AM/PM, tight min-width). We render
  * StudioClock in the right slot and hide the built-in trailing clock. */
 [data-frame-panel="status-bar"] > div:last-child > div:last-child {
   display: none;
+}
+
+/* Status bar: denser instrument feel against the main canvas. */
+[data-frame-panel="status-bar"] {
+  border-top-color: var(--studio-edge) !important;
+  letter-spacing: 0.02em;
 }
 
 /* ── Focus ring ────────────────────────────────────────────────────
@@ -41,6 +55,150 @@ body {
   outline: 2px solid var(--scout-accent);
   outline-offset: 1px;
   border-radius: 2px;
+}
+
+/* ── Premium chrome utilities ──────────────────────────────────────
+ * Shared craft for the studio shell and list surfaces. Cards and
+ * nav links keep hairline structure; hover is light, not lift.
+ * ────────────────────────────────────────────────────────────────── */
+
+/* Instrument rail: a half-step back from the reading canvas so
+ * content reads as the lit plane. Solid lift, not glass. */
+.studio-rail {
+  background: color-mix(in oklab, var(--studio-canvas-alt) 72%, var(--studio-canvas));
+}
+
+/* Thin, quiet scrollbars in chrome (rail nav, overflow panels). */
+.studio-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--studio-ink) 18%, transparent) transparent;
+}
+.studio-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.studio-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.studio-scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--studio-ink) 16%, transparent);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.studio-scroll::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklab, var(--studio-ink) 28%, transparent);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+/* Index / list card — stable hover lighting, no translate/scale. */
+.studio-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--studio-edge);
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--studio-surface) 55%, transparent);
+  transition:
+    border-color 0.2s cubic-bezier(0.2, 0.7, 0.2, 1),
+    background 0.2s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.studio-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 0.22s cubic-bezier(0.2, 0.7, 0.2, 1);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--studio-ink) 5.5%, transparent) 0%,
+    transparent 52%
+  );
+}
+.studio-card:hover {
+  border-color: color-mix(in oklab, var(--studio-ink) 28%, var(--studio-edge));
+  background: color-mix(in oklab, var(--studio-surface) 78%, transparent);
+}
+.studio-card:hover::before {
+  opacity: 1;
+}
+.studio-card:focus-visible {
+  outline: 2px solid var(--scout-accent);
+  outline-offset: 1px;
+}
+
+/* Static sibling of studio-card (insertion points, non-link panels). */
+.studio-panel {
+  border: 1px solid var(--studio-edge);
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--studio-surface) 40%, transparent);
+}
+
+/* Rail / list row — active carries a soft accent wash + registration mark. */
+.studio-nav-link {
+  position: relative;
+  transition:
+    color 0.15s cubic-bezier(0.2, 0.7, 0.2, 1),
+    background 0.15s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.studio-nav-link[data-active="true"] {
+  background: color-mix(in oklab, var(--scout-accent) 11%, var(--studio-canvas-alt));
+  color: var(--studio-ink);
+}
+.studio-nav-link[data-active="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--scout-accent);
+}
+
+/* Search field shell — recessed, accent rim on focus-within. */
+.studio-search {
+  background: color-mix(in oklab, var(--studio-ink) 4.5%, transparent);
+  border: 1px solid var(--studio-edge);
+  transition:
+    border-color 0.15s cubic-bezier(0.2, 0.7, 0.2, 1),
+    background 0.15s cubic-bezier(0.2, 0.7, 0.2, 1),
+    box-shadow 0.15s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.studio-search:hover {
+  background: color-mix(in oklab, var(--studio-ink) 6.5%, transparent);
+}
+.studio-search:focus-within {
+  border-color: color-mix(in oklab, var(--scout-accent) 55%, var(--studio-edge));
+  background: color-mix(in oklab, var(--studio-ink) 5%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--scout-accent) 22%, transparent);
+}
+
+/* Section hairline rule with optical weight. */
+.studio-rule {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    var(--studio-edge) 0%,
+    color-mix(in oklab, var(--studio-edge) 35%, transparent) 100%
+  );
+}
+
+/* Brand mark — small accent register before the wordmark. */
+.studio-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.studio-mark__sigil {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+  background: var(--scout-accent);
+  box-shadow: 0 0 8px color-mix(in oklab, var(--scout-accent) 45%, transparent);
 }
 
 /* ── Ink tints ─────────────────────────────────────────────────────
@@ -103,7 +261,7 @@ body {
 
 .studio-prose {
   font-family: theme("fontFamily.sans");
-  font-size: 14px;
+  font-size: var(--text-lg); /* 13 — reading body, one step under old 14 */
   line-height: 1.65;
   color: var(--studio-ink);
 }
@@ -118,13 +276,13 @@ body {
 }
 
 .studio-prose h1 {
-  font-size: 28px;
+  font-size: var(--text-6xl);
   font-weight: 500;
   margin: 0 0 1.25rem;
   line-height: 1.15;
 }
 .studio-prose h2 {
-  font-size: 20px;
+  font-size: var(--text-4xl);
   font-weight: 500;
   margin: 2.25rem 0 0.75rem;
   line-height: 1.25;
@@ -132,12 +290,12 @@ body {
   padding-bottom: 0.35rem;
 }
 .studio-prose h3 {
-  font-size: 16px;
+  font-size: var(--text-2xl);
   font-weight: 600;
   margin: 1.5rem 0 0.5rem;
 }
 .studio-prose h4 {
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-weight: 600;
   margin: 1.25rem 0 0.35rem;
   font-family: theme("fontFamily.mono");
@@ -188,7 +346,7 @@ body {
   background: var(--code-bg);
   padding: 0.9rem 1rem;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: var(--text-md);
   line-height: 1.55;
   overflow-x: auto;
   margin: 0 0 1rem;
@@ -218,7 +376,7 @@ body {
 .studio-prose table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--text-md);
   margin: 0 0 1rem;
 }
 .studio-prose th,
@@ -230,7 +388,7 @@ body {
 }
 .studio-prose th {
   font-family: theme("fontFamily.mono");
-  font-size: 11px;
+  font-size: var(--text-sm);
   text-transform: uppercase;
   letter-spacing: 0.18em;
   color: var(--studio-ink-faint);

@@ -82,7 +82,7 @@ body {
 
 .native-surface h1 {
   margin: 6px 0 0;
-  font-size: 25px;
+  font-size: var(--text-6xl);
   line-height: 1;
   letter-spacing: -0.035em;
 }
@@ -125,7 +125,7 @@ body {
 
 .native-surface__state h2 {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--text-2xl);
   line-height: 1.2;
 }
 
@@ -133,6 +133,6 @@ body {
   max-width: 520px;
   margin: 6px 0 0;
   color: rgba(224, 232, 221, 0.55);
-  font-size: 12px;
+  font-size: var(--text-md);
   line-height: 1.55;
 }

@@ -51,7 +51,7 @@ export function QueryForm({
   }
 
   const inputCls =
-    "flex-1 rounded border border-studio-edge bg-studio-canvas px-2 py-1 font-mono text-[11px] text-studio-ink placeholder:text-studio-ink-faint focus:outline-none focus:ring-1 focus:ring-studio-ink-faint";
+    "flex-1 rounded border border-studio-edge bg-studio-canvas px-2 py-1 font-mono text-sm text-studio-ink placeholder:text-studio-ink-faint focus:outline-none focus:ring-1 focus:ring-studio-ink-faint";
 
   return (
     <form
@@ -85,7 +85,7 @@ export function QueryForm({
         <button
           type="submit"
           disabled={isPending}
-          className={`rounded border border-studio-edge bg-studio-canvas px-2 py-1 font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink hover:bg-studio-canvas-alt disabled:opacity-50 ${isPending ? "animate-pulse" : ""}`}
+          className={`rounded border border-studio-edge bg-studio-canvas px-2 py-1 font-mono text-xs uppercase tracking-eyebrow text-studio-ink hover:bg-studio-canvas-alt disabled:opacity-50 ${isPending ? "animate-pulse" : ""}`}
         >
           {isPending ? "running ↻" : submitLabel}
         </button>

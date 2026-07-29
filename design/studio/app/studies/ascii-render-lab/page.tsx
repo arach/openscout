@@ -34,12 +34,12 @@ export default function AsciiRenderLabPage() {
       <AsciiRenderLab />
 
       <section className="mt-10 max-w-prose">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · baked in, not exposed
         </div>
-        <p className="font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="font-sans text-lg leading-relaxed text-studio-ink-faint">
           Two rules are findings rather than preferences, both inherited from{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
+          <code className="font-mono text-sm text-studio-ink">
             design/portal-studies/README.md
           </code>
           . The shimmer modulates <b>coverage before quantisation</b>, never

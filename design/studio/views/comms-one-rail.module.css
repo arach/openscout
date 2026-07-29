@@ -1,0 +1,554 @@
+/* Comms one-rail — D1–D6 as a working frame.
+   Palette = the shared Hudson tokens all three shipped surfaces consume
+   (iOS HudPalette, macOS via HudsonKit, web --hud-*): neutral R=G=B
+   surfaces, accent emerald-500. The only green pixels are attention
+   (needs-you dot, addressed count, the need-a-reply stat, ask hairline);
+   selection and creation are ink. faint = neutral-600, one step past
+   hud dim on the same scale. */
+
+.frame {
+  --font-sans: "Inter Tight", "Inter", -apple-system, "SF Pro Text", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --cr-bg: #0a0a0a;            /* hud bg */
+  --cr-panel: #171717;         /* hud surface */
+  --cr-ink: #e5e5e5;           /* hud ink */
+  --cr-muted: #a3a3a3;         /* hud muted */
+  --cr-dim: #737373;           /* hud dim */
+  --cr-faint: #525252;         /* neutral-600 */
+  --cr-hairline: #181818;      /* HudFill.subtle */
+  --cr-hairline-strong: #272727; /* hud border */
+  --cr-accent: #10b981;        /* hud accent (emerald-500) */
+  display: grid;
+  grid-template-columns: 288px minmax(0, 1fr);
+  min-height: 620px;
+  max-width: 1460px;
+  background: var(--cr-bg);
+  border: 1px solid var(--cr-hairline-strong);
+  border-radius: 10px;
+  overflow: hidden;
+  font-family: var(--font-sans, ui-sans-serif);
+  color: var(--cr-ink);
+}
+
+/* ── rail ────────────────────────────────────────────────────── */
+.rail {
+  border-right: 1px solid var(--cr-hairline);
+  padding: 12px 0 16px;
+  overflow: hidden;
+}
+
+/* rail header — the salvage from messages-home: creation + the one stat */
+.railHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 12px 10px;
+}
+.newChat {
+  background: none;
+  border: 1px solid var(--cr-hairline-strong);
+  border-radius: 6px;
+  color: var(--cr-ink);
+  font-size: var(--text-md);
+  font-weight: 600;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+.newChat:hover { border-color: var(--cr-faint); }
+.railStat {
+  margin-left: auto;
+  font-family: var(--font-mono, ui-monospace);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cr-accent);
+}
+
+.filter {
+  margin: 0 12px 12px;
+  padding: 6px 10px;
+  border: 1px solid var(--cr-hairline-strong);
+  border-radius: 6px;
+  font-size: var(--text-md);
+  color: var(--cr-faint);
+  cursor: text;
+}
+
+.section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 14px 5px;
+  font-family: var(--font-mono, ui-monospace);
+  font-size: var(--text-xs);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--cr-faint);
+  user-select: none;
+}
+.sectionAct {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--cr-faint);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+.sectionAct:hover { color: var(--cr-ink); }
+.sectionObserved { cursor: pointer; }
+.sectionObserved:hover { color: var(--cr-dim); }
+.sectionChevron { margin-left: auto; font-size: var(--text-xs); }
+
+/* rows — one grammar (D3); flat full-width, selection is a fill */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 14px;
+  font-size: var(--text-md);
+  color: var(--cr-muted);
+  cursor: pointer;
+  min-width: 0;
+}
+.row:hover { background: rgba(255, 255, 255, 0.02); }
+/* Selection is a neutral fill — selected ≠ needs attention. */
+.row[data-on] { background: rgba(255, 255, 255, 0.05); color: var(--cr-ink); }
+.row[data-unread] .rowName { font-weight: 600; color: var(--cr-ink); }
+
+.glyph {
+  width: 16px;
+  text-align: center;
+  color: var(--cr-faint);
+  font-size: var(--text-md);
+  flex: none;
+}
+.row[data-unread] .glyph { color: var(--cr-dim); }
+
+.avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: var(--cr-panel);
+  border: 1px solid var(--cr-hairline-strong);
+  color: var(--cr-dim);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.rowName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rowPresence {
+  margin-left: auto;
+  font-family: var(--font-mono, ui-monospace);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  color: var(--cr-faint);
+  flex: none;
+}
+.rowDot {
+  margin-left: auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--cr-accent);
+  flex: none;
+}
+.rowCount {
+  margin-left: auto;
+  font-family: var(--font-mono, ui-monospace);
+  font-size: var(--text-xs);
+  color: var(--cr-accent);
+  flex: none;
+}
+.rowDot + .rowCount,
+.rowPresence + .rowCount { margin-left: 8px; }
+
+/* ── hierarchy: project groups (the mindful-scale rule) ──────────
+   Sessions fold onto named identities; cold projects fold to name + count.
+   The group header is a tree node, not a section — it sorts, expands, and
+   holds the roll-up for the unnamed churn. */
+.rowGroup {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 6px 14px 4px;
+  font-size: var(--text-md);
+  cursor: pointer;
+  user-select: none;
+}
+.rowGroup:hover .rowGroupName { color: var(--cr-ink); }
+.rowGroupName { font-weight: 600; color: var(--cr-muted); }
+.rowGroupCount {
+  font-family: var(--font-mono, ui-monospace);
+  font-size: var(--text-xs);
+  color: var(--cr-faint);
+}
+.rowGroupChevron { margin-left: auto; font-size: var(--text-xs); color: var(--cr-faint); }
+
+.rowChild { padding-left: 28px; }
+.rowRollup { color: var(--cr-faint); font-size: var(--text-sm); }
+.rowRollup:hover { background: none; color: var(--cr-dim); }
+
+/* provenance suffix — needs-you mirrors only */
+.rowOrigin {
+  font-family: var(--font-mono, ui-monospace);
+  font-size: var(--text-xs);
+  color: var(--cr-faint);
+  flex: none;
+}
+
+/* discovery — the quieter second register (D2 refinement) */
+.rowDiscover { color: var(--cr-faint); }
+.rowDiscover:hover { color: var(--cr-dim); }
+.rowJoin {
+  margin-left: auto;
+  font-family: var(--font-mono, ui-monospace);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cr-faint);
+  opacity: 0;
+}
+.rowDiscover:hover .rowJoin { opacity: 1; }
+
+/* observed — dimmer stratum (D5): no glyph column, watching verb */
+.rowObserved { color: var(--cr-faint); padding-left: 22px; }
+.rowObserved:hover { background: none; color: var(--cr-dim); }
+.rowObservedMore { cursor: default; }
+
+/* ── conversation pane ───────────────────────────────────────── */
+.pane {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.paneHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 13px 20px;
+  border-bottom: 1px solid var(--cr-hairline);
+}
+.paneTitle {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+.paneTitle .glyph { width: auto; font-size: var(--text-lg); }
+.paneMeta {
+  font-family: var(--font-mono, ui-monospace);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cr-dim);
+}
+
+.turns { flex: 1; padding: 16px 22px; overflow: hidden; }
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 14px;
+  font-family: var(--font-mono, ui-monospace);
+  font-size: var(--text-xs);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--cr-faint);
+}
+.divider::before,
+.divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--cr-hairline);
+}
+
+.turn {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  margin: 0 0 14px;
+}
+.turn .avatar { width: 20px; height: 20px; border-radius: 5px; font-size: var(--text-xs); margin-top: 1px; }
+.turnBody { min-width: 0; }
+.turnHead { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
+.turnWho { font-size: var(--text-md); font-weight: 600; color: var(--cr-ink); }
+.turnWhen {
+  font-family: var(--font-mono, ui-monospace);
+  font-size: var(--text-xs);
+  color: var(--cr-faint);
+}
+.turnText { margin: 0; font-size: var(--text-lg); line-height: 1.6; color: var(--cr-muted); }
+
+/* ── turn registers (D4) ─────────────────────────────────────────
+   The ask is the steering atom: the ONLY carded, only accented unit in the
+   flow. Full-perimeter tinted hairline (house rule: no left bars on rounded
+   elements); everything ambient stays flat. */
+.askCard {
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  border-radius: 8px;
+  background: var(--cr-panel);
+  padding: 10px 12px;
+}
+.askCard .turnText { color: var(--cr-ink); }
+.askTag {
+  font-family: var(--font-mono, ui-monospace);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cr-accent);
+}
+.mention { color: var(--cr-accent); font-weight: 600; }
+
+/* work is a path, not a paste */
+.artifact {
+  display: inline-flex;
+  margin-top: 8px;
+  font-family: var(--font-mono, ui-monospace);
+  font-size: var(--text-sm);
+  color: var(--cr-muted);
+  border: 1px solid var(--cr-hairline-strong);
+  border-radius: 5px;
+  padding: 3px 8px;
+  background: var(--cr-bg);
+  cursor: pointer;
+}
+.artifact:hover { color: var(--cr-ink); border-color: var(--cr-faint); }
+
+/* status signals compress to one mono line — not a full turn */
+.turnStatus {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 14px 30px;
+  font-family: var(--font-mono, ui-monospace);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cr-dim);
+}
+.turnStatusWho { color: var(--cr-muted); font-weight: 600; }
+
+/* coalesced notices — ONE read unit inside the conversation; solid hairline
+   (dashed reads as placeholder), count pill + chevron carry expandability */
+.noticeFold {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 0 14px 30px;
+  padding: 8px 12px;
+  border: 1px solid var(--cr-hairline);
+  border-radius: 8px;
+  color: var(--cr-dim);
+  font-size: var(--text-md);
+  cursor: pointer;
+}
+.noticeFold:hover { color: var(--cr-muted); }
+.noticeCount {
+  font-family: var(--font-mono, ui-monospace);
+  font-size: var(--text-xs);
+  color: var(--cr-muted);
+  border: 1px solid var(--cr-hairline-strong);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.noticeChevron { margin-left: auto; font-size: var(--text-xs); color: var(--cr-faint); }
+
+.composer {
+  margin: 0 20px 18px;
+  border: 1px solid var(--cr-hairline-strong);
+  border-radius: 8px;
+  background: var(--cr-panel);
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.composerHint { flex: 1; font-size: var(--text-md); color: var(--cr-faint); }
+/* Ink + weight, same as New chat — accent belongs to attention, not creation. */
+.composerSend {
+  background: none;
+  border: 1px solid var(--cr-hairline-strong);
+  border-radius: 6px;
+  color: var(--cr-ink);
+  font-size: var(--text-md);
+  font-weight: 600;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+.composerSend:hover { border-color: var(--cr-faint); }
+
+/* ── channel browser (D2) ────────────────────────────────────── */
+.browser {
+  position: absolute;
+  top: 54px;
+  left: 24px;
+  width: 340px;
+  background: var(--cr-panel);
+  border: 1px solid var(--cr-hairline-strong);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  padding: 4px 0 0;
+  overflow: hidden;
+}
+.browserHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px 8px;
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+.browserClose {
+  background: none;
+  border: none;
+  color: var(--cr-faint);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.browserClose:hover { color: var(--cr-ink); }
+.browserSearch {
+  margin: 0 12px 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--cr-hairline-strong);
+  border-radius: 6px;
+  font-size: var(--text-md);
+  color: var(--cr-faint);
+  cursor: text;
+}
+.browserSection {
+  padding: 8px 14px 4px;
+  font-family: var(--font-mono, ui-monospace);
+  font-size: var(--text-xs);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--cr-faint);
+}
+.browserRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 14px;
+  font-size: var(--text-md);
+  color: var(--cr-muted);
+  cursor: pointer;
+}
+.browserRow:hover { background: rgba(255, 255, 255, 0.02); color: var(--cr-ink); }
+.browserMeta {
+  margin-left: auto;
+  font-family: var(--font-mono, ui-monospace);
+  font-size: var(--text-xs);
+  color: var(--cr-faint);
+}
+.browserFoot {
+  margin-top: 4px;
+  padding: 9px 14px;
+  border-top: 1px solid var(--cr-hairline);
+  font-size: var(--text-md);
+  color: var(--cr-dim);
+  cursor: pointer;
+}
+.browserFoot:hover { color: var(--cr-ink); }
+
+/* ── the mindful math ────────────────────────────────────────── */
+.ledger {
+  --font-sans: "Inter Tight", "Inter", -apple-system, "SF Pro Text", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --cr-bg: #0a0a0a;
+  --cr-ink: #e5e5e5;
+  --cr-muted: #a3a3a3;
+  --cr-dim: #737373;
+  --cr-faint: #525252;
+  --cr-hairline: #181818;
+  --cr-hairline-strong: #272727;
+  max-width: 760px;
+  background: var(--cr-bg);
+  border: 1px solid var(--cr-hairline-strong);
+  border-radius: 10px;
+  padding: 4px 0;
+  font-family: var(--font-sans, ui-sans-serif);
+}
+.ledgerRow {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--cr-hairline);
+  font-size: var(--text-md);
+  color: var(--cr-muted);
+}
+.ledgerRow:last-child { border-bottom: none; }
+.ledgerRow[data-total] { border-top: 1px solid var(--cr-hairline-strong); }
+.ledgerRow[data-total] .ledgerNote { color: var(--cr-muted); }
+.ledgerCount {
+  font-family: var(--font-mono, ui-monospace);
+  font-size: var(--text-sm);
+  color: var(--cr-ink);
+  min-width: 64px;
+  text-align: right;
+  flex: none;
+}
+.ledgerTerm { font-weight: 600; color: var(--cr-ink); min-width: 84px; flex: none; }
+.ledgerNote { color: var(--cr-dim); }
+
+/* ── specimens ───────────────────────────────────────────────── */
+.specimens {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+  max-width: 1460px;
+}
+.specimensWide {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+  gap: 14px;
+  max-width: 1460px;
+}
+.specimenTurn { padding: 12px 14px; }
+.specimenTurn .turn,
+.specimenTurn .turnStatus { margin-bottom: 0; }
+.noticeFoldSpecimen { margin: 0; }
+.specimen {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.specimenLabel {
+  font-family: var(--font-mono, ui-monospace);
+  font-size: var(--text-xs);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--cr-faint);
+}
+.specimenRow {
+  --font-sans: "Inter Tight", "Inter", -apple-system, "SF Pro Text", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --cr-bg: #0a0a0a;
+  --cr-panel: #171717;
+  --cr-ink: #e5e5e5;
+  --cr-muted: #a3a3a3;
+  --cr-dim: #737373;
+  --cr-faint: #525252;
+  --cr-hairline: #181818;
+  --cr-hairline-strong: #272727;
+  --cr-accent: #10b981;
+  background: var(--cr-bg);
+  border: 1px solid var(--cr-hairline-strong);
+  border-radius: 8px;
+  padding: 4px 0;
+  font-family: var(--font-sans, ui-sans-serif);
+  color: var(--cr-ink);
+}

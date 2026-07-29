@@ -56,8 +56,8 @@ describe("route fixtures", () => {
     { url: "/conversations", route: { view: "messages" }, canonical: "/messages" },
     {
       url: "/messages/c.foo?filter=dm",
-      route: { view: "messages", conversationId: "c.foo", filter: "dm" },
-      canonical: "/messages/c.foo?filter=dm",
+      route: { view: "messages", conversationId: "c.foo" },
+      canonical: "/messages/c.foo",
     },
     {
       url: "/sessions/sess-1",
@@ -82,8 +82,8 @@ describe("route fixtures", () => {
     },
     {
       url: "/channels/chan-1",
-      route: { view: "channels", channelId: "chan-1" },
-      canonical: "/channels/chan-1",
+      route: { view: "messages", conversationId: "chan-1" },
+      canonical: "/messages/chan-1",
     },
     { url: "/mesh", route: { view: "mesh" }, canonical: "/mesh" },
     { url: "/dispatch", route: { view: "broker" }, canonical: "/dispatch" },
@@ -134,8 +134,8 @@ describe("route fixtures", () => {
     },
   ];
 
-  test("fixtures cover all 22 view variants", () => {
-    expect(new Set(fixtures.map((f) => f.route.view)).size).toBe(22);
+  test("fixtures cover all 21 view variants", () => {
+    expect(new Set(fixtures.map((f) => f.route.view)).size).toBe(21);
   });
 
   for (const { url, route, canonical } of fixtures) {
@@ -532,6 +532,10 @@ describe("Phase B selection state in the URL", () => {
 
   test("settings sections round-trip", () => {
     expect(routeFromUrl("http://127.0.0.1:43120/settings")).toEqual({ view: "settings" });
+    expect(routeFromUrl("http://127.0.0.1:43120/settings/appearance")).toEqual({
+      view: "settings",
+      section: "appearance",
+    });
     expect(routeFromUrl("http://127.0.0.1:43120/settings/operator")).toEqual({
       view: "settings",
       section: "operator",
@@ -547,7 +551,7 @@ describe("Phase B selection state in the URL", () => {
     expect(routePath({ view: "settings", section: "voice" })).toBe("/settings/voice");
     expect(routeFromUrl("http://127.0.0.1:43120/voice")).toEqual({ view: "voice" });
     expect(routePath({ view: "voice" })).toBe("/voice");
-    expect(routePath({ view: "settings", section: "pairing" })).toBe("/settings");
+    expect(routePath({ view: "settings", section: "pairing" })).toBe("/settings/pairing");
     expect(routePath({ view: "settings", section: "agents" })).toBe("/settings/agents");
   });
 

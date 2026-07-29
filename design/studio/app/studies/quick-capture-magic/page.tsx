@@ -488,14 +488,14 @@ function MotionStage() {
             type="button"
             onClick={() => openComposer("center")}
             disabled={phase !== "idle"}
-            className="focus-ring rounded border border-studio-edge-strong bg-studio-surface px-2.5 py-1 font-mono text-[9.5px] font-semibold text-studio-ink hover:border-scout-accent disabled:opacity-40"
+            className="focus-ring rounded border border-studio-edge-strong bg-studio-surface px-2.5 py-1 font-mono text-2xs font-semibold text-studio-ink hover:border-scout-accent disabled:opacity-40"
           >
             ⌃⌥⇧⌘A · open composer
           </button>
           <button
             type="button"
             onClick={reset}
-            className="focus-ring rounded border border-studio-edge px-2.5 py-1 font-mono text-[9.5px] font-semibold text-studio-ink-faint hover:text-studio-ink"
+            className="focus-ring rounded border border-studio-edge px-2.5 py-1 font-mono text-2xs font-semibold text-studio-ink-faint hover:text-studio-ink"
           >
             reset
           </button>
@@ -734,7 +734,7 @@ function Seg({
 }) {
   return (
     <div className={`flex items-center gap-2${disabled ? " opacity-40" : ""}`}>
-      <span className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">
+      <span className="font-mono text-3xs font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">
         {label}
       </span>
       <div className="flex overflow-hidden rounded border border-studio-edge">
@@ -745,7 +745,7 @@ function Seg({
             disabled={disabled}
             onClick={() => onChange(o.value)}
             className={[
-              "focus-ring px-2 py-1 font-mono text-[9.5px] font-semibold",
+              "focus-ring px-2 py-1 font-mono text-2xs font-semibold",
               o.value === value
                 ? "bg-studio-surface text-scout-accent"
                 : "text-studio-ink-faint hover:text-studio-ink",
@@ -802,14 +802,14 @@ function MomentCard({
   return (
     <div className="rounded-lg border border-studio-edge bg-studio-canvas-alt p-3">
       <div className="mb-2 flex items-baseline gap-3">
-        <span className="font-sans text-[12px] font-semibold text-studio-ink">{title}</span>
-        <span className="hidden font-sans text-[10.5px] text-studio-ink-faint md:inline">
+        <span className="font-sans text-md font-semibold text-studio-ink">{title}</span>
+        <span className="hidden font-sans text-xs text-studio-ink-faint md:inline">
           {blurb}
         </span>
         <button
           type="button"
           onClick={onReplay}
-          className="focus-ring ml-auto rounded border border-studio-edge-strong px-2 py-0.5 font-mono text-[9px] font-semibold text-studio-ink hover:border-scout-accent"
+          className="focus-ring ml-auto rounded border border-studio-edge-strong px-2 py-0.5 font-mono text-2xs font-semibold text-studio-ink hover:border-scout-accent"
         >
           ▶ play both
         </button>
@@ -1162,7 +1162,7 @@ function CompareSection() {
             { value: "full", label: "1×" },
           ]}
         />
-        <span className="font-sans text-[11px] text-studio-ink-faint">
+        <span className="font-sans text-sm text-studio-ink-faint">
           both panes run off one clock — press play and watch them diverge
         </span>
       </div>
@@ -1251,8 +1251,8 @@ const TOKENS: { token: string; spec: string; used: string }[] = [
 function Cell({ children, mono }: { children: ReactNode; mono?: boolean }) {
   return (
     <td
-      className={`border-t border-studio-edge px-3 py-2.5 align-top text-[11px] leading-relaxed ${
-        mono ? "font-mono text-[10px] text-studio-ink-muted" : "font-sans text-studio-ink-muted"
+      className={`border-t border-studio-edge px-3 py-2.5 align-top text-sm leading-relaxed ${
+        mono ? "font-mono text-xs text-studio-ink-muted" : "font-sans text-studio-ink-muted"
       }`}
     >
       {children}
@@ -1262,7 +1262,7 @@ function Cell({ children, mono }: { children: ReactNode; mono?: boolean }) {
 
 function Th({ children }: { children: ReactNode }) {
   return (
-    <th className="px-3 pb-2 text-left font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">
+    <th className="px-3 pb-2 text-left font-mono text-3xs font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">
       {children}
     </th>
   );
@@ -1292,7 +1292,7 @@ export default function QuickCaptureMagicPage() {
         <EyebrowLabel as="h2" size="sm">
           side-by-side — the same moment, one clock, two treatments
         </EyebrowLabel>
-        <p className="mb-3 mt-2 max-w-prose font-sans text-[11.5px] leading-relaxed text-studio-ink-faint">
+        <p className="mb-3 mt-2 max-w-prose font-sans text-sm leading-relaxed text-studio-ink-faint">
           Toggling a single stage between Current and Proposed asks you to
           compare against motion memory, and the deltas vanish. Here each
           moment plays both treatments simultaneously. Honest framing: Arrival
@@ -1312,16 +1312,16 @@ export default function QuickCaptureMagicPage() {
         <div className="mt-3">
           <MotionStage />
         </div>
-        <p className="mt-3 max-w-prose font-sans text-[11.5px] leading-relaxed text-studio-ink-faint">
-          Drive it: <span className="font-mono text-[10px]">hotkey button</span> opens
+        <p className="mt-3 max-w-prose font-sans text-sm leading-relaxed text-studio-ink-faint">
+          Drive it: <span className="font-mono text-xs">hotkey button</span> opens
           centered; dragging the screenshot toward the bottom-left corner wakes the
           receiver; releasing on it grows the composer out of the corner while the
           thumbnail flies into the capture strip;{" "}
-          <span className="font-mono text-[10px]">⌘↩</span> submits and the panel
+          <span className="font-mono text-xs">⌘↩</span> submits and the panel
           departs to the menu-bar glyph. In the <em>Minimal</em> composer, click the
           project token to switch projects in place, and{" "}
-          <span className="font-mono text-[10px]">⇥</span> expands full routing —
-          minimal never locks you in. <span className="font-mono text-[10px]">esc</span>{" "}
+          <span className="font-mono text-xs">⇥</span> expands full routing —
+          minimal never locks you in. <span className="font-mono text-xs">esc</span>{" "}
           walks back: picker → composer.
         </p>
       </section>
@@ -1344,7 +1344,7 @@ export default function QuickCaptureMagicPage() {
               {MOMENTS.map((m) => (
                 <tr key={m.moment}>
                   <Cell>
-                    <span className="font-sans text-[11px] font-semibold text-studio-ink">
+                    <span className="font-sans text-sm font-semibold text-studio-ink">
                       {m.moment}
                     </span>
                   </Cell>
@@ -1384,9 +1384,9 @@ export default function QuickCaptureMagicPage() {
             </tbody>
           </table>
         </div>
-        <p className="mt-3 max-w-prose font-sans text-[11.5px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 max-w-prose font-sans text-sm leading-relaxed text-studio-ink-faint">
           Everything collapses to a fast opacity fade under Reduce Motion (the stage
-          honors <span className="font-mono text-[10px]">prefers-reduced-motion</span>{" "}
+          honors <span className="font-mono text-xs">prefers-reduced-motion</span>{" "}
           the same way). Today's inline literals — dwell 0.42s, hide 180ms, warm delay
           45ms, fade 0.10/0.14s, resize 0.18s — fold into this vocabulary.
         </p>
@@ -1396,7 +1396,7 @@ export default function QuickCaptureMagicPage() {
         <EyebrowLabel as="h2" size="sm">
           open questions
         </EyebrowLabel>
-        <ul className="mt-3 space-y-2 font-sans text-[12px] leading-relaxed text-studio-ink-muted">
+        <ul className="mt-3 space-y-2 font-sans text-md leading-relaxed text-studio-ink-muted">
           <li>
             <span className="font-semibold text-studio-ink">Sound default</span> — the
             success pop does enormous vibe work, but should it ship default-on with a

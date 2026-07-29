@@ -1282,7 +1282,6 @@ export type PlanDocumentsResponse = {
   };
 };
 
-export type MessagesFilter = "all" | "dm" | "channel";
 export type DispatchFilter = "all" | "delivered" | "failed";
 export type MessagesSort = "recent" | "name" | "unread";
 export type SearchMode = "knowledge" | "indexer";
@@ -1321,8 +1320,6 @@ export type Route =
   | ({
       view: "messages";
       conversationId?: string;
-      filter?: MessagesFilter;
-      sort?: MessagesSort;
     } & MachineScopedRoute)
   | ({
       view: "sessions";
@@ -1349,7 +1346,6 @@ export type Route =
       include?: "changed" | "all";
     }
   | { view: "search"; mode?: SearchMode; hitId?: string }
-  | ({ view: "channels"; channelId?: string } & MachineScopedRoute)
   | ({ view: "mesh" } & MachineScopedRoute)
   | { view: "broker"; attemptId?: string; filter?: DispatchFilter }
   | {

@@ -29,10 +29,10 @@ export function ResearchHeader({
 }) {
   return (
     <div className="mb-10 flex items-baseline gap-3 border-t border-studio-edge pt-6">
-      <span className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <span className="font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · research
       </span>
-      <span className="font-mono text-[10px] text-studio-ink-faint">
+      <span className="font-mono text-xs text-studio-ink-faint">
         / {surface}
       </span>
     </div>
@@ -48,7 +48,7 @@ export function ResearchBlock({
 }) {
   return (
     <div className="mb-9 grid gap-3 lg:grid-cols-[140px_1fr] lg:gap-7">
-      <div className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · {eyebrow}
       </div>
       <div className="text-studio-ink-muted">{children}</div>

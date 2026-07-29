@@ -366,12 +366,6 @@ function normalizeRoute(raw: unknown): Route | null {
       return {
         view: "messages",
         ...(typeof record.conversationId === "string" ? { conversationId: record.conversationId } : {}),
-        ...(record.filter === "all" || record.filter === "dm" || record.filter === "channel"
-          ? { filter: record.filter }
-          : {}),
-        ...(record.sort === "recent" || record.sort === "name" || record.sort === "unread"
-          ? { sort: record.sort }
-          : {}),
       };
     case "sessions":
       return {
@@ -400,10 +394,11 @@ function normalizeRoute(raw: unknown): Route | null {
         ...(record.mode === "knowledge" || record.mode === "indexer" ? { mode: record.mode } : {}),
         ...(typeof record.hitId === "string" ? { hitId: record.hitId } : {}),
       };
+    // Legacy `channels` intent folds onto the unified conversation route.
     case "channels":
       return {
-        view: "channels",
-        ...(typeof record.channelId === "string" ? { channelId: record.channelId } : {}),
+        view: "messages",
+        ...(typeof record.channelId === "string" ? { conversationId: record.channelId } : {}),
       };
     case "mesh":
       return { view: "mesh" };

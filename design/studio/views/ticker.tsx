@@ -74,13 +74,13 @@ export default function TickerStudyPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-6 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · ticker
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Ticker
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           The reusable activity stream that backs Telegraph and the HUD
           chrome&apos;s bottom strip. Two modes: <em>passive</em> for ambient
           read, <em>steer</em> for quick-steer — hover any event to pause,
@@ -149,10 +149,10 @@ export default function TickerStudyPage() {
 
       {/* Why this exists */}
       <section className="mt-14 max-w-prose">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · why this exists
         </div>
-        <p className="font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="font-sans text-lg leading-relaxed text-studio-ink-faint">
           Telegraph proved the value of an ambient activity strip. HUD
           chrome wanted one too. Both surfaces wanted to remain
           glanceable, but operators sometimes need to ACT on what they
@@ -167,11 +167,11 @@ export default function TickerStudyPage() {
           bigger than this is a different surface (channel, agent
           detail, decision queue).
         </p>
-        <p className="mt-3 font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-md leading-relaxed text-studio-ink-faint">
           The mic in the dock is mocked here — clicking it twice
           appends a contextual phrase per verb so the UX reads without
           us wiring{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
+          <code className="font-mono text-sm text-studio-ink">
             window.SpeechRecognition
           </code>{" "}
           yet. The real version drops in at a single line.
@@ -194,11 +194,11 @@ function SectionTitle({
 }) {
   return (
     <div className={`flex items-baseline gap-3 ${className}`}>
-      <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · {children}
       </div>
       {hint ? (
-        <div className="font-mono text-[10px] text-studio-ink-faint">
+        <div className="font-mono text-xs text-studio-ink-faint">
           {hint}
         </div>
       ) : null}
@@ -209,7 +209,7 @@ function SectionTitle({
 
 function Note({ children }: { children: React.ReactNode }) {
   return (
-    <p className="mt-3 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+    <p className="mt-3 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
       {children}
     </p>
   );
@@ -222,18 +222,18 @@ function ActionLog({
 }) {
   return (
     <div className="mt-5 max-w-prose">
-      <div className="mb-2 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="mb-2 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         · action log {entries.length > 0 ? `(${entries.length})` : ""}
       </div>
       {entries.length === 0 ? (
-        <div className="rounded-md border border-studio-edge bg-studio-canvas-alt px-4 py-3 font-mono text-[10.5px] text-studio-ink-faint">
+        <div className="rounded-md border border-studio-edge bg-studio-canvas-alt px-4 py-3 font-mono text-xs text-studio-ink-faint">
           No actions yet — hover the Steer ticker, click a chip. Verbs like{" "}
           <span className="text-studio-ink">reply</span>,{" "}
           <span className="text-studio-ink">thread</span>, and{" "}
           <span className="text-studio-ink">reject</span> open the input dock.
         </div>
       ) : (
-        <ul className="m-0 list-none rounded-md border border-studio-edge bg-studio-canvas-alt p-0 font-mono text-[10.5px] [&>*+*]:border-t [&>*+*]:border-studio-edge">
+        <ul className="m-0 list-none rounded-md border border-studio-edge bg-studio-canvas-alt p-0 font-mono text-xs [&>*+*]:border-t [&>*+*]:border-studio-edge">
           {entries.map((e, i) => (
             <li key={i} className="flex flex-col gap-0.5 px-4 py-2">
               <div className="flex items-baseline gap-3">
@@ -247,7 +247,7 @@ function ActionLog({
               </div>
               {e.text ? (
                 <div
-                  className="ml-[68px] font-sans text-[11.5px] italic text-studio-ink"
+                  className="ml-[68px] font-sans text-sm italic text-studio-ink"
                   style={{ color: "var(--scout-accent)" }}
                 >
                   “{e.text}”
@@ -265,7 +265,7 @@ function ActionVocab() {
   const kinds: TickerKind[] = ["message", "work", "decision", "artifact"];
   return (
     <div className="mt-3 overflow-hidden rounded-md border border-studio-edge bg-studio-canvas-alt">
-      <div className="grid grid-cols-[140px_1fr_minmax(0,2fr)] gap-4 border-b border-studio-edge px-5 py-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="grid grid-cols-[140px_1fr_minmax(0,2fr)] gap-4 border-b border-studio-edge px-5 py-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         <div>Kind</div>
         <div>Default actions</div>
         <div>Meaning</div>
@@ -284,10 +284,10 @@ function VocabRow({ kind }: { kind: TickerKind }) {
   return (
     <div className="grid grid-cols-[140px_1fr_minmax(0,2fr)] items-center gap-4 px-5 py-3.5">
       <div>
-        <div className="font-sans text-[13px] font-medium text-studio-ink">
+        <div className="font-sans text-lg font-medium text-studio-ink">
           {kind}
         </div>
-        <div className="mt-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mt-0.5 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           {kindGlyphHint(kind)}
         </div>
       </div>
@@ -295,7 +295,7 @@ function VocabRow({ kind }: { kind: TickerKind }) {
         {actions.map((a) => (
           <div
             key={a.id}
-            className="flex items-center gap-1.5 rounded-full border border-studio-edge px-2 py-0.5 font-mono text-[9.5px] text-studio-ink-faint"
+            className="flex items-center gap-1.5 rounded-full border border-studio-edge px-2 py-0.5 font-mono text-2xs text-studio-ink-faint"
             style={{
               color:
                 a.variant === "danger"
@@ -309,7 +309,7 @@ function VocabRow({ kind }: { kind: TickerKind }) {
           </div>
         ))}
       </div>
-      <div className="font-sans text-[12.5px] text-studio-ink-faint">
+      <div className="font-sans text-md text-studio-ink-faint">
         {kindMeaning(kind)}
       </div>
     </div>
@@ -357,7 +357,7 @@ function InContext({
         style={{ maxWidth: 880, aspectRatio: "16 / 10" }}
       >
         {/* Title bar */}
-        <div className="flex items-center gap-1.5 border-b border-studio-edge px-3 py-1.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="flex items-center gap-1.5 border-b border-studio-edge px-3 py-1.5 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           <span
             aria-hidden
             className="h-2 w-2 rounded-full"
@@ -415,7 +415,7 @@ function InContext({
           </div>
         </div>
       </div>
-      <div className="mt-3 text-center font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="mt-3 text-center font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         hover an event in the strip → action chips float above
       </div>
     </div>
@@ -483,18 +483,18 @@ function OnOtherSurfaces({
       </SurfacePanel>
 
       <div className="lg:col-span-3">
-        <p className="max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+        <p className="max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
           Same chip cluster, same input dock, same{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
+          <code className="font-mono text-sm text-studio-ink">
             onAction
           </code>{" "}
           callback. AgentRow opts in by setting{" "}
-          <code className="font-mono text-[11px] text-studio-ink">steerable</code>{" "}
+          <code className="font-mono text-sm text-studio-ink">steerable</code>{" "}
           — the underlying QuickSteer wrapper handles state, glass, and
           mic. Roster events default to{" "}
-          <code className="font-mono text-[11px] text-studio-ink">message</code>{" "}
+          <code className="font-mono text-sm text-studio-ink">message</code>{" "}
           kind (reply / thread / pin), and agents in{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
+          <code className="font-mono text-sm text-studio-ink">
             needs-attention
           </code>{" "}
           surface decision verbs (ack / pin / reject) instead. Click the
@@ -518,10 +518,10 @@ function SurfacePanel({
   return (
     <div>
       <div className="mb-2">
-        <div className="font-sans text-[12.5px] font-medium text-studio-ink">
+        <div className="font-sans text-md font-medium text-studio-ink">
           {title}
         </div>
-        <div className="font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           {sub}
         </div>
       </div>
@@ -535,7 +535,7 @@ function SurfacePanel({
 function Api() {
   return (
     <pre
-      className="mt-3 overflow-x-auto rounded-md border border-studio-edge p-5 font-mono text-[11.5px] leading-[1.55] text-studio-ink"
+      className="mt-3 overflow-x-auto rounded-md border border-studio-edge p-5 font-mono text-sm leading-[1.55] text-studio-ink"
       style={{ background: "var(--code-bg)" }}
     >
 {`import { Ticker, DEFAULT_TICKER_ACTIONS } from "@/components/Ticker";

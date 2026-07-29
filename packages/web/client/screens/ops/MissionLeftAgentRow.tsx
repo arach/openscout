@@ -11,7 +11,7 @@ export function MissionLeftAgentRow({
   isSelected,
   tabIndex,
   onToggle,
-  onFocusOnCanvas,
+  onReveal,
   onOpen,
 }: {
   agent: MissionVisibleAgent;
@@ -20,7 +20,7 @@ export function MissionLeftAgentRow({
   isSelected: boolean;
   tabIndex: 0 | -1;
   onToggle: (e: React.MouseEvent | React.KeyboardEvent) => void;
-  onFocusOnCanvas: () => void;
+  onReveal: () => void;
   onOpen: () => void;
 }) {
   const hoverHandlers = statusOnHover({
@@ -37,8 +37,8 @@ export function MissionLeftAgentRow({
         <SpecLine label="SOURCE" value={agent.source} />
       </dl>
       <div className="ml-detail-actions">
-        <button type="button" className="ml-detail-btn" onClick={onFocusOnCanvas}>
-          Focus on canvas
+        <button type="button" className="ml-detail-btn" onClick={onReveal}>
+          Reveal on wall
         </button>
         <button type="button" className="ml-detail-btn ml-detail-btn--primary" onClick={onOpen}>
           Open ↗

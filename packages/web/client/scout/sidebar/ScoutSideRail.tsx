@@ -44,7 +44,6 @@ export function sideRailHasContent(route: Route, scopePresentation: boolean): bo
     case "agent-info":
     case "terminal":
     case "messages":
-    case "channels":
     case "conversation":
     case "ops":
     case "mesh":
@@ -135,7 +134,7 @@ export function ScoutSideRail({
           style={{
             position: "fixed",
             left: chevronEdge,
-            top: top + 8,
+            top: top + 6,
             zIndex: 45,
             transform: "translateX(-50%)",
           }}

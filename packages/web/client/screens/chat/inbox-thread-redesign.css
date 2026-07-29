@@ -51,7 +51,7 @@
 }
 
 .s-inbox-thread-redesign .s-thread-overview-heading .s-page-title {
-  font-size: 22px; /* FLAG: off-scale display size — left literal */
+  font-size: var(--text-5xl); /* FLAG: off-scale display size — left literal */
   font-family: var(--font-accent-title);
   font-weight: 500;
   letter-spacing: -0.025em;

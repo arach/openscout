@@ -324,7 +324,7 @@
   width: 13px;
   height: 13px;
   border-radius: var(--radius-xs);
-  font-size: 8px;
+  font-size: var(--text-3xs);
   font-weight: 800;
   background: color-mix(in srgb, var(--ink) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
@@ -437,7 +437,7 @@
   background: transparent;
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: var(--text-3xs);
   font-weight: 700;
   letter-spacing: var(--tracking-xl);
   text-transform: uppercase;

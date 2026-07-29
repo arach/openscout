@@ -611,15 +611,15 @@ export default function LaneDetailSheetEditorialPage() {
 const CSS = `
 .lds-study{min-height:100vh;background:${C.bg};color:${C.ink};font-family:Inter,system-ui,sans-serif;padding:40px}
 .study-head{margin-bottom:22px;max-width:720px}
-.eyebrow{font-family:ui-monospace,monospace;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:${C.dim}}
-.lds-study h1{font-size:28px;font-weight:600;margin:4px 0}
-.sub{font-family:ui-monospace,monospace;font-size:12px;color:${C.dim};margin:0;line-height:1.5}
+.eyebrow{font-family:ui-monospace,monospace;font-size: var(--text-2xs);text-transform:uppercase;letter-spacing:.08em;color:${C.dim}}
+.lds-study h1{font-size: var(--text-6xl);font-weight:600;margin:4px 0}
+.sub{font-family:ui-monospace,monospace;font-size: var(--text-md);color:${C.dim};margin:0;line-height:1.5}
 
 /* stage — a faint left context so the sheet reads as a right-rail, plus the panel */
 .stage{display:flex;gap:0;align-items:flex-start;margin-top:8px;border:1px solid ${C.edge};border-radius:11px;overflow:hidden;width:fit-content;background:${C.bg}}
 .stage-context{width:230px;padding:16px 14px;display:flex;flex-direction:column;gap:7px;opacity:.55}
-.ctx-line{font-family:ui-monospace,monospace;font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:${C.dim};margin-bottom:6px}
-.ctx-lane{display:flex;align-items:center;gap:8px;font-family:ui-monospace,monospace;font-size:12px;color:${C.muted};padding:7px 9px;border-radius:6px}
+.ctx-line{font-family:ui-monospace,monospace;font-size: var(--text-2xs);text-transform:uppercase;letter-spacing:.1em;color:${C.dim};margin-bottom:6px}
+.ctx-lane{display:flex;align-items:center;gap:8px;font-family:ui-monospace,monospace;font-size: var(--text-md);color:${C.muted};padding:7px 9px;border-radius:6px}
 .ctx-lane--sel{background:rgba(255,255,255,.04);color:${C.ink};opacity:1}
 .ctx-dot{width:6px;height:6px;border-radius:50%;background:${C.faint}}
 .ctx-dot--on{background:${C.green};box-shadow:0 0 0 3px color-mix(in srgb,${C.green} 18%,transparent)}
@@ -632,8 +632,8 @@ const CSS = `
 .sheet-head{display:flex;align-items:center;gap:10px;padding:12px 14px 11px;border-bottom:1px solid ${C.edge}}
 .sheet-av{flex:none;border-radius:8px}
 .sheet-ident{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 auto}
-.sheet-name{display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:600;letter-spacing:-.01em;color:${C.ink}}
-.sheet-sub{display:inline-flex;align-items:center;gap:6px;font-family:ui-monospace,monospace;font-size:10.5px;color:${C.dim};min-width:0}
+.sheet-name{display:inline-flex;align-items:center;gap:6px;font-size: var(--text-xl);font-weight:600;letter-spacing:-.01em;color:${C.ink}}
+.sheet-sub{display:inline-flex;align-items:center;gap:6px;font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.dim};min-width:0}
 .sheet-sub .harness-inline{display:inline-flex;align-items:center;gap:4px;color:${C.muted}}
 .sheet-sub .dot-sep{color:${C.faint}}
 .working-dot{width:6px;height:6px;border-radius:50%;background:${C.green};box-shadow:0 0 0 3px color-mix(in srgb,${C.green} 16%,transparent);animation:pulse 2.6s ease-in-out infinite}
@@ -650,33 +650,33 @@ const CSS = `
 .hero{padding:16px 14px 17px;border-bottom:1px solid ${C.edge};
   background:linear-gradient(180deg,color-mix(in srgb,${C.green} 4%,transparent),transparent 70%)}
 .hero-meta{display:inline-flex;align-items:center;gap:7px;margin-bottom:11px}
-.hero-meta-text{font-family:ui-monospace,monospace;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:${C.dim}}
+.hero-meta-text{font-family:ui-monospace,monospace;font-size: var(--text-2xs);letter-spacing:.08em;text-transform:uppercase;color:${C.dim}}
 /* the headline — the single biggest, lightest type on the panel. Not mono. */
-.hero-headline{margin:0;font-family:Inter,system-ui,sans-serif;font-size:22px;line-height:1.15;font-weight:600;letter-spacing:-.02em;color:${C.ink}}
-.hero-digest{margin:5px 0 0;font-family:ui-monospace,monospace;font-size:11px;line-height:1.5;color:${C.muted}}
+.hero-headline{margin:0;font-family:Inter,system-ui,sans-serif;font-size: var(--text-5xl);line-height:1.15;font-weight:600;letter-spacing:-.02em;color:${C.ink}}
+.hero-digest{margin:5px 0 0;font-family:ui-monospace,monospace;font-size: var(--text-sm);line-height:1.5;color:${C.muted}}
 
 /* the live command well — the reference's inset "now", kept */
 .now-action{display:flex;align-items:flex-start;gap:8px;margin-top:13px;
   background:#070809;border:1px solid color-mix(in srgb,${C.ink} 12%,transparent);border-radius:7px;
   padding:7px 9px;box-shadow:inset 0 1px 0 rgba(255,255,255,.03),0 1px 2px rgba(0,0,0,.4)}
-.now-prompt{flex:none;color:color-mix(in srgb,${C.green} 80%,${C.muted});font-weight:700;font-family:ui-monospace,monospace;font-size:12px;line-height:1.5}
-.now-cmd{flex:1 1 auto;min-width:0;font-family:ui-monospace,monospace;font-size:11.5px;line-height:1.5;color:${C.ink};
+.now-prompt{flex:none;color:color-mix(in srgb,${C.green} 80%,${C.muted});font-weight:700;font-family:ui-monospace,monospace;font-size: var(--text-md);line-height:1.5}
+.now-cmd{flex:1 1 auto;min-width:0;font-family:ui-monospace,monospace;font-size: var(--text-sm);line-height:1.5;color:${C.ink};
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all}
 .now-acts{display:inline-flex;align-items:center;gap:3px;flex:none}
 
 /* CONTEXT — the prominent usage readout. Big number, wide bar, that's it. */
 .ctx{margin-top:15px}
 .ctx-head{display:flex;align-items:baseline;gap:9px}
-.ctx-pct{font-family:ui-monospace,monospace;font-size:26px;font-weight:600;line-height:1;color:${C.green};font-variant-numeric:tabular-nums;letter-spacing:-.02em}
-.ctx-pct-sign{font-size:15px;margin-left:1px;color:color-mix(in srgb,${C.green} 75%,${C.muted})}
-.ctx-label{font-family:ui-monospace,monospace;font-size:10px;color:${C.dim};letter-spacing:.02em}
+.ctx-pct{font-family:ui-monospace,monospace;font-size: var(--text-6xl);font-weight:600;line-height:1;color:${C.green};font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.ctx-pct-sign{font-size: var(--text-2xl);margin-left:1px;color:color-mix(in srgb,${C.green} 75%,${C.muted})}
+.ctx-label{font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.dim};letter-spacing:.02em}
 .ctx-bar{display:block;margin-top:8px;height:4px;border-radius:3px;background:rgba(255,255,255,.07);overflow:hidden}
 .ctx-bar-fill{display:block;height:100%;background:${C.green};border-radius:3px}
 
 /* ACTIONS */
 .actions{display:flex;flex-wrap:wrap;gap:7px;padding:13px 14px 4px}
 .ghost{display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border:1px solid ${C.edge};border-radius:6px;
-  background:rgba(255,255,255,.015);color:${C.muted};font-family:ui-monospace,monospace;font-size:11px;cursor:pointer;white-space:nowrap}
+  background:rgba(255,255,255,.015);color:${C.muted};font-family:ui-monospace,monospace;font-size: var(--text-sm);cursor:pointer;white-space:nowrap}
 .ghost:hover{color:${C.ink};border-color:rgba(255,255,255,.14);background:rgba(255,255,255,.04)}
 .ghost--primary{color:${C.ink};border-color:color-mix(in srgb,${C.green} 36%,transparent);
   background:color-mix(in srgb,${C.green} 9%,transparent)}
@@ -684,16 +684,16 @@ const CSS = `
 
 /* ── TIER 2 section head — quieter, smaller, just a label on a rule ────── */
 .sechead{display:flex;align-items:center;gap:9px;padding:17px 14px 7px;scroll-margin-top:12px}
-.sechead-label{font-family:ui-monospace,monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.16em;color:${C.dim};flex:none}
-.sechead-count{font-family:ui-monospace,monospace;font-size:9.5px;color:${C.faint};flex:none}
+.sechead-label{font-family:ui-monospace,monospace;font-size: var(--text-2xs);font-weight:700;text-transform:uppercase;letter-spacing:.16em;color:${C.dim};flex:none}
+.sechead-count{font-family:ui-monospace,monospace;font-size: var(--text-2xs);color:${C.faint};flex:none}
 .sechead-rule{flex:1 1 auto;height:1px;background:${C.edgeSoft};min-width:8px}
 .sechead-actions{display:inline-flex;align-items:center;gap:6px;flex:none}
 
 /* FILES */
-.diff-tally{display:inline-flex;gap:5px;font-family:ui-monospace,monospace;font-size:10px}
+.diff-tally{display:inline-flex;gap:5px;font-family:ui-monospace,monospace;font-size: var(--text-xs)}
 .fadd{color:${C.muted}}.fdel{color:${C.dim}}
 .filegroup{padding:0 14px;margin-top:4px}
-.fglabel{display:flex;align-items:center;gap:7px;padding:7px 0 4px;font-family:ui-monospace,monospace;font-size:9px;font-weight:600;letter-spacing:.1em;color:${C.dim};width:100%;border:0;background:transparent;text-align:left;cursor:default}
+.fglabel{display:flex;align-items:center;gap:7px;padding:7px 0 4px;font-family:ui-monospace,monospace;font-size: var(--text-2xs);font-weight:600;letter-spacing:.1em;color:${C.dim};width:100%;border:0;background:transparent;text-align:left;cursor:default}
 .fglabel--btn{cursor:pointer}
 .fglabel--btn:hover{color:${C.muted}}
 .fglabel-caret{display:inline-flex;color:${C.dim}}
@@ -705,30 +705,30 @@ const CSS = `
 .fglabel-hint{margin-left:auto;color:${C.faint};font-weight:400;letter-spacing:.02em;text-transform:none}
 .frow{display:flex;align-items:center;gap:8px;padding:3px 6px 3px 13px;margin:0 -6px;border-radius:5px;min-width:0}
 .frow:hover{background:rgba(255,255,255,.025)}
-.fstate{flex:none;width:11px;text-align:center;font-family:ui-monospace,monospace;font-size:12px;line-height:1;color:${C.dim}}
+.fstate{flex:none;width:11px;text-align:center;font-family:ui-monospace,monospace;font-size: var(--text-md);line-height:1;color:${C.dim}}
 .fstate--new{color:${C.green}}
 .fstate--mod{color:${C.muted}}
 .fstate--read{color:${C.faint}}
-.fpath{flex:1 1 auto;min-width:0;font-family:ui-monospace,monospace;font-size:11px;display:flex;align-items:baseline;overflow:hidden}
+.fpath{flex:1 1 auto;min-width:0;font-family:ui-monospace,monospace;font-size: var(--text-sm);display:flex;align-items:baseline;overflow:hidden}
 .fdir{color:${C.dim};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;max-width:46%;flex:0 1 auto}
 .fbase{color:${C.ink};white-space:nowrap;flex:none}
-.fdiff{flex:none;display:inline-flex;gap:4px;font-family:ui-monospace,monospace;font-size:10px}
+.fdiff{flex:none;display:inline-flex;gap:4px;font-family:ui-monospace,monospace;font-size: var(--text-xs)}
 .frow-acts{flex:none;display:inline-flex;align-items:center;gap:1px}
 .rowact{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:1px solid transparent;border-radius:4px;background:transparent;color:${C.faint};cursor:pointer;opacity:0;transition:opacity .12s ease,color .12s ease}
 .frow:hover .rowact,.now-action:hover .rowact{opacity:1}
 .rowact:hover{color:${C.ink};border-color:${C.edge};background:rgba(255,255,255,.04)}
-.showall{margin:5px 0 2px 19px;border:0;background:transparent;color:${C.dim};font-family:ui-monospace,monospace;font-size:10.5px;cursor:pointer;padding:2px 0}
+.showall{margin:5px 0 2px 19px;border:0;background:transparent;color:${C.dim};font-family:ui-monospace,monospace;font-size: var(--text-xs);cursor:pointer;padding:2px 0}
 .showall:hover{color:${C.muted}}
 
 /* COMMANDS */
 .cmdlist{padding:2px 14px 0}
 .crow{display:flex;align-items:center;gap:8px;padding:4px 6px;margin:0 -6px;border-radius:5px;min-width:0}
 .crow:hover{background:rgba(255,255,255,.025)}
-.cmark{flex:none;width:12px;text-align:center;font-family:ui-monospace,monospace;font-size:11px;color:${C.dim}}
+.cmark{flex:none;width:12px;text-align:center;font-family:ui-monospace,monospace;font-size: var(--text-sm);color:${C.dim}}
 .crow--bash .cmark{color:color-mix(in srgb,${C.green} 70%,${C.muted})}
-.ctext{flex:1 1 auto;min-width:0;font-family:ui-monospace,monospace;font-size:11px;color:${C.muted};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ctext{flex:1 1 auto;min-width:0;font-family:ui-monospace,monospace;font-size: var(--text-sm);color:${C.muted};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .crow--bash .ctext{color:${C.ink}}
-.cresult{flex:none;font-family:ui-monospace,monospace;font-size:9.5px;color:${C.dim};white-space:nowrap}
+.cresult{flex:none;font-family:ui-monospace,monospace;font-size: var(--text-2xs);color:${C.dim};white-space:nowrap}
 .crow-acts{flex:none;display:inline-flex;align-items:center}
 
 /* copy value + dot (shared) */
@@ -753,10 +753,10 @@ const CSS = `
 .plan-head{display:flex;align-items:center;gap:8px;width:100%;border:0;background:transparent;cursor:pointer;padding:8px 10px;text-align:left;min-width:0}
 .plan-head:hover{background:rgba(255,255,255,.02)}
 .plan-caret{flex:none;color:${C.dim};display:inline-flex}
-.plan-title{flex:1 1 auto;min-width:0;font-size:12px;color:${C.ink};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.plan-tally{flex:none;font-family:ui-monospace,monospace;font-size:9.5px;color:${C.dim}}
+.plan-title{flex:1 1 auto;min-width:0;font-size: var(--text-md);color:${C.ink};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.plan-tally{flex:none;font-family:ui-monospace,monospace;font-size: var(--text-2xs);color:${C.dim}}
 .plan-steps{padding:2px 12px 9px 14px;border-top:1px solid ${C.edgeSoft};display:flex;flex-direction:column;gap:3px}
-.pstep{display:flex;align-items:baseline;gap:8px;font-family:ui-monospace,monospace;font-size:10.5px;color:${C.muted};padding-top:5px}
+.pstep{display:flex;align-items:baseline;gap:8px;font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.muted};padding-top:5px}
 .pstep-box{flex:none;width:11px;text-align:center;color:${C.dim}}
 .pstep--done .pstep-text{color:${C.dim};text-decoration:line-through}
 .pstep--doing .pstep-box{color:${C.green}}
@@ -765,35 +765,35 @@ const CSS = `
 
 /* DOCS / empty */
 .empty{margin:2px 14px 0;padding:11px;border:1px dashed ${C.edge};border-radius:7px;text-align:center;
-  font-family:ui-monospace,monospace;font-size:10.5px;color:${C.faint}}
+  font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.faint}}
 
 /* ── TIER 3 · SUBSTRATE — runtime ids + token millions, demoted & hidden ── */
 .substrate{margin:20px 14px 0;border-top:1px solid ${C.edgeSoft};padding-top:4px}
 .substrate-toggle{display:flex;align-items:center;gap:8px;width:100%;border:0;background:transparent;cursor:pointer;
   padding:8px 0;text-align:left}
 .substrate-caret{flex:none;color:${C.dim};display:inline-flex}
-.substrate-title{font-family:ui-monospace,monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.16em;color:${C.dim}}
+.substrate-title{font-family:ui-monospace,monospace;font-size: var(--text-2xs);font-weight:700;text-transform:uppercase;letter-spacing:.16em;color:${C.dim}}
 .substrate-toggle:hover .substrate-title{color:${C.muted}}
-.substrate-hint{margin-left:auto;font-family:ui-monospace,monospace;font-size:9.5px;color:${C.faint};white-space:nowrap}
+.substrate-hint{margin-left:auto;font-family:ui-monospace,monospace;font-size: var(--text-2xs);color:${C.faint};white-space:nowrap}
 .substrate-body{padding:2px 0 6px}
 
 /* quiet kv grid for runtime ids */
 .kvgrid{display:flex;flex-direction:column;gap:0}
 .kv{display:grid;grid-template-columns:88px 1fr;column-gap:10px;align-items:center;padding:4px 0;min-width:0}
-.kv-k{font-family:ui-monospace,monospace;font-size:10px;color:${C.faint};text-transform:lowercase;letter-spacing:.02em}
-.kv-v{font-family:ui-monospace,monospace;font-size:11px;color:${C.muted};min-width:0;display:flex;align-items:center;gap:8px}
-.kv-aux{color:${C.faint};font-size:10px}
+.kv-k{font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.faint};text-transform:lowercase;letter-spacing:.02em}
+.kv-v{font-family:ui-monospace,monospace;font-size: var(--text-sm);color:${C.muted};min-width:0;display:flex;align-items:center;gap:8px}
+.kv-aux{color:${C.faint};font-size: var(--text-xs)}
 
 /* the demoted token grid — quiet, label-led, no emphasis */
-.tok-head{font-family:ui-monospace,monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:${C.faint};margin:11px 0 5px}
+.tok-head{font-family:ui-monospace,monospace;font-size: var(--text-2xs);font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:${C.faint};margin:11px 0 5px}
 .tokgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:2px 14px}
 .tcell{display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:2px 0}
-.tcell-l{font-family:ui-monospace,monospace;font-size:10px;color:${C.faint};text-transform:lowercase;letter-spacing:.02em}
-.tcell-n{font-family:ui-monospace,monospace;font-size:10.5px;color:${C.dim};font-variant-numeric:tabular-nums}
+.tcell-l{font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.faint};text-transform:lowercase;letter-spacing:.02em}
+.tcell-n{font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.dim};font-variant-numeric:tabular-nums}
 .substrate-foot{margin-top:11px}
 
 /* foot */
 .sheet-foot{margin:18px 14px 6px;padding-top:11px;border-top:1px solid ${C.edgeSoft};
-  font-family:ui-monospace,monospace;font-size:9.5px;color:${C.faint};display:flex;align-items:center;gap:6px}
+  font-family:ui-monospace,monospace;font-size: var(--text-2xs);color:${C.faint};display:flex;align-items:center;gap:6px}
 .foot-id{color:${C.dim}}
 `;

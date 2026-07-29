@@ -109,15 +109,15 @@ function ObserveRow({
         {/* Time gutter — relative-only at compact; stacked relative +
             absolute at medium + large. */}
         {compact ? (
-          <span className="self-start pt-[1px] text-right font-mono text-[10px] font-medium tabular-nums text-studio-ink-faint">
+          <span className="self-start pt-[1px] text-right font-mono text-xs font-medium tabular-nums text-studio-ink-faint">
             {event.ago}
           </span>
         ) : (
           <span className="flex flex-col items-end self-start pt-[1px]">
-            <span className="font-mono text-[10.5px] font-medium tabular-nums text-studio-ink-muted">
+            <span className="font-mono text-xs font-medium tabular-nums text-studio-ink-muted">
               {event.ago}
             </span>
-            <span className="font-mono text-[9px] tabular-nums text-studio-ink-faint">
+            <span className="font-mono text-2xs tabular-nums text-studio-ink-faint">
               {event.at}
             </span>
           </span>
@@ -150,19 +150,19 @@ function ObserveRow({
             <span
               className={
                 compact
-                  ? "font-sans text-[12px] font-semibold leading-none text-studio-ink"
-                  : "font-sans text-[12.5px] font-semibold leading-none text-studio-ink"
+                  ? "font-sans text-md font-semibold leading-none text-studio-ink"
+                  : "font-sans text-md font-semibold leading-none text-studio-ink"
               }
             >
               {event.agent}
             </span>
             {compact ? null : (
-              <span className="font-mono text-[10px] text-studio-ink-faint">
+              <span className="font-mono text-xs text-studio-ink-faint">
                 {event.handle}
               </span>
             )}
             <span
-              className="font-mono text-[9px] font-bold uppercase tracking-eyebrow"
+              className="font-mono text-2xs font-bold uppercase tracking-eyebrow"
               style={{
                 color: event.emphasized
                   ? "var(--scout-accent)"
@@ -184,17 +184,17 @@ function ObserveRow({
             className={
               event.emphasized
                 ? compact
-                  ? "mt-[3px] font-sans text-[11px] leading-snug text-studio-ink"
-                  : "mt-1 font-sans text-[12px] leading-snug text-studio-ink"
+                  ? "mt-[3px] font-sans text-sm leading-snug text-studio-ink"
+                  : "mt-1 font-sans text-md leading-snug text-studio-ink"
                 : compact
-                  ? "mt-[3px] font-sans text-[11px] leading-snug text-studio-ink-muted"
-                  : "mt-1 font-sans text-[12px] leading-snug text-studio-ink-muted"
+                  ? "mt-[3px] font-sans text-sm leading-snug text-studio-ink-muted"
+                  : "mt-1 font-sans text-md leading-snug text-studio-ink-muted"
             }
           >
             {event.line}
           </div>
           {compact ? null : (
-            <div className="mt-1.5 font-mono text-[10px] leading-snug text-studio-ink-faint">
+            <div className="mt-1.5 font-mono text-xs leading-snug text-studio-ink-faint">
               {event.meta}
             </div>
           )}
@@ -222,18 +222,18 @@ function ObserveDetail({
     <div
       className={`border-t border-studio-edge bg-studio-canvas-alt ${padX} py-2.5`}
     >
-      <div className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · event detail
       </div>
-      <div className="mt-1.5 font-sans text-[12.5px] font-semibold leading-tight text-studio-ink">
+      <div className="mt-1.5 font-sans text-md font-semibold leading-tight text-studio-ink">
         {event.line}
       </div>
       {event.summary ? (
-        <div className="mt-1 font-sans text-[11.5px] leading-snug text-studio-ink-muted">
+        <div className="mt-1 font-sans text-sm leading-snug text-studio-ink-muted">
           {event.summary}
         </div>
       ) : null}
-      <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-[3px] font-mono text-[10px] leading-snug">
+      <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-[3px] font-mono text-xs leading-snug">
         <dt className="uppercase tracking-eyebrow text-studio-ink-faint">kind</dt>
         <dd
           className="font-bold uppercase tracking-eyebrow"
