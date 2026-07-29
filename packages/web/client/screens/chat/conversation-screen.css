@@ -3262,6 +3262,35 @@ button.s-thread-sidebar-participant:focus-visible {
   gap: 10px;
 }
 
+/* Settled runs: the reply owns the announcement, so execution closure is a
+   bare footer line — no plate, no border, no tone color. */
+.s-thread-settled-receipt {
+  margin-left: 42px;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.s-thread-settled-receipt button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: color-mix(in srgb, var(--muted) 45%, transparent);
+}
+
+.s-thread-settled-receipt button:hover {
+  color: var(--ink);
+  text-decoration-color: currentColor;
+}
+
 .s-thread-terminal-receipt[data-tone="failed"] > .dot {
   color: var(--red);
 }

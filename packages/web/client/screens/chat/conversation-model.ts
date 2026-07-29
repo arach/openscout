@@ -260,23 +260,74 @@ export type TurnSnapshot = {
 export type TerminalTurnReceipt = {
   flightId: string;
   label: string;
-  detail: string;
+  detail: string | null;
   tone: "complete" | "failed" | "cancelled";
   completedAt: number | null;
+  /**
+   * True when the canonical reply for this flight is already in the thread.
+   * The reply owns the announcement, so the receipt renders as a quiet
+   * duration footer instead of a full-width card.
+   */
+  settled: boolean;
+  durationLabel: string | null;
 };
+
+/** Humanized run duration: "35s", "9m 41s", "1h 4m". */
+export function runDurationLabel(
+  startedAt: number | null,
+  completedAt: number | null,
+): string | null {
+  const startedAtMs = normalizeTimestampMs(startedAt);
+  const completedAtMs = normalizeTimestampMs(completedAt);
+  if (startedAtMs === null || completedAtMs === null || completedAtMs < startedAtMs) {
+    return null;
+  }
+  const totalSeconds = Math.floor((completedAtMs - startedAtMs) / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
+
+/**
+ * Mirrors the broker's settlement predicate: an agent message that replies to
+ * the flight's originating operator message settles that exact attempt.
+ */
+export function flightSettledByReply(
+  flight: Flight,
+  messages: readonly Message[],
+): boolean {
+  const originMessageId = flight.messageId?.trim();
+  if (!originMessageId) return false;
+  return messages.some((message) =>
+    message.class === "agent"
+    && message.replyToMessageId === originMessageId
+    && message.body.trim().length > 0
+  );
+}
 
 export function terminalTurnReceiptForFlight(
   flight: Flight | null,
+  messages: readonly Message[] = [],
 ): TerminalTurnReceipt | null {
   if (!flight || !TERMINAL_CONVERSATION_FLIGHT_STATES.has(flight.state)) return null;
   const state = flight.state.trim().toLowerCase();
+  const durationLabel = runDurationLabel(flight.startedAt, flight.completedAt);
   if (state === "completed") {
+    const settled = flightSettledByReply(flight, messages);
     return {
       flightId: flight.id,
-      label: "Run completed",
-      detail: flight.summary?.trim() || "Execution ended successfully.",
+      label: settled ? "Completed" : "Run completed",
+      // Once the reply has landed it owns the announcement; restating the
+      // broker summary here would narrate the bubble above (and leak worker
+      // aliases the thread renders under a different display name).
+      detail: settled ? null : (flight.summary?.trim() || "Execution ended successfully."),
       tone: "complete",
       completedAt: flight.completedAt,
+      settled,
+      durationLabel,
     };
   }
   if (state === "cancelled" || state === "canceled" || state === "interrupted") {
@@ -286,6 +337,8 @@ export function terminalTurnReceiptForFlight(
       detail: flight.summary?.trim() || "The run was stopped before it finished.",
       tone: "cancelled",
       completedAt: flight.completedAt,
+      settled: false,
+      durationLabel,
     };
   }
   return {
@@ -294,6 +347,8 @@ export function terminalTurnReceiptForFlight(
     detail: flight.summary?.trim() || "The worker stopped before completing the request.",
     tone: "failed",
     completedAt: flight.completedAt,
+    settled: false,
+    durationLabel,
   };
 }
 

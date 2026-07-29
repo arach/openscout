@@ -910,8 +910,8 @@ export function ConversationScreen({
     [awaitingResponseSince, currentFlight, currentNowMs, presence, turnActivity, turnAsk],
   );
   const terminalTurnReceipt = useMemo(
-    () => terminalTurnReceiptForFlight(terminalFlight),
-    [terminalFlight],
+    () => terminalTurnReceiptForFlight(terminalFlight, messages),
+    [terminalFlight, messages],
   );
   const workingTurnCardClassName = [
     "s-thread-msg-card",
@@ -2287,27 +2287,17 @@ export function ConversationScreen({
           )}
 
           {isDm && terminalTurnReceipt && !presence.showTyping && (
-            <div className="s-thread-feed-block s-thread-feed-block--terminal">
-              <div
-                className="s-thread-terminal-receipt"
-                data-tone={terminalTurnReceipt.tone}
-                aria-live="polite"
-              >
-                <span className="dot" aria-hidden="true" />
-                <div className="s-thread-terminal-receipt-copy">
-                  <span className="s-thread-terminal-receipt-label">
-                    {terminalTurnReceipt.label}
+            terminalTurnReceipt.settled ? (
+              /* The reply above owns the announcement — the receipt is a
+                 quiet execution-closure footer, not a second message. */
+              <div className="s-thread-feed-block s-thread-feed-block--terminal">
+                <div className="s-thread-settled-receipt">
+                  <span>
+                    {terminalTurnReceipt.durationLabel
+                      ? `Completed in ${terminalTurnReceipt.durationLabel}`
+                      : "Completed"}
                   </span>
-                  <span className="s-thread-terminal-receipt-detail">
-                    {terminalTurnReceipt.detail}
-                  </span>
-                </div>
-                <div className="s-thread-terminal-receipt-meta">
-                  {terminalTurnReceipt.completedAt && (
-                    <time title={formatAbsoluteTimestamp(terminalTurnReceipt.completedAt)}>
-                      {timeAgo(terminalTurnReceipt.completedAt)}
-                    </time>
-                  )}
+                  <span aria-hidden="true">·</span>
                   <button
                     type="button"
                     onClick={() => {
@@ -2326,7 +2316,48 @@ export function ConversationScreen({
                   </button>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="s-thread-feed-block s-thread-feed-block--terminal">
+                <div
+                  className="s-thread-terminal-receipt"
+                  data-tone={terminalTurnReceipt.tone}
+                  aria-live="polite"
+                >
+                  <span className="dot" aria-hidden="true" />
+                  <div className="s-thread-terminal-receipt-copy">
+                    <span className="s-thread-terminal-receipt-label">
+                      {terminalTurnReceipt.label}
+                    </span>
+                    <span className="s-thread-terminal-receipt-detail">
+                      {terminalTurnReceipt.detail}
+                    </span>
+                  </div>
+                  <div className="s-thread-terminal-receipt-meta">
+                    {terminalTurnReceipt.completedAt && (
+                      <time title={formatAbsoluteTimestamp(terminalTurnReceipt.completedAt)}>
+                        {timeAgo(terminalTurnReceipt.completedAt)}
+                      </time>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        openContent(
+                          navigate,
+                          {
+                            view: "sessions",
+                            flightId: terminalTurnReceipt.flightId,
+                            ...(machineId ? { machineId } : {}),
+                          },
+                          { returnTo: route },
+                        );
+                      }}
+                    >
+                      Run details
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )
           )}
 
           <div ref={bottomRef} />

@@ -7,6 +7,7 @@ import {
   resolveComposeAction,
   resolveConversationAutoscroll,
   resolveThreadEmbedProps,
+  terminalTurnReceiptForFlight,
 } from "./conversation-model.ts";
 
 describe("conversation working duration", () => {
@@ -154,5 +155,82 @@ describe("conversation feed autoscroll", () => {
       historyRestorePending: false,
       initialScrollDone: false,
     })).toBe("none");
+  });
+});
+
+describe("terminal turn receipt", () => {
+  const completedFlight = {
+    id: "flt-1",
+    invocationId: "inv-1",
+    messageId: "msg-origin",
+    agentId: "agent-1",
+    agentName: "Tesla",
+    conversationId: "c.agent-1",
+    collaborationRecordId: null,
+    state: "completed",
+    summary: "worker-alias-3 replied.",
+    startedAt: 1_700_000_000_000,
+    completedAt: 1_700_000_020_000,
+    sessions: [],
+  };
+  const linkedReply = {
+    id: "msg-reply",
+    conversationId: "c.agent-1",
+    actorId: "agent-1",
+    actorName: "Tesla",
+    body: "Here is the answer.",
+    createdAt: 1_700_000_019_000,
+    class: "agent",
+    replyToMessageId: "msg-origin",
+  };
+
+  test("keeps execution completion visible without claiming a reply settled", () => {
+    const receipt = terminalTurnReceiptForFlight({
+      ...completedFlight,
+      messageId: null,
+      summary: null,
+    });
+
+    expect(receipt).toEqual(expect.objectContaining({
+      label: "Run completed",
+      detail: "Execution ended successfully.",
+      tone: "complete",
+      settled: false,
+    }));
+    expect(receipt?.detail?.toLowerCase()).not.toContain("reply");
+  });
+
+  test("settles into a quiet duration receipt once the linked reply lands", () => {
+    const receipt = terminalTurnReceiptForFlight(completedFlight, [linkedReply]);
+
+    expect(receipt).toEqual(expect.objectContaining({
+      tone: "complete",
+      settled: true,
+      durationLabel: "20s",
+      // The reply owns the announcement; no summary sentence (which would
+      // also leak the broker worker alias) survives settlement.
+      detail: null,
+    }));
+  });
+
+  test("does not settle on unlinked agent chatter", () => {
+    const unlinked = { ...linkedReply, id: "msg-other", replyToMessageId: null };
+    const receipt = terminalTurnReceiptForFlight(completedFlight, [unlinked]);
+
+    expect(receipt?.settled).toBe(false);
+    expect(receipt?.label).toBe("Run completed");
+  });
+
+  test("failed runs keep the full card regardless of thread contents", () => {
+    const receipt = terminalTurnReceiptForFlight(
+      { ...completedFlight, state: "failed" },
+      [linkedReply],
+    );
+
+    expect(receipt).toEqual(expect.objectContaining({
+      label: "Run failed",
+      tone: "failed",
+      settled: false,
+    }));
   });
 });
