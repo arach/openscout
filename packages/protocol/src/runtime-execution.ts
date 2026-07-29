@@ -128,6 +128,11 @@ export const SCOUT_RUNTIME_MODEL_CATALOG: readonly ScoutRuntimeModelOption[] = [
   { id: "gpt-5.6-luna", label: "GPT-5.6 Luna", harnesses: ["codex"], source: "default", family: "GPT", version: "5.6 Luna" },
   { id: "gpt-5.5", label: "GPT-5.5", harnesses: ["codex"], source: "default", family: "GPT", version: "5.5" },
   { id: "gpt-5.5-mini", label: "GPT-5.5 mini", harnesses: ["codex"], source: "default", family: "GPT", version: "5.5 mini" },
+  { id: "claude-opus-4-8", label: "Opus 4.8", harnesses: ["claude"], source: "default", family: "Opus", version: "4.8" },
+  { id: "claude-opus-4-7", label: "Opus 4.7", harnesses: ["claude"], source: "default", family: "Opus", version: "4.7" },
+  { id: "claude-sonnet-4-5", label: "Sonnet 4.5", harnesses: ["claude"], source: "default", family: "Sonnet", version: "4.5" },
+  { id: "grok-4.5", label: "Grok 4.5", harnesses: ["grok", "grok-acp"], source: "default", family: "Grok", version: "4.5" },
+  { id: "grok-4.3", label: "Grok 4.3", harnesses: ["grok", "grok-acp"], source: "default", family: "Grok", version: "4.3" },
 ];
 
 export const SCOUT_RUNTIME_EFFORT_CATALOG: readonly ScoutRuntimeEffortOption[] = [

@@ -27,6 +27,11 @@ export const RUNTIME_CAPABILITY_SEED: RuntimeCapabilityCatalog = {
     { id: "gpt-5.6-luna", harnesses: ["codex"] },
     { id: "gpt-5.5", harnesses: ["codex"] },
     { id: "gpt-5.5-mini", harnesses: ["codex"] },
+    { id: "claude-opus-4-8", harnesses: ["claude"] },
+    { id: "claude-opus-4-7", harnesses: ["claude"] },
+    { id: "claude-sonnet-4-5", harnesses: ["claude"] },
+    { id: "grok-4.5", harnesses: ["grok", "grok-acp"] },
+    { id: "grok-4.3", harnesses: ["grok", "grok-acp"] },
   ],
   efforts: [
     { id: "none", label: "None", harnesses: ["codex"] },
