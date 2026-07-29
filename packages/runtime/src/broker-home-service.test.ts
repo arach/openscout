@@ -6,6 +6,7 @@ import {
   type AgentDefinition,
   type AgentEndpoint,
   type ConversationDefinition,
+  type FlightRecord,
 } from "@openscout/protocol";
 
 import { BrokerHomeService } from "./broker-home-service.js";
@@ -57,6 +58,18 @@ function endpoint(input: Partial<AgentEndpoint> = {}): AgentEndpoint {
     sessionId: "session-1",
     projectRoot: "/repo",
     metadata: {},
+    ...input,
+  };
+}
+
+function flight(input: Partial<FlightRecord> = {}): FlightRecord {
+  return {
+    id: "flight-1",
+    invocationId: "invocation-1",
+    requesterId: "operator",
+    targetAgentId: "worker",
+    state: "running",
+    startedAt: 9_500,
     ...input,
   };
 }
@@ -155,6 +168,9 @@ describe("broker home service", () => {
           metadata: { lastStartedAt: 8_000 },
         }),
       },
+      flights: {
+        worker: flight(),
+      },
     });
     const { service } = createService({ snapshot });
 
@@ -187,6 +203,64 @@ describe("broker home service", () => {
       reachable: false,
       statusLabel: "Offline",
     }));
+  });
+
+  test("does not keep an attached agent working after its flight completes", async () => {
+    const snapshot = createRuntimeRegistrySnapshot({
+      agents: {
+        worker: agent({ id: "worker", displayName: "Worker" }),
+      },
+      endpoints: {
+        worker: endpoint({
+          id: "worker-endpoint",
+          agentId: "worker",
+          state: "active",
+        }),
+      },
+      flights: {
+        worker: flight({
+          targetAgentId: "worker",
+          state: "completed",
+          completedAt: 9_900,
+        }),
+      },
+    });
+    const { service } = createService({ snapshot });
+
+    const home = await service.read();
+
+    expect(home.agents[0]).toEqual(expect.objectContaining({
+      id: "worker",
+      state: "available",
+      reachable: true,
+      statusLabel: "Available",
+    }));
+  });
+
+  test("projects flight state for agent rows beyond the old 24-card home cutoff", async () => {
+    const agents = Object.fromEntries(
+      Array.from({ length: 30 }, (_, index) => {
+        const id = `agent-${String(index).padStart(2, "0")}`;
+        return [id, agent({ id, displayName: `Agent ${index}` })];
+      }),
+    );
+    const endpoints = Object.fromEntries(
+      Object.keys(agents).map((id) => [
+        id,
+        endpoint({
+          id: `${id}-endpoint`,
+          agentId: id,
+          state: "active",
+        }),
+      ]),
+    );
+    const snapshot = createRuntimeRegistrySnapshot({ agents, endpoints });
+    const { service } = createService({ snapshot });
+
+    const home = await service.read();
+
+    expect(home.agents).toHaveLength(30);
+    expect(home.agents.every((entry) => entry.state === "available")).toBe(true);
   });
 
   test("shapes recent message activity and filters non-home rows", async () => {

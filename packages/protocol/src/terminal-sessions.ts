@@ -4,8 +4,8 @@
  * The durable noun is a HARNESS SESSION — a stable agent session identified by
  * its harness-native source id and resumable via a resume command. A harness
  * session is *materialized* through one or more disposable TERMINAL SURFACES
- * (tmux, zellij, future ssh/host-control). Backends are interchangeable: the
- * source session id is the stable key; the surface is the throwaway shell.
+ * (tmux, zellij, herdr, future ssh/host-control). Backends are interchangeable:
+ * the source session id is the stable key; the surface is the throwaway shell.
  *
  * This module defines the shared contract used by `scout session intake`
  * (which writes the record), the runtime store (which persists it), the
@@ -16,7 +16,7 @@
  * relay target, not a message source.
  */
 
-export type TerminalBackend = "tmux" | "zellij";
+export type TerminalBackend = "tmux" | "zellij" | "herdr";
 
 /** Lifecycle of a single materialized surface. */
 export type TerminalSurfaceState = "live" | "detached" | "exited";
@@ -28,6 +28,8 @@ export type TerminalSurfaceRelay = {
   tmuxSession?: string;
   zellijSession?: string;
   zellijPaneId?: string;
+  /** Herdr session name (`default` or a named session). */
+  herdrSession?: string;
 };
 
 /** One disposable terminal surface a harness session has been materialized through. */

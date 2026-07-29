@@ -92,6 +92,22 @@ export type BrokerInvocationDispatchServiceDeps = {
 
 const DISPATCH_JOB_LEASE_MS = 30_000;
 
+function isIdempotentInvocationRetry(
+  existing: InvocationRequest,
+  incoming: InvocationRequest,
+): boolean {
+  return existing.requesterId === incoming.requesterId
+    && existing.targetAgentId === incoming.targetAgentId
+    && existing.action === incoming.action
+    && existing.task === incoming.task
+    && (existing.conversationId ?? null) === (incoming.conversationId ?? null)
+    && (existing.messageId ?? null) === (incoming.messageId ?? null)
+    && JSON.stringify(existing.context ?? null) === JSON.stringify(incoming.context ?? null)
+    && JSON.stringify(existing.execution ?? null) === JSON.stringify(incoming.execution ?? null)
+    && existing.ensureAwake === incoming.ensureAwake
+    && existing.stream === incoming.stream;
+}
+
 export class BrokerInvocationDispatchService {
   constructor(private readonly deps: BrokerInvocationDispatchServiceDeps) {}
 
@@ -125,6 +141,27 @@ export class BrokerInvocationDispatchService {
     state: FlightRecord["state"];
     flight: FlightRecord;
   }> => {
+    const existingInvocation = this.deps.runtime.snapshot().invocations[invocation.id];
+    const existingFlight = this.deps.runtime.flightForInvocation(invocation.id);
+    if (existingInvocation || existingFlight) {
+      if (
+        !existingInvocation
+        || !existingFlight
+        || !isIdempotentInvocationRetry(existingInvocation, invocation)
+      ) {
+        throw new Error(`invocation id ${invocation.id} is already assigned to a different record`);
+      }
+      return {
+        ...(options.includeOk ? { ok: true as const } : {}),
+        accepted: true,
+        invocationId: existingInvocation.id,
+        flightId: existingFlight.id,
+        targetAgentId: existingFlight.targetAgentId,
+        state: existingFlight.state,
+        flight: existingFlight,
+      };
+    }
+
     const { flight, dispatchJob } = await this.acceptInvocation(invocation);
     if (options.logAccepted) {
       this.deps.log?.(

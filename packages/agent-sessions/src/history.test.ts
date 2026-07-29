@@ -666,7 +666,8 @@ describe("history snapshot replay", () => {
           gitBranch: "codex/embed-vox-transcription",
         }),
         observeUsage: expect.objectContaining({
-          contextInputTokens: 140,
+          // last.input_tokens only — cached is a subset, not additive
+          contextInputTokens: 100,
           inputTokens: 400000,
           outputTokens: 20,
           reasoningOutputTokens: 7,
@@ -688,7 +689,8 @@ describe("history snapshot replay", () => {
               windowMs: 300 * 60 * 1000,
             }),
             expect.objectContaining({
-              label: "weekly",
+              // label derived from window_seconds (7d), not hardcoded "weekly"
+              label: "7d",
               windowKind: "secondary",
               percentRemaining: 72,
               resetAt: Date.parse("2026-06-06T00:00:00.000Z"),

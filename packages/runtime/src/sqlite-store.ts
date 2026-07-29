@@ -784,6 +784,7 @@ interface InvocationRow {
   message_id: string | null;
   context_json: string | null;
   execution_json: string | null;
+  execution_resolution_json: string | null;
   ensure_awake: number;
   stream: number;
   timeout_ms: number | null;
@@ -1539,6 +1540,10 @@ export class SQLiteControlPlaneStore {
         messageId: row.message_id ?? undefined,
         context: parseJson<Record<string, unknown> | undefined>(row.context_json, undefined),
         execution: parseJson<InvocationRequest["execution"]>(row.execution_json, undefined),
+        executionResolution: parseJson<InvocationRequest["executionResolution"]>(
+          row.execution_resolution_json,
+          undefined,
+        ),
         ensureAwake: row.ensure_awake === 1,
         stream: row.stream === 1,
         timeoutMs: row.timeout_ms ?? undefined,
@@ -1793,7 +1798,16 @@ export class SQLiteControlPlaneStore {
   }
 
   upsertEndpoint(endpoint: AgentEndpoint): void {
-    const observedAt = currentTimestampMs();
+    const existingTimestamp = this.db.query(
+      "SELECT updated_at FROM agent_endpoints WHERE id = ?1",
+    ).get(endpoint.id) as { updated_at: number } | null;
+    // Projection replay is not a fresh observation. Prefer harness-owned
+    // timestamps and preserve the prior projection time when the endpoint
+    // record carries no observation evidence.
+    const observedAt = endpointRuntimeSessionLastSeenAt(
+      endpoint,
+      existingTimestamp?.updated_at ?? currentTimestampMs(),
+    );
     this.db.query(
       `INSERT INTO agent_endpoints (
         id, agent_id, node_id, harness, transport, state, address, session_id, pane, cwd,
@@ -2386,8 +2400,8 @@ export class SQLiteControlPlaneStore {
       `INSERT INTO invocations (
         id, requester_id, requester_node_id, target_agent_id, target_node_id, action, task,
         collaboration_record_id, conversation_id, message_id, context_json, execution_json,
-        ensure_awake, stream, timeout_ms, labels_json, metadata_json, created_at
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+        execution_resolution_json, ensure_awake, stream, timeout_ms, labels_json, metadata_json, created_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
       ON CONFLICT(id) DO UPDATE SET
         requester_id = excluded.requester_id,
         requester_node_id = excluded.requester_node_id,
@@ -2400,6 +2414,7 @@ export class SQLiteControlPlaneStore {
         message_id = excluded.message_id,
         context_json = excluded.context_json,
         execution_json = excluded.execution_json,
+        execution_resolution_json = excluded.execution_resolution_json,
         ensure_awake = excluded.ensure_awake,
         stream = excluded.stream,
         timeout_ms = excluded.timeout_ms,
@@ -2419,6 +2434,7 @@ export class SQLiteControlPlaneStore {
       invocation.messageId ?? null,
       stringify(invocation.context),
       stringify(invocation.execution),
+      stringify(invocation.executionResolution),
       invocation.ensureAwake ? 1 : 0,
       invocation.stream ? 1 : 0,
       invocation.timeoutMs ?? null,

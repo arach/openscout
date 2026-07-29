@@ -158,6 +158,10 @@ public protocol CommsCapability: Sendable {
     @discardableResult
     func postMessage(conversationId: String, body: String, replyTo: String?, attachments: [MessageAttachment]?, clientMessageId: String?) async throws -> String
 
+    /// Post while preserving transport-independent delivery/recovery state.
+    /// Older conformers inherit a message-id-only compatibility implementation.
+    func postMessageResult(conversationId: String, body: String, replyTo: String?, attachments: [MessageAttachment]?, clientMessageId: String?) async throws -> ControlResult
+
     /// Mark a conversation read — advances the operator's read cursor on the
     /// broker through the latest message, clearing the unread badge. Returns the
     /// resulting unread count (0 when caught up). Opening a thread should call
@@ -167,6 +171,23 @@ public protocol CommsCapability: Sendable {
 }
 
 public extension CommsCapability {
+    func postMessageResult(
+        conversationId: String,
+        body: String,
+        replyTo: String?,
+        attachments: [MessageAttachment]?,
+        clientMessageId: String?
+    ) async throws -> ControlResult {
+        let messageId = try await postMessage(
+            conversationId: conversationId,
+            body: body,
+            replyTo: replyTo,
+            attachments: attachments,
+            clientMessageId: clientMessageId
+        )
+        return ControlResult(ok: true, messageId: messageId)
+    }
+
     @discardableResult
     func postMessage(conversationId: String, body: String, replyTo: String?, attachments: [MessageAttachment]?) async throws -> String {
         try await postMessage(conversationId: conversationId, body: body, replyTo: replyTo, attachments: attachments, clientMessageId: nil)

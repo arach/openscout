@@ -5,6 +5,7 @@ import type {
   AgentEndpoint,
   AgentHarness,
 } from "@openscout/protocol";
+import { validateScoutSessionHandleForWrite } from "@openscout/protocol";
 
 import type { ManagedLocalSessionTransport } from "./broker-managed-session-helpers.js";
 import { isStaleLocalEndpoint } from "./broker-endpoint-selection.js";
@@ -88,7 +89,10 @@ function resolveCardlessSessionPath(path: string): string {
 }
 
 function cleanCardlessSessionHandle(input: CardlessSessionInput): string {
-  return input.handle?.trim().replace(/^@+/, "") || input.sessionId;
+  if (!input.handle?.trim()) return input.sessionId;
+  const result = validateScoutSessionHandleForWrite(input.handle);
+  if (!result.ok) throw new Error(result.message);
+  return result.value;
 }
 
 function titleCaseHandle(handle: string): string {

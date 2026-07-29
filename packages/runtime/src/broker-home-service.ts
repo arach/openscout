@@ -10,6 +10,7 @@ import {
   isInactiveLocalAgent,
 } from "./broker-endpoint-selection.js";
 import {
+  isWorkingFlightState,
   isReconciledStaleFlightActivityItem,
 } from "./broker-local-invocation-helpers.js";
 
@@ -45,6 +46,12 @@ export type BrokerHomePayload = {
   activity: BrokerHomeActivity[];
 };
 
+// /api/agents caps its roster at 100. Keep the compact broker home projection
+// at the same bound so every list row can receive authoritative flight state;
+// truncating this feed used to leave lower-ranked rows stuck on SQLite's stale
+// endpoint-derived `working` value.
+const BROKER_HOME_AGENT_LIMIT = 100;
+
 type BrokerHomeServiceDeps = {
   runtimeSnapshot: () => RuntimeRegistrySnapshot;
   listActivityItems: (options: { limit: number }) => Promise<ActivityItem[]>;
@@ -70,11 +77,16 @@ export class BrokerHomeService {
   }
 
   #agents(snapshot: RuntimeRegistrySnapshot): BrokerHomeAgent[] {
+    const workingAgentIds = new Set(
+      Object.values(snapshot.flights)
+        .filter((flight) => isWorkingFlightState(flight.state))
+        .map((flight) => flight.targetAgentId),
+    );
     return Object.values(snapshot.agents)
       .filter((agent) => !isInactiveLocalAgent(agent))
       .map((agent) => {
         const endpoint = homeEndpointForAgent(snapshot, agent.id);
-        const status = summarizeHomeAgent(endpoint);
+        const status = summarizeHomeAgent(endpoint, workingAgentIds.has(agent.id));
         return {
           id: agent.id,
           title: this.#deps.actorDisplayName(snapshot, agent.id),
@@ -91,7 +103,7 @@ export class BrokerHomeService {
       })
       .sort((left, right) => agentHomeRank(left.state) - agentHomeRank(right.state)
         || left.title.localeCompare(right.title))
-      .slice(0, 24);
+      .slice(0, BROKER_HOME_AGENT_LIMIT);
   }
 
   #activity(

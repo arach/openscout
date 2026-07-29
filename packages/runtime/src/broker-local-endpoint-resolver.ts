@@ -52,6 +52,11 @@ export type BrokerLocalEndpointResolverOptions = {
       harness?: AgentHarness;
     },
   ) => Promise<LocalAgentBinding | null>;
+  /**
+   * Spawn a one-invocation session attached to a durable agent without
+   * changing that agent's configured endpoint or runtime metadata.
+   */
+  createIsolatedAgentEndpoint?: (invocation: InvocationRequest) => Promise<AgentEndpoint | null>;
   upsertActor: (actor: ActorIdentity) => Promise<void>;
   upsertAgent: (agent: AgentDefinition) => Promise<void>;
   persistEndpoint: (endpoint: AgentEndpoint) => Promise<void>;
@@ -94,12 +99,30 @@ export class BrokerLocalEndpointResolver {
     const targetSessionId = invocationTargetSessionId(invocation);
     const sessionPreference = invocation.execution?.session ?? "new";
     const shouldUseExistingSession = Boolean(targetSessionId);
+    const hasExplicitRuntime = invocationHasExplicitRuntime(invocation);
     const existing = await this.activeLocalEndpointForInvocation(
       invocation.targetAgentId,
       requestedHarness,
       targetSessionId,
       { includeWakeable: invocation.ensureAwake },
     );
+    if (existing && hasExplicitRuntime && (shouldUseExistingSession || sessionPreference === "existing")) {
+      assertEndpointObservedRuntimeMatches(existing, invocation);
+    }
+
+    if (
+      hasExplicitRuntime
+      && !shouldUseExistingSession
+      && sessionPreference !== "existing"
+      && invocation.ensureAwake
+      && this.options.createIsolatedAgentEndpoint
+    ) {
+      const isolatedEndpoint = await this.options.createIsolatedAgentEndpoint(invocation);
+      if (isolatedEndpoint) {
+        await this.options.persistEndpoint(isolatedEndpoint);
+        return isolatedEndpoint;
+      }
+    }
     if (
       existing
       && (
@@ -270,6 +293,114 @@ export class BrokerLocalEndpointResolver {
     }
     return this.options.isLocalAgentEndpointAlive(endpoint);
   }
+}
+
+function invocationHasExplicitRuntime(invocation: InvocationRequest): boolean {
+  return Boolean(
+    invocation.execution?.harness?.trim()
+    || invocation.execution?.model?.trim()
+    || invocation.execution?.reasoningEffort?.trim(),
+  );
+}
+
+type ObservedRuntime = {
+  harness?: string;
+  model?: string;
+  reasoningEffort?: string;
+};
+
+export function observedRuntimeForEndpoint(endpoint: AgentEndpoint): ObservedRuntime {
+  const metadata = endpoint.metadata ?? {};
+  const nested = metadata.observedRuntime;
+  const observed = nested && typeof nested === "object" && !Array.isArray(nested)
+    ? nested as Record<string, unknown>
+    : {};
+  const stringValue = (value: unknown): string | undefined => (
+    typeof value === "string" && value.trim() ? value.trim() : undefined
+  );
+  return {
+    harness: stringValue(observed.harness) ?? stringValue(metadata.observedHarness),
+    model: stringValue(observed.model) ?? stringValue(metadata.observedModel),
+    reasoningEffort: stringValue(observed.reasoningEffort)
+      ?? stringValue(metadata.observedReasoningEffort),
+  };
+}
+
+function assertEndpointObservedRuntimeMatches(
+  endpoint: AgentEndpoint,
+  invocation: InvocationRequest,
+): void {
+  const observed = observedRuntimeForEndpoint(endpoint);
+  const provisioned = provisionedRuntimeForPendingEndpoint(endpoint);
+  const requested: ObservedRuntime = {
+    harness: invocation.execution?.harness?.trim(),
+    model: invocation.execution?.model?.trim(),
+    reasoningEffort: invocation.execution?.reasoningEffort?.trim(),
+  };
+  for (const dimension of ["harness", "model", "reasoningEffort"] as const) {
+    const expected = requested[dimension];
+    if (!expected) continue;
+    const actual = observed[dimension];
+    if (!actual) {
+      const pendingActual = provisioned?.[dimension];
+      if (pendingActual) {
+        if (pendingActual.toLowerCase() !== expected.toLowerCase()) {
+          throw new Error(
+            `session_runtime_mismatch: pending session ${endpoint.sessionId ?? endpoint.id} was provisioned with ${dimension} "${pendingActual}", `
+              + `but the request requires "${expected}"; omit the session selector to spawn a fresh isolated session`,
+          );
+        }
+        continue;
+      }
+      throw new Error(
+        `session_runtime_unobserved: session ${endpoint.sessionId ?? endpoint.id} has no observed ${dimension}; `
+          + "exact runtime requests require a fresh session or an observed match",
+      );
+    }
+    if (actual.toLowerCase() !== expected.toLowerCase()) {
+      throw new Error(
+        `session_runtime_mismatch: session ${endpoint.sessionId ?? endpoint.id} observed ${dimension} "${actual}", `
+          + `but the request requires "${expected}"; omit the session selector to spawn a fresh isolated session`,
+      );
+    }
+  }
+}
+
+/**
+ * A Scout-owned session has to receive its first invocation before the harness
+ * can report observed runtime metadata. During that narrow pending-launch
+ * window, the broker may trust the exact configuration it just provisioned.
+ * Once the provider attaches (or for any externally sourced endpoint), only
+ * observed runtime is authoritative.
+ */
+function provisionedRuntimeForPendingEndpoint(endpoint: AgentEndpoint): ObservedRuntime | undefined {
+  const metadata = endpoint.metadata ?? {};
+  if (
+    metadata.pendingExternalSession !== true
+    || metadata.sessionBacked !== true
+    || (metadata.source !== "scout-cardless-session" && metadata.source !== "scout-isolated-agent-session")
+  ) {
+    return undefined;
+  }
+
+  const stringValue = (value: unknown): string | undefined => (
+    typeof value === "string" && value.trim() ? value.trim() : undefined
+  );
+  const resolution = metadata.executionResolution;
+  const resolutionRecord = resolution && typeof resolution === "object" && !Array.isArray(resolution)
+    ? resolution as Record<string, unknown>
+    : {};
+  const resolvedDimension = (dimension: keyof ObservedRuntime): string | undefined => {
+    const value = resolutionRecord[dimension];
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+    return stringValue((value as Record<string, unknown>).resolved);
+  };
+
+  return {
+    harness: stringValue(endpoint.harness) ?? resolvedDimension("harness"),
+    model: stringValue(metadata.model) ?? resolvedDimension("model"),
+    reasoningEffort: stringValue(metadata.reasoningEffort) ?? resolvedDimension("reasoningEffort"),
+  };
 }
 
 function isWakeableSessionBackedEndpoint(endpoint: AgentEndpoint): boolean {

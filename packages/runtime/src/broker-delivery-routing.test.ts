@@ -113,6 +113,19 @@ describe("broker delivery routing", () => {
       reasoningEffort: "high",
       session: "new",
     });
+    expect(executionWithRouteParams({
+      ...profilePayload,
+      execution: { model: "claude-opus-5", reasoningEffort: "max" },
+    })).toEqual({
+      harness: "claude",
+      model: "claude-opus-5",
+      reasoningEffort: "max",
+      session: "new",
+    });
+    expect(() => executionWithRouteParams({
+      ...profilePayload,
+      execution: { harness: "codex" },
+    })).toThrow("requires harness \"claude\"");
     expect(projectPathRouteTarget(profilePayload)).toBe("/tmp/openscout");
   });
 

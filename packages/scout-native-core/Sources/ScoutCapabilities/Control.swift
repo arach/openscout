@@ -124,7 +124,8 @@ public struct ControlResult: Codable, Sendable, Equatable {
     public var targetAgentId: String?
     public var lifecycleState: ConversationLifecycleState?
     public var summary: String?
-    public init(ok: Bool, turnId: String? = nil, messageId: String? = nil, flightId: String? = nil, invocationId: String? = nil, targetAgentId: String? = nil, lifecycleState: ConversationLifecycleState? = nil, summary: String? = nil) {
+    public var delivery: OutboundDeliveryState?
+    public init(ok: Bool, turnId: String? = nil, messageId: String? = nil, flightId: String? = nil, invocationId: String? = nil, targetAgentId: String? = nil, lifecycleState: ConversationLifecycleState? = nil, summary: String? = nil, delivery: OutboundDeliveryState? = nil) {
         self.ok = ok
         self.turnId = turnId
         self.messageId = messageId
@@ -133,6 +134,28 @@ public struct ControlResult: Codable, Sendable, Equatable {
         self.targetAgentId = targetAgentId
         self.lifecycleState = lifecycleState
         self.summary = summary
+        self.delivery = delivery
+    }
+}
+
+/// Transport-independent state for an outbound message. A recoverable state
+/// means the message is durably recorded even though routing needs another
+/// action; it is not a failed draft and must not disable the composer.
+public struct OutboundDeliveryState: Codable, Sendable, Equatable {
+    public enum State: String, Codable, Sendable { case accepted, recoverable }
+    public enum Reason: String, Codable, Sendable { case sessionEnded = "session_ended", targetUnavailable = "target_unavailable" }
+    public enum RecoveryAction: String, Codable, Sendable { case startReplacement = "start_replacement", retry }
+
+    public var state: State
+    public var reason: Reason?
+    public var action: RecoveryAction?
+    public var detail: String?
+
+    public init(state: State, reason: Reason? = nil, action: RecoveryAction? = nil, detail: String? = nil) {
+        self.state = state
+        self.reason = reason
+        self.action = action
+        self.detail = detail
     }
 }
 

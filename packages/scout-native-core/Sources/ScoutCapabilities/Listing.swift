@@ -283,6 +283,38 @@ public struct WorkspaceSummary: Codable, Sendable, Identifiable, Equatable {
     }
 }
 
+public struct RuntimeCapabilityCatalog: Codable, Sendable, Equatable {
+    public struct Harness: Codable, Sendable, Identifiable, Equatable {
+        public let id: String
+        public let label: String
+    }
+
+    public struct Model: Codable, Sendable, Identifiable, Equatable {
+        public let id: String
+        public let label: String
+        public let harnesses: [String]
+        public let source: String?
+        public let family: String?
+        public let version: String?
+    }
+
+    public struct Effort: Codable, Sendable, Identifiable, Equatable {
+        public let id: String
+        public let label: String
+        public let description: String?
+        public let harnesses: [String]
+        public let models: [String]?
+    }
+
+    public let schemaVersion: String
+    public let generatedAt: Int
+    public let scope: String
+    public let projectRoot: String?
+    public let harnesses: [Harness]
+    public let models: [Model]
+    public let efforts: [Effort]
+}
+
 /// Capability: list sessions, agents, and the machine's known workspaces. The
 /// query/limit semantics are the app's need; the transport decides how to fulfill
 /// them.
@@ -290,6 +322,7 @@ public protocol ListingCapability: Sendable {
     func listSessions(query: String?, limit: Int) async throws -> [SessionSummary]
     func listAgents(query: String?, limit: Int) async throws -> [AgentSummary]
     func listWorkspaces(query: String?, limit: Int) async throws -> [WorkspaceSummary]
+    func runtimeCapabilities(projectRoot: String?) async throws -> RuntimeCapabilityCatalog
 }
 
 public extension ListingCapability {
@@ -297,4 +330,7 @@ public extension ListingCapability {
     /// them). Conformers that can fetch them override this. Keeps existing
     /// conformers source-compatible.
     func listWorkspaces(query: String?, limit: Int) async throws -> [WorkspaceSummary] { [] }
+    func runtimeCapabilities(projectRoot: String?) async throws -> RuntimeCapabilityCatalog {
+        throw URLError(.unsupportedURL)
+    }
 }

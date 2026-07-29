@@ -168,6 +168,7 @@ export type SessionCatalogEntry = {
   harness?: string;
   transport?: string;
   model?: string | null;
+  reasoningEffort?: string | null;
 };
 
 export type SessionCatalog = {
@@ -496,6 +497,16 @@ export function buildClaudeStreamJsonSessionSnapshot(
     if (event.type === "system" && event.subtype === "init") {
       if (typeof event.model === "string" && event.model.trim()) {
         snapshot.session.model = event.model;
+      }
+      const observedEffort = typeof event.effort === "string"
+        ? event.effort
+        : typeof event.reasoning_effort === "string"
+          ? event.reasoning_effort
+          : typeof event.thinking_level === "string"
+            ? event.thinking_level
+            : null;
+      if (observedEffort?.trim()) {
+        snapshot.session.reasoningEffort = observedEffort.trim();
       }
       if (typeof event.cwd === "string" && event.cwd.trim()) {
         snapshot.session.cwd = event.cwd;

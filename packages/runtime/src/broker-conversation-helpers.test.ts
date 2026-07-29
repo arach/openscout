@@ -258,6 +258,12 @@ describe("broker conversation helpers", () => {
       reachable: false,
     }));
     expect(summarizeHomeAgent(endpoint({ state: "active" }))).toEqual(expect.objectContaining({
+      state: "available",
+      reachable: true,
+      statusLabel: "Available",
+      statusDetail: "codex · tmux",
+    }));
+    expect(summarizeHomeAgent(endpoint({ state: "active" }), true)).toEqual(expect.objectContaining({
       state: "working",
       reachable: true,
       statusLabel: "Working",

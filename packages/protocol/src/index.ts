@@ -29,6 +29,8 @@ export * from "./capability-matrix.js";
 export * from "./debug-attach.js";
 export * from "./scout-dispatch.js";
 export * from "./runtime-profiles.js";
+export * from "./runtime-execution.js";
+export * from "./reserved-vocabulary.js";
 export * from "./route-aliases.js";
 export * from "./scout-delivery.js";
 export * from "./scout-reply-context.js";

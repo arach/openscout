@@ -243,7 +243,7 @@ export function buildBrokerReturnAddressForActor(
   });
 }
 
-export function summarizeHomeAgent(endpoint: AgentEndpoint | null): {
+export function summarizeHomeAgent(endpoint: AgentEndpoint | null, hasActiveFlight = false): {
   state: "offline" | "available" | "working";
   reachable: boolean;
   statusLabel: string;
@@ -264,40 +264,34 @@ export function summarizeHomeAgent(endpoint: AgentEndpoint | null): {
   const lastSeenAt = Math.max(endpointStartedAt(endpoint), endpointTerminalAt(endpoint)) || null;
   const runtimeLabel = [endpoint.harness, endpoint.transport].filter(Boolean).join(" · ");
 
-  switch (endpoint.state) {
-    case "active":
-      return {
-        state: "working",
-        reachable: classification.reachable,
-        statusLabel: "Working",
-        statusDetail: runtimeLabel || "Active endpoint",
-        lastSeenAt,
-      };
-    case "idle":
-      return {
-        state: "available",
-        reachable: classification.reachable,
-        statusLabel: "Available",
-        statusDetail: runtimeLabel || "Idle endpoint",
-        lastSeenAt,
-      };
-    case "waiting":
-      return {
-        state: "working",
-        reachable: classification.reachable,
-        statusLabel: "Waiting",
-        statusDetail: runtimeLabel || "Waiting for follow-up",
-        lastSeenAt,
-      };
-    default:
-      return {
-        state: "offline",
-        reachable: false,
-        statusLabel: "Offline",
-        statusDetail: runtimeLabel || "Endpoint offline",
-        lastSeenAt,
-      };
+  if (!classification.reachable) {
+    return {
+      state: "offline",
+      reachable: false,
+      statusLabel: "Offline",
+      statusDetail: runtimeLabel || "Endpoint offline",
+      lastSeenAt,
+    };
   }
+
+  // Endpoint `active` means the harness session is attached and routable; it
+  // does not mean a turn is still executing. Flights own work lifecycle, so
+  // only a non-terminal flight may promote a reachable agent to Working.
+  return hasActiveFlight
+    ? {
+        state: "working",
+        reachable: true,
+        statusLabel: "Working",
+        statusDetail: runtimeLabel || "Active flight",
+        lastSeenAt,
+      }
+    : {
+        state: "available",
+        reachable: true,
+        statusLabel: "Available",
+        statusDetail: runtimeLabel || "Reachable endpoint",
+        lastSeenAt,
+      };
 }
 
 export function messageVisibilityForConversation(conversation?: ConversationDefinition): MessageRecord["visibility"] {

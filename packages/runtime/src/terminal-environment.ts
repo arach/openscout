@@ -1,9 +1,28 @@
+/** Claude exports these markers to commands that run inside an active session.
+ * They describe the parent harness, not a fresh terminal or agent launched by
+ * OpenScout, and leaking them can make a new Claude session disable transcript
+ * persistence because it believes it is still a nested child session.
+ *
+ * Keep this list in sync with ScoutTerminalLaunchCommand in the macOS app.
+ */
+export const INHERITED_CLAUDE_SESSION_ENV_KEYS = [
+  "CLAUDECODE",
+  "CLAUDE_CODE_CHILD_SESSION",
+  "CLAUDE_CODE_SESSION_ID",
+  "CLAUDE_SESSION_ID",
+  "CLAUDE_CODE_REMOTE",
+  "CLAUDE_CODE_REMOTE_SESSION_ID",
+  "CLAUDE_PID",
+] as const;
+
 /**
- * Build an environment for an interactive terminal process.
+ * Build an environment for a fresh interactive terminal process.
  *
  * OpenScout's supervisors may intentionally run with NO_COLOR for their own
  * logs. That setting must not leak into a PTY-backed application: it suppresses
- * the application's ANSI output before a terminal client ever sees it.
+ * the application's ANSI output before a terminal client ever sees it. Harness
+ * identity from a parent Claude process must not leak across this boundary,
+ * either: the terminal is a new top-level environment, not a Claude child.
  */
 export function buildInteractiveTerminalEnvironment(
   base: NodeJS.ProcessEnv = process.env,
@@ -16,6 +35,9 @@ export function buildInteractiveTerminalEnvironment(
     FORCE_COLOR: overrides.FORCE_COLOR || base.FORCE_COLOR || "1",
   };
   delete env.NO_COLOR;
+  for (const key of INHERITED_CLAUDE_SESSION_ENV_KEYS) {
+    delete env[key];
+  }
   return env;
 }
 
@@ -31,6 +53,7 @@ export function buildInteractiveTerminalEnvironment(
 export function buildInteractiveTerminalShellDirectives(): string[] {
   return [
     "unset NO_COLOR",
+    `unset ${INHERITED_CLAUDE_SESSION_ENV_KEYS.join(" ")}`,
     'export COLORTERM="${COLORTERM:-truecolor}"',
     'export FORCE_COLOR="${FORCE_COLOR:-1}"',
   ];

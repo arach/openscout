@@ -138,6 +138,7 @@ public final class BridgeBrokerClient: ScoutBrokerClient, MobileNotificationCapa
             profile: nil,
             branch: nil,
             model: spec.execution?.model,
+            reasoningEffort: spec.execution?.reasoningEffort,
             forceNew: (spec.execution?.session == .new) ? true : nil,
             seed: spec.seed
         )
@@ -169,6 +170,13 @@ public final class BridgeBrokerClient: ScoutBrokerClient, MobileNotificationCapa
         let params = MobileListParams(query: query, limit: limit)
         let wire: [MobileWorkspaceSummary] = try await connection.rpc("mobile/workspaces", params: params)
         return wire.map { $0.toSummary() }
+    }
+
+    public func runtimeCapabilities(projectRoot: String?) async throws -> RuntimeCapabilityCatalog {
+        try await connection.rpc(
+            "mobile/runtime-capabilities",
+            params: MobileRuntimeCapabilitiesParams(projectRoot: projectRoot)
+        )
     }
 
     /// Operator usage-quota gauges (Claude / Codex / Kimi / GitHub) with their spent
@@ -585,6 +593,10 @@ struct MobileListParams: Codable, Sendable {
     var limit: Int?
 }
 
+struct MobileRuntimeCapabilitiesParams: Codable, Sendable {
+    var projectRoot: String?
+}
+
 struct MobileCreateSessionParams: Codable, Sendable {
     let workspaceId: String
     var harness: String?
@@ -593,6 +605,7 @@ struct MobileCreateSessionParams: Codable, Sendable {
     var profile: String?
     var branch: String?
     var model: String?
+    var reasoningEffort: String? = nil
     var forceNew: Bool?
     var seed: SessionInitiationSpec.Seed?
 }

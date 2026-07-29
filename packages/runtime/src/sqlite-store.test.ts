@@ -85,6 +85,59 @@ function countRows(db: Database, table: string, where: string, value: string): n
 }
 
 describe("SQLiteControlPlaneStore", () => {
+  test("persists execution resolution on invocation receipts", () => {
+    const store = createStore();
+    try {
+      seedAgent(store);
+      store.upsertActor({ id: "operator", kind: "person", displayName: "Operator" });
+      const executionResolution = {
+        schemaVersion: "openscout.execution-resolution.v1" as const,
+        harness: {
+          requested: "codex",
+          resolved: "codex",
+          source: "flag" as const,
+          drift: "unknown" as const,
+        },
+        model: {
+          requested: "5.6",
+          resolved: "gpt-5.6-sol",
+          source: "flag" as const,
+          observed: "gpt-5.6-sol",
+          observedAt: 130,
+          drift: "match" as const,
+        },
+        reasoningEffort: {
+          requested: "high",
+          resolved: "high",
+          source: "flag" as const,
+          drift: "unknown" as const,
+        },
+        sessionId: "session-execution-1",
+        resolvedAt: 120,
+        observedAt: 130,
+      };
+
+      store.recordInvocation({
+        id: "inv-execution-1",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "consult",
+        task: "Preserve the exact runtime tuple",
+        execution: { harness: "codex", model: "5.6", reasoningEffort: "high" },
+        executionResolution,
+        ensureAwake: true,
+        stream: false,
+        createdAt: 100,
+      });
+
+      expect(store.loadSnapshot().invocations["inv-execution-1"]?.executionResolution)
+        .toEqual(executionResolution);
+    } finally {
+      store.close();
+    }
+  });
+
   test("persists a new conversation before its members and allows messages to be recorded", () => {
     const store = createStore();
 
