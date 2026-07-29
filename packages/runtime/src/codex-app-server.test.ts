@@ -1027,7 +1027,7 @@ describe("buildCodexAppServerSessionSnapshot", () => {
 
     expect(snapshot).not.toBeNull();
     expect(snapshot?.session.providerMeta?.observeUsage).toEqual(expect.objectContaining({
-      contextInputTokens: 1250,
+      contextInputTokens: 1000,
       inputTokens: 501000,
       cacheReadInputTokens: 250,
       outputTokens: 80,
@@ -1050,7 +1050,7 @@ describe("buildCodexAppServerSessionSnapshot", () => {
         windowMs: 300 * 60 * 1000,
       }),
       expect.objectContaining({
-        label: "weekly",
+        label: "7d",
         windowKind: "secondary",
         percentRemaining: 72,
         resetAt: weeklyResetAt,

@@ -420,6 +420,13 @@
     "owner": "tests"
   },
   {
+    "path": "packages/web/server/create-openscout-web-server.ts",
+    "symbol": "Bun.spawn",
+    "category": "process-lifecycle",
+    "reason": "owns the isolated session knowledge index child lifecycle so heavy indexing cannot block the web server event loop",
+    "owner": "web"
+  },
+  {
     "path": "packages/web/server/managed-terminal-relay.ts",
     "symbol": "node:child_process",
     "category": "process-lifecycle",

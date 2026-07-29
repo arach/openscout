@@ -304,7 +304,6 @@ export const invocationsTable = sqliteTable("invocations", {
   messageId: text("message_id").references(() => messagesTable.id, { onDelete: "set null" }),
   contextJson: text("context_json"),
   executionJson: text("execution_json"),
-  executionResolutionJson: text("execution_resolution_json"),
   ensureAwake: integer("ensure_awake").notNull().default(1),
   stream: integer("stream").notNull().default(1),
   timeoutMs: integer("timeout_ms"),
@@ -325,6 +324,7 @@ export const invocationsTable = sqliteTable("invocations", {
   startedAt: integer("started_at"),
   completedAt: integer("completed_at"),
   flightMetadataJson: text("flight_metadata_json"),
+  executionResolutionJson: text("execution_resolution_json"),
 }, (table) => [
   index("idx_invocations_target_created_at").on(table.targetAgentId, table.createdAt),
   index("idx_invocations_requester_created_at").on(table.requesterId, desc(table.createdAt)),

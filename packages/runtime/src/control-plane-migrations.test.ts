@@ -51,14 +51,14 @@ describe("control-plane managed migrations", () => {
     expect(baseline.hash).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  test("preserves the historical schema v14 context migration identity at schema v16", () => {
+  test("preserves the historical schema v14 context migration identity at schema v17", () => {
     const contextMigration = migrations.find((migration) => migration.folderMillis === 1783665705710);
 
-    expect(CONTROL_PLANE_SCHEMA_VERSION).toBe(16);
+    expect(CONTROL_PLANE_SCHEMA_VERSION).toBe(17);
     expect(contextMigration?.hash).toBe("e576221a4547e38a8d92027deb1124055459bf800c12c562840cdcf6fbb8b560");
   });
 
-  test("upgrades a fully ledgered schema v14 database through role and route-alias migrations", () => {
+  test("upgrades a fully ledgered schema v14 database through the current migration chain", () => {
     const db = new Database(":memory:");
     const v14Migrations = migrations.filter((migration) => migration.folderMillis <= 1783665705710);
     expect(v14Migrations).toHaveLength(4);
@@ -84,13 +84,16 @@ describe("control-plane managed migrations", () => {
     migrateControlPlaneDatabaseSchema(db);
 
     expect(ledgerRows(db)).toEqual(fullChainLedger);
-    expect(userVersion(db)).toBe(16);
+    expect(userVersion(db)).toBe(CONTROL_PLANE_SCHEMA_VERSION);
     expect(
       db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'role_assignments'").get(),
     ).toEqual({ name: "role_assignments" });
     expect(
       db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'route_alias_bindings'").get(),
     ).toEqual({ name: "route_alias_bindings" });
+    expect(
+      db.query("SELECT name FROM pragma_table_info('invocations') WHERE name = 'execution_resolution_json'").get(),
+    ).toEqual({ name: "execution_resolution_json" });
     expect(
       db.query("SELECT display_name FROM actors WHERE id = 'actor-v14'").get(),
     ).toEqual({ display_name: "Survivor" });
@@ -141,6 +144,34 @@ describe("control-plane managed migrations", () => {
     expect(db.query("SELECT agent_id FROM role_assignments WHERE id = 'role-keeper'").get()).toEqual({
       agent_id: "agent-keeper",
     });
+    expect(userVersion(db)).toBe(CONTROL_PLANE_SCHEMA_VERSION);
+  });
+
+  test("reconciles v17 databases that received execution resolution before its Drizzle migration", () => {
+    const db = new Database(":memory:");
+    const executionResolutionMigrationIndex = migrations.findIndex((migration) =>
+      migration.sql.some((statement) => statement.includes("execution_resolution_json"))
+    );
+    expect(executionResolutionMigrationIndex).toBeGreaterThan(0);
+
+    db.exec(
+      'CREATE TABLE "__drizzle_migrations" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)',
+    );
+    for (const migration of migrations.slice(0, executionResolutionMigrationIndex)) {
+      for (const statement of migration.sql) db.exec(statement);
+      db.query(
+        'INSERT INTO "__drizzle_migrations" (hash, created_at) VALUES (?, ?)',
+      ).run(migration.hash, migration.folderMillis);
+    }
+    db.exec("ALTER TABLE invocations ADD COLUMN execution_resolution_json TEXT");
+    db.exec(`PRAGMA user_version = ${CONTROL_PLANE_SCHEMA_VERSION}`);
+
+    migrateControlPlaneDatabaseSchema(db);
+
+    expect(ledgerRows(db)).toEqual(fullChainLedger);
+    expect(
+      db.query("SELECT count(*) AS count FROM pragma_table_info('invocations') WHERE name = 'execution_resolution_json'").get(),
+    ).toEqual({ count: 1 });
     expect(userVersion(db)).toBe(CONTROL_PLANE_SCHEMA_VERSION);
   });
 

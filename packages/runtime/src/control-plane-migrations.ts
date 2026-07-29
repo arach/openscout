@@ -336,6 +336,48 @@ function reconcileLegacyRoleMigrationLineage(
   }
 }
 
+function reconcilePreLedgerExecutionResolutionMigration(
+  database: ControlPlaneSqliteDatabase,
+  migrations: ControlPlaneDrizzleMigrations,
+): void {
+  const migrationIndex = migrations.findIndex((migration) =>
+    migration.sql.some((statement) =>
+      statement.includes("ALTER TABLE `invocations` ADD `execution_resolution_json`")
+    )
+  );
+  if (migrationIndex <= 0 || !hasColumn(database, "invocations", "execution_resolution_json")) {
+    return;
+  }
+
+  const migration = migrations[migrationIndex]!;
+  const alreadyRecorded = database
+    .query('SELECT 1 FROM "__drizzle_migrations" WHERE hash = ?1 LIMIT 1')
+    .get(migration.hash) !== null;
+  if (alreadyRecorded) {
+    return;
+  }
+
+  // The first v17 build shipped the guarded imperative ALTER before its
+  // generated Drizzle migration. A database opened by that build therefore
+  // has the column and a ledger ending at the prior migration. Only reconcile
+  // when every earlier identity is present; inserting the newest timestamp
+  // into a partial ledger would otherwise skip unrelated pending migrations.
+  const allEarlierMigrationsRecorded = migrations
+    .slice(0, migrationIndex)
+    .every((candidate) =>
+      database
+        .query('SELECT 1 FROM "__drizzle_migrations" WHERE hash = ?1 LIMIT 1')
+        .get(candidate.hash) !== null
+    );
+  if (!allEarlierMigrationsRecorded) {
+    return;
+  }
+
+  database
+    .query('INSERT INTO "__drizzle_migrations" (hash, created_at) VALUES (?1, ?2)')
+    .run(migration.hash, migration.folderMillis);
+}
+
 function seedControlPlaneDrizzleLedger(
   database: ControlPlaneSqliteDatabase,
   migrations: ControlPlaneDrizzleMigrations,
@@ -401,6 +443,7 @@ export function applyControlPlaneDrizzleMigrations(database: ControlPlaneSqliteD
   database.exec(DRIZZLE_MIGRATIONS_LEDGER_SQL);
   seedControlPlaneDrizzleLedger(database, migrations);
   reconcileLegacyRoleMigrationLineage(database, migrations);
+  reconcilePreLedgerExecutionResolutionMigration(database, migrations);
 
   // Inlined replacement for drizzle-orm's bun-sqlite `migrate()`: identical
   // ledger contract (same table shape, same "created_at newer than the last
