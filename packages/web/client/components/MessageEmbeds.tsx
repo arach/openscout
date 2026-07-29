@@ -93,18 +93,6 @@ function linkPreviewFromAttachment(attachment: MessageAttachment): LinkPreview |
   };
 }
 
-function bodyLinkPreview(url: string): LinkPreview {
-  const label = urlLabel(url);
-  return {
-    id: url,
-    url,
-    title: label.host,
-    description: label.detail === label.host ? null : label.detail,
-    imageUrl: isImageUrl(url) ? url : null,
-    siteName: label.host,
-  };
-}
-
 function ImageEmbed({
   src,
   alt,
@@ -162,14 +150,23 @@ export function MessageEmbeds({ message }: { message: Message }) {
   }
 
   const attachmentPreviewUrls = new Set(linkPreviews.map((preview) => preview.url));
+  const attachmentUrls = new Set(
+    attachments
+      .map(attachmentUrl)
+      .filter((url): url is string => Boolean(url)),
+  );
   for (const url of bodyUrls(message.body)) {
-    if (attachmentPreviewUrls.has(url)) {
+    // The message body is already linkified by MessageMarkup. Only turn a bare
+    // body URL into an embed when it is unambiguously an image. Synthesizing a
+    // "preview" from the URL alone repeats the host/path in a large empty card
+    // (especially for local /api/blobs links) without adding any information.
+    // Attachments and real link-preview records carry the metadata needed for
+    // a useful rich embed, and must not be rendered a second time from the body.
+    if (attachmentUrls.has(url) || attachmentPreviewUrls.has(url)) {
       continue;
     }
     if (isImageUrl(url)) {
       imageEmbeds.push({ id: url, src: url, alt: "Embedded image" });
-    } else if (linkPreviews.length === 0) {
-      linkPreviews.push(bodyLinkPreview(url));
     }
   }
 

@@ -1,8 +1,20 @@
-import { useMemo } from "react";
+import { lazy, Suspense, useMemo } from "react";
 import { useScout } from "../scout/Provider.tsx";
-import { resolveContentPane } from "../screens/resolve-panes.tsx";
 import type { RegisteredSurface } from "./types.ts";
 import { resolveEmbedChrome } from "./types.ts";
+
+type RoutedSurfaceFallbackProps = Pick<
+  ReturnType<typeof useScout>,
+  "route" | "navigate" | "agents"
+>;
+
+const RoutedSurfaceFallback = lazy(async () => {
+  const { resolveContentPane } = await import("../screens/resolve-panes.tsx");
+  return {
+    default: ({ route, navigate, agents }: RoutedSurfaceFallbackProps) =>
+      resolveContentPane(route, navigate, agents),
+  };
+});
 
 function routeMatchesSurfaceRoute(route: unknown, surfaceRoute: unknown): boolean {
   if (!route || typeof route !== "object" || !surfaceRoute || typeof surfaceRoute !== "object") {
@@ -38,7 +50,11 @@ export function DiscoveredEmbedHost({ surface }: { surface: RegisteredSurface })
     <div className={rootClassName} data-scout-theme data-scout-surface={surface.id}>
       {shouldRenderSurface
         ? <Screen navigate={navigate} embedded {...extraProps} />
-        : resolveContentPane(route, navigate, agents)}
+        : (
+          <Suspense fallback={null}>
+            <RoutedSurfaceFallback route={route} navigate={navigate} agents={agents} />
+          </Suspense>
+        )}
     </div>
   );
 }

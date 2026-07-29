@@ -16,4 +16,9 @@ export {
   useComposerAttachments,
   type ComposerAttachmentsState,
 } from "./ComposerAttachments.tsx";
+export {
+  RuntimePicker,
+  RUNTIME_EFFORTS,
+  type RuntimePickerProps,
+} from "./RuntimePicker.tsx";
 export { VoiceWaveform } from "./VoiceWaveform.tsx";

@@ -20,9 +20,9 @@ describe("primary areas (SCO-083 IA model)", () => {
     expect(new Set(ids).size).toBe(8);
     expect(ids).toEqual([
       "home",
+      "chat",
       "projects",
       "sessions",
-      "chat",
       "dispatch",
       "search",
       "ops",
@@ -33,9 +33,9 @@ describe("primary areas (SCO-083 IA model)", () => {
   test("Navigate and System sections partition the eight areas", () => {
     expect(navigatePrimaryAreas().map((a) => a.id)).toEqual([
       "home",
+      "chat",
       "projects",
       "sessions",
-      "chat",
       "dispatch",
       "search",
     ]);

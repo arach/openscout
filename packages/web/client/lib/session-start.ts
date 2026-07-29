@@ -139,6 +139,7 @@ export async function startAgentSession(
   input?: {
     instructions?: string;
     attachments?: OutgoingAttachment[];
+    clientMessageId?: string;
   },
 ): Promise<SessionInitiationResult> {
   const attachments = input?.attachments?.filter(Boolean) ?? [];
@@ -150,6 +151,7 @@ export async function startAgentSession(
         seed: {
           ...(instructions ? { instructions } : {}),
           ...(attachments.length > 0 ? { attachments } : {}),
+          ...(input?.clientMessageId ? { clientMessageId: input.clientMessageId } : {}),
         },
       }
     : payload;
@@ -175,6 +177,7 @@ export async function startProjectSession(input: {
   reasoningEffort?: string;
   instructions?: string;
   attachments?: OutgoingAttachment[];
+  clientMessageId?: string;
 }): Promise<SessionInitiationResult> {
   const projectPath = input.projectPath.trim();
   const harness = input.harness?.trim();
@@ -198,6 +201,7 @@ export async function startProjectSession(input: {
             seed: {
               ...(instructions ? { instructions } : {}),
               ...(attachments.length > 0 ? { attachments } : {}),
+              ...(input.clientMessageId ? { clientMessageId: input.clientMessageId } : {}),
             },
           }
         : {}),

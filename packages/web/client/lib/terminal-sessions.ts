@@ -52,7 +52,7 @@ export function surfaceKeyFromParts(
   const cleanBackend = backend?.trim();
   const cleanSessionName = sessionName?.trim();
   if (
-    (cleanBackend !== "tmux" && cleanBackend !== "zellij")
+    (cleanBackend !== "tmux" && cleanBackend !== "zellij" && cleanBackend !== "herdr")
     || !cleanSessionName
   ) {
     return null;
@@ -62,13 +62,13 @@ export function surfaceKeyFromParts(
 
 export function surfacePartsFromKey(
   key: string | undefined,
-): { backend: "tmux" | "zellij"; sessionName: string } | null {
+): { backend: "tmux" | "zellij" | "herdr"; sessionName: string } | null {
   if (!key) return null;
   const separator = key.indexOf(":");
   if (separator <= 0 || separator === key.length - 1) return null;
   const backend = key.slice(0, separator);
   const sessionName = key.slice(separator + 1);
-  if (backend !== "tmux" && backend !== "zellij") return null;
+  if (backend !== "tmux" && backend !== "zellij" && backend !== "herdr") return null;
   return { backend, sessionName };
 }
 
@@ -78,7 +78,38 @@ export function terminalSurfaceDescriptorFromRegisteredSurface(surface: Terminal
     sessionName: surface.sessionName,
     paneId: surface.paneId,
     socketDir: surface.socketDir ?? null,
+    attachCommand: surface.attachCommand ?? null,
   };
+}
+
+/** Shell-join an attach argv for copy / external open display. */
+export function formatAttachCommand(attachCommand: string[] | null | undefined): string | null {
+  if (!attachCommand?.length) return null;
+  return attachCommand.map(shellQuoteArg).join(" ");
+}
+
+export function terminalAttachCommandFromSurface(
+  surface: Pick<TerminalSurfaceDescriptor, "backend" | "sessionName" | "socketDir" | "attachCommand">,
+): string {
+  if (surface.attachCommand?.length) {
+    return formatAttachCommand(surface.attachCommand) ?? "";
+  }
+  if (surface.backend === "tmux") {
+    return `tmux attach -t ${shellQuoteArg(surface.sessionName)}`;
+  }
+  if (surface.backend === "herdr") {
+    if (!surface.sessionName || surface.sessionName === "default") return "herdr";
+    return `herdr session attach ${shellQuoteArg(surface.sessionName)}`;
+  }
+  const socketPrefix = surface.socketDir
+    ? `ZELLIJ_SOCKET_DIR=${shellQuoteArg(surface.socketDir)} `
+    : "";
+  return `${socketPrefix}zellij attach ${shellQuoteArg(surface.sessionName)}`;
+}
+
+function shellQuoteArg(value: string): string {
+  if (/^[A-Za-z0-9_./:@%+=,-]+$/u.test(value)) return value;
+  return `'${value.replace(/'/gu, `'\\''`)}'`;
 }
 
 export function resolveRegisteredTerminalTarget(

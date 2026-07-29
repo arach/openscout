@@ -438,6 +438,20 @@ export default function HomeHero(props: HomeHeroProps) {
           <span className={`hd-dot hd-dot--${syncTone}`} aria-hidden="true" />
           <span className={`hd-meta hd-meta--${syncTone}`}>{syncLabel}</span>
           <span className="hd-topbar-actions">
+            <button
+              type="button"
+              className="hd-btn"
+              onClick={() => navigate({ view: "terminal" })}
+            >
+              [open terminal]
+            </button>
+            <button
+              type="button"
+              className="hd-btn"
+              onClick={() => navigate({ view: "code" })}
+            >
+              [open code]
+            </button>
             {opsEnabled && (
               <button
                 type="button"

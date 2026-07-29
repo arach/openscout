@@ -1647,6 +1647,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                 )}
                 onToggleTerminal={() => setShowTerminal((visible) => !visible)}
                 isTerminalOpen={showTerminal}
+                terminalLabel="Terminal"
               />
 
               <ScoutActivityLogOverlay

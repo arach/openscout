@@ -10,9 +10,8 @@ import {
   type ReactNode,
 } from "react";
 import { useOptionalFlag } from "hudsonkit/flags";
+import { useOptionalTheme } from "hudsonkit/theme";
 import {
-  isSettingsHistoryEntry,
-  useBrowserLocation,
   useRouter,
   type NavigateOptions,
 } from "../lib/router.ts";
@@ -30,11 +29,13 @@ import { ContextMenuProvider } from "../components/ContextMenu.tsx";
 import { FilePreviewOverlay } from "./FilePreviewOverlay.tsx";
 import { ScoutbotStateProvider } from "./scoutbot/ScoutbotStateContext.tsx";
 import { ScoutbotRealtimeVoiceProvider } from "./scoutbot/ScoutbotRealtimeVoiceContext.tsx";
-import { SettingsDrawer } from "../screens/settings/SettingsDrawer.tsx";
 import { ContextCaptureHost } from "./ContextCaptureHost.tsx";
 import type { Agent, BrokerRouteAttempt, Route } from "../lib/types.ts";
 import type { ScoutTheme } from "../lib/theme.ts";
-import { resolveScoutNativeThemeVars } from "../lib/theme.ts";
+import {
+  applyScoutThemeToDocument,
+  resolveScoutNativeThemeVars,
+} from "../lib/theme.ts";
 import type { KnowledgeHit } from "../lib/knowledge-search.ts";
 import type { FocusedSession } from "../lib/session-catalog.ts";
 import { SCOUT_REALTIME_VOICE_FLAG } from "../../shared/realtime-voice.ts";
@@ -244,6 +245,34 @@ export const LIGHT_THEME_VARS: ThemeVars = {
   "--hud-font-accent-title": "'Inter Tight', var(--hud-font-sans)",
 };
 
+const HUDSON_MANAGED_THEME_VARS = new Set([
+  "--hud-bg",
+  "--hud-surface",
+  "--hud-ink",
+  "--hud-muted",
+  "--hud-dim",
+  "--hud-border",
+  "--hud-accent",
+  "--hud-accent-soft",
+  "--hud-shadow-soft",
+  "--hud-chrome-border",
+  "--hud-shadow-panel",
+  "--hud-shadow-panel-hover",
+  "--hud-shadow-bar",
+  "--hud-shadow-nav",
+  "--hud-shadow-minimap",
+  "--hud-status-ok",
+  "--hud-status-warn",
+  "--hud-status-error",
+]);
+
+function scoutThemeAugmentVars(theme: ScoutTheme): ThemeVars {
+  const source = theme === "light" ? LIGHT_THEME_VARS : DARK_THEME_VARS;
+  return Object.fromEntries(
+    Object.entries(source).filter(([key]) => !HUDSON_MANAGED_THEME_VARS.has(key)),
+  ) as ThemeVars;
+}
+
 export function useScout() {
   const ctx = useContext(ScoutContext);
   if (!ctx) throw new Error("useScout must be used inside ScoutProvider");
@@ -258,8 +287,8 @@ export function ScoutProvider({
   initialTheme?: ScoutTheme;
 }) {
   const { route, navigate } = useRouter();
+  const hudsonTheme = useOptionalTheme();
   const realtimeVoiceEnabled = useOptionalFlag(SCOUT_REALTIME_VOICE_FLAG, false);
-  const locationState = useBrowserLocation().state;
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agentsLoaded, setAgentsLoaded] = useState(false);
   const [apiConnection, setApiConnection] = useState<ApiConnectionState>({
@@ -276,10 +305,7 @@ export function ScoutProvider({
   const [selectedKnowledgeQuery, setSelectedKnowledgeQuery] = useState("");
   const [contextCaptureRequest, setContextCaptureRequest] = useState<ContextCaptureRequest | null>(null);
 
-  const settingsOpen = route.view === "settings"
-    && route.section !== "agents"
-    && route.section !== "pairing"
-    && route.section !== undefined;
+  const settingsOpen = route.view === "settings";
 
   const selectedBrokerAttempt = useMemo(() => {
     if (route.view !== "broker" || !route.attemptId) return null;
@@ -323,28 +349,12 @@ export function ScoutProvider({
   }, [navigate, route]);
 
   const openSettings = useCallback(() => {
-    navigate(
-      { view: "settings", section: "operator" },
-      // Mark the pushed entry so closeSettings can restore the user's place
-      // via history.back() instead of dumping them on Home.
-      { state: { settingsEntry: true } },
-    );
+    navigate({ view: "settings", section: "appearance" });
   }, [navigate]);
   const closeSettings = useCallback(() => {
     if (route.view !== "settings") return;
-    // Closing the settings entry the app pushed returns to wherever the user
-    // was; a deep link straight into /settings/* has no prior entry to trust,
-    // so fall back to inbox.
-    if (
-      isSettingsHistoryEntry(locationState)
-      && typeof window !== "undefined"
-      && window.history.length > 1
-    ) {
-      window.history.back();
-      return;
-    }
     navigate({ view: "inbox" });
-  }, [navigate, route.view, locationState]);
+  }, [navigate, route.view]);
   const openContextCapture = useCallback((request: ContextCaptureRequest = {}) => {
     setContextCaptureRequest(request);
   }, []);
@@ -398,13 +408,19 @@ export function ScoutProvider({
   // Base web light/dark vars, with the native app's resolved palette layered on
   // top when hosted in the macOS embed (so the viewer matches the app exactly).
   const nativeThemeVars = useMemo(() => resolveScoutNativeThemeVars(), []);
+  const resolvedTheme = hudsonTheme?.resolvedTheme ?? initialTheme;
+  const activeTemplate = hudsonTheme?.template ?? "hudson";
   const themeVars = useMemo(
     () => ({
-      ...(initialTheme === "light" ? LIGHT_THEME_VARS : DARK_THEME_VARS),
+      ...scoutThemeAugmentVars(resolvedTheme),
       ...(nativeThemeVars ?? {}),
     }),
-    [initialTheme, nativeThemeVars],
+    [nativeThemeVars, resolvedTheme],
   );
+
+  useEffect(() => {
+    applyScoutThemeToDocument(resolvedTheme);
+  }, [resolvedTheme]);
   const scoutbotAgent = useMemo(() => resolveScoutbotAgent(agents), [agents]);
   const scoutbotAgentId = scoutbotAgent?.id ?? resolveScoutbotAgentId(agents);
   const scoutbotDmConversationId = scoutbotAgent?.conversationId ?? null;
@@ -612,8 +628,10 @@ export function ScoutProvider({
   return (
     <ScoutContext.Provider value={value}>
       <div
-        data-scout-theme={initialTheme}
-        data-scout-theme-mode={initialTheme}
+        data-scout-theme={resolvedTheme}
+        data-scout-theme-mode={resolvedTheme}
+        data-hudson-theme={resolvedTheme}
+        data-hudson-template={activeTemplate}
         style={{
           ...themeVars,
         }}
@@ -623,28 +641,6 @@ export function ScoutProvider({
             {realtimeVoiceEnabled
               ? <ScoutbotRealtimeVoiceProvider>{children}</ScoutbotRealtimeVoiceProvider>
               : children}
-            {/* Drawer presentation for operator/comms/credentials/voice/devices.
-                Pairing + agents stay full routed SettingsScreen. URL is SoT. */}
-            <SettingsDrawer
-              open={settingsOpen}
-              onClose={closeSettings}
-              section={
-                route.view === "settings"
-                  && route.section
-                  && route.section !== "agents"
-                  && route.section !== "pairing"
-                  ? route.section
-                  : undefined
-              }
-              onSectionChange={(section) => {
-                // Section switching is chrome state, not a new destination:
-                // replace so rail clicks don't stack history entries. The
-                // settings-entry marker rides along (replace preserves entry
-                // state), so close still returns via Back only when the entry
-                // was app-pushed.
-                navigate({ view: "settings", section }, { replace: true });
-              }}
-            />
             <FilePreviewOverlay
               path={filePreviewPath}
               onOpenPath={openFilePreview}

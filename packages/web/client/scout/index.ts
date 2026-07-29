@@ -15,6 +15,11 @@ import {
   useScoutTakeover,
 } from "./hooks.ts";
 import type { ScoutTheme } from "../lib/theme.ts";
+import {
+  SCOUT_DEFAULT_THEME_TEMPLATE,
+  SCOUT_THEME_STORAGE_KEY,
+} from "../lib/theme.ts";
+import { ThemeProvider } from "hudsonkit/theme";
 
 const intents: AppIntent[] = [
   {
@@ -212,7 +217,15 @@ export function createScoutApp(options: { initialTheme?: ScoutTheme } = {}): Hud
     ),
 
     Provider: ({ children }: { children: ReactNode }) =>
-      createElement(ScoutProvider, { initialTheme, children }),
+      createElement(
+        ThemeProvider,
+        {
+          defaultTheme: initialTheme,
+          defaultTemplate: SCOUT_DEFAULT_THEME_TEMPLATE,
+          storageKey: SCOUT_THEME_STORAGE_KEY,
+        },
+        createElement(ScoutProvider, { initialTheme, children }),
+      ),
 
     leftPanel: {
       title: "Navigation",

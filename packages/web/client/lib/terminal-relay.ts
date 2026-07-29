@@ -63,6 +63,7 @@ export type TerminalRelaySurfaceOptions = {
   tmuxSession?: string;
   zellijSession?: string;
   zellijSocketDir?: string;
+  herdrSession?: string;
 };
 
 export function resolveTerminalRelaySurfaceOptions(
@@ -77,6 +78,14 @@ export function resolveTerminalRelaySurfaceOptions(
       ? {
           zellijSession: terminalSurface.sessionName,
           ...(terminalSurface.socketDir ? { zellijSocketDir: terminalSurface.socketDir } : {}),
+        }
+      : {}),
+    ...(terminalSurface.backend === "herdr"
+      ? {
+          herdrSession: terminalSurface.sessionName,
+          // hudsonkit's session:init currently only forwards tmux/zellij session
+          // fields; the relay accepts herdrSession || tmuxSession for Herdr.
+          tmuxSession: terminalSurface.sessionName,
         }
       : {}),
   };

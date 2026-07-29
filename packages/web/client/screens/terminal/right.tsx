@@ -9,6 +9,7 @@ import { copyTextToClipboard } from "../../lib/clipboard.ts";
 import {
   fetchTerminalSessions,
   resolveRegisteredTerminalTarget,
+  terminalAttachCommandFromSurface,
   terminalSurfaceDescriptorFromRegisteredSurface,
   type RegisteredTerminalTarget,
 } from "../../lib/terminal-sessions.ts";
@@ -52,7 +53,7 @@ export function TerminalInspector() {
   const agentSurface = agent ? agentTerminalSurface(agent) : null;
   const terminalSurface = agentSurface ?? registeredSurface;
   const attachCommand = useMemo(
-    () => terminalSurface ? terminalAttachCommand(terminalSurface) : null,
+    () => terminalSurface ? terminalAttachCommandFromSurface(terminalSurface) : null,
     [terminalSurface],
   );
 
@@ -125,21 +126,6 @@ export function TerminalInspector() {
       )}
     </div>
   );
-}
-
-function shellQuote(value: string): string {
-  if (/^[A-Za-z0-9_./:@%+=,-]+$/u.test(value)) return value;
-  return `'${value.replace(/'/gu, `'\\''`)}'`;
-}
-
-function terminalAttachCommand(surface: TerminalSurfaceDescriptor): string {
-  if (surface.backend === "tmux") {
-    return `tmux attach -t ${shellQuote(surface.sessionName)}`;
-  }
-  const socketPrefix = surface.socketDir
-    ? `ZELLIJ_SOCKET_DIR=${shellQuote(surface.socketDir)} `
-    : "";
-  return `${socketPrefix}zellij attach ${shellQuote(surface.sessionName)}`;
 }
 
 function terminalRoute(agentId: string, mode: "observe" | "takeover"): Route {

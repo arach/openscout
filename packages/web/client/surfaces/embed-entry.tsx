@@ -1,7 +1,7 @@
 import { FeatureFlagsProvider } from "hudsonkit/flags";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import type { createScoutApp } from "../scout";
+import type { ScoutTheme } from "../lib/theme.ts";
 import {
   SCOUT_AUDIENCE_ORDER,
   SCOUT_DEFAULT_AUDIENCE,
@@ -9,14 +9,15 @@ import {
   scoutFlagInitialLayers,
   scoutFlags,
 } from "../lib/scout-flags.ts";
+import { ScoutProvider } from "../scout/Provider.tsx";
 import { DiscoveredEmbedHost } from "./EmbedHost.tsx";
 import { resolveEmbeddableSurface } from "./discover.ts";
 
-export function mountDiscoveredEmbed(
+export async function mountDiscoveredEmbed(
   el: HTMLElement,
-  scoutApp: ReturnType<typeof createScoutApp>,
-): boolean {
-  const surface = resolveEmbeddableSurface(window.location.pathname);
+  initialTheme: ScoutTheme,
+): Promise<boolean> {
+  const surface = await resolveEmbeddableSurface(window.location.pathname);
   if (!surface) return false;
 
   createRoot(el).render(
@@ -31,9 +32,9 @@ export function mountDiscoveredEmbed(
         storageKey={SCOUT_FLAG_STORAGE_KEY}
         initialLayers={scoutFlagInitialLayers()}
       >
-        <scoutApp.Provider>
+        <ScoutProvider initialTheme={initialTheme}>
           <DiscoveredEmbedHost surface={surface} />
-        </scoutApp.Provider>
+        </ScoutProvider>
       </FeatureFlagsProvider>
     </StrictMode>,
   );

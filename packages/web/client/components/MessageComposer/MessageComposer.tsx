@@ -77,6 +77,16 @@ export type MessageComposerProps = {
   /** Top decoration: reply annotation, target chip, etc. */
   header?: ReactNode;
   /**
+   * Rendered above the shell, outside the box but at the same width (queued
+   * message stack, etc.). Use `header` for decoration that belongs inside.
+   */
+  above?: ReactNode;
+  /**
+   * Fuse the `above` slot onto the top of the shell so the two read as one
+   * object (shared edge, no gap) instead of two stacked boxes.
+   */
+  aboveAttached?: boolean;
+  /**
    * Replace the default textarea (e.g. AgentMentionTextarea). Parent still
    * owns `value` / `onChange` for Send enablement; this only swaps the field.
    */
@@ -207,6 +217,8 @@ export function MessageComposer({
   tools,
   footer,
   header,
+  above,
+  aboveAttached = false,
   input,
   overlay,
   status,
@@ -483,8 +495,12 @@ export function MessageComposer({
   // makes an overlay positioned above the composer fully invisible because the
   // rounded composer clips its contents.
   const content = (
-    <div className="s-msg-compose-frame">
+    <div
+      className="s-msg-compose-frame"
+      data-above-attached={above && aboveAttached ? "true" : undefined}
+    >
       {overlay}
+      {above ? <div className="s-msg-compose-above">{above}</div> : null}
       {shell}
     </div>
   );

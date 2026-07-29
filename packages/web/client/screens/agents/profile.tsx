@@ -213,6 +213,8 @@ function SessionSummary({
   const editEvents = toolEvents.filter((e) => e.tool === "edit" || e.tool === "write");
   const readEvents = toolEvents.filter((e) => e.tool === "read");
   const fileCount = data?.files.length ?? 0;
+  const observedTurnCount = data?.metadata?.session?.turnCount;
+  const ledgerTurnCount = ctx?.activeSessionId === session.id ? ctx.turnCount : undefined;
   const hasObservedWork = workEvents.length > 0 || fileCount > 0;
   const traceState =
     !observe
@@ -235,7 +237,7 @@ function SessionSummary({
         ? "this session has no observable transcript attached"
         : "no agent work has been recorded yet";
   const stats: Array<{ k: string; v: string }> = [
-    { k: "turns", v: fmtCompactNumber(ctx?.turnCount ?? data?.metadata?.session?.turnCount ?? 0) },
+    { k: "turns", v: fmtCompactNumber(observedTurnCount ?? ledgerTurnCount) },
     { k: "tools", v: fmtCompactNumber(toolEvents.length) },
     { k: "edits", v: fmtCompactNumber(editEvents.length) },
     { k: "reads", v: fmtCompactNumber(readEvents.length) },
@@ -405,10 +407,12 @@ export function AgentProfileSessionsCenter({
   );
   const activeSession = sessions.find((session) => session.id === activeSessionId) ?? null;
   const liveSessionModel = activeSession?.model ?? null;
+  const liveSessionEffort = activeSession?.reasoningEffort ?? agent.reasoningEffort ?? null;
   const hasDistinctSessionModel = Boolean(liveSessionModel && liveSessionModel !== agent.model);
-  const chipTitle = hasDistinctSessionModel && liveSessionModel
-    ? `Session model: ${liveSessionModel}`
-    : null;
+  const chipTitle = [
+    hasDistinctSessionModel && liveSessionModel ? `Session model: ${liveSessionModel}` : null,
+    liveSessionEffort ? `Effort: ${liveSessionEffort}` : null,
+  ].filter(Boolean).join(" · ") || null;
   const [startState, setStartState] = useState<"idle" | "starting">("idle");
   const [startError, setStartError] = useState<string | null>(null);
   const [chatState, setChatState] = useState<"idle" | "opening">("idle");
@@ -575,7 +579,7 @@ export function AgentProfileSessionsCenter({
                 rowModelRaw && rowHarness && rowModelRaw.startsWith(`${rowHarness}-`)
                   ? rowModelRaw.slice(rowHarness.length + 1)
                   : rowModelRaw;
-              const engineLabel = [rowHarness, rowModel]
+              const engineLabel = [rowHarness, rowModel, s.reasoningEffort]
                 .filter((value): value is string => Boolean(value))
                 .join(" · ");
               const surfaceLabel = s.surfaceSessionId
@@ -993,7 +997,7 @@ function SessionProfileCenter({
                   sModelRaw && sModelRaw.startsWith(`${sHarness}-`)
                     ? sModelRaw.slice(sHarness.length + 1)
                     : sModelRaw;
-                const engine = [sHarness, sModel].filter(Boolean).join(" · ");
+                const engine = [sHarness, sModel, s.reasoningEffort].filter(Boolean).join(" · ");
                 return (
                   <button
                     key={s.id}

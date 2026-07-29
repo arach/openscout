@@ -1,7 +1,20 @@
+import { useEffect, useState } from "react";
 import { listEmbeddableSurfaceSummaries } from "../surfaces/discover.ts";
 
+type SurfaceSummary = Awaited<ReturnType<typeof listEmbeddableSurfaceSummaries>>[number];
+
 export function EmbeddableSurfacesLab() {
-  const surfaces = listEmbeddableSurfaceSummaries();
+  const [surfaces, setSurfaces] = useState<SurfaceSummary[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void listEmbeddableSurfaceSummaries().then((nextSurfaces) => {
+      if (!cancelled) setSurfaces(nextSurfaces);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="s-embeddable-surfaces-lab" data-scout-theme>

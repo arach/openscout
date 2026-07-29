@@ -1,9 +1,15 @@
 import { api } from "./api.ts";
+import {
+  compareMessagesAsc,
+  encodeMessageHistoryCursor,
+} from "../../shared/message-pagination.ts";
 import type { Message, SessionEntry } from "./types.ts";
 
 export const RECENT_CHAT_PRELOAD_LIMIT = 10;
 export const CHAT_TAIL_LIMIT = 80;
-export const MAX_CACHED_MESSAGES_PER_CHAT = 300;
+export const INITIAL_CHAT_HISTORY_LIMIT = 300;
+export const CHAT_HISTORY_PAGE_LIMIT = 100;
+export const MAX_CACHED_MESSAGES_PER_CHAT = 2_000;
 
 const MAX_CACHED_CHAT_TAILS = RECENT_CHAT_PRELOAD_LIMIT;
 const PREFETCH_CONCURRENCY = 2;
@@ -11,6 +17,7 @@ const PREFETCH_CONCURRENCY = 2;
 type CachedTail = {
   messages: Message[];
   historyLoaded: boolean;
+  historyExhausted: boolean;
   touchedAt: number;
 };
 
@@ -27,9 +34,10 @@ function sortAndDedupeMessages(messages: Message[]): Message[] {
   for (const message of messages) {
     byId.set(message.id, message);
   }
-  return [...byId.values()].sort((left, right) =>
-    left.createdAt - right.createdAt || left.id.localeCompare(right.id)
-  );
+  // The shared total order, not localeCompare: the cache's first row becomes
+  // the cursor the server pages from, so a different tie-break here means the
+  // server answers with rows this cache already holds and paging never advances.
+  return [...byId.values()].sort(compareMessagesAsc);
 }
 
 function evictLeastRecentlyUsedTail(): void {
@@ -58,7 +66,7 @@ export function readCachedConversationTail(
 export function writeCachedConversationTail(
   conversationId: string,
   messages: Message[],
-  options: { historyLoaded?: boolean } = {},
+  options: { historyLoaded?: boolean; historyExhausted?: boolean } = {},
 ): Message[] {
   const id = normalizedConversationId(conversationId);
   if (!id) return [];
@@ -69,6 +77,7 @@ export function writeCachedConversationTail(
   tails.set(id, {
     messages: normalized,
     historyLoaded: options.historyLoaded ?? previous?.historyLoaded ?? false,
+    historyExhausted: options.historyExhausted ?? previous?.historyExhausted ?? false,
     touchedAt: ++touchSequence,
   });
   evictLeastRecentlyUsedTail();
@@ -91,6 +100,17 @@ export function newestCachedConversationMessageAt(
 
 export function hasCachedConversationHistory(conversationId: string): boolean {
   return tails.get(normalizedConversationId(conversationId))?.historyLoaded ?? false;
+}
+
+export function canLoadEarlierConversationMessages(conversationId: string): boolean {
+  const entry = tails.get(normalizedConversationId(conversationId));
+  return Boolean(
+    entry
+    && entry.historyLoaded
+    && !entry.historyExhausted
+    && entry.messages.length > 0
+    && entry.messages.length < MAX_CACHED_MESSAGES_PER_CHAT
+  );
 }
 
 export async function loadConversationTail(
@@ -131,11 +151,55 @@ export async function loadConversationHistory(
   if (existing) return existing;
 
   const request = api<Message[]>(
-    `/api/messages?conversationId=${encodeURIComponent(id)}&limit=${MAX_CACHED_MESSAGES_PER_CHAT}`,
+    `/api/messages?conversationId=${encodeURIComponent(id)}&limit=${INITIAL_CHAT_HISTORY_LIMIT}`,
   ).then((messages) => writeCachedConversationTail(
     id,
     [...(readCachedConversationTail(id) ?? []), ...messages],
-    { historyLoaded: true },
+    {
+      historyLoaded: true,
+      historyExhausted: messages.length < INITIAL_CHAT_HISTORY_LIMIT,
+    },
+  ));
+  inFlightTails.set(requestKey, request);
+  try {
+    return await request;
+  } finally {
+    inFlightTails.delete(requestKey);
+  }
+}
+
+export async function loadEarlierConversationMessages(
+  conversationId: string,
+): Promise<Message[]> {
+  const id = normalizedConversationId(conversationId);
+  if (!id) return [];
+  if (!hasCachedConversationHistory(id)) {
+    return loadConversationHistory(id);
+  }
+  if (!canLoadEarlierConversationMessages(id)) {
+    return readCachedConversationTail(id) ?? [];
+  }
+
+  const current = readCachedConversationTail(id) ?? [];
+  const oldest = current[0];
+  if (!oldest) return current;
+  // Send the position, not the name: the anchor message can be deleted between
+  // pages and the next page still has to land in the same place.
+  const cursor = encodeMessageHistoryCursor(oldest);
+
+  const requestKey = `${id}:before:${cursor}`;
+  const existing = inFlightTails.get(requestKey);
+  if (existing) return existing;
+
+  const request = api<Message[]>(
+    `/api/messages?conversationId=${encodeURIComponent(id)}&limit=${CHAT_HISTORY_PAGE_LIMIT}&beforeMessageId=${encodeURIComponent(cursor)}`,
+  ).then((messages) => writeCachedConversationTail(
+    id,
+    [...messages, ...(readCachedConversationTail(id) ?? [])],
+    {
+      historyLoaded: true,
+      historyExhausted: messages.length < CHAT_HISTORY_PAGE_LIMIT,
+    },
   ));
   inFlightTails.set(requestKey, request);
   try {

@@ -16,6 +16,10 @@ import {
 } from "../../components/MessageComposer/index.ts";
 import { api } from "../../lib/api.ts";
 import {
+  createClientMessageId,
+  stageAcceptedConversationTurn,
+} from "../../lib/client-turn-transition.ts";
+import {
   dictationBlocksContextCaptureClose,
   type ContextCaptureDraft,
 } from "../../lib/context-capture-draft.ts";
@@ -664,6 +668,8 @@ export function NewChatComposer({
     setState("starting");
     setPhase(files.length > 0 ? "uploading" : "starting");
     setError(null);
+    const clientMessageId = createClientMessageId();
+    const submittedAt = Date.now();
     try {
       let attachments: OutgoingAttachment[] = [];
       if (files.length > 0) {
@@ -703,6 +709,7 @@ export function NewChatComposer({
                 ? { instructions: "Shared capture for context." }
                 : {}),
             ...(attachments.length > 0 ? { attachments } : {}),
+            clientMessageId,
           })
         : await startAgentSession(
             routeAgent!,
@@ -710,12 +717,27 @@ export function NewChatComposer({
               ? {
                   ...(committedMessage ? { instructions: committedMessage } : {}),
                   ...(attachments.length > 0 ? { attachments } : {}),
+                  clientMessageId,
                 }
               : undefined,
           );
       const conversationId = result.conversationId?.trim();
       if (!conversationId) {
         throw new Error("Message sent, but no Chat was returned.");
+      }
+      const messageId = result.messageId?.trim();
+      if (messageId) {
+        stageAcceptedConversationTurn({
+          conversationId,
+          messageId,
+          clientMessageId,
+          body: committedMessage || (attachments.length > 0 ? "Shared capture for context." : "New session started."),
+          attachments,
+          agentId: result.agentId,
+          flightId: result.flightId,
+          invocationId: result.invocationId,
+          createdAt: submittedAt,
+        });
       }
       navigate({
         view: "conversation",

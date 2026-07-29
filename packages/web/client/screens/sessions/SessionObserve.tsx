@@ -64,6 +64,11 @@ import {
   timeAgoWithSuffix,
 } from "../../lib/time.ts";
 import { MessageMarkup } from "../../lib/message-markup.tsx";
+import {
+  describeObserveEvidence,
+  type ObserveEvidenceFidelity,
+  type ObserveEvidenceSource,
+} from "../../lib/observe-fidelity.ts";
 import { queueTakeover } from "../../lib/terminal-takeover.ts";
 import { harnessFromAdapterType, invokeSession, resumeAgentSession } from "../../lib/session-start.ts";
 import { useScout } from "../../scout/Provider.tsx";
@@ -2406,6 +2411,8 @@ export function SessionObserveContextRail({
   cursor,
   duration,
   surface = "embedded",
+  observeSource,
+  observeFidelity,
 }: {
   data?: SessionObserveData;
   agentId?: string;
@@ -2413,6 +2420,8 @@ export function SessionObserveContextRail({
   cursor?: number;
   duration?: number;
   surface?: "embedded" | "context";
+  observeSource?: ObserveEvidenceSource;
+  observeFidelity?: ObserveEvidenceFidelity;
 }) {
   const { events, files } = data;
   const [catalog, setCatalog] = useState<SessionCatalogWithResume | null>(null);
@@ -2569,9 +2578,28 @@ export function SessionObserveContextRail({
   ]);
   const hasUsageMetadata = hasObserveRows(usageMeta);
   const hasSessionMetadata = hasObserveRows(sessionMeta);
+  const effectiveObserveSource = observeSource ?? (data.live ? "live" : "history");
+  const effectiveObserveFidelity = observeFidelity ?? "timestamped";
+  const evidence = describeObserveEvidence({
+    source: effectiveObserveSource,
+    fidelity: effectiveObserveFidelity,
+    live: data.live,
+    eventCount: events.length,
+  });
+  const hasTimestampedTrace = effectiveObserveFidelity === "timestamped";
 
   return (
     <aside className={`s-observe-rail${surface === "context" ? " s-observe-rail--context" : ""}`}>
+      <div>
+        <div className="s-observe-rail-label">Evidence</div>
+        <div className="s-observe-evidence-card" data-tone={evidence.tone}>
+          <span className="s-observe-evidence-dot" aria-hidden="true" />
+          <span>
+            <strong>{evidence.label}</strong>
+            <small>{evidence.detail}</small>
+          </span>
+        </div>
+      </div>
       {catalog && catalog.sessions.length > 0 && (
         <div>
           <div className="s-observe-rail-label">Session</div>
@@ -2584,15 +2612,15 @@ export function SessionObserveContextRail({
         <div className="s-observe-stats">
           <StatCard
             label="Turns"
-            value={fmtCompactNumber(sessionMeta?.turnCount ?? 0)}
+            value={fmtCompactNumber(sessionMeta?.turnCount)}
           />
-          <StatCard label="Tools" value={fmtCompactNumber(toolCount)} />
-          <StatCard label="Thinks" value={fmtCompactNumber(thinkCount)} />
-          <StatCard label="Requests" value={fmtCompactNumber(askCount)} />
-          <StatCard label="Reads" value={fmtCompactNumber(readCount)} />
-          <StatCard label="Edits" value={fmtCompactNumber(editCount)} />
+          <StatCard label="Tools" value={fmtCompactNumber(hasTimestampedTrace ? toolCount : undefined)} />
+          <StatCard label="Thinks" value={fmtCompactNumber(hasTimestampedTrace ? thinkCount : undefined)} />
+          <StatCard label="Requests" value={fmtCompactNumber(hasTimestampedTrace ? askCount : undefined)} />
+          <StatCard label="Reads" value={fmtCompactNumber(hasTimestampedTrace ? readCount : undefined)} />
+          <StatCard label="Edits" value={fmtCompactNumber(hasTimestampedTrace ? editCount : undefined)} />
           <StatCard label="Files" value={fmtCompactNumber(files.length)} />
-          <StatCard label="Window" value={fmtWindowSpan(observedWindowSeconds)} />
+          <StatCard label="Window" value={hasTimestampedTrace ? fmtWindowSpan(observedWindowSeconds) : "—"} />
         </div>
       </div>
 
@@ -2836,6 +2864,8 @@ export function SessionObserve({
   agentId,
   sessionId,
   conversationId,
+  observeSource,
+  observeFidelity,
 
   showRail = true,
   variant = "default",
@@ -2859,6 +2889,8 @@ export function SessionObserve({
   agentId?: string;
   sessionId?: string | null;
   conversationId?: string | null;
+  observeSource?: ObserveEvidenceSource;
+  observeFidelity?: ObserveEvidenceFidelity;
   showRail?: boolean;
   variant?: "default" | "lane";
   /** Scope instrument: timeline only — no Scout replay chrome, rail, or lane meta bar. */
@@ -2898,6 +2930,14 @@ export function SessionObserve({
   const effectiveShowRail = showRail && !scopeSurface;
   const observeData = data ?? EMPTY_OBSERVE_DATA;
   const { events } = observeData;
+  const effectiveObserveSource = observeSource ?? (observeData.live ? "live" : "history");
+  const effectiveObserveFidelity = observeFidelity ?? "timestamped";
+  const evidence = describeObserveEvidence({
+    source: effectiveObserveSource,
+    fidelity: effectiveObserveFidelity,
+    live: observeData.live,
+    eventCount: events.length,
+  });
   const sessionStartMs = observeData.metadata?.session?.sessionStart;
 
   const [internalNow, setInternalNow] = useState(Date.now);
@@ -3075,6 +3115,15 @@ export function SessionObserve({
     >
       {/* Main timeline */}
       <main className="s-observe-main">
+        {!laneMode && !scopeSurface && (
+          <div className="s-observe-evidence-banner" data-tone={evidence.tone}>
+            <span className="s-observe-evidence-dot" aria-hidden="true" />
+            <span>
+              <strong>{evidence.label}</strong>
+              <small>{evidence.detail}</small>
+            </span>
+          </div>
+        )}
         {sourcePath && !laneMode && (
           <SourceFileLink
             path={sourcePath}
@@ -3143,23 +3192,33 @@ export function SessionObserve({
           sessionId={sessionId}
           cursor={cursor}
           duration={duration}
+          observeSource={observeSource}
+          observeFidelity={observeFidelity}
         />
       )}
 
       {/* Scrubber footer */}
       {!scopeSurface && !laneMode && (
         <footer className="s-observe-scrubber">
-          <SessionTransport
-            events={events}
-            duration={duration}
-            cursor={cursor}
-            mode={playbackMode}
-            speed={speed}
-            snapTimes={snapTimes}
-            onCursor={setManualCursor}
-            onPlayToggle={handlePlayToggle}
-            onSpeedChange={setSpeed}
-          />
+          {evidence.replayable ? (
+            <SessionTransport
+              events={events}
+              duration={duration}
+              cursor={cursor}
+              mode={playbackMode}
+              speed={speed}
+              snapTimes={snapTimes}
+              onCursor={setManualCursor}
+              onPlayToggle={handlePlayToggle}
+              onSpeedChange={setSpeed}
+            />
+          ) : (
+            <div className="s-observe-static-evidence">
+              <span className="s-observe-evidence-dot" aria-hidden="true" />
+              <span>{evidence.label}</span>
+              <small>No timestamped replay is available.</small>
+            </div>
+          )}
           <SessionObserveComposer
             conversationId={conversationId}
             agentId={agentId}

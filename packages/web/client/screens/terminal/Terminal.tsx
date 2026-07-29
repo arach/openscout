@@ -49,11 +49,16 @@ import {
   withTerminalMode,
 } from "../../lib/terminal-relay.ts";
 import {
+  preferredDurableBackendFromSessions,
+  type PreferredTerminalBackend,
+} from "../../lib/preferred-terminal-backend.ts";
+import {
   fetchTerminalSessions,
   compactTerminalName,
   compactTerminalPath,
   resolveRegisteredTerminalTarget,
   surfaceKey,
+  terminalAttachCommandFromSurface,
   terminalConditionLabel,
   terminalListItems,
   terminalSummaryDetailRows,
@@ -79,10 +84,11 @@ export type TerminalNavigate = ReturnType<typeof UseScout>["navigate"];
 export type TerminalRoute = Extract<Route, { view: "terminal" }>;
 type HudsonTerminalRelayOptions = Parameters<typeof useTerminalRelay>[0];
 type ScoutTerminalRelayOptions = Omit<HudsonTerminalRelayOptions, "backend"> & {
-  backend?: "pty" | "tmux" | "zellij";
+  backend?: "pty" | "tmux" | "zellij" | "herdr";
   terminalSession?: string;
   zellijSession?: string;
   zellijSocketDir?: string;
+  herdrSession?: string;
 };
 
 export type TerminalContentProps = {
@@ -169,6 +175,7 @@ const TERMINAL_GRID_PRESETS: readonly TerminalGridPreset[] = [
 
 const TERMINAL_BACKEND_OPTIONS: readonly { value: TerminalBackend; label: string }[] = [
   { value: "pty", label: "Shell" },
+  { value: "herdr", label: "Herdr" },
   { value: "tmux", label: "Tmux" },
   { value: "zellij", label: "Zellij" },
 ];
@@ -517,20 +524,54 @@ function useTerminalRelaySession(params: {
     navigate(terminalRouteBase);
   }, [navigate, terminalRouteBase]);
 
+  const popOutTerminal = useCallback(() => {
+    openTerminalRouteExternally(
+      registeredTarget
+        ? registeredTerminalRouteForTarget(registeredTarget, mode === "observe" ? "observe" : "takeover")
+        : terminalRouteBase.view === "terminal"
+          ? withTerminalMode(terminalRouteBase, mode === "observe" ? "observe" : "takeover")
+          : terminalRouteBase,
+      navigate,
+    );
+  }, [mode, navigate, registeredTarget, terminalRouteBase]);
+
+  const copyAttachCommand = useCallback(() => {
+    if (!terminalSurface) return;
+    const command = terminalAttachCommandFromSurface(terminalSurface);
+    if (command) void copyTextToClipboard(command);
+  }, [terminalSurface]);
+
   const sessionMenuItems = useMemo<MenuItem[]>(() => {
+    const isHerdr = terminalSurface?.backend === "herdr";
     const items: MenuItem[] = [
+      { kind: "action", label: "Pop Out Window", onSelect: popOutTerminal },
+      ...(terminalSurface
+        ? [{
+            kind: "action" as const,
+            label: isHerdr ? "Copy Herdr Attach Command" : "Copy Attach Command",
+            onSelect: copyAttachCommand,
+          }]
+        : []),
+      { kind: "separator" },
       { kind: "action", label: "Detach Terminal Clients", onSelect: detachRelay },
       { kind: "action", label: "Reconnect Terminal Session", onSelect: reconnectRelay },
-      { kind: "separator" },
-      { kind: "action", label: "Restart Claude From Session", onSelect: restartResumeClaudeInstance },
-      { kind: "action", label: "Force Quit Claude", onSelect: forceQuitClaudeInstance },
     ];
+    if (!isHerdr) {
+      items.push(
+        { kind: "separator" },
+        { kind: "action", label: "Restart Claude From Session", onSelect: restartResumeClaudeInstance },
+        { kind: "action", label: "Force Quit Claude", onSelect: forceQuitClaudeInstance },
+      );
+    }
     return items;
   }, [
+    copyAttachCommand,
     detachRelay,
     forceQuitClaudeInstance,
+    popOutTerminal,
     reconnectRelay,
     restartResumeClaudeInstance,
+    terminalSurface,
   ]);
 
   const handleSessionMenu = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
@@ -1285,6 +1326,18 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
     setTiles((current) => [...current, createFreshTerminalTile(backend, agent)]);
   }, []);
 
+  const preferredDurableBackend = useMemo((): PreferredTerminalBackend => {
+    const backends = state.sessions.flatMap((session) => session.surfaces.map((surface) => surface.backend));
+    // When inventory has not loaded yet, prefer herdr as the durable default
+    // (falls through to pty only if no durable backends appear later).
+    if (backends.length === 0) return "herdr";
+    return preferredDurableBackendFromSessions(backends);
+  }, [state.sessions]);
+
+  const addDurableTile = useCallback(() => {
+    addFreshTile(preferredDurableBackend === "pty" ? "herdr" : preferredDurableBackend);
+  }, [addFreshTile, preferredDurableBackend]);
+
   const placeRegisteredTarget = useCallback((target: RegisteredTerminalTarget, destinationTileId?: string) => {
     const id = registeredTerminalTileId(target);
     setTiles((current) => {
@@ -1606,10 +1659,19 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
               type="button"
               className="s-term-workspace-action"
               onClick={() => addFreshTile("pty")}
-              title="Add a shell tile"
+              title="Add a throwaway shell (PTY)"
             >
               <Plus size={14} strokeWidth={1.9} />
               <span>Shell</span>
+            </button>
+            <button
+              type="button"
+              className="s-term-workspace-action"
+              onClick={addDurableTile}
+              title={`Add a durable terminal (${preferredDurableBackend})`}
+            >
+              <Plus size={14} strokeWidth={1.9} />
+              <span>Durable</span>
             </button>
             <button
               type="button"
@@ -2110,11 +2172,13 @@ function FreshTerminalWorkspaceTile({
     healthUrl,
     autoConnect: true,
     sessionKey,
-    backend: tile.backend,
+    backend: tile.backend as HudsonTerminalRelayOptions["backend"],
     ...(tile.sessionName ? { terminalSession: tile.sessionName } : {}),
     ...(tile.backend === "tmux" && tile.sessionName ? { tmuxSession: tile.sessionName } : {}),
     ...(tile.backend === "zellij" && tile.sessionName ? { zellijSession: tile.sessionName } : {}),
     ...(tile.backend === "zellij" && tile.zellijSocketDir ? { zellijSocketDir: tile.zellijSocketDir } : {}),
+    // hudsonkit only forwards tmuxSession today; relay maps it for herdr.
+    ...(tile.backend === "herdr" && tile.sessionName ? { tmuxSession: tile.sessionName } : {}),
     agent: tile.agent,
     controlMode: "takeover",
   } as ScoutTerminalRelayOptions as HudsonTerminalRelayOptions);
@@ -2652,6 +2716,7 @@ function NewTerminalSession({
     ...(backend === "tmux" && sessionName ? { tmuxSession: sessionName } : {}),
     ...(backend === "zellij" && sessionName ? { zellijSession: sessionName } : {}),
     ...(backend === "zellij" && route.zellijSocketDir ? { zellijSocketDir: route.zellijSocketDir } : {}),
+    ...(backend === "herdr" && sessionName ? { tmuxSession: sessionName } : {}),
     agent,
     controlMode: "takeover",
   } as ScoutTerminalRelayOptions as HudsonTerminalRelayOptions);
@@ -2742,6 +2807,9 @@ function freshTerminalLabel(
   const agentLabel = agent === "shell" ? "Shell" : agent === "pi" ? "Pi" : "Claude";
   if (backend === "pty") {
     return { title: agentLabel, detail: "fresh PTY tab" };
+  }
+  if (backend === "herdr") {
+    return { title: agentLabel === "Shell" ? "Herdr" : `${agentLabel} Herdr`, detail: "durable Herdr session" };
   }
   return { title: `${agentLabel} ${backend}`, detail: `fresh ${backend} backed tab` };
 }

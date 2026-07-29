@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { ArrowRight, ArrowUpRight, ChevronRight, ExternalLink, Folder, FolderPlus, Search } from "lucide-react";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { HarnessMark } from "../../components/HarnessMark.tsx";
@@ -56,17 +56,7 @@ type ProjectPickOption = {
   lastActivityAt: number;
 };
 
-export function ThreadRow({
-  thread,
-  crossProject,
-  selected,
-  cursor,
-  nowMs,
-  onSelect,
-  onOpen,
-  rowRef,
-  workLabel,
-}: {
+type ThreadRowProps = {
   thread: InboxThread | InboxSession;
   crossProject: boolean;
   selected: boolean;
@@ -76,7 +66,32 @@ export function ThreadRow({
   onOpen: () => void;
   rowRef: (el: HTMLButtonElement | null) => void;
   workLabel?: string;
-}) {
+};
+
+function threadRowPropsEqual(prev: ThreadRowProps, next: ThreadRowProps): boolean {
+  // Handlers/refs are recreated by the parent list; skip re-render when the
+  // row's rendered inputs are identity-stable (paired with model structural share).
+  return (
+    prev.thread === next.thread
+    && prev.crossProject === next.crossProject
+    && prev.selected === next.selected
+    && prev.cursor === next.cursor
+    && prev.nowMs === next.nowMs
+    && prev.workLabel === next.workLabel
+  );
+}
+
+export const ThreadRow = memo(function ThreadRow({
+  thread,
+  crossProject,
+  selected,
+  cursor,
+  nowMs,
+  onSelect,
+  onOpen,
+  rowRef,
+  workLabel,
+}: ThreadRowProps) {
   return (
     <button
       ref={rowRef}
@@ -135,7 +150,7 @@ export function ThreadRow({
       </span>
     </button>
   );
-}
+}, threadRowPropsEqual);
 
 function ProjectSurfaceState({
   title,
@@ -665,9 +680,12 @@ function ProjectSessionOverview({
   const harness = session?.harness ?? "session";
   const data = lookup?.kind === "observe" ? lookup.observe.data : null;
   const sessionMeta = data?.metadata?.session;
-  const startMs = observedStartMs(data);
   const fallbackLastAt = session?.lastActivityAt ?? lookup?.session?.lastMessageAt ?? null;
-  const endMs = observedEndMs(data, fallbackLastAt);
+  // These scan O(events); keep them off the render path for the 30s nowMs tick.
+  const [startMs, endMs, durationLabel] = useMemo(
+    () => [observedStartMs(data), observedEndMs(data, fallbackLastAt), observedDuration(data, fallbackLastAt)] as const,
+    [data, fallbackLastAt],
+  );
   const branch = sessionMeta?.gitBranch ?? lookup?.session?.currentBranch ?? session?.branch ?? null;
   const model = sessionMeta?.model ?? null;
   const turnCount = sessionMeta?.turnCount ?? data?.metadata?.usage?.assistantMessages ?? (lookup?.kind === "conversation" ? lookup.session.messageCount : null);
@@ -686,7 +704,7 @@ function ProjectSessionOverview({
     model,
     branch,
     startMs ? `started ${formatClockTimestamp(startMs)}` : null,
-    observedDuration(data, fallbackLastAt),
+    durationLabel,
     turnCount != null ? `turn ${compactNumber(turnCount)}` : null,
     refLabel,
   ].filter((item): item is string => Boolean(item) && item !== "—");
@@ -1152,48 +1170,85 @@ function ProjectSessionGlance({
   navigate: Navigate;
 }) {
   const [tokensOpen, setTokensOpen] = useState(false);
-  const data = lookup?.kind === "observe" ? lookup.observe.data : null;
-  const sessionMeta = data?.metadata?.session;
-  const usage = data?.metadata?.usage;
-  const events = data?.events ?? [];
-  const files = data?.files ?? [];
-  const turnCount = sessionMeta?.turnCount ?? usage?.assistantMessages ?? (lookup?.kind === "conversation" ? lookup.session.messageCount : null);
-  const toolCount = events.filter((event) => event.kind === "tool").length;
-  const createdCount = files.filter((file) => file.state === "created").length;
-  const modifiedCount = files.filter((file) => file.state === "modified").length;
-  const readCount = files.filter((file) => file.state === "read").length;
-  const editCount = createdCount + modifiedCount;
-  const context = contextRatio(usage);
-  const contextPct = context !== null ? Math.round(context * 100) : null;
-  const workspace = sessionMeta?.cwd ?? lookup?.session?.workspaceRoot ?? session?.projectRoot ?? null;
-  const branch = sessionMeta?.gitBranch ?? lookup?.session?.currentBranch ?? session?.branch ?? null;
-  const topology = topologyLine(data);
-  const tokenTotal = tokenLabel(usage?.totalTokens ?? (
-    typeof usage?.inputTokens === "number" || typeof usage?.outputTokens === "number"
-      ? (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0)
-      : null
-  ));
-  const buckets = tokenBuckets(usage);
-  const fileStateLabel = editCount > 0
-    ? [
-        modifiedCount > 0 ? `${compactNumber(modifiedCount)} mod` : null,
-        createdCount > 0 ? `${compactNumber(createdCount)} new` : null,
-      ].filter(Boolean).join(" · ")
-    : readCount > 0 ? "read-only" : "no file trace";
-  const fileCountLabel = files.length > 0 ? `${compactNumber(files.length)} touched` : "—";
-  const fileSignals = sessionFileSignals(files);
-  const toolSignals = sessionToolSignals(events);
-  const contextSignals = sessionContextSignals({
-    usage,
-    contextPct,
-    topology,
+  const derived = useMemo(() => {
+    const data = lookup?.kind === "observe" ? lookup.observe.data : null;
+    const sessionMeta = data?.metadata?.session;
+    const usage = data?.metadata?.usage;
+    const events = data?.events ?? [];
+    const files = data?.files ?? [];
+    const turnCount = sessionMeta?.turnCount ?? usage?.assistantMessages ?? (lookup?.kind === "conversation" ? lookup.session.messageCount : null);
+    const toolCount = events.filter((event) => event.kind === "tool").length;
+    const createdCount = files.filter((file) => file.state === "created").length;
+    const modifiedCount = files.filter((file) => file.state === "modified").length;
+    const readCount = files.filter((file) => file.state === "read").length;
+    const editCount = createdCount + modifiedCount;
+    const context = contextRatio(usage);
+    const contextPct = context !== null ? Math.round(context * 100) : null;
+    const workspace = sessionMeta?.cwd ?? lookup?.session?.workspaceRoot ?? session?.projectRoot ?? null;
+    const branch = sessionMeta?.gitBranch ?? lookup?.session?.currentBranch ?? session?.branch ?? null;
+    const topology = topologyLine(data);
+    const tokenTotal = tokenLabel(usage?.totalTokens ?? (
+      typeof usage?.inputTokens === "number" || typeof usage?.outputTokens === "number"
+        ? (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0)
+        : null
+    ));
+    const buckets = tokenBuckets(usage);
+    const fileStateLabel = editCount > 0
+      ? [
+          modifiedCount > 0 ? `${compactNumber(modifiedCount)} mod` : null,
+          createdCount > 0 ? `${compactNumber(createdCount)} new` : null,
+        ].filter(Boolean).join(" · ")
+      : readCount > 0 ? "read-only" : "no file trace";
+    const fileCountLabel = files.length > 0 ? `${compactNumber(files.length)} touched` : "—";
+    const fileSignals = sessionFileSignals(files);
+    const toolSignals = sessionToolSignals(events);
+    const contextSignals = sessionContextSignals({
+      usage,
+      contextPct,
+      topology,
+      workspace,
+      projectRoot: session?.projectRoot,
+      branch,
+    });
+    const threadSignals = coordinationThreadSignals({ session, threads, nowMs });
+    return {
+      turnCount,
+      toolCount,
+      editCount,
+      fileCountLabel,
+      fileStateLabel,
+      workspace,
+      contextPct,
+      showContext: contextPct !== null,
+      contextWarn: contextPct !== null && contextPct >= 80,
+      tokenTotal,
+      buckets,
+      fileSignals,
+      toolSignals,
+      contextSignals,
+      threadSignals,
+      projectRoot: session?.projectRoot ?? null,
+    };
+  }, [lookup, session, threads, nowMs]);
+
+  const {
+    turnCount,
+    toolCount,
+    editCount,
+    fileCountLabel,
+    fileStateLabel,
     workspace,
-    projectRoot: session?.projectRoot,
-    branch,
-  });
-  const threadSignals = coordinationThreadSignals({ session, threads, nowMs });
-  const showContext = contextPct !== null;
-  const contextWarn = contextPct !== null && contextPct >= 80;
+    contextPct,
+    showContext,
+    contextWarn,
+    tokenTotal,
+    buckets,
+    fileSignals,
+    toolSignals,
+    contextSignals,
+    threadSignals,
+    projectRoot,
+  } = derived;
 
   return (
     <section className="pi-sessionGlance" aria-label="Session glance">
@@ -1202,7 +1257,7 @@ function ProjectSessionGlance({
         <GlanceField label="Tools" value={compactNumber(toolCount)} />
         <GlanceField label="Edits" value={compactNumber(editCount)} />
         <GlanceField label="Files" value={fileCountLabel} detail={fileStateLabel !== "no file trace" ? fileStateLabel : null} />
-        {workspace && session?.projectRoot && workspace !== session.projectRoot ? (
+        {workspace && projectRoot && workspace !== projectRoot ? (
           <GlanceField label="Worktree" value={shortHomePath(workspace)} title={workspace} />
         ) : null}
         {showContext ? (
@@ -2028,7 +2083,9 @@ export function ProjectsInbox({
   const waiting = loading && !zeroPreview;
   const showProjectZeroState =
     !scoped && !waiting && (zeroPreview || (model.projects.length === 0 && items.length === 0));
-  const showMeta = !scoped && !initialLoading && !showProjectZeroState && hasModelData;
+  // Mount meta overview with the first wave so useRepoWatchSummary can fire in
+  // parallel with inbox snapshot load (do not wait for hasModelData).
+  const showMeta = !scoped && !showProjectZeroState;
 
   const [cursor, setCursor] = useState(-1);
   const rowRefs = useRef(new Map<string, HTMLButtonElement>());

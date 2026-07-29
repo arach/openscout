@@ -1,28 +1,18 @@
 import { Component, StrictMode, type ErrorInfo, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 
-import { createScoutApp } from "./scout";
-import { OpenScoutAppShell } from "./OpenScoutAppShell.tsx";
-import { ObserveEmbedScreen } from "./screens/ObserveEmbedScreen.tsx";
-import { RepoDiffEmbedScreen } from "./screens/RepoDiffEmbedScreen.tsx";
-import { SessionEmbedScreen } from "./screens/sessions/SessionEmbedScreen.tsx";
-import { TerminalEmbedScreen } from "./screens/terminal/TerminalEmbedScreen.tsx";
-import { ScoutDeckSurface } from "./native-surfaces/deck/ScoutDeckSurface.tsx";
 import { shouldBootstrapDiscoveredEmbed } from "./surfaces/embed-path.ts";
 
 import {
   applyScoutThemeToDocument,
   resolveScoutStartupTheme,
+  resolveScoutStartupTemplate,
 } from "./lib/theme.ts";
-import { ScoutbotFxLab } from "./dev/ScoutbotFxLab.tsx";
-import { EmbeddableSurfacesLab } from "./dev/EmbeddableSurfacesLab.tsx";
 import { DevErrorOverlay } from "./dev/DevErrorOverlay.tsx";
 import "./styles/tokens.css";
 import "./styles/primitives.css";
 import "./arc-tailwind.css";
 import "./app.css";
-import "./scope/index.ts";
-import { wireScopeOntoScout } from "./scope/shell-hooks.tsx";
 
 const el = document.getElementById("root");
 if (!el) {
@@ -31,7 +21,7 @@ if (!el) {
 const rootElement = el;
 
 const initialTheme = resolveScoutStartupTheme();
-applyScoutThemeToDocument(initialTheme);
+applyScoutThemeToDocument(initialTheme, resolveScoutStartupTemplate());
 
 const pathname = window.location.pathname;
 const isScoutbotFxLab = pathname === "/dev/scoutbot-fx";
@@ -42,9 +32,6 @@ const isSessionEmbed = pathname === "/embed/session";
 const isTerminalEmbed = pathname === "/embed/terminal";
 const isScoutDeck = pathname === "/deck" || pathname === "/deck/";
 const useDiscoveredEmbed = shouldBootstrapDiscoveredEmbed(pathname);
-
-const scoutApp = createScoutApp({ initialTheme });
-wireScopeOntoScout(scoutApp);
 
 class ScoutBootErrorBoundary extends Component<
   { children: ReactNode },
@@ -75,33 +62,60 @@ class ScoutBootErrorBoundary extends Component<
   }
 }
 
-function renderShell() {
+async function renderShell() {
+  let content: ReactNode;
+
+  if (isScoutDeck) {
+    const { ScoutDeckSurface } = await import("./native-surfaces/deck/ScoutDeckSurface.tsx");
+    content = <ScoutDeckSurface />;
+  } else if (isScoutbotFxLab) {
+    const { ScoutbotFxLab } = await import("./dev/ScoutbotFxLab.tsx");
+    content = <ScoutbotFxLab />;
+  } else if (isEmbeddableSurfacesLab) {
+    const { EmbeddableSurfacesLab } = await import("./dev/EmbeddableSurfacesLab.tsx");
+    content = <EmbeddableSurfacesLab />;
+  } else if (isTerminalEmbed) {
+    const { TerminalEmbedScreen } = await import("./screens/terminal/TerminalEmbedScreen.tsx");
+    content = <TerminalEmbedScreen />;
+  } else {
+    const { createScoutApp } = await import("./scout");
+    const scoutApp = createScoutApp({ initialTheme });
+
+    if (observeEmbedMatch) {
+      const { ObserveEmbedScreen } = await import("./screens/ObserveEmbedScreen.tsx");
+      content = (
+        <scoutApp.Provider>
+          <ObserveEmbedScreen agentId={decodeURIComponent(observeEmbedMatch[1])} />
+        </scoutApp.Provider>
+      );
+    } else if (isRepoDiffEmbed) {
+      const { RepoDiffEmbedScreen } = await import("./screens/RepoDiffEmbedScreen.tsx");
+      content = (
+        <scoutApp.Provider>
+          <RepoDiffEmbedScreen />
+        </scoutApp.Provider>
+      );
+    } else if (isSessionEmbed) {
+      const { SessionEmbedScreen } = await import("./screens/sessions/SessionEmbedScreen.tsx");
+      content = (
+        <scoutApp.Provider>
+          <SessionEmbedScreen />
+        </scoutApp.Provider>
+      );
+    } else {
+      const [{ OpenScoutAppShell }, { wireScopeOntoScout }] = await Promise.all([
+        import("./OpenScoutAppShell.tsx"),
+        import("./scope/index.ts"),
+      ]);
+      wireScopeOntoScout(scoutApp);
+      content = <OpenScoutAppShell app={scoutApp} />;
+    }
+  }
+
   createRoot(rootElement).render(
     <StrictMode>
       <ScoutBootErrorBoundary>
-        {isScoutDeck ? (
-          <ScoutDeckSurface />
-        ) : isScoutbotFxLab ? (
-          <ScoutbotFxLab />
-        ) : isEmbeddableSurfacesLab ? (
-          <EmbeddableSurfacesLab />
-        ) : observeEmbedMatch ? (
-          <scoutApp.Provider>
-            <ObserveEmbedScreen agentId={decodeURIComponent(observeEmbedMatch[1])} />
-          </scoutApp.Provider>
-        ) : isRepoDiffEmbed ? (
-          <scoutApp.Provider>
-            <RepoDiffEmbedScreen />
-          </scoutApp.Provider>
-        ) : isSessionEmbed ? (
-          <scoutApp.Provider>
-            <SessionEmbedScreen />
-          </scoutApp.Provider>
-        ) : isTerminalEmbed ? (
-          <TerminalEmbedScreen />
-        ) : (
-          <OpenScoutAppShell app={scoutApp} />
-        )}
+        {content}
       </ScoutBootErrorBoundary>
       {import.meta.env.DEV ? <DevErrorOverlay /> : null}
     </StrictMode>,
@@ -125,8 +139,8 @@ function renderEmbedMiss(missingPath: string) {
 
 if (useDiscoveredEmbed) {
   void import("./surfaces/embed-entry.tsx")
-    .then(({ mountDiscoveredEmbed }) => {
-      const mounted = mountDiscoveredEmbed(rootElement, scoutApp);
+    .then(async ({ mountDiscoveredEmbed }) => {
+      const mounted = await mountDiscoveredEmbed(rootElement, initialTheme);
       if (!mounted) {
         renderEmbedMiss(pathname);
       }
@@ -136,5 +150,5 @@ if (useDiscoveredEmbed) {
       renderEmbedMiss(pathname);
     });
 } else {
-  renderShell();
+  void renderShell();
 }

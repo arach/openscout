@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useOptionalFlag } from "hudsonkit/flags";
+import { useOptionalTheme } from "hudsonkit/theme";
+import { Check, Monitor, Moon, Sun } from "lucide-react";
 import { api } from "../../lib/api.ts";
 import {
   deleteOpenAIApiKey,
@@ -39,7 +41,7 @@ import { VoiceHostStatusBanner, VoicePermissionsPanel } from "./VoicePermissions
 import "./settings-drawer.css";
 import "./voice-permissions-panel.css";
 
-export type DrawerSettingsSection = "operator" | "comms" | "credentials" | "voice" | "devices";
+export type DrawerSettingsSection = "appearance" | "operator" | "comms" | "credentials" | "voice" | "devices";
 type Section = DrawerSettingsSection;
 
 const HUE_PRESETS = [195, 125, 300, 45, 355, 210];
@@ -132,6 +134,94 @@ function OptionRow<T extends string>({
           <span className="s-settings-option-sub">{o.sub}</span>
         </button>
       ))}
+    </div>
+  );
+}
+
+// ── Appearance section ────────────────────────────────────────────────
+
+const THEME_MODES = [
+  { id: "system", label: "System", sub: "Follow this device", icon: Monitor },
+  { id: "light", label: "Light", sub: "Bright workspace", icon: Sun },
+  { id: "dark", label: "Dark", sub: "Low-light workspace", icon: Moon },
+] as const;
+
+const THEME_TEMPLATES = [
+  { id: "hudson", label: "Hudson", sub: "Focused control-room surfaces" },
+  { id: "editorial", label: "Editorial", sub: "Warm, reading-first hierarchy" },
+  { id: "drafting", label: "Drafting", sub: "Squared technical canvas" },
+] as const;
+
+function AppearanceSection() {
+  const appearance = useOptionalTheme();
+  if (!appearance) {
+    return <div className="s-settings-inline-note">Theme controls are unavailable in this embedded surface.</div>;
+  }
+
+  return (
+    <div className="s-settings-col-gap">
+      <SectionRule label="Color mode" right={`currently ${appearance.resolvedTheme ?? "loading"}`} />
+      <div className="s-settings-theme-mode-grid" role="group" aria-label="Color mode">
+        {THEME_MODES.map((option) => {
+          const Icon = option.icon;
+          const active = appearance.theme === option.id;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              className="s-settings-theme-mode"
+              data-active={active || undefined}
+              aria-pressed={active}
+              onClick={() => appearance.setTheme(option.id)}
+            >
+              <Icon size={18} strokeWidth={1.7} aria-hidden />
+              <span>
+                <strong>{option.label}</strong>
+                <small>{option.sub}</small>
+              </span>
+              {active ? <Check className="s-settings-theme-check" size={15} aria-hidden /> : null}
+            </button>
+          );
+        })}
+      </div>
+
+      <SectionRule label="Workspace style" right="Hudson theme templates" />
+      <div className="s-settings-template-grid" role="group" aria-label="Workspace style">
+        {THEME_TEMPLATES.map((option) => {
+          const active = appearance.template === option.id;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              className="s-settings-template-choice"
+              data-active={active || undefined}
+              aria-pressed={active}
+              onClick={() => appearance.setTemplate(option.id)}
+            >
+              <span
+                className="s-settings-template-preview"
+                data-hudson-theme={appearance.resolvedTheme ?? "dark"}
+                data-hudson-template={option.id}
+                aria-hidden="true"
+              >
+                <i />
+                <span><b /><b /><b /></span>
+                <em />
+              </span>
+              <span className="s-settings-template-copy">
+                <strong>{option.label}</strong>
+                <small>{option.sub}</small>
+              </span>
+              {active ? <Check className="s-settings-theme-check" size={15} aria-hidden /> : null}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="s-settings-appearance-note">
+        <strong>Saved on this device</strong>
+        <span>Hudson keeps mode and workspace style in sync across Scout tabs. URL theme overrides remain available for embeds and visual QA.</span>
+      </div>
     </div>
   );
 }
@@ -769,6 +859,7 @@ function DevicesSection({ pairing }: { pairing: PairingState | null }) {
 // ── Main drawer ───────────────────────────────────────────────────────
 
 const SECTIONS: { id: Section; label: string; sub: string }[] = [
+  { id: "appearance", label: "Appearance", sub: "mode · workspace style" },
   { id: "operator", label: "Operator", sub: "identity · bio · hours" },
   { id: "comms", label: "Communication", sub: "how agents reach you" },
   { id: "voice", label: "Voice", sub: "realtime · permissions · dictation" },
@@ -777,11 +868,21 @@ const SECTIONS: { id: Section; label: string; sub: string }[] = [
 ];
 
 const SECTION_TITLES: Record<Section, string> = {
+  appearance: "Appearance",
   operator: "Operator identity",
   comms: "Communication",
   voice: "Voice",
   credentials: "Credentials",
   devices: "Paired devices",
+};
+
+const SECTION_DESCRIPTIONS: Record<Section, string> = {
+  appearance: "Choose how Scout looks on this device. Changes apply immediately across the workspace.",
+  operator: "Your identity, availability, and the context agents receive when they work with you.",
+  comms: "Set interruption rules, delivery channels, response style, and quiet hours.",
+  voice: "Configure dictation, realtime voice, permissions, and input devices.",
+  credentials: "Manage model-provider credentials stored by this Scout installation.",
+  devices: "Review the relay and devices currently connected to this Scout workspace.",
 };
 
 const DEFAULT_PROFILE: OperatorProfile = {
@@ -805,21 +906,23 @@ const DEFAULT_PROFILE: OperatorProfile = {
   provisionalAgentNamesSource: "default",
 };
 
-export function SettingsDrawer({
+function SettingsExperience({
   open,
   onClose,
   section: controlledSection,
   onSectionChange,
+  presentation,
 }: {
   open: boolean;
   onClose: () => void;
   /** When set, the rail is controlled by the URL (SCO-082 Phase B). */
   section?: Section;
   onSectionChange?: (section: Section) => void;
+  presentation: "drawer" | "page";
 }) {
   const { refreshOnboarding } = useScout();
-  const { ref: drawerRef, onKeyDown: onDrawerKeyDown } = useFocusTrap<HTMLDivElement>(open);
-  const [uncontrolledSection, setUncontrolledSection] = useState<Section>("operator");
+  const { ref: drawerRef, onKeyDown: onDrawerKeyDown } = useFocusTrap<HTMLDivElement>(open && presentation === "drawer");
+  const [uncontrolledSection, setUncontrolledSection] = useState<Section>("appearance");
   const section = controlledSection ?? uncontrolledSection;
   const setSection = useCallback((next: Section) => {
     if (onSectionChange) onSectionChange(next);
@@ -874,7 +977,7 @@ export function SettingsDrawer({
 
   const handleDrawerKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
     onDrawerKeyDown(event);
-    if (event.key === "Escape") {
+    if (presentation === "drawer" && event.key === "Escape") {
       event.preventDefault();
       onClose();
       return;
@@ -889,7 +992,7 @@ export function SettingsDrawer({
       event.preventDefault();
       cycleSection(-1);
     }
-  }, [cycleSection, onClose, onDrawerKeyDown]);
+  }, [cycleSection, onClose, onDrawerKeyDown, presentation]);
 
   const save = useCallback((next: OperatorProfile) => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -912,6 +1015,64 @@ export function SettingsDrawer({
       return next;
     });
   }, [save]);
+
+  const sectionNav = (
+    <nav className="s-settings-rail" aria-label="Settings pages">
+      {SECTIONS.map((s) => (
+        <button key={s.id} onClick={() => setSection(s.id)}
+          aria-current={section === s.id ? "page" : undefined}
+          className={`s-settings-rail-btn${section === s.id ? " s-settings-rail-btn--active" : ""}`}>
+          <span className="s-settings-rail-label">{s.label}</span>
+          <span className="s-settings-rail-sub">{s.sub}</span>
+        </button>
+      ))}
+    </nav>
+  );
+
+  const sectionContent = (
+    <main className="s-settings-content" id={`settings-${section}`} tabIndex={-1}>
+      {!loaded ? (
+        <div className="s-settings-loading">Loading settings…</div>
+      ) : (
+        <>
+          {section === "appearance" && <AppearanceSection />}
+          {section === "operator" && <OperatorSection profile={profile} update={update} />}
+          {section === "comms" && <CommsSection profile={profile} update={update} />}
+          {section === "credentials" && (
+            <CredentialsSection
+              clientCredentials={clientCredentials}
+              serverCredentials={serverCredentials}
+              reloadCredentials={loadCredentials}
+            />
+          )}
+          {section === "voice" && <VoiceSection />}
+          {section === "devices" && <DevicesSection pairing={pairing} />}
+        </>
+      )}
+    </main>
+  );
+
+  if (presentation === "page") {
+    return (
+      <section className="s-settings-page" aria-labelledby="settings-page-title">
+        <header className="s-settings-page-header">
+          <div>
+            <div className="s-settings-page-kicker">Settings</div>
+            <h1 id="settings-page-title">{SECTION_TITLES[section]}</h1>
+            <p>{SECTION_DESCRIPTIONS[section]}</p>
+          </div>
+          <div className="s-settings-page-save-state" role="status">
+            <span aria-hidden="true" />
+            Saved automatically
+          </div>
+        </header>
+        <div className="s-settings-page-layout">
+          {sectionNav}
+          {sectionContent}
+        </div>
+      </section>
+    );
+  }
 
   return (
     <>
@@ -937,37 +1098,8 @@ export function SettingsDrawer({
           <button className="s-settings-close" onClick={onClose}>{"×"}</button>
         </div>
 
-        {/* Rail */}
-        <nav className="s-settings-rail">
-          {SECTIONS.map((s) => (
-            <button key={s.id} onClick={() => setSection(s.id)}
-              className={`s-settings-rail-btn${section === s.id ? " s-settings-rail-btn--active" : ""}`}>
-              <span className="s-settings-rail-label">{s.label}</span>
-              <span className="s-settings-rail-sub">{s.sub}</span>
-            </button>
-          ))}
-        </nav>
-
-        {/* Content */}
-        <main className="s-settings-content">
-          {!loaded ? (
-            <div style={{ color: "var(--dim)", fontFamily: "var(--font-mono)", fontSize: 12 }}>Loading...</div>
-          ) : (
-            <>
-              {section === "operator" && <OperatorSection profile={profile} update={update} />}
-              {section === "comms" && <CommsSection profile={profile} update={update} />}
-              {section === "credentials" && (
-                <CredentialsSection
-                  clientCredentials={clientCredentials}
-                  serverCredentials={serverCredentials}
-                  reloadCredentials={loadCredentials}
-                />
-              )}
-              {section === "voice" && <VoiceSection />}
-              {section === "devices" && <DevicesSection pairing={pairing} />}
-            </>
-          )}
-        </main>
+        {sectionNav}
+        {sectionContent}
 
         {/* Footer */}
         <div className="s-settings-footer">
@@ -979,5 +1111,32 @@ export function SettingsDrawer({
         </div>
       </div>
     </>
+  );
+}
+
+export function SettingsDrawer(props: {
+  open: boolean;
+  onClose: () => void;
+  section?: Section;
+  onSectionChange?: (section: Section) => void;
+}) {
+  return <SettingsExperience {...props} presentation="drawer" />;
+}
+
+export function SettingsPage({
+  section = "appearance",
+  onSectionChange,
+}: {
+  section?: Section;
+  onSectionChange: (section: Section) => void;
+}) {
+  return (
+    <SettingsExperience
+      open
+      onClose={() => {}}
+      section={section}
+      onSectionChange={onSectionChange}
+      presentation="page"
+    />
   );
 }

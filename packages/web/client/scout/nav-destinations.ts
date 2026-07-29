@@ -9,6 +9,7 @@
  */
 import type { LucideIcon } from "lucide-react";
 import {
+  Code2,
   Compass,
   FileText,
   GitBranch,
@@ -433,6 +434,7 @@ export const GO_SHORTCUT_PROJECTION: readonly GoShortcutProjection[] = [
   { key: "s", label: "Go to sessions", destinationId: "sessions" },
   { key: "t", label: "Go to terminals", destinationId: "terminals" },
   { key: "r", label: "Go to repositories", destinationId: "repos" },
+  { key: "b", label: "Go to code browser", destinationId: "code" },
   { key: "f", label: "Go to search", destinationId: "search" },
   { key: "l", label: "Go to live activity", destinationId: "tail" },
   // Default ops entry uses bare `{ view: "ops" }` (mode undefined), matching
@@ -487,6 +489,7 @@ const JUMP_DOCK_PROJECTION: readonly JumpDockProjection[] = [
   { destinationId: "sessions", id: "sessions", icon: FileText },
   { destinationId: "terminals", id: "terminals", icon: Terminal },
   { destinationId: "repos", id: "repos", icon: GitBranch },
+  { destinationId: "code", id: "code", icon: Code2 },
   { destinationId: "search", id: "search", icon: Search },
   { destinationId: "tail", id: "tail", icon: ScrollText },
   // Mission control bounces to Home when the ops cluster is off — only offer
@@ -565,6 +568,7 @@ const PALETTE_NAV_PROJECTION: readonly PaletteNavProjection[] = [
   { id: "nav:mesh", label: "Open Mesh", destinationId: "mesh" },
   { id: "nav:dispatch", label: "Open Dispatch", destinationId: "dispatch" },
   { id: "nav:repos", label: "Open Repos", destinationId: "repos" },
+  { id: "nav:code", label: "Open Code Browser", destinationId: "code" },
   { id: "nav:harnesses", label: "Open Providers", destinationId: "providers" },
   { id: "nav:ops-lanes", label: "Open Agent Lanes", destinationId: "lanes" },
   {

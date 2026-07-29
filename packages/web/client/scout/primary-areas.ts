@@ -61,6 +61,13 @@ export const PRIMARY_AREAS: readonly PrimaryArea[] = [
     section: "navigate",
   },
   {
+    id: "chat",
+    label: "Messages",
+    icon: MessageSquare,
+    defaultRoute: { view: "messages" },
+    section: "navigate",
+  },
+  {
     id: "projects",
     label: "Projects",
     icon: FolderKanban,
@@ -72,13 +79,6 @@ export const PRIMARY_AREAS: readonly PrimaryArea[] = [
     label: "Sessions",
     icon: FileText,
     defaultRoute: { view: "sessions" },
-    section: "navigate",
-  },
-  {
-    id: "chat",
-    label: "Messages",
-    icon: MessageSquare,
-    defaultRoute: { view: "messages" },
     section: "navigate",
   },
   {
@@ -107,7 +107,7 @@ export const PRIMARY_AREAS: readonly PrimaryArea[] = [
     id: "settings",
     label: "Settings",
     icon: Settings,
-    defaultRoute: { view: "settings" },
+    defaultRoute: { view: "settings", section: "appearance" },
     section: "system",
   },
 ] as const;

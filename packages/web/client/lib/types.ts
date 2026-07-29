@@ -23,6 +23,7 @@ export type Agent = {
   branch: string | null;
   role: string | null;
   model: string | null;
+  reasoningEffort?: string | null;
   harnessSessionId: string | null;
   terminalSurface: TerminalSurfaceDescriptor | null;
   harnessLogPath: string | null;
@@ -70,10 +71,12 @@ export type AgentRuntimePolicy = {
 };
 
 export type TerminalSurfaceDescriptor = {
-  backend: "tmux" | "zellij";
+  backend: "tmux" | "zellij" | "herdr";
   sessionName: string;
   paneId: string | null;
   socketDir: string | null;
+  /** Optional registry attach argv; preferred when rendering attach commands. */
+  attachCommand?: string[] | null;
 };
 
 export type ObservedHarnessTopology = {
@@ -614,6 +617,7 @@ export type RunsResponse =
 export type Flight = {
   id: string;
   invocationId: string;
+  messageId?: string | null;
   agentId: string;
   agentName: string | null;
   conversationId: string | null;
@@ -650,6 +654,7 @@ export type WorkInvocation = {
   source: string | null;
   requestedHarness: string | null;
   requestedModel: string | null;
+  requestedReasoningEffort: string | null;
   requestedPermissionProfile: string | null;
   targetSessionId: string | null;
   requesterId: string | null;
@@ -657,6 +662,11 @@ export type WorkInvocation = {
   targetAgentId: string | null;
   targetAgentName: string | null;
   resolvedHarness: string | null;
+  resolvedModel: string | null;
+  resolvedReasoningEffort: string | null;
+  observedHarness: string | null;
+  observedModel: string | null;
+  observedReasoningEffort: string | null;
   resolvedTransport: string | null;
   resolvedSessionId: string | null;
   conversationId: string | null;
@@ -875,6 +885,7 @@ export type SessionCatalogEntry = {
   harness?: string;
   transport?: string;
   model?: string | null;
+  reasoningEffort?: string | null;
   provider?: string | null;
   source?: string;
   historyPath?: string;
@@ -1388,7 +1399,7 @@ export type Route =
 	      mode?: "observe" | "takeover";
 	      terminalSessionId?: string;
 	      terminalSurfaceKey?: string;
-	      terminalBackend?: "pty" | "tmux" | "zellij";
+	      terminalBackend?: "pty" | "tmux" | "zellij" | "herdr";
 	      terminalAgent?: "shell" | "claude" | "pi";
 	      terminalSessionName?: string;
 	      terminalTabId?: string;
@@ -1402,6 +1413,7 @@ export type FollowPreferredView = "tail" | "session" | "chat" | "work";
 export type SettingsSection =
   | "pairing"
   | "agents"
+  | "appearance"
   | "operator"
   | "comms"
   | "credentials"

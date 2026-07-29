@@ -21,8 +21,14 @@ import { isAgentBusy, normalizeAgentState } from "../../lib/agent-state.ts";
 import { ensureAgentChat } from "../../lib/agent-chat.ts";
 import { usePersistentNumber, usePersistentString } from "../../lib/persistent-state.ts";
 import {
+  RUNTIME_CAPABILITY_SEED,
+  runtimeEffortsForSelection,
+  runtimeModelsForHarness,
+  type RuntimeCapabilityCatalog,
+} from "../../lib/runtime-capabilities.ts";
+import {
   MessageComposer,
-  MessageComposerToolSelect,
+  RuntimePicker,
 } from "../../components/MessageComposer/index.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { routeMachineId } from "../../lib/router.ts";
@@ -1121,23 +1127,6 @@ function sortedCatchupAgents(agents: Agent[]): Agent[] {
   });
 }
 
-function buildHarnessOptions(agent: Agent | null): string[] {
-  const options = new Set<string>();
-  const harness = agent?.harness?.trim();
-  if (harness) options.add(harness);
-  options.add("claude");
-  options.add("codex");
-  options.add("pi");
-  return [...options];
-}
-
-function buildModelOptions(agent: Agent | null): string[] {
-  const options = new Set<string>();
-  const model = agent?.model?.trim();
-  if (model) options.add(model);
-  return [...options];
-}
-
 function QuietStartPanel({
   agents,
   navigate,
@@ -1148,13 +1137,14 @@ function QuietStartPanel({
   const catchupAgents = useMemo(() => sortedCatchupAgents(agents), [agents]);
   const [agentId, setAgentId] = useState(() => catchupAgents[0]?.id ?? "");
   const selectedAgent = catchupAgents.find((agent) => agent.id === agentId) ?? null;
-  const harnessOptions = useMemo(() => buildHarnessOptions(selectedAgent), [selectedAgent]);
-  const modelOptions = useMemo(() => buildModelOptions(selectedAgent), [selectedAgent]);
+  const [runtimeCapabilities, setRuntimeCapabilities] = useState<RuntimeCapabilityCatalog | null>(null);
   const [prompt, setPrompt] = useState("");
   const [harness, setHarness] = useState(selectedAgent?.harness?.trim() ?? "");
   const [model, setModel] = useState(selectedAgent?.model?.trim() ?? "");
+  const [reasoningEffort, setReasoningEffort] = useState("medium");
   const [submitting, setSubmitting] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const effectiveCapabilities = runtimeCapabilities ?? RUNTIME_CAPABILITY_SEED;
 
   useEffect(() => {
     if (catchupAgents.some((agent) => agent.id === agentId)) return;
@@ -1165,6 +1155,50 @@ function QuietStartPanel({
     setHarness(selectedAgent?.harness?.trim() ?? "");
     setModel(selectedAgent?.model?.trim() ?? "");
   }, [selectedAgent?.id]);
+
+  useEffect(() => {
+    const projectRoot = selectedAgent?.projectRoot?.trim() || selectedAgent?.cwd?.trim();
+    const query = new URLSearchParams({ scope: "global+project" });
+    if (projectRoot) query.set("projectRoot", projectRoot);
+    let cancelled = false;
+    void api<RuntimeCapabilityCatalog>(`/api/runner/options?${query.toString()}`)
+      .then((options) => {
+        if (!cancelled && options.schemaVersion === "openscout.runtime-capabilities.v1") {
+          setRuntimeCapabilities(options);
+        }
+      })
+      .catch(() => {
+        // Keep the selected agent's observed runtime as the offline fallback.
+      });
+    return () => { cancelled = true; };
+  }, [selectedAgent?.cwd, selectedAgent?.projectRoot]);
+
+  const effectiveHarness = harness || selectedAgent?.harness?.trim() || "";
+  const harnessOptions = useMemo(() => {
+    const values = new Set(effectiveCapabilities.harnesses.map((candidate) => candidate.id));
+    if (selectedAgent?.harness?.trim()) values.add(selectedAgent.harness.trim());
+    return [...values];
+  }, [effectiveCapabilities, selectedAgent?.harness]);
+  const modelOptions = useMemo(() => {
+    const values = runtimeModelsForHarness(effectiveCapabilities, effectiveHarness);
+    const observed = selectedAgent?.model?.trim();
+    if (observed && selectedAgent?.harness?.trim() === effectiveHarness && !values.includes(observed)) {
+      values.unshift(observed);
+    }
+    return values;
+  }, [effectiveCapabilities, effectiveHarness, selectedAgent?.harness, selectedAgent?.model]);
+  const effortOptions = useMemo(() => runtimeEffortsForSelection(
+    effectiveCapabilities,
+    effectiveHarness,
+    model,
+  ), [effectiveCapabilities, effectiveHarness, model]);
+
+  useEffect(() => {
+    if (effortOptions.some((candidate) => candidate.value === reasoningEffort)) return;
+    setReasoningEffort(effortOptions.find((candidate) => candidate.value === "medium")?.value
+      ?? effortOptions[0]?.value
+      ?? "");
+  }, [effortOptions, reasoningEffort]);
 
   const submitMessage = async (event?: React.FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
@@ -1182,6 +1216,7 @@ function QuietStartPanel({
           execution: {
             harness: harness || undefined,
             model: model || undefined,
+            reasoningEffort: reasoningEffort || undefined,
           },
         }),
       });
@@ -1251,29 +1286,28 @@ function QuietStartPanel({
               </div>
             )}
             tools={(
-              <>
-                {/* Right cluster order: harness · model · mic · Send (model nearest actions) */}
-                <MessageComposerToolSelect
-                  label="Harness"
-                  value={harness}
-                  onChange={setHarness}
-                  disabled={submitting || !selectedAgent}
-                  options={[
-                    { value: "", label: "default" },
-                    ...harnessOptions.map((option) => ({ value: option, label: option })),
-                  ]}
-                />
-                <MessageComposerToolSelect
-                  label="Model"
-                  value={model}
-                  onChange={setModel}
-                  disabled={submitting || !selectedAgent}
-                  options={[
-                    { value: "", label: "default" },
-                    ...modelOptions.map((option) => ({ value: option, label: option })),
-                  ]}
-                />
-              </>
+              /* Right cluster: runtime · mic · Send. One chip replaces the
+                 harness and model selects — the harness reads as its mark. */
+              <RuntimePicker
+                harness={harness}
+                model={model}
+                effort={reasoningEffort}
+                onHarnessChange={(nextHarness) => {
+                  setHarness(nextHarness);
+                  const resolvedHarness = nextHarness || selectedAgent?.harness?.trim() || "";
+                  const nextModel = effectiveCapabilities.models.find((candidate) => (
+                    candidate.harnesses.includes(resolvedHarness)
+                  ))?.id ?? "";
+                  setModel(nextModel);
+                }}
+                onModelChange={setModel}
+                onEffortChange={setReasoningEffort}
+                harnessOptions={harnessOptions}
+                modelOptions={modelOptions}
+                effortOptions={effortOptions}
+                showEffort
+                disabled={submitting || !selectedAgent}
+              />
             )}
           />
         </div>

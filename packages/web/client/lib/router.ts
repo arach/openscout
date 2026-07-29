@@ -104,6 +104,7 @@ function parseSettingsSection(value: string | undefined): SettingsSection | unde
   switch (value) {
     case "pairing":
     case "agents":
+    case "appearance":
     case "operator":
     case "comms":
     case "credentials":
@@ -135,9 +136,11 @@ function parseTerminalMode(value: string | null): "observe" | "takeover" | undef
   return normalized === "observe" || normalized === "takeover" ? normalized : undefined;
 }
 
-function parseTerminalBackend(value: string | null): "pty" | "tmux" | "zellij" | undefined {
+function parseTerminalBackend(value: string | null): "pty" | "tmux" | "zellij" | "herdr" | undefined {
   const normalized = value?.trim().toLowerCase();
-  return normalized === "pty" || normalized === "tmux" || normalized === "zellij" ? normalized : undefined;
+  return normalized === "pty" || normalized === "tmux" || normalized === "zellij" || normalized === "herdr"
+    ? normalized
+    : undefined;
 }
 
 function parseTerminalAgent(value: string | null): "shell" | "claude" | "pi" | undefined {
