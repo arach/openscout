@@ -170,7 +170,7 @@ describe("BrokerDurableRecordStore", () => {
       state: "offline",
       transport: "tmux",
       metadata: {
-        source: "test",
+        source: "relay-agent-registry",
         lastError: "tmux session missing: session-1",
         lastFailedAt: 100,
       },
@@ -178,26 +178,58 @@ describe("BrokerDurableRecordStore", () => {
     const rebuiltWaiting = testEndpoint({
       state: "waiting",
       transport: "tmux",
-      metadata: { source: "test" },
+      metadata: { source: "relay-agent-registry" },
     });
     const rebuiltIdle = testEndpoint({
       state: "idle",
       transport: "tmux",
-      metadata: { source: "test" },
+      metadata: { source: "relay-agent-registry" },
     });
     const rebuiltElsewhere = testEndpoint({
       state: "waiting",
       transport: "tmux",
       cwd: "/somewhere/else",
-      metadata: { source: "test" },
+      metadata: { source: "relay-agent-registry" },
     });
 
     expect(isOfflineEndpointResurrection(offline, rebuiltWaiting)).toBe(true);
     // A live rebuild (idle) is real new information and must go through.
     expect(isOfflineEndpointResurrection(offline, rebuiltIdle)).toBe(false);
-    // So must a rebuild that changes anything beyond liveness bookkeeping.
+    // So must a rebuild that changes anything beyond the probe's bookkeeping.
     expect(isOfflineEndpointResurrection(offline, rebuiltElsewhere)).toBe(false);
     expect(isOfflineEndpointResurrection(undefined, rebuiltWaiting)).toBe(false);
+  });
+
+  test("resurrection suppression is scoped to rebuild provenance and stale heartbeats", () => {
+    const offline = (metadata: Record<string, unknown>) => testEndpoint({
+      state: "offline",
+      transport: "tmux",
+      metadata: { lastError: "tmux session missing: session-1", lastFailedAt: 100, ...metadata },
+    });
+    const waiting = (metadata: Record<string, unknown>) => testEndpoint({
+      state: "waiting",
+      transport: "tmux",
+      metadata,
+    });
+
+    // Non-registry sources may legitimately use waiting as a live state.
+    expect(isOfflineEndpointResurrection(
+      offline({ source: "scout-channel" }),
+      waiting({ source: "scout-channel" }),
+    )).toBe(false);
+
+    // A fresh heartbeat on the waiting record is real liveness evidence.
+    expect(isOfflineEndpointResurrection(
+      offline({ source: "relay-agent-registry", lastSeenAt: 50 }),
+      waiting({ source: "relay-agent-registry", lastSeenAt: 200 }),
+    )).toBe(false);
+
+    // Authoritative lifecycle flags are not probe bookkeeping; clearing
+    // them is a real transition that must persist.
+    expect(isOfflineEndpointResurrection(
+      offline({ source: "relay-agent-registry", supersededLocalTransport: true }),
+      waiting({ source: "relay-agent-registry" }),
+    )).toBe(false);
   });
 
   test("keeps the probed offline record when a registry rebuild claims waiting", async () => {
@@ -206,7 +238,7 @@ describe("BrokerDurableRecordStore", () => {
       state: "offline",
       transport: "tmux",
       metadata: {
-        source: "test",
+        source: "relay-agent-registry",
         lastError: "tmux session missing: session-1",
         lastFailedAt: 100,
       },
@@ -216,7 +248,7 @@ describe("BrokerDurableRecordStore", () => {
     await records.upsertEndpoint(testEndpoint({
       state: "waiting",
       transport: "tmux",
-      metadata: { source: "test" },
+      metadata: { source: "relay-agent-registry" },
     }));
 
     expect(appended).toEqual([]);
@@ -239,6 +271,24 @@ describe("BrokerDurableRecordStore", () => {
       testEndpoint({ state: "idle" }),
       testEndpoint({ state: "waiting" }),
     )).toBe(false);
+  });
+
+  test("keeps a first heartbeat even when everything else is unchanged", async () => {
+    const { runtime, appended, records } = createTestRecordStore();
+    await runtime.upsertEndpoint(testEndpoint({
+      transport: "claude_channel",
+      metadata: { source: "test" },
+    }));
+
+    await records.upsertEndpoint(testEndpoint({
+      transport: "claude_channel",
+      metadata: { source: "test", lastSeenAt: 42 },
+    }));
+
+    // No durable write, but the in-memory record acquires the heartbeat —
+    // claude_channel liveness reads metadata.lastSeenAt.
+    expect(appended).toEqual([]);
+    expect(runtime.peek().endpoints["endpoint-1"]?.metadata?.lastSeenAt).toBe(42);
   });
 
   test("deletes endpoints through the durable journal", async () => {

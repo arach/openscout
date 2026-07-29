@@ -126,26 +126,46 @@ export function isEndpointLastSeenHeartbeat(
     === JSON.stringify(comparableEndpointWithoutHeartbeatMetadata(next));
 }
 
+function endpointLastSeenAt(endpoint: AgentEndpoint | undefined): number | null {
+  const value = endpoint?.metadata?.lastSeenAt;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * A first heartbeat (previous record had none) or a strictly newer one is
+ * real liveness evidence, even when every other field is unchanged.
+ */
+export function hasNewerHeartbeat(
+  previous: AgentEndpoint | undefined,
+  next: AgentEndpoint,
+): boolean {
+  const nextLastSeenAt = endpointLastSeenAt(next);
+  if (nextLastSeenAt === null) {
+    return false;
+  }
+  const previousLastSeenAt = endpointLastSeenAt(previous);
+  return previousLastSeenAt === null || nextLastSeenAt > previousLastSeenAt;
+}
+
 /**
  * Registry rebuilds re-announce every registered local agent from scratch, so
  * an endpoint the liveness probe already marked offline comes back as a bare
- * "waiting" record with the failure metadata stripped. Persisting that would
- * flip the endpoint waiting<->offline forever (the probe re-marks it offline
- * minutes later), emitting a durable event per swing. The rebuild carries no
- * liveness information the probe has not already contradicted, so it must not
- * overwrite the probed record.
+ * "waiting" record with the probe's failure metadata stripped. Persisting that
+ * would flip the endpoint waiting<->offline forever (the probe re-marks it
+ * offline minutes later), emitting a durable event per swing.
+ *
+ * Suppression is scoped tightly: only rebuild-provenance sources, only when
+ * the rebuild carries no fresh heartbeat, and only when nothing but the
+ * probe's own failure bookkeeping differs. Authoritative lifecycle flags
+ * (staleLocalRegistration, supersededLocalTransport, ...) are deliberately
+ * NOT ignored — clearing those is a real transition and must persist.
  */
-const OFFLINE_BOOKKEEPING_METADATA_KEYS = [
+const REBUILD_PROVENANCE_SOURCES = new Set(["relay-agent-registry", "project-inferred"]);
+
+const PROBE_FAILURE_METADATA_KEYS = [
   "lastError",
   "lastFailedAt",
   "disabledReason",
-  "staleLocalRegistration",
-  "staleAt",
-  "replacedByAgentId",
-  "supersededLocalTransport",
-  "replacedByEndpointId",
-  "replacedByTransport",
-  "retiredAt",
 ] as const;
 
 export function isOfflineEndpointResurrection(
@@ -155,21 +175,27 @@ export function isOfflineEndpointResurrection(
   if (!previous || previous.state !== "offline" || next.state !== "waiting") {
     return false;
   }
+  if (typeof next.metadata?.source !== "string" || !REBUILD_PROVENANCE_SOURCES.has(next.metadata.source)) {
+    return false;
+  }
+  if (hasNewerHeartbeat(previous, next)) {
+    return false;
+  }
   const { state: _previousState, ...previousRest } = previous;
   const { state: _nextState, ...nextRest } = next;
   return JSON.stringify(
-    comparableEndpointWithoutHeartbeatMetadata(previousRest as AgentEndpoint, OFFLINE_BOOKKEEPING_METADATA_KEYS),
+    comparableEndpointWithoutHeartbeatMetadata(previousRest as AgentEndpoint, PROBE_FAILURE_METADATA_KEYS),
   ) === JSON.stringify(
-    comparableEndpointWithoutHeartbeatMetadata(nextRest as AgentEndpoint, OFFLINE_BOOKKEEPING_METADATA_KEYS),
+    comparableEndpointWithoutHeartbeatMetadata(nextRest as AgentEndpoint, PROBE_FAILURE_METADATA_KEYS),
   );
 }
 
 /**
  * A rebuild that changes nothing (same state, same fields modulo heartbeat
  * metadata) does not deserve a durable write either — without this, every
- * registry sync re-persists every unchanged endpoint. Unlike the heartbeat
- * path this does not refresh the in-memory record: the incoming copy's
- * heartbeat fields may be staler than what the runtime already holds.
+ * registry sync re-persists every unchanged endpoint. Callers decide whether
+ * to silently refresh the in-memory record (first/newer heartbeat) or drop
+ * the copy entirely (stale heartbeat).
  */
 export function isEndpointUnchanged(
   previous: AgentEndpoint | undefined,
@@ -232,7 +258,15 @@ export class BrokerDurableRecordStore {
       this.options.runtime.refreshEndpointSilently(endpoint);
       return;
     }
-    if (isEndpointUnchanged(previous, endpoint) || isOfflineEndpointResurrection(previous, endpoint)) {
+    if (isEndpointUnchanged(previous, endpoint)) {
+      // A first heartbeat arrives with both records otherwise identical, so
+      // it lands here rather than in the heartbeat guard above — keep it.
+      if (hasNewerHeartbeat(previous, endpoint)) {
+        this.options.runtime.refreshEndpointSilently(endpoint);
+      }
+      return;
+    }
+    if (isOfflineEndpointResurrection(previous, endpoint)) {
       return;
     }
 

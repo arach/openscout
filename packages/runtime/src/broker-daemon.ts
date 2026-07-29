@@ -1694,6 +1694,29 @@ const trpcHandler = applyWSSHandler({
   createContext: () => ({}),
 });
 
+// Startup maintenance runs before the broker accepts traffic: the retention
+// DELETE and the freelist-gated VACUUM are synchronous SQLite calls that
+// would freeze a live event loop for seconds on a bloated database.
+if (Number.isFinite(ephemeralEventRetentionMs) && ephemeralEventRetentionMs > 0 && !sqliteDisabled) {
+  try {
+    const pruned = await projection.pruneEvents({
+      kinds: EPHEMERAL_EVENT_KINDS,
+      olderThanMs: ephemeralEventRetentionMs,
+    });
+    if (pruned > 0) {
+      console.log(`[openscout-runtime] pruned ${pruned} ephemeral control events (startup)`);
+    }
+    const reclaim = await projection.reclaimFreeSpace();
+    if (reclaim?.vacuumed) {
+      console.log(
+        `[openscout-runtime] vacuumed control-plane db (${reclaim.freePages}/${reclaim.totalPages} pages were free)`,
+      );
+    }
+  } catch (error) {
+    console.error("[openscout-runtime] startup event prune failed:", error);
+  }
+}
+
 try {
   await listenTcp(server, { host, port });
   await listenUnixSocket(socketServer, brokerSocketPath);
@@ -1787,30 +1810,18 @@ if (routeAliasService) {
 }
 
 if (Number.isFinite(ephemeralEventRetentionMs) && ephemeralEventRetentionMs > 0 && !sqliteDisabled) {
-  const pruneEphemeralControlEvents = async (phase: "startup" | "periodic"): Promise<void> => {
-    const pruned = await projection.pruneEvents({
+  // Periodic passes only DELETE (one retention window's worth of rows —
+  // small and index-assisted); the VACUUM happens pre-listen at startup,
+  // where blocking the event loop cannot stall live traffic.
+  setInterval(() => {
+    projection.pruneEvents({
       kinds: EPHEMERAL_EVENT_KINDS,
       olderThanMs: ephemeralEventRetentionMs,
-    });
-    if (pruned > 0) {
-      console.log(`[openscout-runtime] pruned ${pruned} ephemeral control events (${phase})`);
-    }
-    if (phase === "startup") {
-      const reclaim = await projection.reclaimFreeSpace();
-      if (reclaim?.vacuumed) {
-        console.log(
-          `[openscout-runtime] vacuumed control-plane db (${reclaim.freePages}/${reclaim.totalPages} pages were free)`,
-        );
+    }).then((pruned) => {
+      if (pruned > 0) {
+        console.log(`[openscout-runtime] pruned ${pruned} ephemeral control events (periodic)`);
       }
-    }
-  };
-  setTimeout(() => {
-    pruneEphemeralControlEvents("startup").catch((error) => {
-      console.error("[openscout-runtime] startup event prune failed:", error);
-    });
-  }, 15_000).unref();
-  setInterval(() => {
-    pruneEphemeralControlEvents("periodic").catch((error) => {
+    }).catch((error) => {
       console.error("[openscout-runtime] periodic event prune failed:", error);
     });
   }, 6 * 60 * 60 * 1000).unref();
