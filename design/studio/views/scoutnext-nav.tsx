@@ -212,7 +212,7 @@ function Tab({
       {glyphWrap}
       {spec.labels ? (
         <span
-          className="font-sans text-[10px] leading-none"
+          className="font-sans text-xs leading-none"
           style={{ color: labelColor }}
         >
           {tab.label}
@@ -336,10 +336,10 @@ function VariantCard({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="font-sans text-[13px] font-medium text-studio-ink">
+        <span className="font-sans text-lg font-medium text-studio-ink">
           {name}
         </span>
-        <span className="font-mono text-[10px] text-studio-ink-faint">{note}</span>
+        <span className="font-mono text-xs text-studio-ink-faint">{note}</span>
       </div>
       <div style={{ width: 375 }} className="max-w-full">
         <PhoneBottom overlay={overlay} base={base}>
@@ -450,17 +450,17 @@ interface TopSpec {
 function PhoneTop({ spec }: { spec: TopSpec }) {
   const machines = (
     <div className="flex items-center gap-2.5">
-      <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.2em] text-white/45">
+      <span className="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-white/45">
         Machines
       </span>
-      <span className="inline-flex items-center gap-2 rounded-full border border-white/[0.06] bg-white/[0.04] px-2.5 py-1 font-sans text-[12.5px] font-medium text-white/82">
+      <span className="inline-flex items-center gap-2 rounded-full border border-white/[0.06] bg-white/[0.04] px-2.5 py-1 font-sans text-md font-medium text-white/82">
         <span
           className="h-[7px] w-[7px] rounded-full"
           style={{ background: ACCENT, boxShadow: "0 0 8px color-mix(in oklab, var(--scout-accent) 70%, transparent)" }}
         />
         arachs mac mini
       </span>
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.06] bg-white/[0.035] px-2.5 py-1 font-sans text-[12.5px] font-medium text-white/55">
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.06] bg-white/[0.035] px-2.5 py-1 font-sans text-md font-medium text-white/55">
         <MiniPlus />
         Add
       </span>
@@ -471,7 +471,7 @@ function PhoneTop({ spec }: { spec: TopSpec }) {
       <span className="text-white/35">
         <MiniSearch />
       </span>
-      <span className="font-sans text-[14px] text-white/30">Search the fleet</span>
+      <span className="font-sans text-xl text-white/30">Search the fleet</span>
     </div>
   );
   return (
@@ -486,7 +486,7 @@ function PhoneTop({ spec }: { spec: TopSpec }) {
       <div className={`relative px-5 pb-4 ${spec.airy ? "pt-3" : "pt-2"}`}>
         {/* status bar */}
         <div className="flex h-7 items-center justify-between">
-          <span className="font-sans text-[13px] font-semibold text-white">9:22</span>
+          <span className="font-sans text-lg font-semibold text-white">9:22</span>
           <span className="inline-flex items-end gap-[2px]">
             {[5, 8, 11, 14].map((h) => (
               <span key={h} className="w-[3px] rounded-[1px] bg-white/90" style={{ height: h }} />
@@ -620,17 +620,17 @@ function VibeRow({ row }: { row: (typeof VIBE_ROWS)[number] }) {
   return (
     <div className="flex items-center gap-2 px-3 py-[7px]">
       <MiniFolder />
-      <span className="truncate font-sans text-[13px] font-semibold text-white/92">{row.name}</span>
-      <span className="font-mono text-[10px] text-white/22">/</span>
+      <span className="truncate font-sans text-lg font-semibold text-white/92">{row.name}</span>
+      <span className="font-mono text-xs text-white/22">/</span>
       <span className="flex items-center gap-1">
         <Glyph kind="agent" size={11} style={{ color: "rgba(255,255,255,0.35)" }} />
-        <span className="font-sans text-[12px] font-medium text-white/60">{row.seg}</span>
+        <span className="font-sans text-md font-medium text-white/60">{row.seg}</span>
       </span>
       {row.live ? (
         <span className="h-[6px] w-[6px] rounded-full" style={{ background: ACCENT, boxShadow: "0 0 7px color-mix(in oklab, var(--scout-accent) 70%, transparent)" }} />
       ) : null}
       <span
-        className="ml-auto font-mono text-[10px] tabular-nums"
+        className="ml-auto font-mono text-xs tabular-nums"
         style={{ color: row.live ? ACCENT : "rgba(255,255,255,0.45)" }}
       >
         {row.age}
@@ -644,7 +644,7 @@ function AllBit({ kind }: { kind: Vibe["all"] }) {
   if (kind === "chip") {
     return (
       <span
-        className="ml-auto rounded-full px-1.5 py-[1px] font-mono text-[8px] font-semibold uppercase tracking-[0.14em]"
+        className="ml-auto rounded-full px-1.5 py-[1px] font-mono text-3xs font-semibold uppercase tracking-[0.14em]"
         style={{ color: ACCENT, background: "color-mix(in oklab, var(--scout-accent) 12%, transparent)" }}
       >
         All
@@ -653,13 +653,13 @@ function AllBit({ kind }: { kind: Vibe["all"] }) {
   }
   if (kind === "bracket") {
     return (
-      <span className="ml-auto font-mono text-[9px] font-semibold uppercase tracking-[0.14em] text-white/45">
+      <span className="ml-auto font-mono text-2xs font-semibold uppercase tracking-[0.14em] text-white/45">
         [ <span style={{ color: ACCENT }}>All</span> ]
       </span>
     );
   }
   return (
-    <span className="ml-auto font-mono text-[9px] font-semibold uppercase tracking-[0.2em]" style={{ color: ACCENT }}>
+    <span className="ml-auto font-mono text-2xs font-semibold uppercase tracking-[0.2em]" style={{ color: ACCENT }}>
       All
     </span>
   );
@@ -678,7 +678,7 @@ function VibePhone({ vibe }: { vibe: Vibe }) {
 
       {/* status bar */}
       <div className="relative flex h-9 items-center justify-between px-6 pt-1">
-        <span className="font-sans text-[13px] font-semibold text-white">9:22</span>
+        <span className="font-sans text-lg font-semibold text-white">9:22</span>
         <span className="inline-flex items-end gap-[2px]">
           {[5, 8, 11, 14].map((h) => (
             <span key={h} className="w-[3px] rounded-[1px] bg-white/90" style={{ height: h }} />
@@ -693,8 +693,8 @@ function VibePhone({ vibe }: { vibe: Vibe }) {
         ) : null}
         <div className="relative flex items-center justify-between">
           <div className="flex items-baseline gap-2">
-            <span className="font-sans text-[24px] font-semibold tracking-tight text-white/92">Scout</span>
-            <span className="font-mono text-[10px] font-bold uppercase tracking-[0.24em]" style={{ color: ACCENT }}>
+            <span className="font-sans text-5xl font-semibold tracking-tight text-white/92">Scout</span>
+            <span className="font-mono text-xs font-bold uppercase tracking-[0.24em]" style={{ color: ACCENT }}>
               Next
             </span>
           </div>
@@ -708,12 +708,12 @@ function VibePhone({ vibe }: { vibe: Vibe }) {
           <div className="relative mt-2.5 h-px w-full" style={{ background: "color-mix(in oklab, var(--scout-accent) 38%, transparent)" }} />
         ) : null}
         <div className={`relative ${vibe.editorial ? "mt-4" : "mt-3"} flex items-center gap-2`}>
-          <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.2em] text-white/45">Machines</span>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.06] bg-white/[0.04] px-2 py-[3px] font-sans text-[11.5px] font-medium text-white/82">
+          <span className="font-mono text-2xs font-semibold uppercase tracking-[0.2em] text-white/45">Machines</span>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.06] bg-white/[0.04] px-2 py-[3px] font-sans text-sm font-medium text-white/82">
             <span className="h-[6px] w-[6px] rounded-full" style={{ background: ACCENT }} />
             arachs mac mini
           </span>
-          <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.06] bg-white/[0.035] px-2 py-[3px] font-sans text-[11.5px] font-medium text-white/55">
+          <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.06] bg-white/[0.035] px-2 py-[3px] font-sans text-sm font-medium text-white/55">
             <MiniPlus />
             Add
           </span>
@@ -722,7 +722,7 @@ function VibePhone({ vibe }: { vibe: Vibe }) {
           <span className="text-white/35">
             <MiniSearch />
           </span>
-          <span className="font-sans text-[13px] text-white/30">Search the fleet</span>
+          <span className="font-sans text-lg text-white/30">Search the fleet</span>
         </div>
       </div>
 
@@ -730,15 +730,15 @@ function VibePhone({ vibe }: { vibe: Vibe }) {
       <div className="relative mt-3 flex-1 overflow-hidden px-3">
         <div className="mb-2 flex items-center gap-1.5 px-1">
           <span className="h-[6px] w-[6px] rounded-full" style={{ background: ACCENT, boxShadow: "0 0 7px color-mix(in oklab, var(--scout-accent) 70%, transparent)" }} />
-          <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.2em] text-white/55">Currently working</span>
-          <span className="font-mono text-[9px] text-white/35">1</span>
+          <span className="font-mono text-2xs font-semibold uppercase tracking-[0.2em] text-white/55">Currently working</span>
+          <span className="font-mono text-2xs text-white/35">1</span>
         </div>
         <div className="px-1">
           <WorkingCard treatment={vibe.card} />
         </div>
         <div className="mb-2 mt-4 flex items-baseline gap-2 px-1">
-          <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.2em] text-white/55">Projects</span>
-          <span className="font-mono text-[9px] text-white/35">5</span>
+          <span className="font-mono text-2xs font-semibold uppercase tracking-[0.2em] text-white/55">Projects</span>
+          <span className="font-mono text-2xs text-white/35">5</span>
           <AllBit kind={vibe.all} />
         </div>
         <div className="overflow-hidden rounded-[10px]" style={{ border: `1px solid ${vibe.border}`, background: vibe.surface }}>
@@ -858,12 +858,12 @@ function WorkingCard({
           className="h-[7px] w-[7px] rounded-full"
           style={{ background: ACCENT, boxShadow: "0 0 8px color-mix(in oklab, var(--scout-accent) 70%, transparent)" }}
         />
-        <span className="truncate font-sans text-[12.5px] font-semibold text-white/92">
+        <span className="truncate font-sans text-md font-semibold text-white/92">
           Home layout
         </span>
       </div>
       <div className="flex items-baseline gap-1">
-        <span className="truncate font-mono text-[11px] text-white/55">
+        <span className="truncate font-mono text-sm text-white/55">
           editing HomeSurface.swift
         </span>
         <span
@@ -871,7 +871,7 @@ function WorkingCard({
           style={{ background: ACCENT }}
         />
       </div>
-      <div className="truncate font-mono text-[9.5px] text-white/40">
+      <div className="truncate font-mono text-2xs text-white/40">
         openscout · +3 · ⎇ mini-home
       </div>
     </div>
@@ -890,24 +890,24 @@ function Corner({ pos }: { pos: "tl" | "tr" }) {
 function AllTreatment({ kind }: { kind: "text" | "chip" | "bracket" }) {
   return (
     <div className="flex items-baseline gap-2 rounded-lg bg-[#080a09] px-3 py-2">
-      <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.2em] text-white/55">
+      <span className="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-white/55">
         Activity
       </span>
-      <span className="font-mono text-[10px] font-semibold text-white/35">4</span>
+      <span className="font-mono text-xs font-semibold text-white/35">4</span>
       <span className="ml-auto">
         {kind === "text" ? (
-          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.2em]" style={{ color: ACCENT }}>
+          <span className="font-mono text-xs font-semibold uppercase tracking-[0.2em]" style={{ color: ACCENT }}>
             All
           </span>
         ) : kind === "chip" ? (
           <span
-            className="rounded-full px-2 py-[2px] font-mono text-[9px] font-semibold uppercase tracking-[0.14em]"
+            className="rounded-full px-2 py-[2px] font-mono text-2xs font-semibold uppercase tracking-[0.14em]"
             style={{ color: ACCENT, background: "color-mix(in oklab, var(--scout-accent) 12%, transparent)" }}
           >
             All
           </span>
         ) : (
-          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">
+          <span className="font-mono text-xs font-semibold uppercase tracking-[0.16em] text-white/45">
             [ <span style={{ color: ACCENT }}>All</span> ]
           </span>
         )}
@@ -922,13 +922,13 @@ export default function ScoutNextNavLab() {
   return (
     <main className="px-6 py-6">
       <header className="mb-6 max-w-[76ch] border-b border-studio-edge pb-5">
-        <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           ios study - ScoutNext Nav Lab
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Bottom-nav treatments + polish
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           Breadth-first gallery at true iPhone width (375pt): active-state styles,
           bar heights/density, and bar materials — plus a few Home polish ideas.
           Pick winners; they port to RootView.swift + HomeSurface.swift.
@@ -942,8 +942,8 @@ export default function ScoutNextNavLab() {
         {VIBES.map((v) => (
           <div key={v.name} className="flex flex-col gap-2">
             <div className="flex items-baseline justify-between gap-2">
-              <span className="font-sans text-[14px] font-semibold text-studio-ink">{v.name}</span>
-              <span className="font-mono text-[10px] text-studio-ink-faint">{v.tagline}</span>
+              <span className="font-sans text-xl font-semibold text-studio-ink">{v.name}</span>
+              <span className="font-mono text-xs text-studio-ink-faint">{v.tagline}</span>
             </div>
             <VibePhone vibe={v} />
           </div>
@@ -1001,8 +1001,8 @@ export default function ScoutNextNavLab() {
         {TOP_VARIANTS.map((v) => (
           <div key={v.name} className="flex flex-col gap-2">
             <div className="flex items-baseline justify-between gap-2">
-              <span className="font-sans text-[13px] font-medium text-studio-ink">{v.name}</span>
-              <span className="font-mono text-[10px] text-studio-ink-faint">{v.note}</span>
+              <span className="font-sans text-lg font-medium text-studio-ink">{v.name}</span>
+              <span className="font-mono text-xs text-studio-ink-faint">{v.note}</span>
             </div>
             <div style={{ width: 375 }} className="max-w-full">
               <PhoneTop spec={v.spec} />
@@ -1062,10 +1062,10 @@ function Section({
   return (
     <section className="mb-10">
       <div className="mb-4">
-        <h2 className="font-display text-[18px] font-medium tracking-tight text-studio-ink">
+        <h2 className="font-display text-3xl font-medium tracking-tight text-studio-ink">
           {title}
         </h2>
-        <p className="mt-1 font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-1 font-sans text-md leading-relaxed text-studio-ink-faint">
           {blurb}
         </p>
       </div>
@@ -1088,8 +1088,8 @@ function PolishCell({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="font-sans text-[13px] font-medium text-studio-ink">{name}</span>
-        <span className="font-mono text-[10px] text-studio-ink-faint">{note}</span>
+        <span className="font-sans text-lg font-medium text-studio-ink">{name}</span>
+        <span className="font-mono text-xs text-studio-ink-faint">{note}</span>
       </div>
       <div className="flex min-h-[110px] items-center justify-center rounded-[14px] border border-white/[0.07] bg-[#080a09] p-4">
         {children}

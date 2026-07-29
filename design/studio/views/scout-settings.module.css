@@ -17,7 +17,7 @@
 }
 
 .navTitle {
-  font-size: 15px;
+  font-size: var(--text-2xl);
   font-weight: 600;
   color: var(--s-ink);
   padding: 4px 8px 16px;
@@ -30,7 +30,7 @@
   height: 34px;
   padding: 0 10px;
   border-radius: 7px;
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-weight: 500;
   color: var(--s-muted);
   position: relative;
@@ -81,13 +81,13 @@
 
 .pageTitle {
   margin: 6px 0 2px;
-  font-size: 22px;
+  font-size: var(--text-5xl);
   font-weight: 600;
   color: var(--s-ink);
 }
 
 .pageSub {
-  font-size: 13px;
+  font-size: var(--text-lg);
   color: var(--s-muted);
 }
 
@@ -102,14 +102,14 @@
 }
 
 .blockTitle {
-  font-size: 15px;
+  font-size: var(--text-2xl);
   font-weight: 600;
   color: var(--s-ink);
   margin-bottom: 4px;
 }
 
 .blockHint {
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--s-muted);
   margin-bottom: 16px;
 }
@@ -182,14 +182,14 @@
 }
 
 .presetName {
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-weight: 600;
   color: var(--s-ink);
 }
 
 .presetTone {
   font-family: var(--s-font-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -231,13 +231,13 @@
 }
 
 .rowLabel {
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-weight: 500;
   color: var(--s-ink);
 }
 
 .rowHint {
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   color: var(--s-muted);
   margin-top: 1px;
 }
@@ -262,7 +262,7 @@
 .segBtn {
   padding: 5px 16px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 600;
   color: var(--s-muted);
 }
@@ -331,7 +331,7 @@
   justify-content: space-between;
   margin-top: 7px;
   font-family: var(--s-font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;

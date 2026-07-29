@@ -28,14 +28,14 @@
 }
 
 .listTitle {
-  font-size: 14px;
+  font-size: var(--text-xl);
   font-weight: 600;
   color: var(--s-ink);
 }
 
 .listCount {
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
 }
 
@@ -46,7 +46,7 @@
   margin: 0 14px 8px;
   padding: 7px 10px;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--s-dim);
   background: var(--s-bg);
   border: 1px solid var(--s-hairline);
@@ -128,7 +128,7 @@
 .name {
   display: inline-flex;
   align-items: baseline;
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-weight: 500;
   color: var(--s-ink);
   overflow: hidden;
@@ -150,13 +150,13 @@
 .time {
   margin-left: auto;
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
   flex-shrink: 0;
 }
 
 .preview {
-  font-size: 12px;
+  font-size: var(--text-md);
   line-height: 1.4;
   color: var(--s-muted);
   display: -webkit-box;
@@ -194,14 +194,14 @@
 .threadName {
   display: inline-flex;
   align-items: baseline;
-  font-size: 14px;
+  font-size: var(--text-xl);
   font-weight: 600;
   color: var(--s-ink);
 }
 
 .threadSub {
   font-family: var(--s-font-mono);
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -214,7 +214,7 @@
   gap: 6px;
   padding: 6px 12px;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 600;
   color: var(--s-muted);
   background: var(--s-surface);
@@ -270,19 +270,19 @@
 }
 
 .turnAuthor {
-  font-size: 12.5px;
+  font-size: var(--text-md);
   font-weight: 600;
   color: var(--s-ink);
 }
 
 .turnTime {
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
 }
 
 .turnText {
-  font-size: 13px;
+  font-size: var(--text-lg);
   line-height: 1.6;
   color: color-mix(in srgb, var(--s-ink) 90%, transparent);
 }
@@ -293,7 +293,7 @@
 
 .turnText code {
   font-family: var(--s-font-mono);
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   padding: 1px 5px;
   border-radius: 4px;
   background: color-mix(in srgb, var(--s-ink) 7%, transparent);
@@ -313,7 +313,7 @@
   gap: 7px;
   padding: 8px 11px;
   font-family: var(--s-font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--s-ink);
   border-bottom: 1px solid var(--s-hairline);
@@ -322,7 +322,7 @@
 
 .fileCardBody {
   padding: 9px 11px;
-  font-size: 12px;
+  font-size: var(--text-md);
   line-height: 1.45;
   color: var(--s-muted);
 }
@@ -336,7 +336,7 @@
 .composerField {
   padding: 12px 14px;
   border-radius: 11px;
-  font-size: 13px;
+  font-size: var(--text-lg);
   color: var(--s-dim);
   background: var(--s-surface);
   border: 1px solid var(--s-hairline-strong);

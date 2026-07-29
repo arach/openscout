@@ -319,7 +319,7 @@
 
 .s-sess-name {
   font-family: var(--font-accent-title);
-  font-size: 20px;
+  font-size: var(--text-4xl);
   font-weight: 400;
   line-height: var(--leading-none);
   letter-spacing: -0.01em;
@@ -345,7 +345,7 @@
   gap: 6px;
   min-width: 0;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--muted);
 }
 
@@ -486,7 +486,7 @@
 .s-sess-handle {
   flex: none;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   letter-spacing: var(--tracking-sm);
   /* sober — the handle is identity, not a status; no arbitrary color */
   color: var(--dim);
@@ -919,7 +919,7 @@
   display: flex;
   justify-content: space-between;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--dim);
 }
 
@@ -999,14 +999,14 @@
   border-radius: var(--radius-sm);
   color: var(--dim);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   letter-spacing: var(--tracking-sm);
 }
 
 .s-sum-ctx-runway {
   margin-top: var(--space-xs);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   color: var(--dim);
 }
 
@@ -1055,7 +1055,7 @@
 }
 
 .s-sum-stat-k {
-  font-size: 8.5px;
+  font-size: var(--text-3xs);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--dim);
@@ -1126,7 +1126,7 @@
   align-items: center;
   justify-content: center;
   font-weight: 600;
-  font-size: 30px;
+  font-size: var(--text-7xl);
   color: var(--scout-chrome-avatar-ink);
   flex-shrink: 0;
   box-shadow:
@@ -1173,7 +1173,7 @@
 .s-profile-identity-name {
   margin: 0;
   font-family: var(--font-accent-title);
-  font-size: 44px;
+  font-size: var(--text-8xl);
   font-weight: 400;
   line-height: var(--leading-none);
   letter-spacing: -0.02em;
@@ -1368,7 +1368,7 @@
 
 .s-mod-identity-name {
   font-family: var(--font-accent-title);
-  font-size: 28px;
+  font-size: var(--text-6xl);
   font-weight: 400;
   line-height: var(--leading-none);
   letter-spacing: -0.01em;
@@ -1846,7 +1846,7 @@
 
 .s-profile-task-title {
   font-family: var(--font-accent-title);
-  font-size: 22px;
+  font-size: var(--text-5xl);
   font-weight: 400;
   line-height: var(--leading-tight);
   letter-spacing: -0.01em;
@@ -2174,7 +2174,7 @@
   }
 
   .s-profile-identity-name {
-    font-size: 32px;
+    font-size: var(--text-7xl);
   }
 
   .s-profile-facet--identity {
@@ -3971,7 +3971,7 @@
 
 .s-pf-chevron {
   flex: none;
-  font-size: 9px;
+  font-size: var(--text-2xs);
   line-height: 1;
   color: var(--dim);
   transform: rotate(0deg);

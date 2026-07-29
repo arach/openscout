@@ -126,16 +126,16 @@ export default function SessionHarnessStateStudy() {
   return (
     <main className="mx-auto max-w-[1180px] px-7 py-8 text-studio-ink">
       <header className="relative overflow-hidden rounded-[28px] border border-studio-edge bg-[radial-gradient(circle_at_18%_0%,rgba(90,169,255,0.20),transparent_34%),linear-gradient(135deg,rgba(255,255,255,0.07),rgba(255,255,255,0.015))] px-8 py-7 shadow-[0_24px_80px_rgba(0,0,0,0.32)]">
-        <div className="absolute right-8 top-7 rounded-full border border-studio-edge bg-studio-bg/50 px-3 py-1 font-mono text-[9px] uppercase tracking-[0.22em] text-studio-ink-faint">
+        <div className="absolute right-8 top-7 rounded-full border border-studio-edge bg-studio-bg/50 px-3 py-1 font-mono text-2xs uppercase tracking-[0.22em] text-studio-ink-faint">
           docs/eng/sco-079
         </div>
-        <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · cross · session lifecycle
         </div>
-        <h1 className="mt-3 max-w-3xl font-display text-[38px] font-medium leading-[0.96] tracking-tight text-studio-ink">
+        <h1 className="mt-3 max-w-3xl font-display text-6xl font-medium leading-[0.96] tracking-tight text-studio-ink">
           Agent session state is context plus attachment.
         </h1>
-        <p className="mt-4 max-w-2xl font-sans text-[14px] leading-relaxed text-studio-ink-muted">
+        <p className="mt-4 max-w-2xl font-sans text-xl leading-relaxed text-studio-ink-muted">
           Agents are durable identities. The live thing is the harness attachment to a session context. This view separates session lifecycle from invocation delivery so “offline” and “queued” stop pretending to be session states.
         </p>
         <div className="mt-6 grid gap-3 md:grid-cols-3">
@@ -161,8 +161,8 @@ export default function SessionHarnessStateStudy() {
         <aside className="rounded-[24px] border border-studio-edge bg-studio-panel/60 p-5">
           <SectionHeader eyebrow="Corrective lens" title="Detached is the key state" />
           <div className="mt-5 rounded-2xl border border-amber-400/25 bg-amber-300/[0.06] p-4">
-            <div className="font-display text-[24px] leading-none tracking-tight text-amber-100">Detached</div>
-            <p className="mt-3 text-[13px] leading-relaxed text-studio-ink-muted">
+            <div className="font-display text-5xl leading-none tracking-tight text-amber-100">Detached</div>
+            <p className="mt-3 text-lg leading-relaxed text-studio-ink-muted">
               The session context exists, but it is not currently attached to a running harness. This is not an agent status and not a message delivery state.
             </p>
           </div>
@@ -185,10 +185,10 @@ export default function SessionHarnessStateStudy() {
       <section className="mt-8 grid gap-5 lg:grid-cols-[0.8fr_1.2fr]">
         <div className="rounded-[24px] border border-studio-edge bg-studio-panel/60 p-5">
           <SectionHeader eyebrow="Boundary" title="Invocation is a consumer" />
-          <p className="mt-4 text-[13px] leading-relaxed text-studio-ink-muted">
+          <p className="mt-4 text-lg leading-relaxed text-studio-ink-muted">
             Invocation state can say it is awaiting session attachment. It should not turn that into a session being queued or an agent being offline.
           </p>
-          <div className="mt-5 rounded-2xl border border-studio-edge bg-black/20 p-4 font-mono text-[11px] leading-relaxed text-studio-ink-muted">
+          <div className="mt-5 rounded-2xl border border-studio-edge bg-black/20 p-4 font-mono text-sm leading-relaxed text-studio-ink-muted">
             invocation.awaiting_session_attachment
             <br />→ because session.state is detached / attaching / needs_input
           </div>
@@ -211,8 +211,8 @@ export default function SessionHarnessStateStudy() {
 function SectionHeader({ eyebrow, title }: { eyebrow: string; title: string }) {
   return (
     <header>
-      <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">{eyebrow}</div>
-      <h2 className="mt-1 font-display text-[24px] font-medium leading-none tracking-tight text-studio-ink">{title}</h2>
+      <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">{eyebrow}</div>
+      <h2 className="mt-1 font-display text-5xl font-medium leading-none tracking-tight text-studio-ink">{title}</h2>
     </header>
   );
 }
@@ -220,8 +220,8 @@ function SectionHeader({ eyebrow, title }: { eyebrow: string; title: string }) {
 function Principle({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
   return (
     <div className={`rounded-2xl border px-4 py-3 ${accent ? "border-sky-300/35 bg-sky-300/[0.08]" : "border-studio-edge bg-black/15"}`}>
-      <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-studio-ink-faint">{label}</div>
-      <div className="mt-1 font-sans text-[14px] font-medium text-studio-ink">{value}</div>
+      <div className="font-mono text-2xs uppercase tracking-[0.18em] text-studio-ink-faint">{label}</div>
+      <div className="mt-1 font-sans text-xl font-medium text-studio-ink">{value}</div>
     </div>
   );
 }
@@ -244,7 +244,7 @@ function StateRail({ ids }: { ids: StateId[] }) {
 function StateCluster({ title, ids }: { title: string; ids: StateId[] }) {
   return (
     <div className="rounded-2xl border border-studio-edge bg-black/15 p-4">
-      <div className="mb-3 font-mono text-[9px] uppercase tracking-[0.18em] text-studio-ink-faint">{title}</div>
+      <div className="mb-3 font-mono text-2xs uppercase tracking-[0.18em] text-studio-ink-faint">{title}</div>
       <div className="grid gap-2">
         {ids.map((id) => <StateNode key={id} id={id} />)}
       </div>
@@ -258,10 +258,10 @@ function StateNode({ id, large = false }: { id: StateId; large?: boolean }) {
     <div className={`rounded-xl border p-3 ${toneClass(current.tone)} ${large ? "min-w-[118px]" : ""}`}>
       <div className="flex items-center gap-2">
         <span className={`h-2 w-2 rounded-full ${dotClass(current.tone)}`} />
-        <strong className="font-sans text-[12px] font-semibold text-studio-ink">{current.title}</strong>
+        <strong className="font-sans text-md font-semibold text-studio-ink">{current.title}</strong>
       </div>
       {!large ? (
-        <p className="mt-2 text-[11.5px] leading-snug text-studio-ink-muted">{current.summary}</p>
+        <p className="mt-2 text-sm leading-snug text-studio-ink-muted">{current.summary}</p>
       ) : null}
     </div>
   );
@@ -272,7 +272,7 @@ function Flow({ ids }: { ids: StateId[] }) {
     <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-studio-edge bg-black/15 p-3">
       {ids.map((id, index) => (
         <span key={`${id}-${index}`} className="flex items-center gap-2">
-          <span className="rounded-full border border-studio-edge bg-studio-bg/70 px-2.5 py-1 font-mono text-[10px] text-studio-ink-muted">{id}</span>
+          <span className="rounded-full border border-studio-edge bg-studio-bg/70 px-2.5 py-1 font-mono text-xs text-studio-ink-muted">{id}</span>
           {index < ids.length - 1 ? <span className="text-studio-ink-faint">→</span> : null}
         </span>
       ))}
@@ -283,10 +283,10 @@ function Flow({ ids }: { ids: StateId[] }) {
 function CopyColumn({ title, items, bad = false }: { title: string; items: string[]; bad?: boolean }) {
   return (
     <div className="rounded-2xl border border-studio-edge bg-black/15 p-3">
-      <div className={`font-mono text-[9px] uppercase tracking-[0.18em] ${bad ? "text-rose-200/75" : "text-emerald-200/75"}`}>{title}</div>
+      <div className={`font-mono text-2xs uppercase tracking-[0.18em] ${bad ? "text-rose-200/75" : "text-emerald-200/75"}`}>{title}</div>
       <ul className="mt-2 grid gap-1.5">
         {items.map((item) => (
-          <li key={item} className="flex gap-2 text-[12px] text-studio-ink-muted">
+          <li key={item} className="flex gap-2 text-md text-studio-ink-muted">
             <span className={bad ? "text-rose-300" : "text-emerald-300"}>{bad ? "×" : "✓"}</span>
             <span>{item}</span>
           </li>
@@ -299,9 +299,9 @@ function CopyColumn({ title, items, bad = false }: { title: string; items: strin
 function Projection({ legacy, next }: { legacy: string; next: string }) {
   return (
     <div className="grid gap-2 rounded-2xl border border-studio-edge bg-black/15 p-3 md:grid-cols-[0.9fr_auto_1.2fr] md:items-center">
-      <code className="font-mono text-[11px] text-rose-100/80">{legacy}</code>
+      <code className="font-mono text-sm text-rose-100/80">{legacy}</code>
       <span className="hidden text-studio-ink-faint md:block">→</span>
-      <code className="font-mono text-[11px] text-emerald-100/85">{next}</code>
+      <code className="font-mono text-sm text-emerald-100/85">{next}</code>
     </div>
   );
 }

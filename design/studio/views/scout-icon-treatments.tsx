@@ -128,14 +128,14 @@ function MenuBarSample({ tone }: { tone: "blue" | "dark" | "light" }) {
 
   return (
     <div className={`overflow-hidden rounded-[6px] border border-studio-edge shadow-sm ${style}`}>
-      <div className="flex h-[30px] items-center gap-4 px-4 font-sans text-[13px]">
+      <div className="flex h-[30px] items-center gap-4 px-4 font-sans text-lg">
         {MENU_TREATMENTS.map((item) => (
           <div key={`${tone}-${item.id}`} className="flex items-center gap-1.5">
             <MenuGlyph treatment={item.id} />
             <span className="font-medium">{item.label}</span>
           </div>
         ))}
-        <div className="ml-auto font-mono text-[11px] opacity-70">Thu Jun 18 10:24 PM</div>
+        <div className="ml-auto font-mono text-sm opacity-70">Thu Jun 18 10:24 PM</div>
       </div>
     </div>
   );
@@ -145,20 +145,20 @@ export default function ScoutIconTreatmentsPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-8 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           studies / cross / identity
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Scout icon treatments
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           Small status marks and app icons are separated here because the menu bar needs a protected
           silhouette, while app/web/iOS can carry the fuller cube, rounded plate, and subtle lighting.
         </p>
       </header>
 
       <section className="grid gap-3">
-        <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           menu bar simulations
         </div>
         <MenuBarSample tone="blue" />
@@ -174,19 +174,19 @@ export default function ScoutIconTreatmentsPage() {
                 <MenuGlyph treatment={item.id} size={24} />
               </div>
               <div>
-                <h2 className="font-sans text-[13px] font-semibold text-studio-ink">{item.label}</h2>
-                <div className="mt-1 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+                <h2 className="font-sans text-lg font-semibold text-studio-ink">{item.label}</h2>
+                <div className="mt-1 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
                   20 pt source / 24 px preview
                 </div>
               </div>
             </div>
-            <p className="font-sans text-[12px] leading-relaxed text-studio-ink-faint">{item.note}</p>
+            <p className="font-sans text-md leading-relaxed text-studio-ink-faint">{item.note}</p>
           </article>
         ))}
       </section>
 
       <section className="mt-12">
-        <div className="mb-4 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mb-4 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           app icon optical sizes
         </div>
         <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
@@ -197,17 +197,17 @@ export default function ScoutIconTreatmentsPage() {
               <AppIconPreview size={48} compact />
               <AppIconPreview size={24} compact />
             </div>
-            <div className="mt-5 font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+            <div className="mt-5 font-sans text-md leading-relaxed text-studio-ink-faint">
               Production direction: heavier outer stroke, dimmer rear construction lines, warm off-white
               ink, neutral off-black field, rounded platform plate, and low grain so it feels lit without
               turning blue.
             </div>
           </article>
           <article className="rounded-[8px] border border-studio-edge bg-studio-canvas-alt p-5">
-            <div className="mb-4 font-sans text-[13px] font-semibold text-studio-ink">
+            <div className="mb-4 font-sans text-lg font-semibold text-studio-ink">
               Size rules
             </div>
-            <div className="grid gap-3 font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+            <div className="grid gap-3 font-sans text-md leading-relaxed text-studio-ink-faint">
               <p>App/Web/iOS: full cube, thick outer boundary, softer rear lines, subtle field glow.</p>
               <p>Favicon and tiny app slots: same cube, but inner construction lines removed.</p>
               <p>Menu bar: protected plate plus outer and inner hex only. No crossing depth lines.</p>

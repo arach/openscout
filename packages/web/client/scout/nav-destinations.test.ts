@@ -17,11 +17,7 @@ import {
   type NavDestinationId,
 } from "./nav-destinations.ts";
 import { CORE_SYSTEM_MENU_ENTRIES, SYSTEM_OPS_ENTRIES } from "./nav-system-menu-config.ts";
-import {
-  AGENTS_SECONDARY_NAV,
-  CHAT_SECONDARY_NAV,
-  OPS_SECONDARY_NAV,
-} from "./secondaryNavConfig.ts";
+import { AGENTS_SECONDARY_NAV, OPS_SECONDARY_NAV } from "./secondaryNavConfig.ts";
 import { GO_SHORTCUTS } from "../lib/go-shortcuts.ts";
 import { TOP_NAV_ITEMS } from "./topNavConfig.ts";
 
@@ -95,14 +91,6 @@ describe("nav destination catalog", () => {
     expect(AGENTS_SECONDARY_NAV[0]?.items[0]?.route).toEqual({
       view: "settings",
       section: "agents",
-    });
-    expect(CHAT_SECONDARY_NAV[0]?.items.map((i) => i.id)).toEqual([
-      "messages",
-      "channels",
-    ]);
-    expect(CHAT_SECONDARY_NAV[0]?.items[0]).toMatchObject({
-      label: "Direct Messages",
-      route: { view: "messages", filter: "dm" },
     });
   });
 
@@ -217,15 +205,19 @@ describe("nav destination catalog", () => {
     expect(areaSubNavForRoute({ view: "inbox" })).toBeNull();
   });
 
-  test("expanded sidebar projects Messages into Direct Messages and Channels", () => {
-    const messages = sidebarSubNavForRoute({ view: "messages", filter: "dm" });
-    expect(messages?.areaId).toBe("chat");
-    expect(messages?.items.map((item) => [item.label, item.route])).toEqual([
-      ["Direct Messages", { view: "messages", filter: "dm" }],
-      ["Channels", { view: "channels" }],
-    ]);
-    expect(messages?.items[0]?.active({ view: "conversation", conversationId: "c-1" })).toBe(true);
-    expect(messages?.items[1]?.active({ view: "channels" })).toBe(true);
+  test("expanded sidebar projects no sub-nav for the unified Chat area", () => {
+    // One conversation route means one Chat surface: nothing to sub-navigate.
+    expect(sidebarSubNavForRoute({ view: "messages" })).toBeNull();
+    expect(sidebarSubNavForRoute({ view: "messages", conversationId: "chan-1" })).toBeNull();
+    expect(sidebarSubNavForRoute({ view: "conversation", conversationId: "c-1" })).toBeNull();
+  });
+
+  test("chat destination lights for DM and channel conversations alike", () => {
+    const chat = getDestination("chat");
+    expect(chat.active({ view: "messages" })).toBe(true);
+    // A channel deep link is just a conversation id on the unified route.
+    expect(chat.active({ view: "messages", conversationId: "chan-1" })).toBe(true);
+    expect(chat.active({ view: "conversation", conversationId: "c-1" })).toBe(true);
   });
 
   test("expanded sidebar projects routable Dispatch ledger filters", () => {

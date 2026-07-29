@@ -160,7 +160,7 @@ export default function ScoutCommsChannelsStudy() {
       blurb={
         <>
           The group-conversation surface in the{" "}
-          <code className="font-mono text-[11px] text-studio-ink">sprite</code> identity
+          <code className="font-mono text-sm text-studio-ink">sprite</code> identity
           language — kept as quiet as scout-comms. One sprite leads each channel row
           (the most recent speaker); unread is just a bolder name. In the thread the
           operator's sprite wears a thin accent ring and nothing else marks "you". The

@@ -193,37 +193,7 @@ export function AgentsInspector() {
     );
   }
 
-  if (route.view !== "agents") return null;
-
-  const agent = route.agentId
-    ? agents.find((a) => a.id === route.agentId) ?? null
-    : null;
-
-  if (!agent) {
-    return (
-      <AgentsDirectoryContextPanel
-        agents={agents}
-        navigate={navigate}
-        route={route}
-      />
-    );
-  }
-
-  // Directory-selection (master-detail): the center is still the directory, not
-  // this agent's profile, so the inspector owns identity — it renders the agent
-  // CARD (header + sessions). A tab means the center profile owns identity, so
-  // the rail narrows to the live instrument (no identity replay).
-  const directorySelection = Boolean(route.projectSlug && !route.tab);
-  return (
-    <AgentContextPanel
-      agent={agent}
-      agents={agents}
-      navigate={navigate}
-      route={route}
-      observeMode={route.tab === "observe"}
-      showStaticIdentity={directorySelection}
-    />
-  );
+  return null;
 }
 
 function AgentsDirectoryContextPanel({
@@ -264,7 +234,7 @@ function AgentsDirectoryContextPanel({
   const projectCount = new Set(agents.map(agentProjectLabel)).size;
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
+    <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-sm">
       <Section label="Directory context">
         <StatRow
           stats={[
@@ -273,7 +243,7 @@ function AgentsDirectoryContextPanel({
             { label: "Working", value: `${working.length}` },
           ]}
         />
-        <div className="mt-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
+        <div className="mt-2 font-mono text-2xs uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
           {readyCount} ready · {projectCount} {projectCount === 1 ? "project" : "projects"}
         </div>
       </Section>
@@ -301,16 +271,16 @@ function AgentsDirectoryContextPanel({
                 <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: "var(--accent)" }} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline gap-2">
-                    <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--scout-chrome-ink)]">
+                    <span className="min-w-0 flex-1 truncate text-sm text-[var(--scout-chrome-ink)]">
                       {candidate.name}
                     </span>
                     {candidate.updatedAt && (
-                      <span className="shrink-0 font-mono text-[9px] text-[var(--scout-chrome-ink-faint)]">
+                      <span className="shrink-0 font-mono text-2xs text-[var(--scout-chrome-ink-faint)]">
                         {timeAgo(candidate.updatedAt)}
                       </span>
                     )}
                   </div>
-                  <div className="truncate font-mono text-[9px] text-[var(--scout-chrome-ink-ghost)]">
+                  <div className="truncate font-mono text-2xs text-[var(--scout-chrome-ink-ghost)]">
                     {agentProjectLabel(candidate)} · {agentHarnessLabel(candidate)}
                   </div>
                 </div>
@@ -336,10 +306,10 @@ function AgentsDirectoryContextPanel({
                   className="h-1.5 w-1.5 shrink-0 rounded-full"
                   style={{ background: isAgentOnline(candidate.state) ? "var(--accent)" : "var(--dim)" }}
                 />
-                <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--scout-chrome-ink-soft)]">
+                <span className="min-w-0 flex-1 truncate text-sm text-[var(--scout-chrome-ink-soft)]">
                   {candidate.name}
                 </span>
-                <span className="shrink-0 font-mono text-[9px] text-[var(--scout-chrome-ink-faint)]">
+                <span className="shrink-0 font-mono text-2xs text-[var(--scout-chrome-ink-faint)]">
                   {candidate.updatedAt ? timeAgo(candidate.updatedAt) : "-"}
                 </span>
               </button>
@@ -365,10 +335,10 @@ function StatRow({ stats }: { stats: Array<{ label: string; value: string }> }) 
           className="flex min-w-0 flex-1 flex-col gap-1"
           style={i ? { paddingLeft: 11, marginLeft: 11, borderLeft: "1px solid var(--scout-chrome-border-soft)" } : undefined}
         >
-          <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--scout-chrome-ink-faint)]">
+          <span className="font-mono text-2xs uppercase tracking-[0.1em] text-[var(--scout-chrome-ink-faint)]">
             {stat.label}
           </span>
-          <span className="truncate font-mono text-[18px] leading-none text-[var(--scout-chrome-ink-strong)]">
+          <span className="truncate font-mono text-3xl leading-none text-[var(--scout-chrome-ink-strong)]">
             {stat.value}
           </span>
         </div>
@@ -379,7 +349,7 @@ function StatRow({ stats }: { stats: Array<{ label: string; value: string }> }) 
 
 function EmptyLine({ children }: { children: React.ReactNode }) {
   return (
-    <div className="font-mono text-[10px] tracking-[0.02em] text-[var(--scout-chrome-ink-ghost)]">
+    <div className="font-mono text-xs tracking-[0.02em] text-[var(--scout-chrome-ink-ghost)]">
       {children}
     </div>
   );
@@ -400,7 +370,7 @@ function PillList({
       {items.map((item) => (
         <span
           key={item.label}
-          className="inline-flex items-center gap-1.5 rounded-[3px] border border-[var(--scout-chrome-border-soft)] px-1.5 py-[2.5px] font-mono text-[10px] text-[var(--scout-chrome-ink-soft)]"
+          className="inline-flex items-center gap-1.5 rounded-[3px] border border-[var(--scout-chrome-border-soft)] px-1.5 py-[2.5px] font-mono text-xs text-[var(--scout-chrome-ink-soft)]"
           title={`${item.count} ${item.label}`}
         >
           <span>{item.label}</span>
@@ -475,7 +445,7 @@ function AgentInfoRouteInspector({
 
   if (!loaded) {
     return (
-      <div className="flex h-full items-center justify-center p-4 text-center text-[11px] italic text-[var(--scout-chrome-ink-faint)]">
+      <div className="flex h-full items-center justify-center p-4 text-center text-sm italic text-[var(--scout-chrome-ink-faint)]">
         Loading agent context...
       </div>
     );
@@ -483,9 +453,9 @@ function AgentInfoRouteInspector({
 
   if (!agent) {
     return (
-      <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
+      <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-sm">
         <Row label="Conversation" value={conversationId} />
-        <div className="mt-2 text-[10px] font-mono uppercase tracking-[0.15em] leading-relaxed text-[var(--scout-chrome-ink-ghost)]">
+        <div className="mt-2 text-xs font-mono uppercase tracking-[0.15em] leading-relaxed text-[var(--scout-chrome-ink-ghost)]">
           No live agent registration matches this profile.
         </div>
       </div>
@@ -639,18 +609,18 @@ function AgentContextPanel({
   // skips identity replay and high-level agent facts (mesh / capabilities).
   if (!showStaticIdentity) {
     return (
-      <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
+      <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-sm">
         {selectedSession && (
           <Section label="Session">
             <div className="flex items-baseline justify-between gap-2">
               <span
-                className="truncate font-mono text-[12px] text-[var(--scout-chrome-ink)]"
+                className="truncate font-mono text-md text-[var(--scout-chrome-ink)]"
                 title={displaySessionId ?? selectedSession.id}
               >
                 {shortSessionId(displaySessionId ?? selectedSession.id)}
               </span>
               <span
-                className="shrink-0 font-mono text-[9px] uppercase tracking-[0.12em]"
+                className="shrink-0 font-mono text-2xs uppercase tracking-[0.12em]"
                 style={{ color: sessionActive ? "var(--accent)" : "var(--scout-chrome-ink-faint)" }}
               >
                 {sessionActive
@@ -662,7 +632,7 @@ function AgentContextPanel({
             </div>
             {selectedSession.cwd && (
               <div
-                className="mt-1 truncate font-mono text-[9px] text-[var(--scout-chrome-ink-ghost)]"
+                className="mt-1 truncate font-mono text-2xs text-[var(--scout-chrome-ink-ghost)]"
                 title={selectedSession.cwd}
               >
                 {selectedSession.cwd}
@@ -670,7 +640,7 @@ function AgentContextPanel({
             )}
             {displaySessionId && (
               <div
-                className="mt-1 break-all font-mono text-[9px] leading-snug text-[var(--scout-chrome-ink-faint)]"
+                className="mt-1 break-all font-mono text-2xs leading-snug text-[var(--scout-chrome-ink-faint)]"
                 title={displaySessionId}
               >
                 <span className="uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
@@ -681,7 +651,7 @@ function AgentContextPanel({
             )}
             {profileSessionId && (
               <div
-                className="mt-0.5 truncate font-mono text-[9px] text-[var(--scout-chrome-ink-ghost)]"
+                className="mt-0.5 truncate font-mono text-2xs text-[var(--scout-chrome-ink-ghost)]"
                 title={profileSessionId}
               >
                 profile {profileSessionId}
@@ -747,16 +717,16 @@ function AgentContextPanel({
   // Agent-info / multi-agent pick context — an identity header earns its place
   // here because the center isn't already focused on this agent.
   return (
-    <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
+    <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-sm">
       {/* Identity */}
       <div className="flex items-center gap-3 border-b border-[var(--scout-chrome-border-soft)] pb-3">
         <AgentAvatar agent={agent} placement="inspector" />
         <div className="flex flex-col min-w-0 flex-1">
-          <span className="truncate text-[13px] text-[var(--scout-chrome-ink-strong)]">
+          <span className="truncate text-lg text-[var(--scout-chrome-ink-strong)]">
             {agent.name}
           </span>
           {agent.handle && (
-            <span className="text-[10px] font-mono text-[var(--scout-chrome-ink-faint)]">
+            <span className="text-xs font-mono text-[var(--scout-chrome-ink-faint)]">
               @{agent.handle}
             </span>
           )}
@@ -785,12 +755,12 @@ function AgentContextPanel({
               opacity: online ? 1 : 0.4,
             }}
           />
-          <span className="text-[12px] capitalize text-[var(--scout-chrome-ink)]">
+          <span className="text-md capitalize text-[var(--scout-chrome-ink)]">
             {agentStateLabel(agent.state)}
           </span>
         </div>
         {agent.updatedAt && (
-          <div className="mt-1 text-[10px] font-mono text-[var(--scout-chrome-ink-faint)]">
+          <div className="mt-1 text-xs font-mono text-[var(--scout-chrome-ink-faint)]">
             Updated {timeAgo(agent.updatedAt)}
           </div>
         )}
@@ -837,7 +807,7 @@ function AgentContextPanel({
             {skills.map((skill) => (
               <span
                 key={skill}
-                className="rounded-sm bg-[var(--scout-chrome-hover)] px-1.5 py-0.5 text-[10px] font-mono text-[var(--scout-chrome-ink-soft)]"
+                className="rounded-sm bg-[var(--scout-chrome-hover)] px-1.5 py-0.5 text-xs font-mono text-[var(--scout-chrome-ink-soft)]"
               >
                 {skill}
               </span>
@@ -862,7 +832,7 @@ function AgentContextPanel({
             {agent.capabilities.map((cap) => (
               <span
                 key={cap}
-                className="rounded-sm bg-[var(--scout-chrome-hover)] px-1.5 py-0.5 text-[10px] font-mono text-[var(--scout-chrome-ink-soft)]"
+                className="rounded-sm bg-[var(--scout-chrome-hover)] px-1.5 py-0.5 text-xs font-mono text-[var(--scout-chrome-ink-soft)]"
               >
                 {cap}
               </span>
@@ -902,10 +872,10 @@ function RuntimeGrid({ agent }: { agent: Agent }) {
     <div className="grid grid-cols-2 gap-x-3 gap-y-2">
       {cells.map((cell) => (
         <div key={cell.label} className="min-w-0">
-          <div className="font-mono text-[8px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
+          <div className="font-mono text-3xs uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
             {cell.label}
           </div>
-          <div className="truncate font-mono text-[11px] text-[var(--scout-chrome-ink)]">
+          <div className="truncate font-mono text-sm text-[var(--scout-chrome-ink)]">
             {cell.value}
           </div>
         </div>
@@ -919,7 +889,7 @@ function RuntimeGrid({ agent }: { agent: Agent }) {
 function SessionEngageRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-2.5">
-      <span className="w-[56px] shrink-0 font-mono text-[8px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
+      <span className="w-[56px] shrink-0 font-mono text-3xs uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
         {label}
       </span>
       <div className="flex gap-1.5">{children}</div>
@@ -944,7 +914,7 @@ function RailActBtn({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className="rounded-[4px] border border-[var(--scout-chrome-border-soft)] px-2.5 py-1 font-mono text-[8.5px] uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-soft)] transition-colors hover:bg-[var(--scout-chrome-active)] hover:text-[var(--scout-chrome-ink)] disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-[var(--scout-chrome-ink-soft)]"
+      className="rounded-[4px] border border-[var(--scout-chrome-border-soft)] px-2.5 py-1 font-mono text-3xs uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-soft)] transition-colors hover:bg-[var(--scout-chrome-active)] hover:text-[var(--scout-chrome-ink)] disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-[var(--scout-chrome-ink-soft)]"
     >
       {children}
     </button>
@@ -1073,22 +1043,22 @@ function RunningSessions({
                     {active && (
                       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent)]" />
                     )}
-                    <span className="truncate font-mono text-[10.5px] text-[var(--scout-chrome-ink)]">
+                    <span className="truncate font-mono text-xs text-[var(--scout-chrome-ink)]">
                       {shortSessionId(session.id)}
                     </span>
-                    <span className="shrink-0 rounded-sm bg-[var(--scout-chrome-hover)] px-1 py-0.5 font-mono text-[8px] uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-faint)]">
+                    <span className="shrink-0 rounded-sm bg-[var(--scout-chrome-hover)] px-1 py-0.5 font-mono text-3xs uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-faint)]">
                       {harnessLabel}
                     </span>
                   </span>
-                  <span className="mt-0.5 truncate font-mono text-[9px] text-[var(--scout-chrome-ink-faint)]">
+                  <span className="mt-0.5 truncate font-mono text-2xs text-[var(--scout-chrome-ink-faint)]">
                     {session.cwd ? pathLeaf(session.cwd) : "workspace"}
                   </span>
                 </span>
                 <span className="flex shrink-0 flex-col items-end">
-                  <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--accent)]">
+                  <span className="font-mono text-2xs uppercase tracking-[0.12em] text-[var(--accent)]">
                     {active ? "active" : "running"}
                   </span>
-                  <span className="mt-0.5 max-w-[78px] truncate font-mono text-[9px] text-[var(--scout-chrome-ink-ghost)]">
+                  <span className="mt-0.5 max-w-[78px] truncate font-mono text-2xs text-[var(--scout-chrome-ink-ghost)]">
                     {lowerMeta}
                   </span>
                 </span>
@@ -1097,7 +1067,7 @@ function RunningSessions({
                 type="button"
                 title="Session actions"
                 onClick={(event) => showContextMenu(event, menuItems)}
-                className="mt-1.5 h-5 rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] px-1.5 font-mono text-[8.5px] uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-active)] hover:text-[var(--scout-chrome-ink)]"
+                className="mt-1.5 h-5 rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] px-1.5 font-mono text-3xs uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-active)] hover:text-[var(--scout-chrome-ink)]"
               >
                 ...
               </button>
@@ -1105,7 +1075,7 @@ function RunningSessions({
           );
         })}
         {running.length > visible.length && (
-          <div className="px-1 pt-0.5 font-mono text-[9px] text-[var(--scout-chrome-ink-ghost)]">
+          <div className="px-1 pt-0.5 font-mono text-2xs text-[var(--scout-chrome-ink-ghost)]">
             {running.length - visible.length} more running
           </div>
         )}
@@ -1168,7 +1138,7 @@ function ObserveContext({ agentId }: { agentId: string }) {
   if (!observe?.data) {
     return (
       <Section label="Trace">
-        <div className="text-[10px] leading-relaxed text-[var(--scout-chrome-ink-faint)]">
+        <div className="text-xs leading-relaxed text-[var(--scout-chrome-ink-faint)]">
           Resolving session trace.
         </div>
       </Section>
@@ -1256,10 +1226,10 @@ function ObserveStats({
                 })}
                 className="flex items-center justify-between gap-2 rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] px-2 py-1 text-left hover:border-[var(--accent)]"
               >
-                <span className="min-w-0 truncate font-mono text-[10px] text-[var(--scout-chrome-ink-soft)]">
+                <span className="min-w-0 truncate font-mono text-xs text-[var(--scout-chrome-ink-soft)]">
                   {file.path}
                 </span>
-                <span className="shrink-0 font-mono text-[9px] text-[var(--scout-chrome-ink-faint)]">
+                <span className="shrink-0 font-mono text-2xs text-[var(--scout-chrome-ink-faint)]">
                   x{file.touches}
                 </span>
               </button>
@@ -1343,7 +1313,7 @@ function SessionActivity({
 
   return (
     <Section label="Files changed">
-      <div className="mb-1.5 flex items-baseline justify-between font-mono text-[8.5px] uppercase tracking-[0.14em] text-[var(--scout-chrome-ink-faint)]">
+      <div className="mb-1.5 flex items-baseline justify-between font-mono text-3xs uppercase tracking-[0.14em] text-[var(--scout-chrome-ink-faint)]">
         <span>{changedCount > 0 ? `${changedCount} changed` : "touched"}</span>
         <span className="tabular-nums">{files.length}</span>
       </div>
@@ -1362,7 +1332,7 @@ function SessionActivity({
           return (
             <div
               key={file.path}
-              className="flex items-baseline justify-between gap-2 font-mono text-[10px] leading-tight"
+              className="flex items-baseline justify-between gap-2 font-mono text-xs leading-tight"
               title={`${file.path} · ${file.state}`}
             >
               <span className="flex min-w-0 items-baseline gap-1.5">
@@ -1382,7 +1352,7 @@ function SessionActivity({
                   </span>
                 </span>
               </span>
-              <span className="shrink-0 tabular-nums text-[9px] text-[var(--scout-chrome-ink-faint)]">
+              <span className="shrink-0 tabular-nums text-2xs text-[var(--scout-chrome-ink-faint)]">
                 ×{file.touches}
               </span>
             </div>
@@ -1392,14 +1362,14 @@ function SessionActivity({
           <button
             type="button"
             onClick={openSessionDiff}
-            className="w-fit cursor-pointer font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--accent)] hover:underline"
+            className="w-fit cursor-pointer font-mono text-2xs uppercase tracking-[0.1em] text-[var(--accent)] hover:underline"
           >
             Session diff{rest > 0 ? ` · +${rest}` : ""} →
           </button>
           <button
             type="button"
             onClick={openWorktreeDiff}
-            className="w-fit cursor-pointer font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--scout-chrome-ink-faint)] hover:text-[var(--accent)] hover:underline"
+            className="w-fit cursor-pointer font-mono text-2xs uppercase tracking-[0.1em] text-[var(--scout-chrome-ink-faint)] hover:text-[var(--accent)] hover:underline"
           >
             Worktree diff →
           </button>
@@ -1426,14 +1396,14 @@ function PathRow({
 }) {
   return (
     <div className="flex items-baseline justify-between py-0.5 gap-2">
-      <span className="shrink-0 text-[10px] font-mono uppercase tracking-wider text-[var(--scout-chrome-ink-faint)]">
+      <span className="shrink-0 text-xs font-mono uppercase tracking-wider text-[var(--scout-chrome-ink-faint)]">
         {label}
       </span>
       <button
         type="button"
         title={`Reveal ${path}`}
         onClick={() => revealPath({ path, basePath, agentId, sessionId })}
-        className="min-w-0 truncate bg-transparent p-0 text-right font-mono text-[11px] text-[var(--accent)] hover:text-[var(--scout-chrome-ink)] hover:underline"
+        className="min-w-0 truncate bg-transparent p-0 text-right font-mono text-sm text-[var(--accent)] hover:text-[var(--scout-chrome-ink)] hover:underline"
       >
         {value}
       </button>
@@ -1444,10 +1414,10 @@ function PathRow({
 function TraceMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] px-2 py-1.5">
-      <div className="font-mono text-[8.5px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
+      <div className="font-mono text-3xs uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
         {label}
       </div>
-      <div className="mt-0.5 font-mono text-[12px] text-[var(--scout-chrome-ink)]">
+      <div className="mt-0.5 font-mono text-md text-[var(--scout-chrome-ink)]">
         {value}
       </div>
     </div>
@@ -1640,7 +1610,7 @@ function InspectorMesh({
                     className="shrink-0 w-2 h-2 rounded-full"
                     style={{ background: actorColor(peer.name) }}
                   />
-                  <span className="flex-1 truncate text-[11px] font-mono text-[var(--scout-chrome-ink)]">
+                  <span className="flex-1 truncate text-sm font-mono text-[var(--scout-chrome-ink)]">
                     {peer.name}
                   </span>
                   <span
@@ -1692,13 +1662,13 @@ function InspectorAsks({
               }
             }}
           >
-            <div className="text-[9px] font-mono uppercase tracking-[0.12em] text-amber-500/80 mb-1">
+            <div className="text-2xs font-mono uppercase tracking-[0.12em] text-amber-500/80 mb-1">
               awaiting
             </div>
-            <div className="line-clamp-2 text-[11px] leading-relaxed text-[var(--scout-chrome-ink)]">
+            <div className="line-clamp-2 text-sm leading-relaxed text-[var(--scout-chrome-ink)]">
               {ask.summary ?? ask.task}
             </div>
-            <div className="mt-1.5 text-[9px] font-mono text-[var(--scout-chrome-ink-ghost)]">
+            <div className="mt-1.5 text-2xs font-mono text-[var(--scout-chrome-ink-ghost)]">
               {ask.harness ?? "operator"} &rarr; {ask.agentName ?? "agent"}
             </div>
           </div>
@@ -1717,7 +1687,7 @@ function Section({
 }) {
   return (
     <div className="flex flex-col">
-      <div className="mb-1.5 text-[9px] font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
+      <div className="mb-1.5 text-2xs font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
         {label}
       </div>
       {children}
@@ -1728,11 +1698,11 @@ function Section({
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline justify-between py-0.5 gap-2">
-      <span className="shrink-0 text-[10px] font-mono uppercase tracking-wider text-[var(--scout-chrome-ink-faint)]">
+      <span className="shrink-0 text-xs font-mono uppercase tracking-wider text-[var(--scout-chrome-ink-faint)]">
         {label}
       </span>
       <span
-        className="truncate text-[11px] font-mono text-[var(--scout-chrome-ink)]"
+        className="truncate text-sm font-mono text-[var(--scout-chrome-ink)]"
         title={value}
       >
         {value}

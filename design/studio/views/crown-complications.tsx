@@ -83,21 +83,21 @@ const CC_CSS = `
   padding:0 24px}
 .cc-content.tvar{top:120px;bottom:118px}
 .cc-content.bvar{top:64px;bottom:64px}
-.cc-eyebrow{font-size:9px;letter-spacing:.16em;color:var(--faint);text-transform:uppercase}
+.cc-eyebrow{font-size: var(--text-2xs);letter-spacing:.16em;color:var(--faint);text-transform:uppercase}
 .cc-card{border-radius:8px;padding:14px;border:1px solid transparent;
   background:linear-gradient(180deg,var(--card-top),var(--card-bottom));
   border-image:linear-gradient(180deg,var(--card-edge),var(--border)) 1;
   box-shadow:0 3px 9px rgba(0,0,0,.33)}
-.cc-card .cc-t{font-size:11px;color:var(--ink);font-weight:500}
-.cc-card .cc-s{font-size:9px;color:var(--faint);margin-top:4px}
+.cc-card .cc-t{font-size: var(--text-sm);color:var(--ink);font-weight:500}
+.cc-card .cc-s{font-size: var(--text-2xs);color:var(--faint);margin-top:4px}
 .cc-row{display:flex;align-items:center;gap:8px;padding:10px 2px;border-bottom:1px solid #1a1a1a;
-  font-size:10px;color:var(--muted)}
+  font-size: var(--text-xs);color:var(--muted)}
 .cc-row .cc-dot{width:5px;height:5px;border-radius:50%;background:var(--accent);flex:none}
 .cc-row.dim .cc-dot{background:var(--faint)}
 
 /* Chamfered graphite readout cell (SignalPanelShape, cut=5) */
 .cc-cell{position:relative;display:inline-flex;align-items:center;gap:6px;
-  font-size:9.5px;font-weight:500;color:var(--muted);padding:4px 10px;background:var(--sig-edge);
+  font-size: var(--text-2xs);font-weight:500;color:var(--muted);padding:4px 10px;background:var(--sig-edge);
   clip-path:polygon(5px 0,calc(100% - 5px) 0,100% 5px,100% calc(100% - 5px),calc(100% - 5px) 100%,5px 100%,0 calc(100% - 5px),0 5px)}
 .cc-cell::before{content:"";position:absolute;inset:1px;
   background:linear-gradient(180deg,var(--sig-top),var(--sig-bottom));
@@ -151,7 +151,7 @@ const CC_CSS = `
   box-shadow:inset 0 1px 0 var(--card-edge),0 4px 11px rgba(0,0,0,.5)}
 .cc-comp.on .cc-chip{color:var(--accent);
   box-shadow:inset 0 1px 0 var(--card-edge),0 0 0 1px rgba(16,185,129,.42),0 4px 12px rgba(0,0,0,.5)}
-.cc-comp-label{font-size:7.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);white-space:nowrap}
+.cc-comp-label{font-size: var(--text-3xs);letter-spacing:.08em;text-transform:uppercase;color:var(--faint);white-space:nowrap}
 .cc-comp.on .cc-comp-label{color:var(--dim)}
 
 /* Host-filter row (Variant T summon — earns its place vs the strip) */
@@ -186,7 +186,7 @@ const CC_CSS = `
 .cc-corner.on .cc-cbtn{color:var(--accent);
   box-shadow:inset 0 1px 0 var(--card-edge),0 0 0 1px rgba(16,185,129,.42),0 5px 14px rgba(0,0,0,.55)}
 .cc-corner-label{position:absolute;top:calc(100% + 13px);left:50%;transform:translateX(-50%);
-  font-size:8px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);white-space:nowrap}
+  font-size: var(--text-3xs);letter-spacing:.08em;text-transform:uppercase;color:var(--faint);white-space:nowrap}
 
 /* Connecting nav bar — ONE continuous element that runs edge-to-edge UNDER the
    Home/New corner circles, so they sit fused ON it (no air). The whole bottom
@@ -211,7 +211,7 @@ const CC_CSS = `
   background:rgba(255,255,255,.025);box-shadow:inset 0 0 0 1px rgba(120,124,125,.17)}
 .cc-navitem.on .cc-navbtn{background:rgba(16,185,129,.08);box-shadow:inset 0 0 0 1px rgba(16,185,129,.5)}
 .cc-navitem-label{position:absolute;top:calc(100% + 21px);left:50%;transform:translateX(-50%);
-  font-size:7px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);white-space:nowrap}
+  font-size: var(--text-3xs);letter-spacing:.06em;text-transform:uppercase;color:var(--faint);white-space:nowrap}
 .cc-navitem.on{color:var(--accent)}
 .cc-navitem.on .cc-navitem-label{color:var(--dim)}
 
@@ -226,18 +226,18 @@ const CC_CSS = `
   opacity:0;transform:translateX(-50%) translateY(-9px);pointer-events:none;
   transition:opacity .3s ease,transform .42s cubic-bezier(.34,1.56,.64,1)}
 .cc-led.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto}
-.cc-led-label{font-size:7px;letter-spacing:.18em;color:#566058;text-transform:uppercase}
+.cc-led-label{font-size: var(--text-3xs);letter-spacing:.18em;color:#566058;text-transform:uppercase}
 .cc-led-pips{display:inline-flex;gap:3px;align-items:center}
 .cc-pip{width:5px;height:5px;border-radius:50%;background:#141d18;box-shadow:inset 0 0 2px rgba(0,0,0,.8)}
 .cc-pip.lit{background:var(--accent);box-shadow:0 0 3px rgba(16,185,129,.75),0 0 1px rgba(16,185,129,.95)}
 .cc-pip.lit.breathe{animation:cc-led-breathe 2.6s ease-in-out infinite}
-.cc-led-count{font-size:9px;font-weight:700;letter-spacing:.1em;color:#3ff0b0;text-shadow:0 0 4px rgba(16,185,129,.5)}
-.cc-led-age{font-size:8px;letter-spacing:.05em;color:var(--faint)}
+.cc-led-count{font-size: var(--text-2xs);font-weight:700;letter-spacing:.1em;color:#3ff0b0;text-shadow:0 0 4px rgba(16,185,129,.5)}
+.cc-led-age{font-size: var(--text-3xs);letter-spacing:.05em;color:var(--faint)}
 @keyframes cc-led-breathe{0%,100%{opacity:1}50%{opacity:.5}}
 
 /* Resting tap-hint (both variants) */
 .cc-hint{position:absolute;left:50%;transform:translateX(-50%);z-index:4;
-  font-size:8px;letter-spacing:.2em;text-transform:uppercase;color:var(--faint);
+  font-size: var(--text-3xs);letter-spacing:.2em;text-transform:uppercase;color:var(--faint);
   transition:opacity .3s ease;pointer-events:none}
 .cc-hint.top{top:116px}
 .cc-hint.bottom{bottom:16px}
@@ -253,11 +253,11 @@ const CC_CSS = `
   background:linear-gradient(180deg,var(--sig-top),var(--sig-bottom));border-top:1px solid var(--sig-edge)}
 .cc-tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:0;color:var(--dim);
   font-size:0;font-weight:500;padding:5px 0 4px}
-.cc-tab.on{color:var(--accent);font-size:8px;gap:3px}
+.cc-tab.on{color:var(--accent);font-size: var(--text-3xs);gap:3px}
 .cc-tab-mark{position:absolute;top:-1px;width:22px;height:2px;transform:translateX(-50%);
   background:var(--accent);box-shadow:0 0 6px rgba(16,185,129,.5)}
 .cc-statusbar{background:var(--chrome);border-top:1px solid var(--hairline);
-  display:flex;align-items:center;gap:10px;padding:6px 40px 14px;font-size:9px;font-weight:500;
+  display:flex;align-items:center;gap:10px;padding:6px 40px 14px;font-size: var(--text-2xs);font-weight:500;
   letter-spacing:.4px;color:var(--muted);min-height:30px}
 .cc-statusbar .cc-grow{flex:1}
 .cc-statusbar .cc-sep{color:var(--faint);font-weight:700}
@@ -631,20 +631,20 @@ function Notes({
   callouts: { mark: string; text: string }[];
 }) {
   return (
-    <div className="max-w-[440px] font-sans text-[12px] leading-relaxed text-studio-ink-muted">
+    <div className="max-w-[440px] font-sans text-md leading-relaxed text-studio-ink-muted">
       <span
-        className="font-mono text-[9px] uppercase tracking-[0.14em]"
+        className="font-mono text-2xs uppercase tracking-[0.14em]"
         style={{ color: rec ? "var(--scout-accent)" : "var(--studio-ink-faint)" }}
       >
         {tag}
       </span>
-      <h2 className="mb-2 mt-1.5 font-display text-[16px] font-medium tracking-tight text-studio-ink">{title}</h2>
+      <h2 className="mb-2 mt-1.5 font-display text-2xl font-medium tracking-tight text-studio-ink">{title}</h2>
       <div className="space-y-3 [&_b]:font-semibold [&_b]:text-studio-ink [&_ul]:list-disc [&_ul]:space-y-1.5 [&_ul]:pl-4">
         {children}
       </div>
       <div className="mt-4 space-y-1.5 border-t border-studio-edge pt-3">
         {callouts.map((c) => (
-          <div key={c.text} className="flex gap-2 text-[10.5px] text-studio-ink-faint">
+          <div key={c.text} className="flex gap-2 text-xs text-studio-ink-faint">
             <span className="w-4 flex-none not-italic" style={{ color: "var(--scout-accent)" }}>
               {c.mark}
             </span>
@@ -706,10 +706,10 @@ export default function CrownComplicationsStudy() {
 
       <header className="mb-7 max-w-prose">
         <EyebrowLabel size="sm">· studies · ios · chrome</EyebrowLabel>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Crown &amp; Complications
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           Proposal C, taken to fidelity and made live. The scout hex is the whole identity — no
           wordmark. Tapping the <b className="font-semibold text-studio-ink">crown</b> summons the
           app&apos;s affordances as complications, with the tap → spring → stagger choreography
@@ -721,7 +721,7 @@ export default function CrownComplicationsStudy() {
       </header>
 
       {/* control strip */}
-      <div className="mb-9 flex max-w-[840px] flex-wrap items-center gap-x-6 gap-y-2 border-y border-studio-edge py-2.5 font-mono text-[10px] text-studio-ink-faint">
+      <div className="mb-9 flex max-w-[840px] flex-wrap items-center gap-x-6 gap-y-2 border-y border-studio-edge py-2.5 font-mono text-xs text-studio-ink-faint">
         <span className="text-studio-ink-muted">
           Live · tap the crown. Outside / crown again dismisses.
         </span>
@@ -822,8 +822,8 @@ export default function CrownComplicationsStudy() {
         </section>
       )}
 
-      <div className="mt-2 mb-4 max-w-[820px] border-l-2 border-studio-edge pl-3.5 font-sans text-[11px] leading-relaxed text-studio-ink-faint">
-        <b className="font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-studio-ink-muted">
+      <div className="mt-2 mb-4 max-w-[820px] border-l-2 border-studio-edge pl-3.5 font-sans text-sm leading-relaxed text-studio-ink-faint">
+        <b className="font-mono text-2xs font-semibold uppercase tracking-[0.1em] text-studio-ink-muted">
           Island-adaptive rule
         </b>
         <p className="mt-1.5">
@@ -836,7 +836,7 @@ export default function CrownComplicationsStudy() {
         </p>
       </div>
 
-      <p className="mt-2 border-t border-studio-edge pt-5 font-sans text-[11px] leading-relaxed text-studio-ink-faint">
+      <p className="mt-2 border-t border-studio-edge pt-5 font-sans text-sm leading-relaxed text-studio-ink-faint">
         Static-free study — real pointer + motion. Springs are cubic-bezier(.34,1.56,.64,1) with
         per-item stagger, channelled from talkie&apos;s voice-pivot (response .34–.42, damping .72,
         long-press 350ms). Slot vocabulary is HudPhoneComplications (topLeft / topRight / center,

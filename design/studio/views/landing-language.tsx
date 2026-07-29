@@ -108,14 +108,14 @@ function NavRow({ version }: { version?: boolean }) {
       style={{ borderBottom: `1px solid ${P.line}` }}
     >
       <span className="flex items-baseline gap-2">
-        <span className="text-[13px] font-semibold tracking-tight">OpenScout</span>
+        <span className="text-lg font-semibold tracking-tight">OpenScout</span>
         {version ? (
-          <span className="text-[9.5px]" style={{ fontFamily: MONO, color: P.faint }}>
+          <span className="text-2xs" style={{ fontFamily: MONO, color: P.faint }}>
             v0.1
           </span>
         ) : null}
       </span>
-      <span className="flex gap-4 text-[10.5px]" style={{ color: P.ink3 }}>
+      <span className="flex gap-4 text-xs" style={{ color: P.ink3 }}>
         <span>How it works</span>
         <span>Apps</span>
         <span>Docs</span>
@@ -135,11 +135,11 @@ function Hero({ painRed, big }: { painRed?: boolean; big?: boolean }) {
         <br />
         <span style={{ color: P.ink3 }}>{COPY.heroBottom}</span>
       </h1>
-      <p className="mt-3.5 max-w-[46ch] text-[12px] leading-[1.6]" style={{ color: P.ink2 }}>
+      <p className="mt-3.5 max-w-[46ch] text-md leading-[1.6]" style={{ color: P.ink2 }}>
         {COPY.heroSub}
       </p>
       <p
-        className="mt-4 text-[10.5px] leading-[1.5]"
+        className="mt-4 text-xs leading-[1.5]"
         style={{ fontFamily: MONO, color: painRed ? P.red : P.ink3 }}
       >
         {COPY.pain}
@@ -148,10 +148,10 @@ function Hero({ painRed, big }: { painRed?: boolean; big?: boolean }) {
         className="mt-2 flex items-center gap-2.5 px-3.5 py-2.5"
         style={{ border: `1px solid ${P.ink}`, fontFamily: MONO }}
       >
-        <span className="text-[11px]" style={{ color: P.faint }}>
+        <span className="text-sm" style={{ color: P.faint }}>
           $
         </span>
-        <span className="text-[11.5px] font-medium">{COPY.install}</span>
+        <span className="text-sm font-medium">{COPY.install}</span>
       </div>
     </div>
   );
@@ -160,7 +160,7 @@ function Hero({ painRed, big }: { painRed?: boolean; big?: boolean }) {
 function SectionLabel({ children, mono }: { children: React.ReactNode; mono?: boolean }) {
   return (
     <div
-      className="text-[8.5px] font-semibold uppercase tracking-[0.18em]"
+      className="text-3xs font-semibold uppercase tracking-[0.18em]"
       style={{ fontFamily: mono ? MONO : SANS, color: P.ink3 }}
     >
       {children}
@@ -189,8 +189,8 @@ function Section({
       style={{ borderTop: `1px solid ${P.line}`, background: band ? P.paper2 : undefined }}
     >
       <SectionLabel mono={mono}>{label}</SectionLabel>
-      <h2 className="mt-2.5 text-[18px] font-semibold leading-[1.15] tracking-[-0.01em]">{title}</h2>
-      <p className="mt-2.5 max-w-[48ch] text-[11.5px] leading-[1.6]" style={{ color: P.ink2 }}>
+      <h2 className="mt-2.5 text-3xl font-semibold leading-[1.15] tracking-[-0.01em]">{title}</h2>
+      <p className="mt-2.5 max-w-[48ch] text-sm leading-[1.6]" style={{ color: P.ink2 }}>
         {lead}
       </p>
       {children}
@@ -209,10 +209,10 @@ function FactsStrip() {
           className="flex items-baseline justify-between gap-6 py-[7px]"
           style={{ borderBottom: `1px solid ${P.lineSoft}`, fontFamily: MONO }}
         >
-          <span className="text-[9px] uppercase tracking-[0.14em]" style={{ color: P.faint }}>
+          <span className="text-2xs uppercase tracking-[0.14em]" style={{ color: P.faint }}>
             {f.k}
           </span>
-          <span className="text-[10px] lowercase" style={{ color: P.ink2 }}>
+          <span className="text-xs lowercase" style={{ color: P.ink2 }}>
             {f.v}
           </span>
         </div>
@@ -230,7 +230,7 @@ function ThreadFigure() {
         {THREAD.map((t, i) => (
           <div key={i} className="flex gap-2.5" style={{ marginTop: i ? 10 : 0 }}>
             <span
-              className="mt-[1px] flex h-[17px] w-[17px] flex-none items-center justify-center text-[8px] font-semibold uppercase"
+              className="mt-[1px] flex h-[17px] w-[17px] flex-none items-center justify-center text-3xs font-semibold uppercase"
               style={{
                 fontFamily: MONO,
                 background: t.you ? P.paper : P.paper3,
@@ -242,14 +242,14 @@ function ThreadFigure() {
             </span>
             <div className="min-w-0">
               <div className="flex items-baseline gap-2" style={{ fontFamily: MONO }}>
-                <span className="text-[9.5px] font-semibold lowercase" style={{ color: P.ink }}>
+                <span className="text-2xs font-semibold lowercase" style={{ color: P.ink }}>
                   {t.who}
                 </span>
-                <span className="text-[8.5px] tabular-nums" style={{ color: P.faint }}>
+                <span className="text-3xs tabular-nums" style={{ color: P.faint }}>
                   {t.at}
                 </span>
               </div>
-              <p className="mt-[2px] text-[11px] leading-[1.5]" style={{ color: P.ink2 }}>
+              <p className="mt-[2px] text-sm leading-[1.5]" style={{ color: P.ink2 }}>
                 {t.text}
               </p>
             </div>
@@ -260,10 +260,10 @@ function ThreadFigure() {
         className="mt-2.5 flex flex-col gap-[3px] pt-2"
         style={{ borderTop: `1px dashed ${P.line}`, fontFamily: MONO }}
       >
-        <span className="text-[8.5px] font-semibold uppercase tracking-[0.12em]" style={{ color: P.red }}>
+        <span className="text-3xs font-semibold uppercase tracking-[0.12em]" style={{ color: P.red }}>
           Thread · flight f-1287
         </span>
-        <span className="text-[9.5px] lowercase leading-[1.5]" style={{ color: P.ink3 }}>
+        <span className="text-2xs lowercase leading-[1.5]" style={{ color: P.ink3 }}>
           four turns, one handoff, a record of all of it. no copy-paste.
         </span>
       </div>
@@ -298,10 +298,10 @@ function DarkConsole() {
             className="flex items-center justify-between px-4 py-2"
             style={{ borderBottom: `1px solid ${CONSOLE.edgeSoft}`, fontFamily: MONO }}
           >
-            <span className="text-[9px] font-semibold uppercase tracking-[0.14em]" style={{ color: CONSOLE.muted }}>
+            <span className="text-2xs font-semibold uppercase tracking-[0.14em]" style={{ color: CONSOLE.muted }}>
               scout · #pr-1287
             </span>
-            <span className="flex items-center gap-1.5 text-[8.5px] uppercase tracking-[0.12em]" style={{ color: CONSOLE.faint }}>
+            <span className="flex items-center gap-1.5 text-3xs uppercase tracking-[0.12em]" style={{ color: CONSOLE.faint }}>
               <span className="h-[5px] w-[5px] rounded-full" style={{ background: P.red }} />
               live
             </span>
@@ -319,14 +319,14 @@ function DarkConsole() {
                 />
                 <div className="min-w-0">
                   <div className="flex items-baseline gap-2" style={{ fontFamily: MONO }}>
-                    <span className="text-[9.5px] font-semibold lowercase" style={{ color: CONSOLE.text }}>
+                    <span className="text-2xs font-semibold lowercase" style={{ color: CONSOLE.text }}>
                       {t.who}
                     </span>
-                    <span className="text-[8.5px] tabular-nums" style={{ color: CONSOLE.faint }}>
+                    <span className="text-3xs tabular-nums" style={{ color: CONSOLE.faint }}>
                       {t.at}
                     </span>
                   </div>
-                  <p className="mt-[2px] text-[11px] leading-[1.5]" style={{ color: CONSOLE.muted }}>
+                  <p className="mt-[2px] text-sm leading-[1.5]" style={{ color: CONSOLE.muted }}>
                     {t.text}
                   </p>
                 </div>
@@ -339,10 +339,10 @@ function DarkConsole() {
         className="mt-1 flex flex-col gap-[3px] pt-2"
         style={{ borderTop: `1px dashed ${P.line}`, fontFamily: MONO }}
       >
-        <span className="text-[8.5px] font-semibold uppercase tracking-[0.12em]" style={{ color: P.red }}>
+        <span className="text-3xs font-semibold uppercase tracking-[0.12em]" style={{ color: P.red }}>
           Thread · flight f-1287
         </span>
-        <span className="text-[9.5px] lowercase leading-[1.5]" style={{ color: P.ink3 }}>
+        <span className="text-2xs lowercase leading-[1.5]" style={{ color: P.ink3 }}>
           four turns, one handoff, a record of all of it. no copy-paste.
         </span>
       </div>
@@ -368,13 +368,13 @@ function StatStrip() {
           style={{ paddingLeft: i ? 14 : 0, marginLeft: i ? 14 : 0, borderLeft: i ? `1px solid ${P.lineSoft}` : undefined }}
         >
           <span
-            className="text-[7.5px] font-semibold uppercase tracking-[0.12em]"
+            className="text-3xs font-semibold uppercase tracking-[0.12em]"
             style={{ fontFamily: MONO, color: P.faint }}
           >
             {s.k}
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="text-[19px] leading-none tabular-nums" style={{ fontFamily: MONO, color: P.ink }}>
+            <span className="text-4xl leading-none tabular-nums" style={{ fontFamily: MONO, color: P.ink }}>
               {s.v}
             </span>
             {s.live ? <span className="h-[5px] w-[5px] rounded-full" style={{ background: P.red }} /> : null}
@@ -398,10 +398,10 @@ function RecordRows() {
             className="h-[5px] w-[5px] flex-none rounded-full"
             style={{ background: r.live ? P.red : P.line }}
           />
-          <span className="text-[10px] font-medium lowercase" style={{ color: P.ink }}>
+          <span className="text-xs font-medium lowercase" style={{ color: P.ink }}>
             {r.id}
           </span>
-          <span className="ml-auto text-[9.5px] lowercase" style={{ color: P.ink3 }}>
+          <span className="ml-auto text-2xs lowercase" style={{ color: P.ink3 }}>
             {r.meta}
           </span>
         </div>
@@ -424,12 +424,12 @@ function FullPage() {
         style={{ borderBottom: `1px solid ${P.line}` }}
       >
         <span className="flex items-baseline gap-2.5">
-          <span className="text-[15px] font-semibold tracking-tight">OpenScout</span>
-          <span className="text-[10px]" style={{ fontFamily: MONO, color: P.faint }}>
+          <span className="text-2xl font-semibold tracking-tight">OpenScout</span>
+          <span className="text-xs" style={{ fontFamily: MONO, color: P.faint }}>
             v0.1
           </span>
         </span>
-        <span className="flex gap-6 text-[11.5px]" style={{ color: P.ink3 }}>
+        <span className="flex gap-6 text-sm" style={{ color: P.ink3 }}>
           <span>How it works</span>
           <span>Features</span>
           <span>Apps</span>
@@ -441,27 +441,27 @@ function FullPage() {
       {/* hero: editorial column beside the console artifact */}
       <div className="grid grid-cols-[1fr_440px] gap-12 px-10 pb-9 pt-10">
         <div>
-          <h1 className="text-[46px] font-semibold leading-[1.02] tracking-[-0.025em]">
+          <h1 className="text-6xl font-semibold leading-[1.02] tracking-[-0.025em]">
             {COPY.heroTop}
             <br />
             <span style={{ color: P.ink3 }}>{COPY.heroBottom}</span>
           </h1>
-          <p className="mt-5 max-w-[52ch] text-[13.5px] leading-[1.65]" style={{ color: P.ink2 }}>
+          <p className="mt-5 max-w-[52ch] text-lg leading-[1.65]" style={{ color: P.ink2 }}>
             {COPY.heroSub}
           </p>
-          <p className="mt-6 text-[11px] leading-[1.5]" style={{ fontFamily: MONO, color: P.ink3 }}>
+          <p className="mt-6 text-sm leading-[1.5]" style={{ fontFamily: MONO, color: P.ink3 }}>
             {COPY.pain}
           </p>
           <div
             className="mt-2.5 inline-flex items-center gap-3 px-4 py-3"
             style={{ border: `1px solid ${P.ink}`, fontFamily: MONO }}
           >
-            <span className="text-[12px]" style={{ color: P.faint }}>
+            <span className="text-md" style={{ color: P.faint }}>
               $
             </span>
-            <span className="text-[12.5px] font-medium">{COPY.install}</span>
+            <span className="text-md font-medium">{COPY.install}</span>
           </div>
-          <p className="mt-3 text-[10.5px]" style={{ fontFamily: MONO, color: P.faint }}>
+          <p className="mt-3 text-xs" style={{ fontFamily: MONO, color: P.faint }}>
             macOS · Linux — Mac and iPhone apps are optional surfaces over the same runtime
           </p>
         </div>
@@ -480,13 +480,13 @@ function FullPage() {
                 style={{ borderBottom: `1px solid ${CONSOLE.edgeSoft}`, fontFamily: MONO }}
               >
                 <span
-                  className="text-[9px] font-semibold uppercase tracking-[0.14em]"
+                  className="text-2xs font-semibold uppercase tracking-[0.14em]"
                   style={{ color: CONSOLE.muted }}
                 >
                   scout · #pr-1287
                 </span>
                 <span
-                  className="flex items-center gap-1.5 text-[8.5px] uppercase tracking-[0.12em]"
+                  className="flex items-center gap-1.5 text-3xs uppercase tracking-[0.12em]"
                   style={{ color: CONSOLE.faint }}
                 >
                   <span className="h-[5px] w-[5px] rounded-full" style={{ background: P.red }} />
@@ -507,16 +507,16 @@ function FullPage() {
                     <div className="min-w-0">
                       <div className="flex items-baseline gap-2" style={{ fontFamily: MONO }}>
                         <span
-                          className="text-[9.5px] font-semibold lowercase"
+                          className="text-2xs font-semibold lowercase"
                           style={{ color: CONSOLE.text }}
                         >
                           {t.who}
                         </span>
-                        <span className="text-[8.5px] tabular-nums" style={{ color: CONSOLE.faint }}>
+                        <span className="text-3xs tabular-nums" style={{ color: CONSOLE.faint }}>
                           {t.at}
                         </span>
                       </div>
-                      <p className="mt-[2px] text-[11px] leading-[1.55]" style={{ color: CONSOLE.muted }}>
+                      <p className="mt-[2px] text-sm leading-[1.55]" style={{ color: CONSOLE.muted }}>
                         {t.text}
                       </p>
                     </div>
@@ -530,12 +530,12 @@ function FullPage() {
             style={{ borderTop: `1px dashed ${P.line}`, fontFamily: MONO }}
           >
             <span
-              className="flex-none text-[8.5px] font-semibold uppercase tracking-[0.12em]"
+              className="flex-none text-3xs font-semibold uppercase tracking-[0.12em]"
               style={{ color: P.red }}
             >
               Thread · flight f-1287
             </span>
-            <span className="text-[9.5px] lowercase" style={{ color: P.ink3 }}>
+            <span className="text-2xs lowercase" style={{ color: P.ink3 }}>
               four turns, one handoff, a record of all of it
             </span>
           </div>
@@ -561,14 +561,14 @@ function FullPage() {
               }}
             >
               <span
-                className="text-[8px] font-semibold uppercase tracking-[0.14em]"
+                className="text-3xs font-semibold uppercase tracking-[0.14em]"
                 style={{ fontFamily: MONO, color: P.faint }}
               >
                 {s.k}
               </span>
               <span className="flex items-center gap-2">
                 <span
-                  className="text-[30px] leading-none tabular-nums"
+                  className="text-6xl leading-none tabular-nums"
                   style={{ fontFamily: MONO, color: P.ink }}
                 >
                   {s.v}
@@ -577,7 +577,7 @@ function FullPage() {
                   <span className="h-[6px] w-[6px] rounded-full" style={{ background: P.red }} />
                 ) : null}
               </span>
-              <span className="text-[9.5px] lowercase" style={{ fontFamily: MONO, color: P.ink3 }}>
+              <span className="text-2xs lowercase" style={{ fontFamily: MONO, color: P.ink3 }}>
                 {s.d}
               </span>
             </div>
@@ -592,19 +592,19 @@ function FullPage() {
       >
         <div>
           <SectionLabel>{COPY.problemLabel}</SectionLabel>
-          <h2 className="mt-3 text-[24px] font-semibold leading-[1.12] tracking-[-0.015em]">
+          <h2 className="mt-3 text-5xl font-semibold leading-[1.12] tracking-[-0.015em]">
             {COPY.problemTitle}
           </h2>
-          <p className="mt-3 max-w-[50ch] text-[12.5px] leading-[1.65]" style={{ color: P.ink2 }}>
+          <p className="mt-3 max-w-[50ch] text-md leading-[1.65]" style={{ color: P.ink2 }}>
             {COPY.problemLead}
           </p>
         </div>
         <div>
           <SectionLabel>{COPY.recordsLabel}</SectionLabel>
-          <h2 className="mt-3 text-[24px] font-semibold leading-[1.12] tracking-[-0.015em]">
+          <h2 className="mt-3 text-5xl font-semibold leading-[1.12] tracking-[-0.015em]">
             {COPY.recordsTitle}
           </h2>
-          <p className="mt-3 max-w-[50ch] text-[12.5px] leading-[1.65]" style={{ color: P.ink2 }}>
+          <p className="mt-3 max-w-[50ch] text-md leading-[1.65]" style={{ color: P.ink2 }}>
             {COPY.recordsLead}
           </p>
           <RecordRows />
@@ -616,10 +616,10 @@ function FullPage() {
         className="flex items-baseline justify-between px-10 py-4"
         style={{ borderTop: `1px solid ${P.line}`, fontFamily: MONO }}
       >
-        <span className="text-[9.5px] lowercase" style={{ color: P.faint }}>
+        <span className="text-2xs lowercase" style={{ color: P.faint }}>
           openscout — local-first, model-neutral
         </span>
-        <span className="text-[9.5px] lowercase" style={{ color: P.faint }}>
+        <span className="text-2xs lowercase" style={{ color: P.faint }}>
           github · docs · v0.1
         </span>
       </div>
@@ -643,11 +643,11 @@ function Take({
   return (
     <div className="flex w-[470px] flex-none flex-col gap-3">
       <div>
-        <div className="flex items-baseline gap-2 font-mono text-[10px] font-semibold uppercase tracking-[0.16em]">
+        <div className="flex items-baseline gap-2 font-mono text-xs font-semibold uppercase tracking-[0.16em]">
           <span className="text-studio-ink-faint">{num}</span>
           <span className="text-studio-ink">{name}</span>
         </div>
-        <p className="mt-1.5 font-sans text-[11.5px] leading-relaxed text-studio-ink-faint">{thesis}</p>
+        <p className="mt-1.5 font-sans text-sm leading-relaxed text-studio-ink-faint">{thesis}</p>
       </div>
       {children}
     </div>
@@ -664,13 +664,13 @@ export default function LandingLanguagePage() {
         href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
       />
       <header className="mb-7 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · landing-language
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Landing · Design language
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           The Basel bones stay in every take — paper/ink, one rationed red, Archivo + Plex Mono,
           hairlines, no shadows. What changes is the conceit the page wears instead of the RFC
           costume: nothing, the product&rsquo;s own threads, or the app&rsquo;s instrument language.
@@ -751,11 +751,11 @@ export default function LandingLanguagePage() {
 
       {/* ── The actual web page — 04 at desktop width ──────────────────── */}
       <div className="mt-12">
-        <div className="flex items-baseline gap-2 font-mono text-[10px] font-semibold uppercase tracking-[0.16em]">
+        <div className="flex items-baseline gap-2 font-mono text-xs font-semibold uppercase tracking-[0.16em]">
           <span className="text-studio-ink-faint">05</span>
           <span className="text-studio-ink">The web page</span>
         </div>
-        <p className="mt-1.5 max-w-prose font-sans text-[11.5px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-1.5 max-w-prose font-sans text-sm leading-relaxed text-studio-ink-faint">
           The layered language at real desktop proportions — editorial column beside the dark
           console, readouts across the fold, sections in two columns underneath.
         </p>
@@ -765,10 +765,10 @@ export default function LandingLanguagePage() {
       </div>
 
       <div className="mt-8 max-w-prose border-t border-studio-line pt-4">
-        <div className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">
+        <div className="font-mono text-2xs font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">
           Shared bones
         </div>
-        <p className="mt-2 font-sans text-[11.5px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-2 font-sans text-sm leading-relaxed text-studio-ink-faint">
           Paper/ink with one rationed red per view · Archivo for prose, Plex Mono for the machine
           voice · hairline dividers, zero shadows · sentence-case headlines in the plain dev
           voice. The takes compose: 01 is the floor, 02 + 03 are ingredients, 04 is the blend —

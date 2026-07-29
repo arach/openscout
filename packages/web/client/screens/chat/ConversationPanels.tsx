@@ -1,4 +1,5 @@
 import { useMemo, type CSSProperties } from "react";
+import { Activity, MessageCircle, Terminal } from "lucide-react";
 import {
   LazyMotion,
   m,
@@ -47,6 +48,95 @@ const THREAD_SKELETON_ROWS = [
 
 const loadThreadMotionFeatures = () =>
   import("./conversation-motion-features.ts").then((module) => module.default);
+
+export function WorkingTurnActions({
+  onOpenTrace,
+  onOpenTerminal,
+  onSteer,
+  compact = false,
+}: {
+  onOpenTrace?: () => void;
+  onOpenTerminal?: () => void;
+  onSteer?: () => void;
+  compact?: boolean;
+}) {
+  if (!onOpenTrace && !onOpenTerminal && !onSteer) return null;
+
+  return (
+    <nav
+      className={`s-thread-working-actions${compact ? " s-thread-working-actions--compact" : ""}`}
+      aria-label="Working turn actions"
+    >
+      {onOpenTrace && (
+        <button
+          type="button"
+          className="s-thread-working-action s-thread-working-action--primary"
+          onClick={onOpenTrace}
+          title="Watch this run's live trace"
+        >
+          <Activity size={13} strokeWidth={1.9} aria-hidden="true" />
+          <span>Live trace</span>
+        </button>
+      )}
+      {onOpenTerminal && (
+        <button
+          type="button"
+          className="s-thread-working-action"
+          onClick={onOpenTerminal}
+          title="Jump into this agent's terminal"
+        >
+          <Terminal size={13} strokeWidth={1.9} aria-hidden="true" />
+          <span>Terminal</span>
+        </button>
+      )}
+      {onSteer && (
+        <button
+          type="button"
+          className="s-thread-working-action"
+          onClick={onSteer}
+          title="Write an interrupting message to steer this turn"
+        >
+          <MessageCircle size={13} strokeWidth={1.9} aria-hidden="true" />
+          <span>Steer…</span>
+        </button>
+      )}
+    </nav>
+  );
+}
+
+export function WorkingTurnActivityPreview({
+  events,
+  limit = 3,
+  compact = false,
+}: {
+  events: FleetActivity[];
+  limit?: number;
+  compact?: boolean;
+}) {
+  const visibleEvents = events.slice(0, limit);
+  if (visibleEvents.length === 0) return null;
+
+  return (
+    <ol
+      className={`s-thread-motion-events${compact ? " s-thread-motion-events--compact" : ""}`}
+      aria-label="Latest run activity"
+    >
+      {visibleEvents.map((event) => (
+        <li key={event.id}>
+          <span className="s-thread-motion-event-kind">
+            {activityKindLabel(event.kind)}
+          </span>
+          <span className="s-thread-motion-event-summary">
+            {turnActivityText(event) ?? "Activity recorded"}
+          </span>
+          <time title={formatAbsoluteTimestamp(event.ts)}>
+            {timeAgo(event.ts)}
+          </time>
+        </li>
+      ))}
+    </ol>
+  );
+}
 
 /**
  * Keeps the thread honest while history resolves: the composer is already
@@ -324,6 +414,9 @@ export function ThreadMotionPanel({
   workspaceName,
   branch,
   startedAt,
+  onOpenTrace,
+  onOpenTerminal,
+  onSteer,
 }: {
   agentName: string;
   title: string;
@@ -334,8 +427,10 @@ export function ThreadMotionPanel({
   workspaceName: string | null;
   branch: string | null | undefined;
   startedAt: number | null | undefined;
+  onOpenTrace?: () => void;
+  onOpenTerminal?: () => void;
+  onSteer?: () => void;
 }) {
-  const visibleEvents = events.slice(0, 4);
   const startedLabel = startedAt ? timeAgo(startedAt) : "now";
   return (
     <section
@@ -385,22 +480,8 @@ export function ThreadMotionPanel({
         <strong>{snapshot.latest}</strong>
       </div>
 
-      {visibleEvents.length > 0 ? (
-        <ol className="s-thread-motion-events">
-          {visibleEvents.map((event) => (
-            <li key={event.id}>
-              <span className="s-thread-motion-event-kind">
-                {activityKindLabel(event.kind)}
-              </span>
-              <span className="s-thread-motion-event-summary">
-                {turnActivityText(event) ?? "Activity recorded"}
-              </span>
-              <time title={formatAbsoluteTimestamp(event.ts)}>
-                {timeAgo(event.ts)}
-              </time>
-            </li>
-          ))}
-        </ol>
+      {events.length > 0 ? (
+        <WorkingTurnActivityPreview events={events} limit={4} />
       ) : (
         <div className="s-thread-motion-waiting">
           <span>Session created</span>
@@ -414,6 +495,12 @@ export function ThreadMotionPanel({
           {branch && <span>{branch}</span>}
         </div>
       )}
+
+      <WorkingTurnActions
+        onOpenTrace={onOpenTrace}
+        onOpenTerminal={onOpenTerminal}
+        onSteer={onSteer}
+      />
     </section>
   );
 }

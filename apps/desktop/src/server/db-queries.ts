@@ -31,6 +31,7 @@ export type WebAgent = {
   project: string | null;
   branch: string | null;
   role: string | null;
+  model: string | null;
 };
 
 export type WebActivityItem = {
@@ -354,6 +355,7 @@ export function queryAgents(limit = 50): WebAgent[] {
          ep.state,
          ep.project_root,
          ep.cwd,
+         ep.metadata_json AS endpoint_metadata_json,
          ep.updated_at
        FROM agents a
        JOIN actors ac ON ac.id = a.id
@@ -376,6 +378,7 @@ export function queryAgents(limit = 50): WebAgent[] {
     state: string | null;
     project_root: string | null;
     cwd: string | null;
+    endpoint_metadata_json: string | null;
     updated_at: number | null;
   }>;
 
@@ -385,6 +388,9 @@ export function queryAgents(limit = 50): WebAgent[] {
 
     let meta: Record<string, unknown> = {};
     try { meta = r.metadata_json ? JSON.parse(r.metadata_json) : {}; } catch {}
+
+    let endpointMeta: Record<string, unknown> = {};
+    try { endpointMeta = r.endpoint_metadata_json ? JSON.parse(r.endpoint_metadata_json) : {}; } catch {}
 
     return {
       id: r.id,
@@ -403,6 +409,7 @@ export function queryAgents(limit = 50): WebAgent[] {
       project: (meta.project as string) ?? null,
       branch: (meta.branch as string) ?? null,
       role: (meta.role as string) ?? null,
+      model: (meta.model as string) ?? (endpointMeta.model as string) ?? null,
     };
   });
 }

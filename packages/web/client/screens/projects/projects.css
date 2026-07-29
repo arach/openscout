@@ -83,7 +83,7 @@
   height: 100%;
   min-height: 0;
   padding: 12px 0 10px;
-  font-size: 12px;
+  font-size: var(--text-md);
   border-right: 1px solid var(--av2-hairline);
   background: color-mix(in srgb, var(--hud-surface) 22%, transparent);
 }
@@ -135,7 +135,7 @@
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 11px;
+  font-size: var(--text-sm);
   outline: none;
 }
 
@@ -196,7 +196,7 @@
 
 .av2-browseHead {
   padding: 4px 8px 6px;
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -261,7 +261,7 @@
   padding: 1px 6px;
   border-radius: 999px;
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   text-align: center;
   color: var(--av2-dim);
   background: color-mix(in srgb, var(--hud-ink) 6%, transparent);
@@ -275,7 +275,7 @@
 .av2-browseEmpty {
   padding: 8px 10px;
   color: var(--av2-dim);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 
 .av2-browseStatus {
@@ -283,7 +283,7 @@
   padding: 1px 6px;
   border-radius: 999px;
   font-family: var(--av2-mono);
-  font-size: 8px;
+  font-size: var(--text-3xs);
   font-weight: 700;
   letter-spacing: 0.04em;
   line-height: 1.45;
@@ -311,7 +311,7 @@
   border-radius: 6px;
   background: none;
   color: var(--av2-dim);
-  font-size: 11px;
+  font-size: var(--text-sm);
   text-align: left;
   cursor: pointer;
 }
@@ -346,7 +346,7 @@
   align-items: baseline;
   gap: 8px;
   min-width: 0;
-  font-size: 15px;
+  font-size: var(--text-2xl);
   font-weight: 600;
   letter-spacing: -0.02em;
 }
@@ -354,7 +354,7 @@
 .av2-indexScopeKind {
   flex: none;
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 560;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -362,7 +362,7 @@
 }
 
 .av2-indexScopePath {
-  font-size: 17px;
+  font-size: var(--text-3xl);
   font-weight: 620;
   letter-spacing: -0.03em;
   color: var(--av2-ink);
@@ -374,7 +374,7 @@
   border-radius: 999px;
   border: 1px solid var(--av2-hairline);
   font-family: var(--av2-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   color: var(--av2-dim);
   background: color-mix(in srgb, var(--hud-surface) 40%, transparent);
 }
@@ -436,7 +436,7 @@
 .av2-projectOverviewLoading {
   padding: 12px 22px 16px;
   font-family: var(--av2-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--av2-dim);
 }
 
@@ -474,7 +474,7 @@
 }
 
 .av2-facetLabel {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -493,13 +493,13 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 11px;
+  font-size: var(--text-sm);
   line-height: 1.45;
 }
 
 .av2-facetEmpty {
   font-family: var(--av2-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--av2-dim);
 }
 
@@ -521,7 +521,7 @@
   background: color-mix(in srgb, var(--av2-accent) 14%, transparent);
   color: var(--av2-accent);
   font-family: var(--av2-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 700;
   letter-spacing: 0.02em;
   cursor: pointer;
@@ -540,14 +540,14 @@
 
 .av2-newAgentHint {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--text-sm);
   line-height: 1.45;
   color: var(--av2-muted);
 }
 
 .av2-facetMono {
   font-family: var(--av2-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--av2-muted);
   word-break: break-word;
 }
@@ -573,7 +573,7 @@
   background: none;
   color: var(--av2-ink);
   font-family: var(--av2-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   text-align: left;
   cursor: pointer;
   overflow: hidden;
@@ -593,7 +593,7 @@
   background: none;
   color: var(--av2-dim);
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   cursor: pointer;
@@ -631,13 +631,13 @@
 
 .av2-facetWorktreeLine {
   font-family: var(--av2-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--av2-ink);
 }
 
 .av2-facetWorktreePath {
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--av2-dim);
 }
 
@@ -671,7 +671,7 @@
   padding: 0;
   border: none;
   background: none;
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 600;
   color: var(--av2-ink);
   cursor: pointer;
@@ -685,7 +685,7 @@
   flex: 1;
   min-width: 0;
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--av2-dim);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -713,7 +713,7 @@
 .av2-agentFacetFacts dt {
   margin: 0;
   font-family: var(--av2-mono);
-  font-size: 8.5px;
+  font-size: var(--text-3xs);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--av2-dim);
@@ -722,7 +722,7 @@
 .av2-agentFacetFacts dd {
   margin: 0;
   font-family: var(--av2-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--av2-muted);
   line-height: 1.4;
   overflow: hidden;
@@ -777,7 +777,7 @@
 }
 
 .av2-embedTitle {
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--av2-ink);
   overflow: hidden;
@@ -787,7 +787,7 @@
 
 .av2-embedSub {
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--av2-dim);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -814,7 +814,7 @@
   background: none;
   color: var(--av2-dim);
   font-family: var(--av2-mono);
-  font-size: 8.5px;
+  font-size: var(--text-3xs);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   cursor: pointer;
@@ -847,7 +847,7 @@
   border: 1px solid var(--av2-hairline);
   background: color-mix(in srgb, var(--av2-bg) 72%, transparent);
   font-family: var(--av2-sans);
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   line-height: 1.5;
   color: var(--av2-muted);
   white-space: pre-wrap;
@@ -858,20 +858,20 @@
 
 .av2-embedPreview--mono {
   font-family: var(--av2-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   line-height: 1.45;
 }
 
 .av2-embedPreview--prompt {
   font-family: var(--av2-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   max-height: 7.5em;
 }
 
 .av2-embedLoading,
 .av2-embedEmpty {
   font-family: var(--av2-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--av2-dim);
 }
 
@@ -900,7 +900,7 @@
 .av2-embedFacts dt {
   margin: 0;
   font-family: var(--av2-mono);
-  font-size: 8px;
+  font-size: var(--text-3xs);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--av2-dim);
@@ -909,7 +909,7 @@
 .av2-embedFacts dd {
   margin: 0;
   font-family: var(--av2-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   color: var(--av2-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -935,14 +935,14 @@
 
 .av2-repoViewerPathFile {
   font-family: var(--av2-mono);
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   font-weight: 600;
   color: var(--av2-ink);
 }
 
 .av2-repoViewerPathAbs {
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--av2-dim);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -962,7 +962,7 @@
   background: none;
   color: var(--av2-dim);
   font-family: var(--av2-mono);
-  font-size: 8.5px;
+  font-size: var(--text-3xs);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   cursor: pointer;
@@ -1001,7 +1001,7 @@
   justify-content: center;
   padding: 24px;
   font-family: var(--av2-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--av2-dim);
 }
 
@@ -1014,7 +1014,7 @@
   padding: 6px 12px;
   border-top: 1px solid var(--av2-hairline);
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--av2-dim);
   background: color-mix(in srgb, var(--hud-surface) 20%, transparent);
 }
@@ -1049,13 +1049,13 @@
 
 .av2-worktreeLine {
   font-family: var(--av2-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--av2-ink);
 }
 
 .av2-worktreePath {
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--av2-dim);
 }
 
@@ -1080,7 +1080,7 @@
   border-radius: 7px;
   background: none;
   color: var(--av2-dim);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 560;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -1112,7 +1112,7 @@
   border-radius: 999px;
   background: none;
   color: var(--av2-dim);
-  font-size: 10px;
+  font-size: var(--text-xs);
   letter-spacing: 0.03em;
   cursor: pointer;
 }
@@ -1138,7 +1138,7 @@
 }
 
 .av2-sectionTitle {
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1147,14 +1147,14 @@
 
 .av2-sectionMeta {
   font-family: var(--av2-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   color: var(--av2-dim);
 }
 
 .av2-kbdHint {
   margin-left: auto;
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--av2-dim);
   letter-spacing: 0.02em;
 }
@@ -1220,7 +1220,7 @@
 
 .av2-tailWhen {
   font-family: var(--av2-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   color: var(--av2-dim);
   white-space: nowrap;
   transition: opacity 0.12s ease;
@@ -1240,7 +1240,7 @@
   background: color-mix(in srgb, var(--av2-accent) 8%, transparent);
   color: var(--av2-accent);
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.06em;
   text-decoration: none;
   text-transform: uppercase;
@@ -1300,7 +1300,7 @@
 }
 
 .av2-agentName {
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 560;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1313,7 +1313,7 @@
 
 .av2-agentSub {
   font-family: var(--av2-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   color: var(--av2-dim);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1322,7 +1322,7 @@
 
 .av2-workCell {
   min-width: 0;
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   color: var(--av2-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1331,7 +1331,7 @@
 
 .av2-metaCell {
   font-family: var(--av2-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   color: var(--av2-dim);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1340,7 +1340,7 @@
 
 .av2-whenCell {
   font-family: var(--av2-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   color: var(--av2-dim);
   text-align: right;
 }
@@ -1352,7 +1352,7 @@
   align-items: center;
   padding: 6px 12px 8px 0;
   border-bottom: 1px solid var(--av2-border);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1377,7 +1377,7 @@
   gap: 6px;
   margin-right: 8px;
   font-family: var(--av2-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--av2-dim);
   white-space: nowrap;
 }
@@ -1393,7 +1393,7 @@
 .av2-empty {
   padding: 56px 28px;
   text-align: center;
-  font-size: 12px;
+  font-size: var(--text-md);
   line-height: 1.55;
   color: var(--av2-dim);
   background: radial-gradient(480px 160px at 50% 0%, color-mix(in srgb, var(--av2-accent) 4%, transparent), transparent 70%);
@@ -1404,7 +1404,7 @@
   min-height: 0;
   overflow-y: auto;
   padding: 18px 18px 28px;
-  font-size: 11px;
+  font-size: var(--text-sm);
   background:
     radial-gradient(640px 280px at 100% 0%, color-mix(in srgb, var(--av2-accent) 4%, transparent), transparent 62%),
     color-mix(in srgb, var(--hud-surface) 16%, var(--av2-bg));
@@ -1415,7 +1415,7 @@
   padding: 48px 16px;
   text-align: center;
   color: var(--av2-dim);
-  font-size: 12px;
+  font-size: var(--text-md);
   line-height: 1.6;
   border-radius: var(--av2-radius-md);
   border: 1px dashed color-mix(in srgb, var(--av2-border) 80%, transparent);
@@ -1433,7 +1433,7 @@
 
 .av2-detailTitle {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--text-2xl);
   font-weight: 620;
   letter-spacing: -0.025em;
 }
@@ -1441,7 +1441,7 @@
 .av2-detailSub {
   margin-top: 4px;
   font-family: var(--av2-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   color: var(--av2-dim);
   line-height: 1.45;
 }
@@ -1455,7 +1455,7 @@
   align-items: baseline;
   gap: 8px;
   margin-bottom: 6px;
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1465,7 +1465,7 @@
 .av2-sectionHeadMeta {
   margin-left: auto;
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 400;
   letter-spacing: 0.02em;
   text-transform: none;
@@ -1486,7 +1486,7 @@
 }
 
 .av2-groupTitle {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1495,7 +1495,7 @@
 
 .av2-groupMeta {
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--av2-dim);
 }
 
@@ -1531,13 +1531,13 @@
 }
 
 .av2-projectLeadName {
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-weight: 600;
   color: var(--av2-ink);
 }
 
 .av2-projectLeadWork {
-  font-size: 11px;
+  font-size: var(--text-sm);
   line-height: 1.4;
   color: var(--av2-muted);
   display: -webkit-box;
@@ -1548,7 +1548,7 @@
 
 .av2-projectLeadCta {
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--av2-accent);
@@ -1587,13 +1587,13 @@
 }
 
 .av2-projectAgentName {
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 560;
   color: var(--av2-ink);
 }
 
 .av2-projectAgentWork {
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--av2-dim);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1602,7 +1602,7 @@
 
 .av2-projectAgentWhen {
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--av2-dim);
   white-space: nowrap;
 }
@@ -1610,7 +1610,7 @@
 .av2-projectRosterDivider {
   padding: 8px 8px 4px;
   font-family: var(--av2-mono);
-  font-size: 8.5px;
+  font-size: var(--text-3xs);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--av2-dim);
@@ -1621,7 +1621,7 @@
   grid-template-columns: 72px minmax(0, 1fr);
   gap: 4px 10px;
   font-family: var(--av2-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 
 .av2-factLabel {
@@ -1654,7 +1654,7 @@
 .av2-sessionGroupHead {
   padding: 4px 8px 2px;
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--av2-dim);
@@ -1684,7 +1684,7 @@
 }
 
 .av2-sessionTitle {
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--av2-ink);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1693,7 +1693,7 @@
 
 .av2-sessionMeta {
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--av2-dim);
 }
 
@@ -1713,7 +1713,7 @@
   background: none;
   color: var(--av2-muted);
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   cursor: pointer;
@@ -1746,7 +1746,7 @@
   border-radius: 5px;
   background: none;
   color: var(--av2-muted);
-  font-size: 11px;
+  font-size: var(--text-sm);
   text-align: left;
   cursor: pointer;
 }
@@ -1915,7 +1915,7 @@
 
 .av2-profileHeroTitle {
   margin: 0;
-  font-size: 24px;
+  font-size: var(--text-5xl);
   font-weight: 620;
   letter-spacing: -0.025em;
   color: var(--av2-ink);
@@ -1929,7 +1929,7 @@
   align-items: center;
   gap: 6px;
   font-family: var(--av2-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--av2-dim);
@@ -1953,7 +1953,7 @@
 
 .av2-profileHeroBroker {
   font-family: var(--av2-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--av2-dim);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1972,7 +1972,7 @@
   padding: 7px 12px;
   border-radius: 8px;
   font-family: var(--av2-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   cursor: pointer;
@@ -2015,14 +2015,14 @@
 
 .av2-coreMetaLabel {
   font-family: var(--av2-mono);
-  font-size: 8.5px;
+  font-size: var(--text-3xs);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--av2-dim);
 }
 
 .av2-coreMetaValue {
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   color: var(--av2-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2061,7 +2061,7 @@
 
 .av2-signalLabel {
   font-family: var(--av2-mono);
-  font-size: 8.5px;
+  font-size: var(--text-3xs);
   letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--av2-dim);
@@ -2069,7 +2069,7 @@
 
 .av2-signalValue {
   font-family: var(--av2-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--av2-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2103,7 +2103,7 @@
 }
 
 .s-av2-profileShell .ap-profileName {
-  font-size: 28px;
+  font-size: var(--text-6xl);
   font-weight: 620;
   letter-spacing: -0.025em;
   text-transform: none;
@@ -2113,7 +2113,7 @@
 }
 
 .s-av2-profileShell .ap-profileSub {
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--av2-muted);
 }
 
@@ -2121,7 +2121,7 @@
   display: block;
   margin-top: 2px;
   font-family: var(--av2-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--av2-dim);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2176,7 +2176,7 @@
 }
 
 .av2-sessionsTitle {
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -2185,13 +2185,13 @@
 
 .av2-sessionsCount {
   font-family: var(--av2-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--av2-dim);
 }
 
 .av2-sessionsEmpty {
   padding: 32px 0;
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--av2-dim);
   text-align: center;
 }
@@ -2264,7 +2264,7 @@
 }
 
 .av2-sessionsRailName {
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   font-weight: 560;
   color: var(--av2-ink);
   overflow: hidden;
@@ -2274,7 +2274,7 @@
 
 .av2-sessionsRailEngine {
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--av2-dim);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2283,7 +2283,7 @@
 
 .av2-sessionsRailWhen {
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--av2-dim);
   white-space: nowrap;
 }
@@ -2370,7 +2370,7 @@
 .av2-agentCardName {
   flex: 1;
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-weight: 600;
   color: var(--av2-ink);
   overflow: hidden;
@@ -2380,12 +2380,12 @@
 
 .av2-agentCardEngine {
   font-family: var(--av2-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--av2-dim);
 }
 
 .av2-agentCardWork {
-  font-size: 11px;
+  font-size: var(--text-sm);
   line-height: 1.4;
   color: var(--av2-muted);
   display: -webkit-box;
@@ -2401,7 +2401,7 @@
   justify-content: space-between;
   gap: 8px;
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--av2-dim);
 }
 
@@ -2441,7 +2441,7 @@
 
 .av2-peekFootId {
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--av2-dim);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2457,7 +2457,7 @@
   background: color-mix(in srgb, var(--av2-accent) 9%, transparent);
   color: var(--av2-ink);
   font-family: var(--av2-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   cursor: pointer;
 }
 
@@ -2494,7 +2494,7 @@
 }
 
 .av2-peekSessionTitle {
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--av2-ink);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2503,7 +2503,7 @@
 
 .av2-peekSessionMeta {
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--av2-dim);
 }
 
@@ -2550,7 +2550,7 @@
 
 .av2-agentPeekName {
   font-family: var(--font-accent-title, var(--av2-sans));
-  font-size: 16px;
+  font-size: var(--text-2xl);
   font-weight: 400;
   line-height: 1;
   letter-spacing: -0.01em;
@@ -2563,7 +2563,7 @@
 .av2-agentPeekHandle {
   flex: none;
   font-family: var(--av2-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--av2-dim);
 }
 
@@ -2581,7 +2581,7 @@
   align-items: center;
   gap: 6px;
   font-family: var(--av2-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   color: var(--av2-dim);
 }
 
@@ -2604,7 +2604,7 @@
 .av2-agentPeekNowLabel {
   display: block;
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -2614,7 +2614,7 @@
 
 .av2-agentPeekNowText {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-md);
   line-height: 1.45;
   color: var(--av2-ink);
   display: -webkit-box;
@@ -2630,7 +2630,7 @@
 
 .av2-agentPeekNow--quiet .av2-agentPeekNowText {
   color: var(--av2-muted);
-  font-size: 11px;
+  font-size: var(--text-sm);
   -webkit-line-clamp: 3;
 }
 
@@ -2680,7 +2680,7 @@
 .av2-agentPeekSessionTitle {
   flex: 1;
   min-width: 0;
-  font-size: 11px;
+  font-size: var(--text-sm);
   line-height: 1.35;
   color: var(--av2-muted);
   display: -webkit-box;
@@ -2697,7 +2697,7 @@
 .av2-agentPeekSessionMeta {
   padding-left: 16px;
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--av2-dim);
 }
 
@@ -2711,7 +2711,7 @@
   border: none;
   background: transparent;
   font-family: var(--av2-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--av2-dim);
   cursor: pointer;
   text-align: left;
@@ -2747,7 +2747,7 @@
   margin: 0;
   flex: 1;
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-weight: 560;
   line-height: 1.35;
   color: var(--av2-ink);
@@ -2766,12 +2766,12 @@
 }
 
 .av2-sessInstrumentCtx {
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--av2-dim);
 }
 
 .av2-sessBadge {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   letter-spacing: 0.1em;
   color: var(--av2-dim);
@@ -2818,7 +2818,7 @@
 }
 
 .av2-sessActivityText {
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--av2-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2827,7 +2827,7 @@
 
 .av2-sessToolIcon {
   color: var(--av2-dim);
-  font-size: 9px;
+  font-size: var(--text-2xs);
 }
 
 .av2-sessTranscript {
@@ -2845,7 +2845,7 @@
 
 .av2-sessTranscriptTri {
   color: var(--av2-dim);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   transition: transform 0.14s ease;
 }
 
@@ -2855,7 +2855,7 @@
 
 .av2-sessTranscriptLbl {
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--av2-dim);
@@ -2864,7 +2864,7 @@
 .av2-sessTranscriptMeta {
   margin-left: auto;
   font-family: var(--av2-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--av2-dim);
 }
 
@@ -2884,14 +2884,14 @@
 
 .av2-sessLogT {
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   text-align: right;
   color: var(--av2-dim);
 }
 
 .av2-sessLogText {
   font-family: var(--av2-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   line-height: 1.35;
   color: var(--av2-muted);
   overflow: hidden;
@@ -2917,7 +2917,7 @@
   background: color-mix(in srgb, var(--hud-surface) 45%, transparent);
   border: 1px solid var(--av2-hairline);
   color: var(--av2-dim);
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 
 .av2-sessResumeBtn {
@@ -2932,7 +2932,7 @@
   );
   color: color-mix(in srgb, var(--hud-bg) 88%, black);
   font-family: var(--av2-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
   letter-spacing: 0.04em;
   cursor: pointer;
@@ -2959,7 +2959,7 @@
   background: none;
   color: var(--av2-muted);
   font-family: var(--av2-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   cursor: pointer;
@@ -3026,7 +3026,7 @@
   background: color-mix(in srgb, var(--hud-surface) 50%, transparent);
   color: var(--av2-muted);
   font-family: var(--av2-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   cursor: pointer;
@@ -3041,7 +3041,7 @@
 }
 
 .av2-profileBackGlyph {
-  font-size: 12px;
+  font-size: var(--text-md);
   line-height: 1;
   opacity: 0.7;
 }
@@ -3065,7 +3065,7 @@
   background: none;
   color: var(--av2-dim);
   font-family: var(--av2-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   cursor: pointer;

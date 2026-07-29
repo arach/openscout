@@ -192,7 +192,8 @@ struct RootView: View {
                                     model: model,
                                     kind: .lanes,
                                     isActive: surface == .lanes,
-                                    onOpenDeck: { selectSurface(.deck) }
+                                    onOpenDeck: { selectSurface(.deck) },
+                                    onConnect: { showConnection = true }
                                 )
                             }
                             surfaceLayer(.deck) {
@@ -200,11 +201,21 @@ struct RootView: View {
                                     model: model,
                                     kind: .deck,
                                     isActive: surface == .deck,
-                                    onOpenLanes: { selectSurface(.lanes) }
+                                    onOpenLanes: { selectSurface(.lanes) },
+                                    onConnect: { showConnection = true }
                                 )
                             }
                             surfaceLayer(.dispatch) {
-                                MissionControlSurface(model: model, kind: .dispatch, isActive: surface == .dispatch)
+                                MissionControlSurface(
+                                    model: model,
+                                    kind: .dispatch,
+                                    isActive: surface == .dispatch,
+                                    onConnect: { showConnection = true },
+                                    onCompose: { seed in
+                                        newComposerSeed = seed
+                                        selectSurface(.new)
+                                    }
+                                )
                             }
                             surfaceLayer(.terminal) {
                                 TerminalSurface(

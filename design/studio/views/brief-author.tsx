@@ -109,10 +109,10 @@ export default function BriefAuthorPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <Eyebrow />
-      <h1 className="mt-1 font-display text-[32px] font-medium leading-none tracking-tight text-studio-ink">
+      <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
         Brief author
       </h1>
-      <p className="mt-3 max-w-prose font-sans text-[13.5px] leading-relaxed text-studio-ink-faint">
+      <p className="mt-3 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
         Companion to{" "}
         <a
           href="/studies/operator-brief"
@@ -133,7 +133,7 @@ export default function BriefAuthorPage() {
         one batch. The operator never edits the prose by hand.
       </p>
       <p
-        className="mt-2 max-w-prose font-sans text-[12px] leading-relaxed text-studio-ink-faint"
+        className="mt-2 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint"
         style={{ opacity: 0.8 }}
       >
         Cross-study primitives:{" "}
@@ -160,7 +160,7 @@ export default function BriefAuthorPage() {
       >
         Frame 1 · The brief at rest
       </SectionTitle>
-      <p className="mt-2 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+      <p className="mt-2 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
         Editorial column, narrative sections, the same SOC 2 tasking
         from the operator-brief specimen. No chunk shells, no rails,
         no widgets. Every span is clickable — the only affordance hint
@@ -177,7 +177,7 @@ export default function BriefAuthorPage() {
       >
         Frame 2 · Click summons the dock
       </SectionTitle>
-      <p className="mt-2 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+      <p className="mt-2 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
         The clicked span carries a warm 1px dashed under-line; a small
         anchor glyph sits in the right gutter on the same baseline.
         The dock floats just below the line containing the span, empty
@@ -196,7 +196,7 @@ export default function BriefAuthorPage() {
       >
         Frame 3 · Dictating feedback
       </SectionTitle>
-      <p className="mt-2 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+      <p className="mt-2 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
         Mic lit with the warm recording dot, transcript filling the
         field. The clicked span keeps its anchor mark so the channel
         is unambiguous — this feedback is addressed to <em>this</em>
@@ -213,7 +213,7 @@ export default function BriefAuthorPage() {
       >
         Frame 4 · Save — annotations accumulate
       </SectionTitle>
-      <p className="mt-2 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+      <p className="mt-2 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
         The dock collapses. Each saved span carries a small ink-faint
         annotation mark in the gutter; the operator&apos;s text sits
         beside it as a margin note, connected by a barely-there
@@ -231,7 +231,7 @@ export default function BriefAuthorPage() {
       >
         Frame 5 · Send — immediate regeneration
       </SectionTitle>
-      <p className="mt-2 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+      <p className="mt-2 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
         A different branch from the same Mission feedback. The
         operator hit <em>send</em>. The affected span goes into
         processing — the prior prose held under a glass veil with the
@@ -243,7 +243,7 @@ export default function BriefAuthorPage() {
         <SendStoryboard />
       </div>
       <p
-        className="mt-4 max-w-prose font-sans text-[12px] italic leading-relaxed text-studio-ink-faint"
+        className="mt-4 max-w-prose font-sans text-md italic leading-relaxed text-studio-ink-faint"
         style={{ opacity: 0.85 }}
       >
         <em>Send</em> commits one feedback now. <em>Save</em> lets
@@ -259,7 +259,7 @@ export default function BriefAuthorPage() {
       >
         Frame 6 · Batch resolution
       </SectionTitle>
-      <p className="mt-2 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+      <p className="mt-2 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
         With three annotations saved on the brief, a single quiet
         action sits in the top-right of the document — the only chrome
         on the surface. The operator hands the batch to the agent in
@@ -280,13 +280,13 @@ export default function BriefAuthorPage() {
       >
         Snap-in vocabulary
       </SectionTitle>
-      <p className="mt-2 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+      <p className="mt-2 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
         Some spans of the brief reference a named artifact — a
         collaboration shape or a role dossier. The operator never
         opens a picker. They say{" "}
         <em>&ldquo;consult two reviewers, one decider&rdquo;</em> and
         the agent snaps in{" "}
-        <code className="font-mono text-[11px] text-studio-ink">
+        <code className="font-mono text-sm text-studio-ink">
           Consult
         </code>
         ; they say <em>&ldquo;put Drover on the adversarial review
@@ -319,7 +319,7 @@ export default function BriefAuthorPage() {
       >
         Anatomy
       </SectionTitle>
-      <p className="mt-2 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+      <p className="mt-2 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
         The annotated frame shows the most state at once — anchors,
         margin notes, the dock, and the batch handoff sitting together
         on one document.
@@ -330,24 +330,24 @@ export default function BriefAuthorPage() {
 
       {/* ── How to read ────────────────────────────────────────── */}
       <section className="mt-16 max-w-prose border-t border-studio-edge pt-6">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · how to read this study
         </div>
-        <p className="font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+        <p className="font-sans text-md leading-relaxed text-studio-ink-faint">
           Every frame is static. The brief is the surface. The dock is
           the channel. Annotations live where they were left. The
           single rule that holds the whole study up: the operator
           never edits the prose directly. The only edit channel is the
           production{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
+          <code className="font-mono text-sm text-studio-ink">
             InputDock
           </code>{" "}
           from{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
+          <code className="font-mono text-sm text-studio-ink">
             components/QuickSteer.tsx
           </code>{" "}
           in its{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
+          <code className="font-mono text-sm text-studio-ink">
             inline
           </code>{" "}
           mode, summoned at a clicked span. Lifecycle (lock, version,
@@ -384,7 +384,7 @@ function BriefSurface({ frame }: { frame: BriefFrame }) {
       {/* The hint sits above the document column, deliberately light.
           Doubles as a clickable affordance signal — the only one the
           surface needs. */}
-      <div className="flex items-baseline justify-between gap-4 border-b border-studio-edge px-7 py-3 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="flex items-baseline justify-between gap-4 border-b border-studio-edge px-7 py-3 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         <span>
           brief · {TASK.id} ·{" "}
           <span className="text-studio-ink-muted">filed {TASK.filed}</span>
@@ -412,7 +412,7 @@ function BriefSurface({ frame }: { frame: BriefFrame }) {
                 no chrome. The only thing telling the operator the
                 document is interactive. */}
             <p
-              className="m-0 mb-5 text-center font-sans text-[11.5px] italic leading-relaxed text-studio-ink-faint"
+              className="m-0 mb-5 text-center font-sans text-sm italic leading-relaxed text-studio-ink-faint"
               style={{ opacity: 0.78 }}
             >
               click anywhere to leave feedback — speak or type
@@ -420,10 +420,10 @@ function BriefSurface({ frame }: { frame: BriefFrame }) {
 
             {/* Document masthead — looks like a sheet of paper. */}
             <header className="border-b border-studio-edge pb-5">
-              <h2 className="font-display text-[26px] font-medium leading-[1.15] tracking-tight text-studio-ink">
+              <h2 className="font-display text-6xl font-medium leading-[1.15] tracking-tight text-studio-ink">
                 {TASK.title}
               </h2>
-              <div className="mt-3 flex items-baseline gap-3 font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">
+              <div className="mt-3 flex items-baseline gap-3 font-mono text-xs uppercase tracking-eyebrow text-studio-ink-faint">
                 <span>
                   for <AgentHandle name={TASK.agent} hue={TASK.agentHue} />
                 </span>
@@ -458,7 +458,7 @@ function BriefSurface({ frame }: { frame: BriefFrame }) {
 
             {/* ── Collaboration shape ─────────────────────────── */}
             <BriefSection label="Collaboration shape">
-              <p className="m-0 font-sans text-[13px] leading-[1.65] text-studio-ink">
+              <p className="m-0 font-sans text-lg leading-[1.65] text-studio-ink">
                 <Anchored
                   on={frame === "annotated" || frame === "anatomy"}
                   // No live click frame on this span — only the saved
@@ -473,7 +473,7 @@ function BriefSurface({ frame }: { frame: BriefFrame }) {
                 re-consult once, then commit.
               </p>
               <div className="mt-3 rounded-[3px] border border-studio-edge bg-studio-canvas-alt p-3">
-                <div className="mb-2 flex items-baseline justify-between gap-3 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+                <div className="mb-2 flex items-baseline justify-between gap-3 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
                   <span>
                     <span className="text-studio-ink">consult</span> ·
                     two advisors in, decider commits
@@ -488,7 +488,7 @@ function BriefSurface({ frame }: { frame: BriefFrame }) {
 
             {/* ── Decider ──────────────────────────────────────── */}
             <BriefSection label="Decider">
-              <p className="m-0 font-sans text-[13px] leading-[1.65] text-studio-ink">
+              <p className="m-0 font-sans text-lg leading-[1.65] text-studio-ink">
                 <CodeInline>@qb</CodeInline> holds the call. Tie =
                 re-consult once, then commit. Blocker = halt and ask{" "}
                 <CodeInline>@arach</CodeInline> in{" "}
@@ -499,7 +499,7 @@ function BriefSurface({ frame }: { frame: BriefFrame }) {
 
             {/* ── Division of focus ───────────────────────────── */}
             <BriefSection label="Division of focus">
-              <p className="m-0 mb-2.5 font-sans text-[13px] leading-[1.65] text-studio-ink">
+              <p className="m-0 mb-2.5 font-sans text-lg leading-[1.65] text-studio-ink">
                 Three lanes, each held by one role dossier. No
                 overlap; if a finding crosses a seam, surface it in
                 the debrief rather than wiring around it.
@@ -528,7 +528,7 @@ function BriefSurface({ frame }: { frame: BriefFrame }) {
 
             {/* ── Boundaries ──────────────────────────────────── */}
             <BriefSection label="Boundaries">
-              <p className="m-0 font-sans text-[13px] leading-[1.65] text-studio-ink">
+              <p className="m-0 font-sans text-lg leading-[1.65] text-studio-ink">
                 In the lane: <CodeInline>packages/web/server/auth/</CodeInline>{" "}
                 and everything it imports; a read-only sweep of{" "}
                 <CodeInline>packages/runtime/session/</CodeInline>.
@@ -540,7 +540,7 @@ function BriefSurface({ frame }: { frame: BriefFrame }) {
 
             {/* ── Latitude ────────────────────────────────────── */}
             <BriefSection label="Latitude">
-              <p className="m-0 mb-2 font-sans text-[13px] leading-[1.65] text-studio-ink">
+              <p className="m-0 mb-2 font-sans text-lg leading-[1.65] text-studio-ink">
                 <Anchored
                   on={frame === "annotated" || frame === "anatomy"}
                   saved
@@ -556,7 +556,7 @@ function BriefSurface({ frame }: { frame: BriefFrame }) {
               <LatitudeStrip dial={2} />
             </BriefSection>
 
-            <footer className="mt-7 border-t border-studio-edge pt-4 font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+            <footer className="mt-7 border-t border-studio-edge pt-4 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
               countersign on dispatch · est. 4–6h
             </footer>
           </div>
@@ -614,7 +614,7 @@ function MissionParagraph({ frame }: { frame: BriefFrame }) {
 
   return (
     <p
-      className="m-0 font-sans text-[13.5px] leading-[1.7] text-studio-ink"
+      className="m-0 font-sans text-lg leading-[1.7] text-studio-ink"
       style={{ textWrap: "pretty" as CSSProperties["textWrap"] }}
     >
       Walk the auth middleware end-to-end and surface every place
@@ -747,15 +747,15 @@ function MarginAnnotation({
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex items-baseline gap-1.5">
             <AnnotationMarkGlyph />
-            <span className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink">
+            <span className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink">
               {byline}
             </span>
-            <span className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+            <span className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
               · {tag}
             </span>
           </div>
           <p
-            className="m-0 font-sans text-[11.5px] italic leading-[1.5] text-studio-ink"
+            className="m-0 font-sans text-sm italic leading-[1.5] text-studio-ink"
             style={{ textWrap: "pretty" as CSSProperties["textWrap"] }}
           >
             &ldquo;{excerpt}&rdquo;
@@ -786,7 +786,7 @@ function AnnotationStateLine({
         : "var(--studio-ink-faint)";
   return (
     <div
-      className="mt-1 flex items-baseline gap-1.5 font-mono text-[8.5px] uppercase tracking-eyebrow"
+      className="mt-1 flex items-baseline gap-1.5 font-mono text-3xs uppercase tracking-eyebrow"
       style={{ color }}
     >
       <span
@@ -809,7 +809,7 @@ function AnnotationStateLine({
 
 function BatchHandoffAction({ count }: { count: number }) {
   return (
-    <span className="inline-flex items-baseline gap-1.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink">
+    <span className="inline-flex items-baseline gap-1.5 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink">
       <SendArrowGlyph warm />
       <span>hand annotations to agent</span>
       <span className="text-studio-ink-faint">({count})</span>
@@ -896,14 +896,14 @@ function SendStoryboard() {
   return (
     <div className="rounded-md border border-studio-edge bg-studio-canvas-alt p-5">
       <header className="mb-4 flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-studio-edge pb-3">
-        <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink">
+        <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink">
           · send · one feedback now
         </span>
-        <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           for
         </span>
         <AgentHandle name={TASK.agent} hue={TASK.agentHue} />
-        <span className="ml-auto font-mono text-[9px] italic text-studio-ink-faint">
+        <span className="ml-auto font-mono text-2xs italic text-studio-ink-faint">
           processing → resolved · same span
         </span>
       </header>
@@ -911,7 +911,7 @@ function SendStoryboard() {
         <StoryFrame label="processing">
           <SpanCard>
             <p
-              className="m-0 font-sans text-[12.5px] leading-[1.65] text-studio-ink"
+              className="m-0 font-sans text-md leading-[1.65] text-studio-ink"
               style={{ textWrap: "pretty" as CSSProperties["textWrap"] }}
             >
               <span style={{ opacity: 0.55 }}>{MISSION_PRE}</span>
@@ -961,7 +961,7 @@ function StoryFrame({
           className="block h-1.5 w-1.5 rounded-full"
           style={{ background: "var(--studio-ink-faint)" }}
         />
-        <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink">
+        <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink">
           {label}
         </span>
       </div>
@@ -980,7 +980,7 @@ function SpanCard({ children }: { children: ReactNode }) {
       style={{ minHeight: 110 }}
     >
       {/* Tiny eyebrow naming the span we're addressing */}
-      <div className="mb-1.5 flex items-baseline justify-between gap-2 font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="mb-1.5 flex items-baseline justify-between gap-2 font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
         <span>· mission · &ldquo;a read of where we stand.&rdquo;</span>
       </div>
       {children}
@@ -1031,7 +1031,7 @@ function MissionDeltaProse() {
   void MISSION_POST;
   return (
     <p
-      className="m-0 font-sans text-[12.5px] leading-[1.7] text-studio-ink"
+      className="m-0 font-sans text-md leading-[1.7] text-studio-ink"
       style={{ textWrap: "pretty" as CSSProperties["textWrap"] }}
     >
       <DeltaIn>Every gap in our auth middleware is a path an attacker can walk</DeltaIn>{" "}
@@ -1086,7 +1086,7 @@ function DeltaOut({ children }: { children: ReactNode }) {
 function ProcessingBadge() {
   return (
     <span
-      className="flex items-center gap-2 rounded-full border border-studio-edge px-2.5 py-1 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink"
+      className="flex items-center gap-2 rounded-full border border-studio-edge px-2.5 py-1 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink"
       style={{
         background:
           "color-mix(in oklab, var(--studio-canvas) 88%, transparent)",
@@ -1113,14 +1113,14 @@ function BatchStoryboard() {
   return (
     <div className="rounded-md border border-studio-edge bg-studio-canvas-alt p-5">
       <header className="mb-4 flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-studio-edge pb-3">
-        <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink">
+        <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink">
           · save · several at once, handed in one envelope
         </span>
-        <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           for
         </span>
         <AgentHandle name={TASK.agent} hue={TASK.agentHue} />
-        <span className="ml-auto font-mono text-[9px] italic text-studio-ink-faint">
+        <span className="ml-auto font-mono text-2xs italic text-studio-ink-faint">
           three annotations → addressed · deferred · acknowledged
         </span>
       </header>
@@ -1149,7 +1149,7 @@ function BatchMiniBrief({ mode }: { mode: "before" | "after" }) {
     <article
       className="overflow-hidden rounded-md border border-studio-edge bg-studio-surface"
     >
-      <div className="flex items-baseline justify-between gap-3 border-b border-studio-edge px-3 py-2 font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="flex items-baseline justify-between gap-3 border-b border-studio-edge px-3 py-2 font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
         <span>brief · {TASK.id}</span>
         {mode === "before" ? (
           <BatchHandoffAction count={3} />
@@ -1169,12 +1169,12 @@ function BatchMiniBrief({ mode }: { mode: "before" | "after" }) {
           <div className="space-y-3.5">
             {/* Mission */}
             <section>
-              <h3 className="mb-1 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+              <h3 className="mb-1 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
                 · mission
               </h3>
               {mode === "before" ? (
                 <p
-                  className="m-0 font-sans text-[11.5px] leading-[1.6] text-studio-ink"
+                  className="m-0 font-sans text-sm leading-[1.6] text-studio-ink"
                   style={{ textWrap: "pretty" as CSSProperties["textWrap"] }}
                 >
                   Walk the auth middleware end-to-end and surface every
@@ -1185,7 +1185,7 @@ function BatchMiniBrief({ mode }: { mode: "before" | "after" }) {
                 </p>
               ) : (
                 <p
-                  className="m-0 font-sans text-[11.5px] leading-[1.65] text-studio-ink"
+                  className="m-0 font-sans text-sm leading-[1.65] text-studio-ink"
                   style={{ textWrap: "pretty" as CSSProperties["textWrap"] }}
                 >
                   <DeltaIn>Every gap is a path an attacker can walk</DeltaIn>{" "}
@@ -1201,12 +1201,12 @@ function BatchMiniBrief({ mode }: { mode: "before" | "after" }) {
 
             {/* Collaboration */}
             <section>
-              <h3 className="mb-1 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+              <h3 className="mb-1 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
                 · collaboration shape
               </h3>
               {mode === "before" ? (
                 <p
-                  className="m-0 font-sans text-[11.5px] leading-[1.6] text-studio-ink"
+                  className="m-0 font-sans text-sm leading-[1.6] text-studio-ink"
                   style={{ textWrap: "pretty" as CSSProperties["textWrap"] }}
                 >
                   Consult with{" "}
@@ -1217,7 +1217,7 @@ function BatchMiniBrief({ mode }: { mode: "before" | "after" }) {
                 </p>
               ) : (
                 <p
-                  className="m-0 font-sans text-[11.5px] leading-[1.65] text-studio-ink"
+                  className="m-0 font-sans text-sm leading-[1.65] text-studio-ink"
                   style={{ textWrap: "pretty" as CSSProperties["textWrap"] }}
                 >
                   Consult with{" "}
@@ -1235,11 +1235,11 @@ function BatchMiniBrief({ mode }: { mode: "before" | "after" }) {
 
             {/* Latitude */}
             <section>
-              <h3 className="mb-1 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+              <h3 className="mb-1 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
                 · latitude
               </h3>
               <p
-                className="m-0 font-sans text-[11.5px] leading-[1.6] text-studio-ink"
+                className="m-0 font-sans text-sm leading-[1.6] text-studio-ink"
                 style={{ textWrap: "pretty" as CSSProperties["textWrap"] }}
               >
                 <Anchored on saved>Decide and log</Anchored> — rank
@@ -1302,7 +1302,7 @@ function BatchMiniBrief({ mode }: { mode: "before" | "after" }) {
         </aside>
       </div>
       {mode === "after" ? (
-        <div className="border-t border-studio-edge px-4 py-2 font-mono text-[9px] italic text-studio-ink-faint">
+        <div className="border-t border-studio-edge px-4 py-2 font-mono text-2xs italic text-studio-ink-faint">
           @hudson · &ldquo;held latitude as-is — token-rotation
           carve-out is narrower than the existing `decide &amp; log`
           posture; ask-backs would multiply for no win.&rdquo;
@@ -1336,7 +1336,7 @@ function Anatomy() {
           <Marker letter="F" style={{ top: "3%", right: "8%" }} />
         </div>
       </div>
-      <dl className="m-0 space-y-3 font-mono text-[10.5px]">
+      <dl className="m-0 space-y-3 font-mono text-xs">
         <AnatomyItem letter="A" label="Readable brief body">
           A single editorial column, narrative paragraphs, the same
           shape as the operator-brief specimen. The operator reads it
@@ -1387,7 +1387,7 @@ function AnatomyItem({
     <div className="flex items-baseline gap-3">
       <span
         aria-hidden
-        className="grid h-5 w-5 shrink-0 place-items-center rounded-full border font-mono text-[9px] font-semibold"
+        className="grid h-5 w-5 shrink-0 place-items-center rounded-full border font-mono text-2xs font-semibold"
         style={{
           borderColor: "var(--scout-accent)",
           color: "var(--scout-accent)",
@@ -1399,7 +1399,7 @@ function AnatomyItem({
         <dt className="uppercase tracking-eyebrow text-studio-ink">
           {label}
         </dt>
-        <dd className="font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+        <dd className="font-sans text-md leading-relaxed text-studio-ink-faint">
           {children}
         </dd>
       </div>
@@ -1417,7 +1417,7 @@ function Marker({
   return (
     <span
       aria-hidden
-      className="absolute grid h-5 w-5 place-items-center rounded-full font-mono text-[9.5px] font-semibold"
+      className="absolute grid h-5 w-5 place-items-center rounded-full font-mono text-2xs font-semibold"
       style={{
         background: "var(--studio-canvas)",
         border: "1.2px solid var(--scout-accent)",
@@ -1446,10 +1446,10 @@ function SnapInFrame({
   return (
     <div className="rounded-md border border-studio-edge bg-studio-canvas-alt">
       <div className="flex items-baseline justify-between border-b border-studio-edge px-3 py-2">
-        <span className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink">
+        <span className="font-mono text-xs uppercase tracking-eyebrow text-studio-ink">
           {title}
         </span>
-        <span className="font-mono text-[9px] text-studio-ink-faint">
+        <span className="font-mono text-2xs text-studio-ink-faint">
           {caption}
         </span>
       </div>
@@ -1474,10 +1474,10 @@ function ArrangementsGlossary() {
             className="rounded-[3px] border border-studio-edge bg-studio-canvas px-2.5 py-2"
           >
             <div className="flex items-baseline gap-2">
-              <span className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink">
+              <span className="font-mono text-xs uppercase tracking-eyebrow text-studio-ink">
                 {it.name}
               </span>
-              <span className="font-mono text-[8.5px] italic text-studio-ink-faint">
+              <span className="font-mono text-3xs italic text-studio-ink-faint">
                 {it.gloss}
               </span>
             </div>
@@ -1486,7 +1486,7 @@ function ArrangementsGlossary() {
         ))}
       </ul>
       <p
-        className="mt-2.5 m-0 font-sans text-[11.5px] italic leading-relaxed text-studio-ink-faint"
+        className="mt-2.5 m-0 font-sans text-sm italic leading-relaxed text-studio-ink-faint"
         style={{ opacity: 0.85 }}
       >
         Reference. The operator says{" "}
@@ -1494,7 +1494,7 @@ function ArrangementsGlossary() {
           &ldquo;consult two reviewers, one decider&rdquo;
         </span>{" "}
         and the agent snaps in{" "}
-        <span className="not-italic font-mono text-[11px] text-studio-ink">
+        <span className="not-italic font-mono text-sm text-studio-ink">
           Consult
         </span>
         . There is no tile to click.
@@ -1553,23 +1553,23 @@ function RolesGlossary() {
             >
               <DossierMark hue={r.hue} />
               <span
-                className="font-display text-[14px] leading-none tracking-tight"
+                className="font-display text-xl leading-none tracking-tight"
                 style={{ color: `oklch(0.94 0.06 ${r.hue})` }}
               >
                 {r.codename}
               </span>
-              <span className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-muted">
+              <span className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-muted">
                 {r.classification}
               </span>
             </div>
-            <p className="m-0 px-2.5 py-1.5 font-sans text-[12px] leading-snug text-studio-ink">
+            <p className="m-0 px-2.5 py-1.5 font-sans text-md leading-snug text-studio-ink">
               {r.oneline}
             </p>
           </li>
         ))}
       </ul>
       <p
-        className="mt-2.5 m-0 font-sans text-[11.5px] italic leading-relaxed text-studio-ink-faint"
+        className="mt-2.5 m-0 font-sans text-sm italic leading-relaxed text-studio-ink-faint"
         style={{ opacity: 0.85 }}
       >
         Reference. The operator says{" "}
@@ -1595,7 +1595,7 @@ function BriefSection({
 }) {
   return (
     <section className="mt-6">
-      <h3 className="mb-2 font-mono text-[9.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <h3 className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · {label}
       </h3>
       {children}
@@ -1605,7 +1605,7 @@ function BriefSection({
 
 function CodeInline({ children }: { children: ReactNode }) {
   return (
-    <code className="font-mono text-[12px] text-studio-ink">{children}</code>
+    <code className="font-mono text-md text-studio-ink">{children}</code>
   );
 }
 
@@ -1626,13 +1626,13 @@ function PartitionRow({
       style={{ background: "var(--studio-canvas-alt)" }}
     >
       <DossierMark hue={HUE[agent]} />
-      <span className="font-mono text-[10.5px] uppercase tracking-eyebrow text-studio-ink">
+      <span className="font-mono text-xs uppercase tracking-eyebrow text-studio-ink">
         {label}
       </span>
-      <span className="font-sans text-[12px] leading-snug text-studio-ink">
+      <span className="font-sans text-md leading-snug text-studio-ink">
         {slice}
       </span>
-      <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         held: {held}
       </span>
     </div>
@@ -1679,7 +1679,7 @@ function LatitudeStrip({ dial }: { dial: number }) {
                 }}
               />
               <span
-                className="absolute top-4 whitespace-nowrap font-mono text-[8.5px] uppercase tracking-eyebrow"
+                className="absolute top-4 whitespace-nowrap font-mono text-3xs uppercase tracking-eyebrow"
                 style={{
                   color: active
                     ? "var(--studio-ink)"
@@ -2025,7 +2025,7 @@ function DossierMark({ hue }: { hue: number }) {
 function AgentHandle({ name, hue }: { name: string; hue: number }) {
   return (
     <span
-      className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink"
+      className="font-mono text-xs uppercase tracking-eyebrow text-studio-ink"
       style={{
         background: `linear-gradient(90deg, oklch(0.74 0.15 ${hue}) 0 5px, transparent 5px)`,
         paddingLeft: 9,
@@ -2046,7 +2046,7 @@ function Dot() {
 
 function Eyebrow() {
   return (
-    <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+    <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
       · studies · web · operator-brief · brief-author
     </div>
   );
@@ -2063,11 +2063,11 @@ function SectionTitle({
 }) {
   return (
     <div className={`flex items-baseline gap-3 ${className}`}>
-      <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · {children}
       </div>
       {hint ? (
-        <div className="font-mono text-[10px] text-studio-ink-faint">
+        <div className="font-mono text-xs text-studio-ink-faint">
           {hint}
         </div>
       ) : null}

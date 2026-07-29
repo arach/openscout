@@ -98,9 +98,9 @@ function Dot({ color = ACCENT, size = 6 }: { color?: string; size?: number }) {
 function SectionRule({ label, meta }: { label: string; meta?: React.ReactNode }) {
   return (
     <div className="mb-3.5 flex items-baseline gap-3">
-      <span className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.2em] text-studio-ink-faint">{label}</span>
+      <span className="font-mono text-3xs font-semibold uppercase tracking-[0.2em] text-studio-ink-faint">{label}</span>
       <span className="h-px flex-1" style={{ background: INK.edgeSoft }} />
-      {meta != null ? <span className="font-mono text-[8.5px] tabular-nums text-studio-ink-faint">{meta}</span> : null}
+      {meta != null ? <span className="font-mono text-3xs tabular-nums text-studio-ink-faint">{meta}</span> : null}
     </div>
   );
 }
@@ -115,12 +115,12 @@ function DefList({ fields }: { fields: Field[] }) {
     >
       {fields.map((f) => (
         <React.Fragment key={f.k}>
-          <dt className="pt-px font-mono text-[8.5px] uppercase tracking-[0.14em] text-studio-ink-faint">{f.k}</dt>
+          <dt className="pt-px font-mono text-3xs uppercase tracking-[0.14em] text-studio-ink-faint">{f.k}</dt>
           <dd className="min-w-0">
-            <span className={`block truncate ${f.mono ? "font-mono text-[12px]" : "text-[13px]"}`} style={{ color: "var(--studio-ink)" }}>
+            <span className={`block truncate ${f.mono ? "font-mono text-md" : "text-lg"}`} style={{ color: "var(--studio-ink)" }}>
               {f.v}
             </span>
-            {f.sub ? <span className="mt-0.5 block truncate font-mono text-[9px] text-studio-ink-faint">{f.sub}</span> : null}
+            {f.sub ? <span className="mt-0.5 block truncate font-mono text-2xs text-studio-ink-faint">{f.sub}</span> : null}
           </dd>
         </React.Fragment>
       ))}
@@ -136,19 +136,19 @@ function Masthead() {
       <div className="flex items-start gap-4">
         <Avatar size={52} />
         <div className="min-w-0 flex-1 pt-0.5">
-          <div className="font-mono text-[8.5px] uppercase tracking-[0.2em] text-studio-ink-faint">
+          <div className="font-mono text-3xs uppercase tracking-[0.2em] text-studio-ink-faint">
             agent <span className="px-1 text-studio-ink-faint">·</span> harness claude
           </div>
-          <h2 className="mt-1.5 font-display text-[30px] font-medium leading-none tracking-tight" style={{ color: "var(--studio-ink)" }}>
+          <h2 className="mt-1.5 font-display text-6xl font-medium leading-none tracking-tight" style={{ color: "var(--studio-ink)" }}>
             Openscout Card 0
           </h2>
           <div className="mt-2 flex items-center gap-2.5">
-            <span className="font-mono text-[11px]" style={{ color: "oklch(0.7 0.08 200)" }}>@openscout-card-0-lxrq1a</span>
-            <span className="font-mono text-[9px] text-studio-ink-faint">·</span>
+            <span className="font-mono text-sm" style={{ color: "oklch(0.7 0.08 200)" }}>@openscout-card-0-lxrq1a</span>
+            <span className="font-mono text-2xs text-studio-ink-faint">·</span>
             <span className="inline-flex items-center gap-1.5">
               <Dot />
-              <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--studio-ink)" }}>Ready</span>
-              <span className="font-mono text-[8.5px] text-studio-ink-faint">updated 2m ago</span>
+              <span className="font-mono text-2xs font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--studio-ink)" }}>Ready</span>
+              <span className="font-mono text-3xs text-studio-ink-faint">updated 2m ago</span>
             </span>
           </div>
         </div>
@@ -169,10 +169,10 @@ function RecentWork() {
             {i < RECENT.length - 1 ? <span className="w-px flex-1" style={{ background: INK.edgeSoft }} /> : null}
           </div>
           <div className="flex min-w-0 flex-1 items-baseline justify-between gap-3 pb-3.5">
-            <span className="truncate text-[12.5px]" style={{ color: "var(--studio-ink-muted, oklch(0.76 0.012 80))" }}>{w.title}</span>
+            <span className="truncate text-md" style={{ color: "var(--studio-ink-muted, oklch(0.76 0.012 80))" }}>{w.title}</span>
             <span className="flex flex-none items-center gap-2">
-              <span className="font-mono text-[8px] uppercase tracking-[0.12em] text-studio-ink-faint">done</span>
-              <span className="font-mono text-[9px] tabular-nums text-studio-ink-faint">{w.ago}</span>
+              <span className="font-mono text-3xs uppercase tracking-[0.12em] text-studio-ink-faint">done</span>
+              <span className="font-mono text-2xs tabular-nums text-studio-ink-faint">{w.ago}</span>
             </span>
           </div>
         </li>
@@ -203,7 +203,7 @@ function CenterPage() {
 
       {/* quiet closing status line — the page resolves rather than trailing off */}
       <div className="mt-auto pt-6">
-        <div className="flex items-center gap-2 font-mono text-[9px] text-studio-ink-faint">
+        <div className="flex items-center gap-2 font-mono text-2xs text-studio-ink-faint">
           <Dot size={5} />
           <span className="uppercase tracking-[0.14em]">Ready</span>
           <span>· no active task · last activity now</span>
@@ -219,8 +219,8 @@ function RailSection({ label, meta, children }: { label: string; meta?: React.Re
   return (
     <div>
       <div className="mb-2.5 flex items-baseline justify-between">
-        <span className="font-mono text-[8px] font-semibold uppercase tracking-[0.18em] text-studio-ink-faint">{label}</span>
-        {meta != null ? <span className="font-mono text-[8.5px] tabular-nums text-studio-ink-faint">{meta}</span> : null}
+        <span className="font-mono text-3xs font-semibold uppercase tracking-[0.18em] text-studio-ink-faint">{label}</span>
+        {meta != null ? <span className="font-mono text-3xs tabular-nums text-studio-ink-faint">{meta}</span> : null}
       </div>
       {children}
     </div>
@@ -262,8 +262,8 @@ function PeerList() {
         return (
           <div key={p.name} className="flex items-center gap-2 py-[1px]">
             <Dot color={color} size={5} />
-            <span className="font-mono text-[10px]" style={{ color: live ? "var(--studio-ink)" : "var(--studio-ink-muted, oklch(0.76 0.012 80))" }}>{p.name}</span>
-            <span className="ml-auto font-mono text-[8px] uppercase tracking-[0.1em] text-studio-ink-faint">{p.state}</span>
+            <span className="font-mono text-xs" style={{ color: live ? "var(--studio-ink)" : "var(--studio-ink-muted, oklch(0.76 0.012 80))" }}>{p.name}</span>
+            <span className="ml-auto font-mono text-3xs uppercase tracking-[0.1em] text-studio-ink-faint">{p.state}</span>
           </div>
         );
       })}
@@ -275,13 +275,13 @@ function ContextGauge() {
   return (
     <div>
       <div className="flex items-baseline justify-between">
-        <span className="font-mono text-[16px] leading-none tabular-nums" style={{ color: "var(--studio-ink)" }}>0%</span>
-        <span className="font-mono text-[8px] uppercase tracking-[0.1em] text-studio-ink-faint">used</span>
+        <span className="font-mono text-2xl leading-none tabular-nums" style={{ color: "var(--studio-ink)" }}>0%</span>
+        <span className="font-mono text-3xs uppercase tracking-[0.1em] text-studio-ink-faint">used</span>
       </div>
       <div className="mt-2 h-[3px] w-full overflow-hidden rounded-full" style={{ background: INK.edgeSoft }}>
         <div className="h-full rounded-full" style={{ width: "1%", background: ACCENT }} />
       </div>
-      <div className="mt-1.5 font-mono text-[8.5px] text-studio-ink-faint">0 turns · last activity now</div>
+      <div className="mt-1.5 font-mono text-3xs text-studio-ink-faint">0 turns · last activity now</div>
     </div>
   );
 }
@@ -290,7 +290,7 @@ function Caps() {
   return (
     <div className="flex flex-wrap gap-1">
       {CAPS.map((c) => (
-        <span key={c} className="rounded-[3px] px-1.5 py-[2px] font-mono text-[8.5px]" style={{ background: INK.module, color: "var(--studio-ink-muted, oklch(0.76 0.012 80))" }}>
+        <span key={c} className="rounded-[3px] px-1.5 py-[2px] font-mono text-3xs" style={{ background: INK.module, color: "var(--studio-ink-muted, oklch(0.76 0.012 80))" }}>
           {c}
         </span>
       ))}
@@ -302,9 +302,9 @@ function SessionRow() {
   return (
     <div className="flex items-center gap-2 rounded-[4px] px-2 py-1.5" style={{ border: `1px solid color-mix(in srgb, var(--scout-accent) 35%, transparent)`, background: "color-mix(in srgb, var(--scout-accent) 7%, transparent)" }}>
       <Dot />
-      <span className="font-mono text-[10px]" style={{ color: "var(--studio-ink)" }}>a1b2c3d4</span>
-      <span className="rounded-sm px-1 font-mono text-[7px] uppercase tracking-[0.08em] text-studio-ink-faint" style={{ background: INK.module }}>tmux</span>
-      <span className="ml-auto font-mono text-[7.5px] uppercase tracking-[0.12em]" style={{ color: ACCENT }}>active</span>
+      <span className="font-mono text-xs" style={{ color: "var(--studio-ink)" }}>a1b2c3d4</span>
+      <span className="rounded-sm px-1 font-mono text-3xs uppercase tracking-[0.08em] text-studio-ink-faint" style={{ background: INK.module }}>tmux</span>
+      <span className="ml-auto font-mono text-3xs uppercase tracking-[0.12em]" style={{ color: ACCENT }}>active</span>
     </div>
   );
 }
@@ -313,10 +313,10 @@ function Rail() {
   return (
     <div className="flex w-[228px] flex-none flex-col" style={{ background: INK.panel, borderLeft: `1px solid ${INK.edge}` }}>
       <div className="flex h-[30px] flex-none items-center gap-2 px-3" style={{ borderBottom: `1px solid ${INK.edgeSoft}` }}>
-        <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">Instrument</span>
+        <span className="font-mono text-2xs font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">Instrument</span>
         <span className="ml-auto inline-flex items-center gap-1.5">
           <Dot size={5} />
-          <span className="font-mono text-[8px] uppercase tracking-[0.12em] text-studio-ink-faint">live</span>
+          <span className="font-mono text-3xs uppercase tracking-[0.12em] text-studio-ink-faint">live</span>
         </span>
       </div>
       <div className="flex flex-col gap-5 p-3.5">
@@ -353,7 +353,7 @@ export function Frame() {
           <span className="h-2.5 w-2.5 rounded-full" style={{ background: INK.edge }} />
           <span className="h-2.5 w-2.5 rounded-full" style={{ background: INK.edge }} />
         </span>
-        <span className="ml-2 font-mono text-[9px] uppercase tracking-[0.14em] text-studio-ink-faint">Agents · Openscout Card 0</span>
+        <span className="ml-2 font-mono text-2xs uppercase tracking-[0.14em] text-studio-ink-faint">Agents · Openscout Card 0</span>
       </div>
       <div className="flex" style={{ minHeight: 540 }}>
         <CenterPage />
@@ -369,13 +369,13 @@ export default function AgentProfileDossierPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-6 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · agent-profile-dossier
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Agent Profile · the Dossier
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           The profile reset as a composed editorial page. An identity masthead, the full static
           record laid out as aligned definition lists under thin section rules — no boxed-cell
           grid, no dead canvas. The right rail narrows to a pure live Instrument and stops
@@ -386,13 +386,13 @@ export default function AgentProfileDossierPage() {
       <Frame />
 
       <section className="mt-9 max-w-prose">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">
           Design notes
         </div>
-        <ul className="flex flex-col gap-2 text-[12px] leading-relaxed text-studio-ink-faint">
+        <ul className="flex flex-col gap-2 text-md leading-relaxed text-studio-ink-faint">
           <li>
             <span style={{ color: "var(--studio-ink)" }}>Definition lists, not cells →</span> facts are a
-            two-column <code className="font-mono text-[11px]">label → value</code> grid aligned on a shared
+            two-column <code className="font-mono text-sm">label → value</code> grid aligned on a shared
             baseline, grouped under <span style={{ color: "var(--studio-ink)" }}>Identity</span> and{" "}
             <span style={{ color: "var(--studio-ink)" }}>Project</span> by thin section rules. No boxes to
             balloon, no two cells stretching to fill a row — hierarchy is type weight + alignment.

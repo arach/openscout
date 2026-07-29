@@ -50,7 +50,7 @@ export function HudScoutLink({
       aria-label={`Open ${kind} ${id} in Scout`}
       className={[
         "inline-flex h-[14px] items-center justify-center px-[3px]",
-        "font-mono text-[11px] leading-none text-studio-ink-faint",
+        "font-mono text-sm leading-none text-studio-ink-faint",
         "transition-opacity hover:text-studio-ink-muted",
         gate ? "opacity-0 group-hover:opacity-100" : "opacity-100",
       ].join(" ")}

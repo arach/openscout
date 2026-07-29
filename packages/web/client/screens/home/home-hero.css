@@ -167,7 +167,7 @@
 }
 
 .hd-gauge-set {
-  --hd-gauge-columns: minmax(104px, 138px) minmax(140px, 1.1fr) minmax(68px, 0.55fr) minmax(140px, 1.1fr) minmax(68px, 0.55fr);
+  --hd-gauge-columns: minmax(104px, 138px) minmax(140px, 1.1fr) minmax(68px, 0.55fr) minmax(140px, 1.1fr) minmax(104px, 0.72fr);
   width: 100%;
   min-width: 0;
   display: grid;
@@ -335,6 +335,47 @@
   color: var(--amber);
 }
 
+.hd-gauge-reset--featured {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-3xs);
+  padding: var(--space-xs) var(--space-sm);
+  border: var(--hd-hair);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  line-height: var(--leading-none);
+}
+
+.hd-gauge-reset--featured strong {
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 640;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.hd-gauge-reset--featured time,
+.hd-gauge-reset--featured > span {
+  color: var(--dim);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.hd-gauge-reset--imminent strong,
+.hd-gauge-reset--due strong {
+  color: var(--amber);
+}
+
+.hd-gauge-reset--due {
+  border-color: color-mix(in srgb, var(--amber) 42%, var(--border));
+  background: color-mix(in srgb, var(--amber) 7%, var(--bg));
+}
+
+.hd-gauge-reset--stale strong {
+  color: var(--dim);
+}
+
 .hd-gauge-dot {
   width: 5px;
   height: 5px;
@@ -378,7 +419,7 @@
   }
 
   .hd-gauge-set {
-    --hd-gauge-columns: minmax(88px, 112px) minmax(124px, 1fr) minmax(62px, auto) minmax(124px, 1fr) minmax(62px, auto);
+    --hd-gauge-columns: minmax(88px, 112px) minmax(124px, 1fr) minmax(62px, auto) minmax(124px, 1fr) minmax(96px, auto);
   }
 }
 
@@ -386,16 +427,21 @@
   .hd-gauge-set {
     overflow-x: auto;
     padding-bottom: var(--space-2xs);
-    --hd-gauge-columns: 88px 132px 64px 132px 64px;
+    --hd-gauge-columns: 88px 132px 64px 132px 104px;
   }
 
   .hd-gauge,
   .hd-gauge-table-head {
-    min-width: 520px;
+    min-width: 560px;
   }
 
   .hd-gauge-cell--usage {
     grid-template-columns: 28px minmax(48px, 1fr) minmax(36px, auto);
+  }
+
+  .hd-gauge-reset--featured time,
+  .hd-gauge-reset--featured > span {
+    display: none;
   }
 }
 

@@ -35,7 +35,7 @@ export function ArtifactPicker({
 
   if (files.length === 0) {
     return (
-      <pre className="px-3 py-2 font-mono text-[10.5px] text-studio-ink-faint">
+      <pre className="px-3 py-2 font-mono text-xs text-studio-ink-faint">
         {emptyMessage ?? "no files"}
       </pre>
     );
@@ -54,8 +54,8 @@ export function ArtifactPicker({
 
   return (
     <div className="grid grid-cols-1 gap-px bg-studio-edge md:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
-      <ul className="divide-y divide-studio-edge bg-studio-canvas font-mono text-[10.5px]">
-        <li className="grid grid-cols-[minmax(0,1fr)_64px] gap-2 border-b border-studio-edge px-3 py-1.5 text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <ul className="divide-y divide-studio-edge bg-studio-canvas font-mono text-xs">
+        <li className="grid grid-cols-[minmax(0,1fr)_64px] gap-2 border-b border-studio-edge px-3 py-1.5 text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           <span>file</span>
           <span className="text-right">bytes</span>
         </li>
@@ -84,10 +84,10 @@ export function ArtifactPicker({
         })}
       </ul>
       <div className="bg-studio-canvas">
-        <div className="border-b border-studio-edge px-3 py-1.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="border-b border-studio-edge px-3 py-1.5 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           preview · {selected.name}
         </div>
-        <pre className="max-h-[420px] overflow-auto px-3 py-2 font-mono text-[10.5px] leading-relaxed text-studio-ink">
+        <pre className="max-h-[420px] overflow-auto px-3 py-2 font-mono text-xs leading-relaxed text-studio-ink">
           {selected.content || "(empty)"}
         </pre>
       </div>

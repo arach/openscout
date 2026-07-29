@@ -45,6 +45,29 @@ const PANEL_W = 320;
 const PANEL_H_ESTIMATE = 260;
 const GAP = 8;
 
+/**
+ * A bare string is its own value AND its own display text — the original shape,
+ * still accepted. The object form separates them so a caller with a real catalog
+ * can show "Opus 5" while the value stays the round-tripping id `claude-opus-5`,
+ * and can mark an option unselectable without dropping it from the list.
+ */
+export type RuntimeOption =
+  | string
+  | { value: string; label?: string; disabled?: boolean };
+
+type NormalizedOption = { value: string; label: string; disabled: boolean };
+
+function normalizeOption(option: RuntimeOption): NormalizedOption {
+  if (typeof option === "string") {
+    return { value: option, label: option, disabled: false };
+  }
+  return {
+    value: option.value,
+    label: option.label ?? option.value,
+    disabled: option.disabled ?? false,
+  };
+}
+
 export type RuntimePickerProps = {
   harness: string;
   model: string;
@@ -54,8 +77,8 @@ export type RuntimePickerProps = {
   onModelChange: (value: string) => void;
   onEffortChange?: (value: string) => void;
   /** Flat lists, as the callers already build them. `""` is added as Default. */
-  harnessOptions: readonly string[];
-  modelOptions: readonly string[];
+  harnessOptions: readonly RuntimeOption[];
+  modelOptions: readonly RuntimeOption[];
   /** Capability-filtered values for the selected harness/model. */
   effortOptions?: readonly { value: string; label: string }[];
   /** Off by default — see the note above. */
@@ -85,8 +108,10 @@ function Chevron() {
   );
 }
 
-function withDefault(options: readonly string[]): string[] {
-  return options.includes("") ? [...options] : ["", ...options];
+function withDefault(options: readonly RuntimeOption[]): NormalizedOption[] {
+  const normalized = options.map(normalizeOption);
+  if (normalized.some((option) => option.value === "")) return normalized;
+  return [{ value: "", label: "default", disabled: false }, ...normalized];
 }
 
 export function RuntimePicker({
@@ -181,6 +206,7 @@ export function RuntimePicker({
 
   const harnesses = withDefault(harnessOptions);
   const models = withDefault(modelOptions);
+  const modelLabel = models.find((option) => option.value === model)?.label ?? model;
   const activeEffort = Math.max(
     0,
     effortOptions.findIndex((e) => e.value === effort),
@@ -201,7 +227,7 @@ export function RuntimePicker({
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
-        aria-label={`Runtime: ${harnessLabel(harness) || "default"}, model ${model || "default"}${showEffort ? `, effort ${effortLabel}` : ""}`}
+        aria-label={`Runtime: ${harnessLabel(harness) || "default"}, model ${modelLabel || "default"}${showEffort ? `, effort ${effortLabel}` : ""}`}
         disabled={disabled}
         onClick={() => setOpen((v) => !v)}
       >
@@ -212,7 +238,9 @@ export function RuntimePicker({
           title={null}
         />
         <span className="s-rt-chip-type">
-          <span className="s-rt-chip-model">{model.trim() || "default"}</span>
+          {/* Display the catalog label when there is one — beside the harness mark,
+              a raw id like "claude-opus-5" spells "claude" a second time. */}
+          <span className="s-rt-chip-model">{modelLabel.trim() || "default"}</span>
           {showEffort ? (
             <>
               <span aria-hidden className="s-rt-chip-divider" />
@@ -248,22 +276,25 @@ export function RuntimePicker({
                 <div className="s-rt-options" role="radiogroup" aria-label="Harness">
                   {harnesses.map((option) => (
                     <button
-                      key={option || "default"}
+                      key={option.value || "default"}
                       type="button"
                       role="radio"
-                      aria-checked={option === harness}
+                      aria-checked={option.value === harness}
                       className="s-rt-opt"
-                      onClick={() => onHarnessChange(option)}
+                      /* Kept in the list but unselectable — a harness that is not
+                         installed is information, not something to hide. */
+                      disabled={option.disabled}
+                      onClick={() => onHarnessChange(option.value)}
                     >
-                      {option ? (
+                      {option.value ? (
                         <HarnessMark
-                          harness={option}
+                          harness={option.value}
                           size={13}
                           className="s-rt-opt-mark"
                           title={null}
                         />
                       ) : null}
-                      {option || "default"}
+                      {option.label || "default"}
                     </button>
                   ))}
                 </div>
@@ -274,14 +305,15 @@ export function RuntimePicker({
                 <div className="s-rt-options" role="listbox" aria-label="Model">
                   {models.map((option) => (
                     <button
-                      key={option || "default"}
+                      key={option.value || "default"}
                       type="button"
                       role="option"
-                      aria-selected={option === model}
+                      aria-selected={option.value === model}
                       className="s-rt-opt"
-                      onClick={() => onModelChange(option)}
+                      disabled={option.disabled}
+                      onClick={() => onModelChange(option.value)}
                     >
-                      {option || "default"}
+                      {option.label || "default"}
                     </button>
                   ))}
                 </div>

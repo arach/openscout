@@ -52,7 +52,7 @@ export default async function DataInspectorPage({
     <div className="flex max-w-5xl flex-col gap-5 px-8 py-8 text-studio-ink">
       <header className="flex flex-col gap-1">
         <h1 className="font-sans text-4xl font-medium tracking-tight">Session DB explorer</h1>
-        <p className="text-[12.5px] leading-relaxed text-studio-ink-faint">
+        <p className="text-md leading-relaxed text-studio-ink-faint">
           Make the shape of the{" "}
           <a className="underline-offset-4 hover:text-studio-ink hover:underline" href="/studies/session-search">
             session-search
@@ -111,7 +111,7 @@ export default async function DataInspectorPage({
           })()}
         </>
       ) : (
-        <div className="rounded border border-studio-edge bg-studio-canvas-alt px-4 py-6 text-[12.5px] text-studio-ink-faint">
+        <div className="rounded border border-studio-edge bg-studio-canvas-alt px-4 py-6 text-md text-studio-ink-faint">
           No databases found yet. Run the Index stage in the{" "}
           <a className="underline hover:text-studio-ink" href="/studies/session-search">
             session-search workbench
@@ -136,7 +136,7 @@ function DatabasesPanel({
 }) {
   if (databases.length === 0) {
     return (
-      <div className="px-3 py-3 font-mono text-[11px] text-studio-ink-faint">
+      <div className="px-3 py-3 font-mono text-sm text-studio-ink-faint">
         (no .db files yet)
       </div>
     );
@@ -149,7 +149,7 @@ function DatabasesPanel({
           <li key={d.path}>
             <a
               href={hrefFor(sp, { db: d.name, match: undefined, sql: undefined, force: undefined })}
-              className={`flex items-baseline justify-between gap-3 px-3 py-2 font-mono text-[11px] hover:bg-studio-canvas-alt ${active ? "bg-studio-canvas-alt text-studio-ink" : "text-studio-ink-faint"}`}
+              className={`flex items-baseline justify-between gap-3 px-3 py-2 font-mono text-sm hover:bg-studio-canvas-alt ${active ? "bg-studio-canvas-alt text-studio-ink" : "text-studio-ink-faint"}`}
             >
               <span className="flex items-baseline gap-2">
                 <span
@@ -196,10 +196,10 @@ async function SchemaCard({ dbPath, sp }: { dbPath: string; sp: Search }) {
 }
 
 function SchemaBody({ result }: { result: DbSchemaResult | undefined }) {
-  if (!result) return <pre className="px-3 py-2 font-mono text-[11px]">(no result)</pre>;
+  if (!result) return <pre className="px-3 py-2 font-mono text-sm">(no result)</pre>;
   if (result.tables.length === 0) {
     return (
-      <pre className="px-3 py-2 font-mono text-[11px] text-studio-ink-faint">
+      <pre className="px-3 py-2 font-mono text-sm text-studio-ink-faint">
         (no tables)
       </pre>
     );
@@ -225,19 +225,19 @@ function TableRow({ table }: { table: TableInfo }) {
   return (
     <div className="grid grid-cols-[160px_1fr_auto] items-baseline gap-3 px-3 py-2">
       <span className="flex flex-col">
-        <span className="font-mono text-[11.5px] text-studio-ink">{table.name}</span>
-        <span className={`font-mono text-[9px] uppercase tracking-eyebrow ${kindTone}`}>
+        <span className="font-mono text-sm text-studio-ink">{table.name}</span>
+        <span className={`font-mono text-2xs uppercase tracking-eyebrow ${kindTone}`}>
           {table.kind}
         </span>
       </span>
-      <span className="font-mono text-[10.5px] leading-relaxed text-studio-ink-faint">
+      <span className="font-mono text-xs leading-relaxed text-studio-ink-faint">
         {table.columns.length === 0
           ? "(no introspectable columns)"
           : table.columns
               .map((c) => `${c.name}${c.isPk ? "*" : ""}:${c.type || "any"}`)
               .join("  ")}
       </span>
-      <span className="font-mono text-[11px] tabular-nums text-studio-ink">
+      <span className="font-mono text-sm tabular-nums text-studio-ink">
         {table.rowCount.toLocaleString()}
       </span>
     </div>
@@ -280,21 +280,21 @@ function QueryCard({
   return (
     <div className="overflow-hidden rounded-[4px] border border-studio-edge bg-studio-canvas">
       <div className="flex items-center justify-between gap-3 border-b border-studio-edge bg-studio-canvas-alt px-3 py-1.5">
-        <span className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink">
+        <span className="flex items-center gap-2 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink">
           {heading}
         </span>
         <span className="flex items-center gap-2">
           {rerunHref ? (
             <RerunLink
               href={rerunHref}
-              className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint underline-offset-4 hover:text-studio-ink hover:underline"
+              className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint underline-offset-4 hover:text-studio-ink hover:underline"
               title="Force re-run, bypassing the cache"
               pendingLabel="running ↻"
             >
               re-run ↻
             </RerunLink>
           ) : null}
-          <span className={`font-mono text-[9px] uppercase tracking-eyebrow ${badge.tone}`}>
+          <span className={`font-mono text-2xs uppercase tracking-eyebrow ${badge.tone}`}>
             {badge.label}
           </span>
         </span>
@@ -302,11 +302,11 @@ function QueryCard({
 
       {form}
 
-      <div className="border-t border-studio-canvas-alt bg-studio-canvas-alt px-3 py-1.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="border-t border-studio-canvas-alt bg-studio-canvas-alt px-3 py-1.5 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         {resultLabel}
       </div>
       {run.error ? (
-        <pre className="overflow-x-auto px-3 py-2 font-mono text-[10.5px] leading-relaxed text-status-error-fg">
+        <pre className="overflow-x-auto px-3 py-2 font-mono text-xs leading-relaxed text-status-error-fg">
           {run.error}
         </pre>
       ) : (
@@ -314,16 +314,16 @@ function QueryCard({
       )}
 
       {footnote ? (
-        <div className="border-t border-studio-canvas-alt bg-studio-canvas-alt px-3 py-2 font-sans text-[11.5px] leading-relaxed text-studio-ink-faint">
+        <div className="border-t border-studio-canvas-alt bg-studio-canvas-alt px-3 py-2 font-sans text-sm leading-relaxed text-studio-ink-faint">
           {footnote}
         </div>
       ) : null}
 
       <details className="border-t border-studio-canvas-alt bg-studio-canvas-alt/40 group">
-        <summary className="cursor-pointer list-none px-3 py-1 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint hover:text-studio-ink">
+        <summary className="cursor-pointer list-none px-3 py-1 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint hover:text-studio-ink">
           as shell ›
         </summary>
-        <pre className="overflow-x-auto border-t border-studio-canvas-alt px-3 py-1.5 font-mono text-[10px] leading-relaxed text-studio-ink-faint">
+        <pre className="overflow-x-auto border-t border-studio-canvas-alt px-3 py-1.5 font-mono text-xs leading-relaxed text-studio-ink-faint">
           $ {shell}
         </pre>
       </details>
@@ -542,7 +542,7 @@ function AskBody({ result }: { result: AskResult | undefined }) {
   if (!result) return null;
   if (result.rejectedReason && result.hits.length === 0) {
     return (
-      <pre className="px-3 py-2 font-mono text-[11px] text-status-error-fg">
+      <pre className="px-3 py-2 font-mono text-sm text-status-error-fg">
         {result.rejectedReason}
       </pre>
     );
@@ -551,7 +551,7 @@ function AskBody({ result }: { result: AskResult | undefined }) {
 
   return (
     <div className="flex flex-col">
-      <div className="border-b border-studio-canvas-alt bg-studio-canvas-alt/40 px-3 py-1.5 font-mono text-[10px] text-studio-ink-faint">
+      <div className="border-b border-studio-canvas-alt bg-studio-canvas-alt/40 px-3 py-1.5 font-mono text-xs text-studio-ink-faint">
         <span className="uppercase tracking-eyebrow">searched for · </span>
         {result.extractedTerms.length === 0 ? (
           <span className="italic">no terms extracted</span>
@@ -572,7 +572,7 @@ function AskBody({ result }: { result: AskResult | undefined }) {
         ) : null}
       </div>
       {result.hits.length === 0 ? (
-        <pre className="px-3 py-2 font-mono text-[11px] text-studio-ink-faint">
+        <pre className="px-3 py-2 font-mono text-sm text-studio-ink-faint">
           {result.rejectedReason ?? "(no chunks matched these terms)"}
         </pre>
       ) : (
@@ -685,10 +685,10 @@ function ShortcutsPanel({ sp }: { sp: Search }) {
   return (
     <div className="overflow-hidden rounded-[4px] border border-studio-edge bg-studio-canvas">
       <div className="flex items-baseline justify-between border-b border-studio-edge bg-studio-canvas-alt px-3 py-1.5">
-        <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink">
+        <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink">
           shortcuts
         </span>
-        <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           click to load
         </span>
       </div>
@@ -711,14 +711,14 @@ function ShortcutsPanel({ sp }: { sp: Search }) {
                 className="block px-3 py-2 hover:bg-studio-canvas-alt"
               >
                 <div className="flex items-baseline justify-between gap-2">
-                  <span className="font-mono text-[11.5px] text-studio-ink">
+                  <span className="font-mono text-sm text-studio-ink">
                     {s.label}
                   </span>
-                  <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+                  <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
                     {s.mode === "match" ? "match" : "select"}
                   </span>
                 </div>
-                <div className="mt-0.5 truncate font-mono text-[10px] leading-relaxed text-studio-ink-faint">
+                <div className="mt-0.5 truncate font-mono text-xs leading-relaxed text-studio-ink-faint">
                   {preview}
                 </div>
               </Link>
@@ -734,14 +734,14 @@ function MatchBody({ result }: { result: MatchResult | undefined }) {
   if (!result) return null;
   if (result.rejectedReason) {
     return (
-      <pre className="px-3 py-2 font-mono text-[11px] text-status-error-fg">
+      <pre className="px-3 py-2 font-mono text-sm text-status-error-fg">
         {result.rejectedReason}
       </pre>
     );
   }
   if (result.hits.length === 0) {
     return (
-      <pre className="px-3 py-2 font-mono text-[11px] text-studio-ink-faint">
+      <pre className="px-3 py-2 font-mono text-sm text-studio-ink-faint">
         (no hits)
       </pre>
     );
@@ -759,16 +759,16 @@ function MatchHitRow({ hit }: { hit: MatchHit }) {
   return (
     <li className="px-3 py-2">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-xs uppercase tracking-eyebrow text-studio-ink-faint">
           {hit.session_id ?? "?"} • {hit.document_kind ?? "?"}
           {hit.source_ref ? ` • ${hit.source_ref}` : ""}
         </span>
-        <span className="font-mono text-[10px] tabular-nums text-studio-ink-faint">
+        <span className="font-mono text-xs tabular-nums text-studio-ink-faint">
           rank {hit.rank.toFixed(3)}
         </span>
       </div>
       <p
-        className="mt-1 whitespace-pre-wrap font-sans text-[12px] leading-relaxed text-studio-ink"
+        className="mt-1 whitespace-pre-wrap font-sans text-md leading-relaxed text-studio-ink"
         dangerouslySetInnerHTML={{ __html: renderMatchSnippet(hit.snippet) }}
       />
     </li>
@@ -779,14 +779,14 @@ function QueryResultBody({ result }: { result: QueryResult | undefined }) {
   if (!result) return null;
   if (result.rejectedReason) {
     return (
-      <pre className="px-3 py-2 font-mono text-[11px] text-status-error-fg">
+      <pre className="px-3 py-2 font-mono text-sm text-status-error-fg">
         {result.rejectedReason}
       </pre>
     );
   }
   if (result.rows.length === 0) {
     return (
-      <pre className="px-3 py-2 font-mono text-[11px] text-studio-ink-faint">
+      <pre className="px-3 py-2 font-mono text-sm text-studio-ink-faint">
         (0 rows)
       </pre>
     );
@@ -794,13 +794,13 @@ function QueryResultBody({ result }: { result: QueryResult | undefined }) {
   const cols = result.columns;
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse font-mono text-[10.5px]">
+      <table className="w-full border-collapse font-mono text-xs">
         <thead>
           <tr className="bg-studio-canvas-alt">
             {cols.map((c) => (
               <th
                 key={c}
-                className="px-3 py-1.5 text-left font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint"
+                className="px-3 py-1.5 text-left font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint"
               >
                 {c}
               </th>
@@ -831,14 +831,14 @@ function Skeleton({ label }: { label: string }) {
   return (
     <div className="overflow-hidden rounded-[4px] border border-studio-edge bg-studio-canvas">
       <div className="flex items-center justify-between gap-3 border-b border-studio-edge bg-studio-canvas-alt px-3 py-1.5">
-        <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           {label}
         </span>
-        <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint animate-pulse">
+        <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint animate-pulse">
           ● running…
         </span>
       </div>
-      <div className="px-3 py-6 font-mono text-[11px] text-studio-ink-faint">
+      <div className="px-3 py-6 font-mono text-sm text-studio-ink-faint">
         …
       </div>
     </div>

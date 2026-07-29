@@ -139,7 +139,7 @@ export function Ticker({
           />
           <div
             aria-hidden
-            className="pointer-events-none absolute right-2 top-1 font-mono text-[8px] uppercase"
+            className="pointer-events-none absolute right-2 top-1 font-mono text-3xs uppercase"
             style={{
               color: "var(--scout-accent)",
               letterSpacing: "0.22em",
@@ -188,12 +188,12 @@ export function TickerSlotCard({ evt }: { evt: TickerEvent }) {
     <div className="flex flex-col items-start gap-0.5 px-3 py-1">
       <div className="flex items-center gap-2">
         <Glyph kind={evt.kind} color={color} />
-        <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           {evt.label}
         </span>
       </div>
       <div
-        className="font-mono text-[8.5px] tabular-nums text-studio-ink-faint"
+        className="font-mono text-3xs tabular-nums text-studio-ink-faint"
         style={{ opacity: 0.7 }}
       >
         {evt.time} · @{evt.agent}

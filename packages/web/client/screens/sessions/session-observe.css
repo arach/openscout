@@ -852,7 +852,7 @@
   align-items: center;
   gap: 5px;
   font-family: var(--font-accent-title, var(--font-sans));
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -901,7 +901,7 @@
 .s-observe--lane .s-observe-think-compact-label {
   flex: none;
   font-family: var(--font-accent-title, var(--font-sans));
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1881,6 +1881,73 @@
   scrollbar-color: color-mix(in srgb, var(--ink) 12%, transparent) transparent;
 }
 
+.s-observe-evidence-banner,
+.s-observe-evidence-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface) 72%, var(--bg));
+  color: var(--muted);
+}
+
+.s-observe-evidence-banner {
+  max-width: min(790px, calc(100% - 68px));
+  margin: calc(-1 * var(--space-lg)) 0 var(--space-xl) 68px;
+  padding: var(--space-md) var(--space-lg);
+}
+
+.s-observe-evidence-card {
+  padding: var(--space-md);
+}
+
+.s-observe-evidence-banner > span:last-child,
+.s-observe-evidence-card > span:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3xs);
+  min-width: 0;
+}
+
+.s-observe-evidence-banner strong,
+.s-observe-evidence-card strong {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.s-observe-evidence-banner small,
+.s-observe-evidence-card small {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  line-height: var(--leading-normal);
+  color: var(--dim);
+}
+
+.s-observe-evidence-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-top: 0.34em;
+  border-radius: 50%;
+  background: var(--dim);
+}
+
+[data-tone="live"] > .s-observe-evidence-dot {
+  background: var(--green);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 12%, transparent);
+}
+
+[data-tone="recorded"] > .s-observe-evidence-dot {
+  background: var(--accent);
+}
+
+[data-tone="unavailable"] > .s-observe-evidence-dot {
+  background: var(--amber);
+}
+
 .s-observe-source {
   display: inline-flex;
   align-items: center;
@@ -2037,7 +2104,7 @@
 
 .s-observe-think-label {
   font-family: var(--font-accent-title, var(--font-sans));
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -2957,6 +3024,24 @@
   align-items: center;
   gap: var(--space-lg);
   width: 100%;
+}
+
+.s-observe-static-evidence {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: 32px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.s-observe-static-evidence .s-observe-evidence-dot {
+  margin-top: 0;
+}
+
+.s-observe-static-evidence small {
+  color: var(--dim);
 }
 
 .s-observe-transport[data-snap] .s-observe-track {

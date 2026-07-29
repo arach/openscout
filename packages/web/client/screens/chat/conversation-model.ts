@@ -13,6 +13,7 @@ import {
 import { stateColor } from "../../lib/colors.ts";
 import type { OutgoingAttachment } from "../../lib/media-blobs.ts";
 import {
+  TERMINAL_CONVERSATION_FLIGHT_STATES,
   isActiveConversationFlight,
   isConversationWorkingTurnWithoutRecentUpdateAnswered,
   isQueuedUntilOnlineConversationFlight,
@@ -125,6 +126,40 @@ export type SendReceipt = {
   text: string;
 };
 
+export function optimisticMessageIndexForClientId(
+  messages: readonly Message[],
+  clientMessageId: string,
+  knownOptimisticId?: string,
+): number {
+  return messages.findIndex((message) => {
+    if (knownOptimisticId && message.id === knownOptimisticId) return true;
+    const candidate = message.metadata?.["clientMessageId"];
+    return typeof candidate === "string" && candidate.trim() === clientMessageId;
+  });
+}
+
+export function mergeCanonicalMessagesPreservingPending(
+  previous: readonly Message[],
+  canonical: readonly Message[],
+): Message[] {
+  const canonicalIds = new Set(canonical.map((message) => message.id));
+  const canonicalClientIds = new Set(
+    canonical
+      .map((message) => message.metadata?.["clientMessageId"])
+      .filter((value): value is string => typeof value === "string" && Boolean(value.trim()))
+      .map((value) => value.trim()),
+  );
+  const unresolvedLocal = previous.filter((message) => {
+    const deliveryState = message.metadata?.["deliveryState"];
+    if (deliveryState !== "sending" && deliveryState !== "unknown") return false;
+    if (canonicalIds.has(message.id)) return false;
+    const clientMessageId = message.metadata?.["clientMessageId"];
+    return typeof clientMessageId !== "string"
+      || !canonicalClientIds.has(clientMessageId.trim());
+  });
+  return sortMessages([...canonical, ...unresolvedLocal]);
+}
+
 export type ComposeAction = "message" | "invoke" | "steer";
 
 export const THREAD_TREATMENTS = ["standard", "ledger", "rail", "document"] as const;
@@ -201,9 +236,10 @@ export function shouldFlushQueue(input: {
 
 export function describeQueuedDrafts(queued: readonly QueuedDraft[]): string | null {
   if (queued.length === 0) return null;
+  // The count is carried by the queue stack's kicker, so this is the "when".
   return queued.length === 1
-    ? "1 message queued — sends when this turn lands"
-    : `${queued.length} messages queued — send when this turn lands`;
+    ? "Sends when this turn lands"
+    : "Sends in order when this turn lands";
 }
 
 export type ConversationPresence = {
@@ -220,6 +256,66 @@ export type TurnSnapshot = {
   elapsedLabel: string;
   lastActivityLabel: string;
 };
+
+export type TerminalTurnReceipt = {
+  flightId: string;
+  label: string;
+  detail: string;
+  tone: "complete" | "failed" | "cancelled";
+  completedAt: number | null;
+};
+
+export function terminalTurnReceiptForFlight(
+  flight: Flight | null,
+): TerminalTurnReceipt | null {
+  if (!flight || !TERMINAL_CONVERSATION_FLIGHT_STATES.has(flight.state)) return null;
+  const state = flight.state.trim().toLowerCase();
+  if (state === "completed") {
+    return {
+      flightId: flight.id,
+      label: "Run completed",
+      detail: flight.summary?.trim() || "Execution ended successfully.",
+      tone: "complete",
+      completedAt: flight.completedAt,
+    };
+  }
+  if (state === "cancelled" || state === "canceled" || state === "interrupted") {
+    return {
+      flightId: flight.id,
+      label: "Cancelled",
+      detail: flight.summary?.trim() || "The run was stopped before it finished.",
+      tone: "cancelled",
+      completedAt: flight.completedAt,
+    };
+  }
+  return {
+    flightId: flight.id,
+    label: "Run failed",
+    detail: flight.summary?.trim() || "The worker stopped before completing the request.",
+    tone: "failed",
+    completedAt: flight.completedAt,
+  };
+}
+
+export function selectTerminalFlightForConversation(
+  flights: readonly Flight[],
+  messages: readonly Message[],
+): Flight | null {
+  const terminalFlights = flights.filter((flight) =>
+    TERMINAL_CONVERSATION_FLIGHT_STATES.has(flight.state)
+  );
+  if (terminalFlights.length === 0) return null;
+  const latestOperatorMessage = [...messages].reverse().find((message) =>
+    message.class === "operator" || message.actorId === "operator"
+  );
+  if (latestOperatorMessage) {
+    const exact = terminalFlights.find((flight) =>
+      flight.messageId === latestOperatorMessage.id
+    );
+    if (exact) return exact;
+  }
+  return terminalFlights[0] ?? null;
+}
 
 export type MotionTone = "idle" | "pending" | "working" | "quiet" | "offline";
 
@@ -411,6 +507,7 @@ export function mapEventFlight(
     summary: flight.summary ?? null,
     startedAt: flight.startedAt ?? null,
     completedAt: flight.completedAt ?? null,
+    sessions: [],
     dispatchOutcome: readFlightDispatchOutcome(flight.metadata),
   };
 }
@@ -618,16 +715,13 @@ export function buildTurnSnapshot(input: {
     normalizeTimestampMs(latestActivity?.ts) ??
     normalizeTimestampMs(turnAsk?.updatedAt) ??
     startedAt;
-  const activityCount = Math.max(
-    turnActivity.length,
-    turnAsk?.acknowledgedAt ? 1 : 0,
-    currentFlight ? 1 : 0,
-    awaitingResponseSince ? 1 : 0,
-  );
+  const activityCount = turnActivity.length + (turnAsk?.acknowledgedAt ? 1 : 0);
 
   return {
     latest,
-    activityLabel: pluralizeActivityUpdate(activityCount),
+    activityLabel: activityCount > 0
+      ? pluralizeActivityUpdate(activityCount)
+      : "No activity yet",
     elapsedLabel: startedAt ? timeAgo(startedAt, nowMs) : "now",
     lastActivityLabel: lastActivityAt ? timeAgo(lastActivityAt, nowMs) : "now",
   };

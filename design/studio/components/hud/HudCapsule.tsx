@@ -59,7 +59,7 @@ export function HudCapsule({
         {blurb ? (
           <>
             <Divider />
-            <span className="truncate font-sans text-[11.5px] italic text-studio-ink-faint">
+            <span className="truncate font-sans text-sm italic text-studio-ink-faint">
               {blurb}
             </span>
           </>
@@ -73,7 +73,7 @@ export function HudCapsule({
 
 function Crumbs({ items }: { items: string[] }) {
   return (
-    <div className="flex items-baseline gap-1.5 font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">
+    <div className="flex items-baseline gap-1.5 font-mono text-xs uppercase tracking-eyebrow text-studio-ink-faint">
       {items.map((item, i) => {
         const isLast = i === items.length - 1;
         return (

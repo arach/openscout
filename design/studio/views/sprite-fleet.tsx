@@ -173,13 +173,13 @@ export default function SpriteFleetPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-9 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · sprite-fleet
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Sprite fleet
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           An agent's mark you can read at a glance — <span className="text-studio-ink">shape is who</span> (from the name),{" "}
           <span className="text-studio-ink">hue is the harness</span>, and <span className="text-studio-ink">brightness is
           state</span> (working is vivid; offline greys out). You get one for free, reroll to explore, and{" "}
@@ -191,7 +191,7 @@ export default function SpriteFleetPage() {
       <div className="mb-10 flex flex-wrap items-center gap-x-7 gap-y-3 rounded-md border border-studio-edge bg-studio-surface px-4 py-3">
         <Toggle label="hue" value={hueBy} onChange={setHueBy} options={[["harness", "Harness"], ["name", "Name"]]} />
         <Toggle label="range" value={rangeBy} onChange={setRangeBy} options={[["state", "State"], ["flat", "Flat"]]} />
-        <span className="font-mono text-[9.5px] text-studio-ink-faint">
+        <span className="font-mono text-2xs text-studio-ink-faint">
           shape always = the name · hue + range are the knobs
         </span>
       </div>
@@ -202,11 +202,11 @@ export default function SpriteFleetPage() {
           <table className="w-full border-collapse">
             <thead>
               <tr>
-                <th className="px-3 py-2 text-left font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+                <th className="px-3 py-2 text-left font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
                   harness ↓ / state →
                 </th>
                 {MATRIX_STATES.map((s) => (
-                  <th key={s} className="px-2 py-2 text-center font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+                  <th key={s} className="px-2 py-2 text-center font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
                     {STATE_LABEL[s]}
                   </th>
                 ))}
@@ -218,7 +218,7 @@ export default function SpriteFleetPage() {
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-2">
                       <span className="h-2.5 w-2.5 rounded-full" style={{ background: `oklch(0.72 0.15 ${HARNESS_HUE[h.id]})` }} />
-                      <span className="font-mono text-[11px] text-studio-ink">{h.id}</span>
+                      <span className="font-mono text-sm text-studio-ink">{h.id}</span>
                     </div>
                   </td>
                   {MATRIX_STATES.map((s) => (
@@ -233,7 +233,7 @@ export default function SpriteFleetPage() {
             </tbody>
           </table>
         </div>
-        <div className="mt-2 font-mono text-[9.5px] text-studio-ink-faint">
+        <div className="mt-2 font-mono text-2xs text-studio-ink-faint">
           one creature per row (shape held constant) so you read the color change · same name → same shape, always
         </div>
       </Section>
@@ -252,14 +252,14 @@ export default function SpriteFleetPage() {
                   {claimed && !drafting && (
                     <span
                       title="kept"
-                      className="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full bg-scout-accent font-mono text-[9px] text-studio-canvas"
+                      className="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full bg-scout-accent font-mono text-2xs text-studio-canvas"
                     >
                       ✓
                     </span>
                   )}
                 </div>
                 <div className="flex flex-col items-center gap-1">
-                  <div className="font-sans text-[12px] text-studio-ink">{a.name}</div>
+                  <div className="font-sans text-md text-studio-ink">{a.name}</div>
                   <div className="flex items-center gap-1.5">
                     <MiniBtn onClick={() => reroll(a.name)} title="reroll — a new creature">↻</MiniBtn>
                     {(drafting || (!claimed && salt === 0)) && (
@@ -269,7 +269,7 @@ export default function SpriteFleetPage() {
                       <MiniBtn onClick={() => release(a.name)} title="release the claim">✕</MiniBtn>
                     )}
                   </div>
-                  <div className="font-mono text-[8.5px] text-studio-ink-faint">
+                  <div className="font-mono text-3xs text-studio-ink-faint">
                     {drafting ? `draft · v${salt}` : claimed ? `kept · v${salt}` : "free"}
                   </div>
                 </div>
@@ -282,7 +282,7 @@ export default function SpriteFleetPage() {
       {/* 02 — Claimed identity / the data model */}
       <Section label="02 · Claimed identity" hint="one free · reroll · keep — and all that's stored is a salt">
         <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-          <ul className="flex flex-col justify-center gap-2 font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+          <ul className="flex flex-col justify-center gap-2 font-sans text-md leading-relaxed text-studio-ink-faint">
             <li><span className="text-studio-ink">One for free.</span> A brand-new agent already has a creature — the name's default (salt 0). Nothing to pick.</li>
             <li><span className="text-studio-ink">Reroll.</span> Don't love it? Cycle variants until one feels right. Still nothing stored.</li>
             <li><span className="text-studio-ink">Keep.</span> Claim the one you want and it's yours — persisted, and it follows the agent everywhere.</li>
@@ -290,18 +290,18 @@ export default function SpriteFleetPage() {
           </ul>
           <div className="rounded-md border border-studio-edge bg-studio-surface p-4">
             <div className="mb-2 flex items-center justify-between">
-              <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">claimed · localStorage</span>
+              <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">claimed · localStorage</span>
               {keptList.length > 0 && (
                 <button
                   onClick={() => persist({})}
-                  className="focus-ring rounded-sm border border-studio-edge px-2 py-0.5 font-mono text-[9.5px] text-studio-ink-faint transition-colors hover:bg-studio-canvas-alt hover:text-studio-ink"
+                  className="focus-ring rounded-sm border border-studio-edge px-2 py-0.5 font-mono text-2xs text-studio-ink-faint transition-colors hover:bg-studio-canvas-alt hover:text-studio-ink"
                 >
                   reset all
                 </button>
               )}
             </div>
             {keptList.length === 0 ? (
-              <div className="font-mono text-[11px] text-studio-ink-faint">
+              <div className="font-mono text-sm text-studio-ink-faint">
                 nothing claimed yet — reroll a creature above and hit <span className="text-studio-ink">keep</span>.
               </div>
             ) : (
@@ -309,7 +309,7 @@ export default function SpriteFleetPage() {
                 {keptList.map(([name, salt]) => {
                   const a = FLEET.find((f) => f.name === name);
                   return (
-                    <div key={name} className="flex items-center gap-2.5 font-mono text-[11px]">
+                    <div key={name} className="flex items-center gap-2.5 font-mono text-sm">
                       {a ? <SpriteAvatar name={name} size={22} {...propsFor(a)} /> : <SpriteAvatar name={name} size={22} salt={salt ? String(salt) : undefined} />}
                       <span className="text-studio-ink">{name}</span>
                       <span className="text-studio-ink-faint">{`{ salt: ${salt} }`}</span>
@@ -328,7 +328,7 @@ export default function SpriteFleetPage() {
           {[16, 20, 24, 32, 48, 96, 160].map((s) => (
             <div key={s} className="flex flex-col items-center gap-2">
               <SpriteAvatar name="Scout" size={s} {...propsFor(FLEET[0])} />
-              <span className="font-mono text-[9px] text-studio-ink-faint">{s}px</span>
+              <span className="font-mono text-2xs text-studio-ink-faint">{s}px</span>
             </div>
           ))}
         </div>
@@ -362,7 +362,7 @@ export default function SpriteFleetPage() {
           </Panel>
           <Panel title="iOS · Agents">
             <div className="mx-auto w-[300px] rounded-[28px] border border-studio-edge-strong bg-studio-canvas p-3 shadow-lg">
-              <div className="mb-2 px-1 font-display text-[15px] text-studio-ink">Agents</div>
+              <div className="mb-2 px-1 font-display text-2xl text-studio-ink">Agents</div>
               {FLEET.slice(0, 5).map((a) => (
                 <IosRow key={a.name} agent={a} props={propsFor(a)} />
               ))}
@@ -385,7 +385,7 @@ export default function SpriteFleetPage() {
               value={probe}
               onChange={(e) => setProbe(e.target.value)}
               spellCheck={false}
-              className="focus-ring w-[220px] rounded-sm border border-studio-edge bg-studio-canvas px-3 py-1.5 font-mono text-[13px] text-studio-ink outline-none"
+              className="focus-ring w-[220px] rounded-sm border border-studio-edge bg-studio-canvas px-3 py-1.5 font-mono text-lg text-studio-ink outline-none"
               placeholder="any agent name…"
             />
             <div className="flex flex-wrap gap-1.5">
@@ -393,13 +393,13 @@ export default function SpriteFleetPage() {
                 <button
                   key={n}
                   onClick={() => setProbe(n)}
-                  className="focus-ring rounded-sm border border-studio-edge px-2 py-1 font-mono text-[10.5px] text-studio-ink-faint transition-colors hover:bg-studio-canvas-alt hover:text-studio-ink"
+                  className="focus-ring rounded-sm border border-studio-edge px-2 py-1 font-mono text-xs text-studio-ink-faint transition-colors hover:bg-studio-canvas-alt hover:text-studio-ink"
                 >
                   {n}
                 </button>
               ))}
             </div>
-            <div className="font-mono text-[9.5px] text-studio-ink-faint">
+            <div className="font-mono text-2xs text-studio-ink-faint">
               seed 0x{makeRng(probe || " ").seed.toString(16).padStart(8, "0")} · the name is the seed
             </div>
           </div>
@@ -408,8 +408,8 @@ export default function SpriteFleetPage() {
 
       {/* Footer */}
       <section className="mt-14 max-w-prose border-t border-studio-edge pt-6">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">· source · next</div>
-        <ul className="space-y-1 font-mono text-[11px] leading-relaxed text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">· source · next</div>
+        <ul className="space-y-1 font-mono text-sm leading-relaxed text-studio-ink-faint">
           <li><span className="text-studio-ink">components/SpriteAvatar.tsx</span> — the drop-in avatar (hue · tone · salt)</li>
           <li><span className="text-studio-ink">lib/agent-identity.ts</span> — spriteFor(name, {`{ hue, tone, salt }`})</li>
           <li className="pt-1 text-studio-ink-faint">port → add an `identitySalt` field on the agent record · web AgentRow/AgentCard · then SwiftUI</li>
@@ -436,11 +436,11 @@ function RosterRow({ agent, density, props }: { agent: Agent; density: "comforta
     return (
       <div className="flex items-center gap-3 border-b border-studio-edge px-1 py-1.5 last:border-b-0" style={{ opacity: dim ? 0.6 : 1 }}>
         <SpriteAvatar name={agent.name} size={18} glow={false} {...props} />
-        <span className="w-[72px] shrink-0 font-sans text-[12.5px] text-studio-ink">{agent.name}</span>
-        <span className="w-[92px] shrink-0 font-mono text-[10px] uppercase tracking-eyebrow" style={{ color }}>
+        <span className="w-[72px] shrink-0 font-sans text-md text-studio-ink">{agent.name}</span>
+        <span className="w-[92px] shrink-0 font-mono text-xs uppercase tracking-eyebrow" style={{ color }}>
           {STATE_LABEL[agent.state]}
         </span>
-        <span className="min-w-0 flex-1 truncate font-sans text-[12px] text-studio-ink-faint">{agent.task}</span>
+        <span className="min-w-0 flex-1 truncate font-sans text-md text-studio-ink-faint">{agent.task}</span>
       </div>
     );
   }
@@ -456,8 +456,8 @@ function RosterRow({ agent, density, props }: { agent: Agent; density: "comforta
         {...props}
       />
       <div className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate font-sans text-[12.5px] text-studio-ink">{agent.name}</span>
-        <span className="truncate font-mono text-[10px]" style={{ color }}>
+        <span className="truncate font-sans text-md text-studio-ink">{agent.name}</span>
+        <span className="truncate font-mono text-xs" style={{ color }}>
           {STATE_LABEL[agent.state]}
           <span className="text-studio-ink-faint"> · {agent.task}</span>
         </span>
@@ -474,13 +474,13 @@ function AgentCard({ agent, props }: { agent: Agent; props: AvatarProps }) {
         <SpriteAvatar name={agent.name} size={44} tile {...props} />
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex items-baseline gap-1.5">
-            <span className="truncate font-sans text-[14px] font-semibold tracking-tight text-studio-ink">{agent.name}</span>
-            <span className="font-mono text-[10px] text-studio-ink-faint">{agent.handle}</span>
+            <span className="truncate font-sans text-xl font-semibold tracking-tight text-studio-ink">{agent.name}</span>
+            <span className="font-mono text-xs text-studio-ink-faint">{agent.handle}</span>
           </div>
-          <span className="font-mono text-[10px] uppercase tracking-eyebrow" style={{ color }}>{STATE_LABEL[agent.state]}</span>
+          <span className="font-mono text-xs uppercase tracking-eyebrow" style={{ color }}>{STATE_LABEL[agent.state]}</span>
         </div>
       </div>
-      <div className="font-sans text-[12px] leading-snug text-studio-ink-faint">{agent.task}</div>
+      <div className="font-sans text-md leading-snug text-studio-ink-faint">{agent.task}</div>
       <div className="flex gap-1.5">
         <Tag>{agent.cls}</Tag>
         <Tag>{agent.harness}</Tag>
@@ -491,7 +491,7 @@ function AgentCard({ agent, props }: { agent: Agent; props: AvatarProps }) {
 
 function TreeNode({ label, depth }: { label: string; depth: number }) {
   return (
-    <div className="flex items-center gap-2 py-1 font-mono text-[12px] text-studio-ink-muted" style={{ paddingLeft: depth * 16 }}>
+    <div className="flex items-center gap-2 py-1 font-mono text-md text-studio-ink-muted" style={{ paddingLeft: depth * 16 }}>
       <span className="text-studio-ink-faint">▾</span>
       {label}
     </div>
@@ -502,11 +502,11 @@ function TreeLeaf({ agent, last, props }: { agent: Agent; last: boolean; props: 
   const color = STATE_COLOR[agent.state];
   return (
     <div className="flex items-center gap-2 py-1 pl-4">
-      <span className="select-none font-mono text-[12px] text-studio-edge-strong">{last ? "└─" : "├─"}</span>
+      <span className="select-none font-mono text-md text-studio-edge-strong">{last ? "└─" : "├─"}</span>
       <SpriteAvatar name={agent.name} size={20} glow={false} {...props} />
-      <span className="font-sans text-[12.5px] text-studio-ink">{agent.name}</span>
+      <span className="font-sans text-md text-studio-ink">{agent.name}</span>
       <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
-      <span className="truncate font-mono text-[10px] text-studio-ink-faint">{agent.task}</span>
+      <span className="truncate font-mono text-xs text-studio-ink-faint">{agent.task}</span>
     </div>
   );
 }
@@ -517,8 +517,8 @@ function IosRow({ agent, props }: { agent: Agent; props: AvatarProps }) {
     <div className="flex items-center gap-3 border-b border-studio-edge px-1 py-2 last:border-b-0">
       <SpriteAvatar name={agent.name} size={34} tile {...props} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <span className="font-sans text-[14px] text-studio-ink">{agent.name}</span>
-        <span className="truncate font-mono text-[10.5px] text-studio-ink-faint">{agent.task}</span>
+        <span className="font-sans text-xl text-studio-ink">{agent.name}</span>
+        <span className="truncate font-mono text-xs text-studio-ink-faint">{agent.task}</span>
       </div>
       <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
     </div>
@@ -531,10 +531,10 @@ function CommsTurn({ agent, body, props }: { agent: Agent; body: string; props: 
       <SpriteAvatar name={agent.name} size={32} {...props} />
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-baseline gap-2">
-          <span className="font-sans text-[12.5px] font-semibold text-studio-ink">{agent.name}</span>
-          <span className="font-mono text-[9.5px] text-studio-ink-faint">{agent.handle}</span>
+          <span className="font-sans text-md font-semibold text-studio-ink">{agent.name}</span>
+          <span className="font-mono text-2xs text-studio-ink-faint">{agent.handle}</span>
         </div>
-        <p className="mt-0.5 font-sans text-[12.5px] leading-snug text-studio-ink-muted">{body}</p>
+        <p className="mt-0.5 font-sans text-md leading-snug text-studio-ink-muted">{body}</p>
       </div>
     </div>
   );
@@ -555,7 +555,7 @@ function Toggle<T extends string>({
 }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">{label}</span>
+      <span className="font-mono text-xs uppercase tracking-eyebrow text-studio-ink-faint">{label}</span>
       <div className="flex gap-1">
         {options.map(([v, lbl]) => (
           <button
@@ -563,7 +563,7 @@ function Toggle<T extends string>({
             onClick={() => onChange(v)}
             aria-pressed={value === v}
             className={[
-              "focus-ring rounded-sm border px-2.5 py-1 font-mono text-[11px] transition-colors",
+              "focus-ring rounded-sm border px-2.5 py-1 font-mono text-sm transition-colors",
               value === v
                 ? "border-transparent bg-scout-accent-soft text-studio-ink"
                 : "border-studio-edge text-studio-ink-faint hover:bg-studio-canvas-alt hover:text-studio-ink",
@@ -593,7 +593,7 @@ function MiniBtn({
       onClick={onClick}
       title={title}
       className={[
-        "focus-ring rounded-sm border px-1.5 py-0.5 font-mono text-[9.5px] transition-colors",
+        "focus-ring rounded-sm border px-1.5 py-0.5 font-mono text-2xs transition-colors",
         accent
           ? "border-transparent bg-scout-accent-soft text-studio-ink hover:bg-scout-accent hover:text-studio-canvas"
           : "border-studio-edge text-studio-ink-faint hover:bg-studio-canvas-alt hover:text-studio-ink",
@@ -608,8 +608,8 @@ function Section({ label, hint, children }: { label: string; hint: string; child
   return (
     <section className="mb-14">
       <div className="mb-4 flex items-baseline gap-3">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">{label}</div>
-        <div className="font-mono text-[10px] text-studio-ink-faint">{hint}</div>
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">{label}</div>
+        <div className="font-mono text-xs text-studio-ink-faint">{hint}</div>
         <div className="ml-3 h-px flex-1 bg-studio-edge" />
       </div>
       {children}
@@ -620,7 +620,7 @@ function Section({ label, hint, children }: { label: string; hint: string; child
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="rounded-md border border-studio-edge bg-studio-surface p-3">
-      <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">· {title}</div>
+      <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">· {title}</div>
       {children}
     </div>
   );
@@ -628,7 +628,7 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
 
 function Tag({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded-sm border border-studio-edge px-1.5 py-0.5 font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+    <span className="rounded-sm border border-studio-edge px-1.5 py-0.5 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
       {children}
     </span>
   );

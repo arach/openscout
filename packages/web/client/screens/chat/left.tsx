@@ -27,7 +27,6 @@ import {
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
 import { timeAgo } from "../../lib/time.ts";
 import {
-  isUnread,
   loadLastViewedMap,
   saveLastViewed,
   type LastViewedMap,
@@ -41,25 +40,33 @@ import {
 } from "../../lib/machine-scope.ts";
 import { routeMachineId } from "../../lib/router.ts";
 import { RailRow } from "../../scout/slots/RailRow.tsx";
-import type { Agent, FleetAsk, MessagesFilter, MessagesSort, SessionEntry } from "../../lib/types.ts";
+import type { Agent, FleetAsk, SessionEntry } from "../../lib/types.ts";
 
 /** How many observed groups show before "+N more" (keeps the rail scannable). */
 const OBSERVED_PREVIEW_LIMIT = 12;
 
-const FILTERS: MessagesFilter[] = ["all", "dm", "channel"];
-const FILTER_LABEL: Record<MessagesFilter, string> = {
-  all: "All",
-  dm: "DMs",
-  channel: "Channels",
+/**
+ * Roving-tabindex bookkeeping. Rows are addressed by ROW id, not conversation
+ * id: Needs-you mirrors conversations that also render in their own section
+ * below, so a conversation id is not unique in the rail.
+ */
+type RailNav = {
+  /** Conversation currently open in the center pane (highlights every mirror). */
+  activeId: string | undefined;
+  /** The single row that owns the tab stop, or undefined when nothing is open. */
+  activeRowId: string | undefined;
+  /** First row in render order — the tab stop when nothing is open. */
+  firstRowId: string | undefined;
 };
 
-const SORTS: MessagesSort[] = ["recent", "name", "unread"];
-const SORT_LABEL: Record<MessagesSort, string> = {
-  recent: "Recent",
-  name: "Name",
-  unread: "Unread",
-};
-
+/**
+ * The chat rail (D1/D3/D4/D5 of docs/design/comms-channel-navigation.md).
+ *
+ * One list, fixed sections, no switchers: Needs you · Pinned · Agents ·
+ * Channels · Observed · Archived. Attention is the only emphasis — Needs-you
+ * MIRRORS rows rather than moving them, so nothing reflows when an ask
+ * resolves and positional memory survives.
+ */
 export function ChatLeft() {
   const { route, navigate, agents, apiConnection } = useScout();
   const { sessions, loading, loadError, reload } = useConversationList();
@@ -67,6 +74,7 @@ export function ChatLeft() {
   const [prefs, setPrefs] = useState<ConversationPrefs>(() => loadConversationPrefs());
   const [query, setQuery] = useState("");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set());
+  const [observedOpen, setObservedOpen] = useState(false);
   const [showAllObserved, setShowAllObserved] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const asksByAgent = useFleetActiveAsks();
@@ -87,45 +95,54 @@ export function ChatLeft() {
     return map;
   }, [agents, scopedAgentIds]);
 
-  const activeRouteFilter: MessagesFilter =
-    route.view === "messages" && route.filter ? route.filter : "all";
-  const activeRouteSort: MessagesSort =
-    route.view === "messages" && route.sort ? route.sort : "recent";
-
   const activeId =
     route.view === "messages" ? route.conversationId :
     route.view === "conversation" ? route.conversationId :
-    route.view === "channels" ? route.channelId :
     route.view === "agent-info" ? route.conversationId :
     route.view === "agents-v2" ? route.conversationId :
     undefined;
 
-  // Reset observed expansion when filter/query changes so the section stays tight.
+  // Keep the observed stratum tight when the query changes under it.
   useEffect(() => {
     setShowAllObserved(false);
-  }, [activeRouteFilter, query]);
+  }, [query]);
 
-  const scoped = useMemo(() => {
-    let list = filterSessionsByMachineScope(sessions, scopedAgentIds, machineId);
-    if (query) {
-      const q = query.toLowerCase();
-      list = list.filter((s) =>
-        conversationDisplayTitle(s).toLowerCase().includes(q)
-        || s.id.toLowerCase().includes(q)
-        || (s.preview ?? "").toLowerCase().includes(q)
-        || (s.agentName ?? "").toLowerCase().includes(q),
-      );
-    }
-    return list;
-  }, [sessions, scopedAgentIds, machineId, query]);
+  const machineScoped = useMemo(
+    () => filterSessionsByMachineScope(sessions, scopedAgentIds, machineId),
+    [sessions, scopedAgentIds, machineId],
+  );
+
+  const scoped = useMemo(
+    () => (query ? machineScoped.filter((s) => matchesQuery(s, query)) : machineScoped),
+    [machineScoped, query],
+  );
+
+  /**
+   * The precedence layer: operator DMs whose agent has an ask waiting on you.
+   * Computed off the UNFILTERED list so the header stat stays an honest global
+   * readout while you type a filter; the section itself is filtered below.
+   */
+  const needsYouAll = useMemo(() => {
+    const askUpdatedAt = (s: SessionEntry) =>
+      (s.agentId ? asksByAgent.get(s.agentId)?.updatedAt : undefined) ?? 0;
+    return machineScoped
+      .filter((s) => {
+        if (isArchived(s.id, prefs)) return false;
+        if (!isOperatorDm(s)) return false;
+        const ask = s.agentId ? asksByAgent.get(s.agentId) : undefined;
+        return ask?.status === "needs_attention";
+      })
+      .sort((a, b) => askUpdatedAt(b) - askUpdatedAt(a));
+  }, [machineScoped, prefs, asksByAgent]);
+
+  const needsYou = useMemo(
+    () => (query ? needsYouAll.filter((s) => matchesQuery(s, query)) : needsYouAll),
+    [needsYouAll, query],
+  );
 
   const sections = useMemo(() => {
     const live = scoped.filter((s) => !isArchived(s.id, prefs));
-    const archived = sortSessions(
-      scoped.filter((s) => isArchived(s.id, prefs)),
-      lastViewed,
-      activeRouteSort,
-    );
+    const archived = sortByRecency(scoped.filter((s) => isArchived(s.id, prefs)));
 
     // Pinned float above everything else (most recently pinned first).
     const pinned = live
@@ -138,38 +155,16 @@ export function ChatLeft() {
     const dms = unpinned.filter(isOperatorDm);
     const observed = unpinned.filter(isObservedDirect);
 
-    const sortList = (list: SessionEntry[]) => sortSessions(list, lastViewed, activeRouteSort);
-
+    // One fixed order everywhere: recency. Attention lives in Needs-you, not
+    // in sort order — sorting is a preference, not chrome (D1).
     return {
       pinned,
-      channels: sortList(channels),
-      dms: buildConversationGroups(sortList(dms), agentById, lastViewed, activeRouteSort),
-      observed: buildConversationGroups(sortList(observed), agentById, lastViewed, activeRouteSort),
+      channels: sortByRecency(channels),
+      agents: buildConversationGroups(sortByRecency(dms), agentById, lastViewed, "recent"),
+      observed: buildConversationGroups(sortByRecency(observed), agentById, lastViewed, "recent"),
       archived,
     };
-  }, [scoped, agentById, lastViewed, activeRouteSort, prefs]);
-
-  const visibleSections = useMemo(() => {
-    if (activeRouteFilter === "channel") {
-      return {
-        pinned: sections.pinned.filter(isChannelConversation),
-        channels: sections.channels,
-        dms: [] as ConversationGroup[],
-        observed: [] as ConversationGroup[],
-        archived: sections.archived.filter(isChannelConversation),
-      };
-    }
-    if (activeRouteFilter === "dm") {
-      return {
-        pinned: sections.pinned.filter((s) => !isChannelConversation(s)),
-        channels: [] as SessionEntry[],
-        dms: sections.dms,
-        observed: [] as ConversationGroup[],
-        archived: sections.archived.filter((s) => !isChannelConversation(s)),
-      };
-    }
-    return sections;
-  }, [activeRouteFilter, sections]);
+  }, [scoped, agentById, lastViewed, prefs]);
 
   const showContextMenu = useContextMenu();
 
@@ -181,38 +176,11 @@ export function ChatLeft() {
     setPrefs((prev) => toggleArchive(id, prev));
   }, []);
 
-  const setFilter = (filter: MessagesFilter) => {
-    navigate({
-      view: "messages",
-      ...(activeId ? { conversationId: activeId } : {}),
-      ...(filter !== "all" ? { filter } : {}),
-      ...(activeRouteSort !== "recent" ? { sort: activeRouteSort } : {}),
-    });
-  };
-
-  const setSort = (sort: MessagesSort) => {
-    navigate({
-      view: "messages",
-      ...(activeId ? { conversationId: activeId } : {}),
-      ...(activeRouteFilter !== "all" ? { filter: activeRouteFilter } : {}),
-      ...(sort !== "recent" ? { sort } : {}),
-    });
-  };
-
   const onSelect = useCallback((s: SessionEntry) => {
     setLastViewed(saveLastViewed(s.id));
-    // Named channels open the channel route; DMs + group DMs open messages.
-    if (isChannelConversation(s)) {
-      navigate({ view: "channels", channelId: s.id });
-      return;
-    }
-    navigate({
-      view: "messages",
-      conversationId: s.id,
-      ...(activeRouteFilter !== "all" ? { filter: activeRouteFilter } : {}),
-      ...(activeRouteSort !== "recent" ? { sort: activeRouteSort } : {}),
-    });
-  }, [navigate, activeRouteFilter, activeRouteSort]);
+    // One conversation route for every kind — channels included (D1).
+    navigate({ view: "messages", conversationId: s.id });
+  }, [navigate]);
 
   const openConversationMenu = useCallback(
     (event: MouseEvent, s: SessionEntry) => {
@@ -268,27 +236,39 @@ export function ChatLeft() {
   const onSearchKeyDown = makeSearchHandoff(() => listRef.current);
   useSlashToFocus(useCallback(() => inputRef.current, []));
 
-  const pinnedCount = visibleSections.pinned.length;
-  const channelCount = visibleSections.channels.length;
-  const dmCount = visibleSections.dms.reduce((n, g) => n + g.conversations.length, 0);
-  const observedCount = visibleSections.observed.reduce((n, g) => n + g.conversations.length, 0);
-  const archivedCount = visibleSections.archived.length;
-  const totalVisible = pinnedCount + channelCount + dmCount + observedCount + archivedCount;
+  const pinnedCount = sections.pinned.length;
+  const channelCount = sections.channels.length;
+  const agentCount = sections.agents.reduce((n, g) => n + g.conversations.length, 0);
+  const observedCount = sections.observed.reduce((n, g) => n + g.conversations.length, 0);
+  const archivedCount = sections.archived.length;
+  // Needs-you rows are mirrors of rows counted below — never counted twice.
+  const totalVisible = pinnedCount + channelCount + agentCount + observedCount + archivedCount;
 
-  const flatConversations = useMemo(() => {
-    const out: SessionEntry[] = [...visibleSections.pinned, ...visibleSections.channels];
-    for (const g of visibleSections.dms) out.push(...g.conversations);
-    for (const g of visibleSections.observed) out.push(...g.conversations);
-    out.push(...visibleSections.archived);
+  // Query forces the collapsed stratum open so search reaches Observed (D1).
+  const observedExpanded = observedOpen || Boolean(query);
+
+  const railRows = useMemo(() => {
+    const out: Array<{ rowId: string; id: string }> = [];
+    for (const s of needsYou) out.push({ rowId: `ny-${s.id}`, id: s.id });
+    for (const s of sections.pinned) out.push({ rowId: `pin-${s.id}`, id: s.id });
+    for (const g of sections.agents) for (const c of g.conversations) out.push({ rowId: c.id, id: c.id });
+    for (const s of sections.channels) out.push({ rowId: s.id, id: s.id });
+    for (const g of sections.observed) for (const c of g.conversations) out.push({ rowId: c.id, id: c.id });
+    for (const s of sections.archived) out.push({ rowId: `arch-${s.id}`, id: s.id });
     return out;
-  }, [visibleSections]);
-  const firstConversationId = flatConversations[0]?.id;
-  const hasAnyActive = activeId != null && flatConversations.some((c) => c.id === activeId);
+  }, [needsYou, sections]);
 
-  const observedShown = showAllObserved || Boolean(query)
-    ? visibleSections.observed
-    : visibleSections.observed.slice(0, OBSERVED_PREVIEW_LIMIT);
-  const observedHidden = Math.max(0, visibleSections.observed.length - observedShown.length);
+  const nav: RailNav = useMemo(() => ({
+    activeId,
+    activeRowId: activeId ? railRows.find((r) => r.id === activeId)?.rowId : undefined,
+    firstRowId: railRows[0]?.rowId,
+  }), [activeId, railRows]);
+
+  // The preview limit lives INSIDE the expanded stratum (D5).
+  const observedShown = showAllObserved || query
+    ? sections.observed
+    : sections.observed.slice(0, OBSERVED_PREVIEW_LIMIT);
+  const observedHidden = Math.max(0, sections.observed.length - observedShown.length);
 
   // Auto-open the group that holds the active conversation.
   const isGroupOpen = (group: ConversationGroup) => {
@@ -309,24 +289,6 @@ export function ChatLeft() {
 
   return (
     <div className="ctx-panel">
-      <div className="ctx-panel-tabs">
-        {FILTERS.map((f) => (
-          <button
-            key={f}
-            type="button"
-            className={[
-              "ctx-panel-tab",
-              activeRouteFilter === f && "ctx-panel-tab--active",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            onClick={() => setFilter(f)}
-          >
-            {FILTER_LABEL[f]}
-          </button>
-        ))}
-      </div>
-
       <div className="ctx-panel-toolbar">
         <input
           ref={inputRef}
@@ -337,24 +299,11 @@ export function ChatLeft() {
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onSearchKeyDown}
         />
-        <div className="ctx-panel-sort" role="group" aria-label="Sort">
-          {SORTS.map((s) => (
-            <button
-              key={s}
-              type="button"
-              title={`Sort by ${SORT_LABEL[s].toLowerCase()}`}
-              className={[
-                "ctx-panel-sort-option",
-                activeRouteSort === s && "ctx-panel-sort-option--active",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              onClick={() => setSort(s)}
-            >
-              {SORT_LABEL[s]}
-            </button>
-          ))}
-        </div>
+        {needsYouAll.length > 0 && (
+          <span className="ctx-panel-rail-stat" title="Asks waiting on your reply">
+            {needsReplyLabel(needsYouAll.length)}
+          </span>
+        )}
       </div>
 
       <div
@@ -374,25 +323,45 @@ export function ChatLeft() {
             loading={loading}
             error={loadError}
             apiOffline={apiOffline}
-            filter={activeRouteFilter}
             onRetry={() => {
               void reload(true);
             }}
           />
         ) : (
           <>
-            {pinnedCount > 0 && (
-              <RailSection label="Pinned" count={pinnedCount} hint="Pinned channels and DMs">
-                {visibleSections.pinned.map((s) => (
+            {needsYou.length > 0 && (
+              <RailSection
+                label="Needs you"
+                count={needsYou.length}
+                hint="Asks waiting on your reply"
+              >
+                {/* Mirrors: the origin row keeps its place below, so nothing
+                    reflows under the cursor when an ask resolves. */}
+                {needsYou.map((s) => (
                   <SessionRailRow
-                    key={`pin-${s.id}`}
+                    key={`ny-${s.id}`}
+                    rowId={`ny-${s.id}`}
                     session={s}
-                    activeId={activeId}
-                    lastViewed={lastViewed}
+                    nav={nav}
                     agentById={agentById}
                     asksByAgent={asksByAgent}
-                    hasAnyActive={hasAnyActive}
-                    firstConversationId={firstConversationId}
+                    onSelect={onSelect}
+                    onContextMenu={openConversationMenu}
+                  />
+                ))}
+              </RailSection>
+            )}
+
+            {pinnedCount > 0 && (
+              <RailSection label="Pinned" count={pinnedCount} hint="Pinned conversations">
+                {sections.pinned.map((s) => (
+                  <SessionRailRow
+                    key={`pin-${s.id}`}
+                    rowId={`pin-${s.id}`}
+                    session={s}
+                    nav={nav}
+                    agentById={agentById}
+                    asksByAgent={asksByAgent}
                     pinned
                     actions={rowActions(s)}
                     onSelect={onSelect}
@@ -402,39 +371,16 @@ export function ChatLeft() {
               </RailSection>
             )}
 
-            {channelCount > 0 && (
-              <RailSection label="Channels" count={channelCount}>
-                {visibleSections.channels.map((s) => (
-                  <SessionRailRow
-                    key={s.id}
-                    session={s}
-                    activeId={activeId}
-                    lastViewed={lastViewed}
-                    agentById={agentById}
-                    asksByAgent={asksByAgent}
-                    hasAnyActive={hasAnyActive}
-                    firstConversationId={firstConversationId}
-                    actions={rowActions(s)}
-                    onSelect={onSelect}
-                    onContextMenu={openConversationMenu}
-                  />
-                ))}
-              </RailSection>
-            )}
-
-            {dmCount > 0 && (
-              <RailSection label="DMs" count={dmCount}>
-                {visibleSections.dms.map((group) => (
+            {agentCount > 0 && (
+              <RailSection label="Agents" count={agentCount}>
+                {sections.agents.map((group) => (
                   <GroupOrRow
                     key={group.key}
                     group={group}
                     isOpen={isGroupOpen(group)}
-                    activeId={activeId}
-                    lastViewed={lastViewed}
+                    nav={nav}
                     agentById={agentById}
                     asksByAgent={asksByAgent}
-                    hasAnyActive={hasAnyActive}
-                    firstConversationId={firstConversationId}
                     prefs={prefs}
                     onToggle={() => toggleGroup(group.key)}
                     onSelect={onSelect}
@@ -446,24 +392,42 @@ export function ChatLeft() {
               </RailSection>
             )}
 
+            {channelCount > 0 && (
+              <RailSection label="Channels" count={channelCount}>
+                {sections.channels.map((s) => (
+                  <SessionRailRow
+                    key={s.id}
+                    rowId={s.id}
+                    session={s}
+                    nav={nav}
+                    agentById={agentById}
+                    asksByAgent={asksByAgent}
+                    actions={rowActions(s)}
+                    onSelect={onSelect}
+                    onContextMenu={openConversationMenu}
+                  />
+                ))}
+              </RailSection>
+            )}
+
             {observedCount > 0 && (
               <RailSection
                 label="Observed"
                 count={observedCount}
                 hint="Agent conversations you’re not in"
+                open={observedExpanded}
+                onToggle={() => setObservedOpen((v) => !v)}
               >
                 {observedShown.map((group) => (
                   <GroupOrRow
                     key={group.key}
                     group={group}
                     isOpen={isGroupOpen(group)}
-                    activeId={activeId}
-                    lastViewed={lastViewed}
+                    nav={nav}
                     agentById={agentById}
                     asksByAgent={asksByAgent}
-                    hasAnyActive={hasAnyActive}
-                    firstConversationId={firstConversationId}
                     prefs={prefs}
+                    observed
                     onToggle={() => toggleGroup(group.key)}
                     onSelect={onSelect}
                     onTogglePin={onTogglePin}
@@ -477,7 +441,7 @@ export function ChatLeft() {
                     className="ctx-panel-more"
                     onClick={() => setShowAllObserved(true)}
                   >
-                    ＋ {observedHidden} more observed
+                    + {observedHidden} more observed
                   </button>
                 ) : null}
               </RailSection>
@@ -493,16 +457,14 @@ export function ChatLeft() {
                   {showArchived ? "▾ hide archived" : `› show ${archivedCount} archived`}
                 </button>
                 {showArchived
-                  ? visibleSections.archived.map((s) => (
+                  ? sections.archived.map((s) => (
                       <SessionRailRow
                         key={`arch-${s.id}`}
+                        rowId={`arch-${s.id}`}
                         session={s}
-                        activeId={activeId}
-                        lastViewed={lastViewed}
+                        nav={nav}
                         agentById={agentById}
                         asksByAgent={asksByAgent}
-                        hasAnyActive={hasAnyActive}
-                        firstConversationId={firstConversationId}
                         actions={rowActions(s)}
                         onSelect={onSelect}
                         onContextMenu={openConversationMenu}
@@ -522,13 +484,38 @@ function RailSection({
   label,
   count,
   hint,
+  open,
+  onToggle,
   children,
 }: {
   label: string;
   count: number;
   hint?: string;
+  /** Collapsible sections pass both `open` and `onToggle`. */
+  open?: boolean;
+  onToggle?: () => void;
   children: ReactNode;
 }) {
+  if (onToggle) {
+    return (
+      <section className="ctx-panel-rail-section" aria-label={label}>
+        <button
+          type="button"
+          className="ctx-panel-section-label ctx-panel-section-toggle"
+          title={hint}
+          aria-expanded={Boolean(open)}
+          onClick={onToggle}
+        >
+          <span className="ctx-panel-section-toggle-label">
+            <span className="ctx-panel-section-chevron" aria-hidden>{open ? "▾" : "▸"}</span>
+            {label}
+          </span>
+          <span className="ctx-panel-count">{count}</span>
+        </button>
+        {open ? <div className="ctx-panel-rail-section-body">{children}</div> : null}
+      </section>
+    );
+  }
   return (
     <section className="ctx-panel-rail-section" aria-label={label}>
       <div className="ctx-panel-section-label" title={hint}>
@@ -583,12 +570,10 @@ function ConversationActions({
 
 function SessionRailRow({
   session: s,
-  activeId,
-  lastViewed,
+  rowId,
+  nav,
   agentById,
   asksByAgent,
-  hasAnyActive,
-  firstConversationId,
   pinned,
   depth,
   actions,
@@ -597,12 +582,11 @@ function SessionRailRow({
   onContextMenu,
 }: {
   session: SessionEntry;
-  activeId: string | undefined;
-  lastViewed: LastViewedMap;
+  /** Unique per RENDERED row — Needs-you mirrors reuse the conversation. */
+  rowId: string;
+  nav: RailNav;
   agentById: Map<string, Agent>;
   asksByAgent: Map<string, FleetAsk>;
-  hasAnyActive: boolean;
-  firstConversationId: string | undefined;
   pinned?: boolean;
   depth?: 0 | 1;
   actions?: ReactNode;
@@ -611,12 +595,17 @@ function SessionRailRow({
   onSelect: (s: SessionEntry) => void;
   onContextMenu?: (event: MouseEvent, s: SessionEntry) => void;
 }) {
-  const active = s.id === activeId;
-  const unread = isUnread(s.lastMessageAt, s.id, lastViewed);
+  const active = s.id === nav.activeId;
   const title = conversationDisplayTitle(s);
   const channel = isChannelConversation(s);
+  const observed = isObservedDirect(s);
   const agent = s.agentId ? agentById.get(s.agentId) : undefined;
   const ask = s.agentId ? asksByAgent.get(s.agentId) : undefined;
+  // D4 — emphasis is ADDRESSED-ONLY: an ask waiting on you, never recency.
+  // Channel rows carry none because there is no addressed-mention (@you)
+  // backend yet; until mentions land, channels order by recency only.
+  // D5 — Observed has no unread state at all; its count is inventory.
+  const unread = !channel && !observed && ask?.status === "needs_attention";
   const identifier = threadIdentifier(s, agent);
   const baseSub = channel
     ? `${s.participantIds.length} members`
@@ -650,7 +639,11 @@ function SessionRailRow({
       worktreeLabel={worktreeLabel ?? undefined}
       title={depth === 1 ? conversationChildTooltip(s, agent, ask) : undefined}
       actions={actions}
-      tabIndex={rovingTabIndex(active, hasAnyActive, s.id === firstConversationId)}
+      tabIndex={rovingTabIndex(
+        rowId === nav.activeRowId,
+        nav.activeRowId !== undefined,
+        rowId === nav.firstRowId,
+      )}
       onClick={() => onSelect(s)}
       onContextMenu={onContextMenu ? (e) => onContextMenu(e, s) : undefined}
     />
@@ -660,13 +653,11 @@ function SessionRailRow({
 function GroupOrRow({
   group,
   isOpen,
-  activeId,
-  lastViewed,
+  nav,
   agentById,
   asksByAgent,
-  hasAnyActive,
-  firstConversationId,
   prefs,
+  observed,
   onToggle,
   onSelect,
   onTogglePin,
@@ -675,13 +666,12 @@ function GroupOrRow({
 }: {
   group: ConversationGroup;
   isOpen: boolean;
-  activeId: string | undefined;
-  lastViewed: LastViewedMap;
+  nav: RailNav;
   agentById: Map<string, Agent>;
   asksByAgent: Map<string, FleetAsk>;
-  hasAnyActive: boolean;
-  firstConversationId: string | undefined;
   prefs: ConversationPrefs;
+  /** Observed stratum — no unread state anywhere in it (D5). */
+  observed?: boolean;
   onToggle: () => void;
   onSelect: (s: SessionEntry) => void;
   onTogglePin: (id: string) => void;
@@ -692,13 +682,11 @@ function GroupOrRow({
     const s = group.conversations[0]!;
     return (
       <SessionRailRow
+        rowId={s.id}
         session={s}
-        activeId={activeId}
-        lastViewed={lastViewed}
+        nav={nav}
         agentById={agentById}
         asksByAgent={asksByAgent}
-        hasAnyActive={hasAnyActive}
-        firstConversationId={firstConversationId}
         pinned={isPinned(s.id, prefs)}
         actions={
           <ConversationActions
@@ -720,7 +708,7 @@ function GroupOrRow({
   const activeAskCount = groupAsks.length;
   const workingAskCount = groupAsks.filter((ask) => ask.status === "working").length;
   const attentionAskCount = groupAsks.filter((ask) => ask.status === "needs_attention").length;
-  const anyActive = group.conversations.some((c) => c.id === activeId);
+  const anyActive = group.conversations.some((c) => c.id === nav.activeId);
 
   return (
     <div key={group.key}>
@@ -732,7 +720,9 @@ function GroupOrRow({
         tone={workingAskCount > 0 ? "in_turn" : group.bestState}
         caret={isOpen ? "open" : "closed"}
         active={anyActive && !isOpen}
-        unread={group.unreadCount > 0 && !isOpen}
+        // D4/D5 — a collapsed group bolds only for asks addressed to you, and
+        // never inside the observed stratum.
+        unread={!observed && attentionAskCount > 0 && !isOpen}
         activityLabel={activeAskCount > 0 ? `${activeAskCount} active` : undefined}
         activityTone={attentionAskCount > 0 ? "attention" : workingAskCount > 0 ? "working" : "pending"}
         onClick={onToggle}
@@ -749,14 +739,12 @@ function GroupOrRow({
           return (
           <SessionRailRow
             key={s.id}
+            rowId={s.id}
             session={s}
             depth={1}
-            activeId={activeId}
-            lastViewed={lastViewed}
+            nav={nav}
             agentById={agentById}
             asksByAgent={asksByAgent}
-            hasAnyActive={hasAnyActive}
-            firstConversationId={firstConversationId}
             pinned={isPinned(s.id, prefs)}
             worktreeLabel={worktreeLabel}
             actions={
@@ -781,43 +769,33 @@ function ChatRailEmptyState({
   loading,
   error,
   apiOffline,
-  filter,
   onRetry,
 }: {
   query: string;
   loading: boolean;
   error: string | null;
   apiOffline: boolean;
-  filter: MessagesFilter;
   onRetry: () => void;
 }) {
   const hasQuery = query.trim().length > 0;
   const title = loading
-    ? "Loading chats"
+    ? "Loading conversations"
     : apiOffline
       ? "Scout server offline"
       : error
-        ? "Couldn't load chats"
+        ? "Couldn't load conversations"
         : hasQuery
-          ? "No matching chats"
-          : filter === "channel"
-            ? "No channels yet"
-            : filter === "dm"
-              ? "No DMs yet"
-              : "No chats yet";
+          ? "No matching conversations"
+          : "No conversations yet";
   const detail = loading
-    ? "Checking the broker for channels, your DMs, and observed threads."
+    ? "Checking the broker for your conversations, channels, and observed threads."
     : apiOffline
       ? "Start or restart Scout services, then retry."
       : error
         ? error
         : hasQuery
-          ? "Try a broader filter or switch chat types."
-          : filter === "channel"
-            ? "Shared channels land here once created."
-            : filter === "dm"
-              ? "Start a DM with an agent to see it here."
-              : "Channels, your DMs, and observed agent threads will show here.";
+          ? "Try a shorter filter."
+          : "Your conversations, channels, and observed agent threads will show here.";
 
   return (
     <div className="ctx-panel-empty-card" data-tone={apiOffline || error ? "error" : "neutral"}>
@@ -834,6 +812,18 @@ function ChatRailEmptyState({
       )}
     </div>
   );
+}
+
+function matchesQuery(s: SessionEntry, query: string): boolean {
+  const q = query.toLowerCase();
+  return conversationDisplayTitle(s).toLowerCase().includes(q)
+    || s.id.toLowerCase().includes(q)
+    || (s.preview ?? "").toLowerCase().includes(q)
+    || (s.agentName ?? "").toLowerCase().includes(q);
+}
+
+function needsReplyLabel(count: number): string {
+  return count === 1 ? "1 needs a reply" : `${count} need a reply`;
 }
 
 function askActivityLabel(ask: FleetAsk): string {
@@ -872,37 +862,8 @@ function activeAskSubtitle(
   return task ? `${status} · ${task}` : status;
 }
 
-function sortSessions(
-  list: SessionEntry[],
-  lastViewed: LastViewedMap,
-  sort: MessagesSort,
-): SessionEntry[] {
-  const sorted = [...list];
-  switch (sort) {
-    case "name":
-      sorted.sort((a, b) =>
-        conversationDisplayTitle(a)
-          .toLowerCase()
-          .localeCompare(conversationDisplayTitle(b).toLowerCase()),
-      );
-      break;
-    case "unread": {
-      const unreadScore = (s: SessionEntry) =>
-        isUnread(s.lastMessageAt, s.id, lastViewed) ? 0 : 1;
-      sorted.sort((a, b) => {
-        const ua = unreadScore(a);
-        const ub = unreadScore(b);
-        if (ua !== ub) return ua - ub;
-        return (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0);
-      });
-      break;
-    }
-    case "recent":
-    default:
-      sorted.sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
-      break;
-  }
-  return sorted;
+function sortByRecency(list: SessionEntry[]): SessionEntry[] {
+  return [...list].sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
 }
 
 function conversationChildLabel(
@@ -945,10 +906,12 @@ function trimPreview(preview: string | null): string | null {
   return collapsed.length > 60 ? `${collapsed.slice(0, 57)}…` : collapsed;
 }
 
+/**
+ * Group meta is activity grammar, not inventory ratios (D3): recency-unread
+ * counts are exactly the ambient pressure D4 kills, so the ratio is gone.
+ */
 function messagesGroupMeta(group: ConversationGroup): string {
   const time = group.latestUpdate ? timeAgo(group.latestUpdate) : "";
-  const count = group.unreadCount > 0
-    ? `${group.unreadCount}/${group.conversations.length}`
-    : `${group.conversations.length}`;
+  const count = `${group.conversations.length}`;
   return time ? `${count} · ${time}` : count;
 }

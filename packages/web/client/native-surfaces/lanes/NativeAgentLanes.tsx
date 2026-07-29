@@ -8,6 +8,7 @@ import {
   ScoutContext,
   type ScoutContextValue,
 } from "../../scout/Provider.tsx";
+import { SCOUT_DEFAULT_APPEARANCE_DETAILS } from "../../lib/theme.ts";
 import type { NativeScoutSurfaceClient } from "../../surface-contract/native-scout-surface-client.ts";
 import type {
   HostScope,
@@ -115,6 +116,8 @@ export function NativeAgentLanes({ bootstrap, client }: NativeAgentLanesProps) {
       message: null,
       lastCheckedAt: Date.now(),
     },
+    appearanceDetails: SCOUT_DEFAULT_APPEARANCE_DETAILS,
+    updateAppearanceDetails: noOp,
     reload: () => refresh(true),
     onboarding: null,
     refreshOnboarding: noOpAsync,

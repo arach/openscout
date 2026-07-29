@@ -24,7 +24,7 @@
   border: none;
   border-radius: 7px;
   background: none;
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 600;
   color: var(--studio-ink-muted);
   cursor: pointer;
@@ -38,7 +38,7 @@
 .caption {
   margin: 0;
   max-width: 78ch;
-  font-size: 12.5px;
+  font-size: var(--text-md);
   line-height: 1.55;
   color: var(--studio-ink-muted);
 }
@@ -51,7 +51,7 @@
 
 .caption code {
   font-family: ui-monospace, monospace;
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--studio-ink);
 }
 
@@ -80,14 +80,14 @@
 }
 
 .listTitle {
-  font-size: 14px;
+  font-size: var(--text-xl);
   font-weight: 600;
   color: var(--s-ink);
 }
 
 .listCount {
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
 }
 
@@ -101,7 +101,7 @@
 .group {
   padding: 8px 16px 4px;
   font-family: var(--s-font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.12em;
@@ -135,7 +135,7 @@
 .orphanNote {
   margin-top: 3px;
   font-family: var(--s-font-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   color: var(--s-warn);
 }
 
@@ -154,7 +154,7 @@
   align-items: center;
   justify-content: center;
   font-family: var(--s-font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 700;
   color: var(--s-muted);
   background: var(--s-surface);
@@ -183,7 +183,7 @@
 }
 
 .name {
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-weight: 500;
   color: var(--s-ink);
   overflow: hidden;
@@ -198,13 +198,13 @@
 .time {
   margin-left: auto;
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
   flex-shrink: 0;
 }
 
 .preview {
-  font-size: 12px;
+  font-size: var(--text-md);
   line-height: 1.4;
   color: var(--s-muted);
   display: -webkit-box;
@@ -220,7 +220,7 @@
 .cid {
   margin-top: 3px;
   font-family: var(--s-font-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   color: var(--s-dim);
 }
 
@@ -234,7 +234,7 @@
   align-items: center;
   justify-content: center;
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 600;
   color: var(--s-muted);
   background: var(--s-surface);
@@ -270,14 +270,14 @@
 }
 
 .threadName {
-  font-size: 14px;
+  font-size: var(--text-xl);
   font-weight: 600;
   color: var(--s-ink);
 }
 
 .threadSub {
   font-family: var(--s-font-mono);
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -296,7 +296,7 @@
   gap: 6px;
   padding: 6px 12px;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 600;
   color: var(--s-muted);
   background: var(--s-surface);
@@ -307,7 +307,7 @@
 .primaryBtn {
   padding: 6px 14px;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 600;
   color: var(--s-bg);
   background: var(--s-accent);
@@ -363,29 +363,29 @@
 }
 
 .turnAuthor {
-  font-size: 12.5px;
+  font-size: var(--text-md);
   font-weight: 600;
   color: var(--s-ink);
 }
 
 .turnCompact .turnAuthor {
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 
 .turnTime {
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
 }
 
 .turnText {
-  font-size: 13px;
+  font-size: var(--text-lg);
   line-height: 1.6;
   color: color-mix(in srgb, var(--s-ink) 90%, transparent);
 }
 
 .turnCompact .turnText {
-  font-size: 12.5px;
+  font-size: var(--text-md);
 }
 
 .turnText p {
@@ -408,7 +408,7 @@
 
 .turnText code {
   font-family: var(--s-font-mono);
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   padding: 1px 5px;
   border-radius: 4px;
   background: color-mix(in srgb, var(--s-ink) 7%, transparent);
@@ -419,7 +419,7 @@
 .custody {
   margin-bottom: 4px;
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
 }
 
@@ -443,7 +443,7 @@
   gap: 5px;
   padding: 3px 9px;
   border-radius: 7px;
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--s-muted);
   background: var(--s-surface);
@@ -510,7 +510,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 8px;
+  font-size: var(--text-3xs);
   font-weight: 700;
   color: var(--s-muted);
   background: var(--s-surface);
@@ -518,21 +518,21 @@
 }
 
 .stubCount {
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--s-accent);
 }
 
 .stubMeta {
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
 }
 
 .stubDisclose {
   margin-left: 4px;
   font-family: var(--s-font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--s-dim);
@@ -560,14 +560,14 @@
 
 .miniField {
   flex: 1;
-  font-size: 12.5px;
+  font-size: var(--text-md);
   color: var(--s-dim);
 }
 
 .miniSend {
   padding: 4px 11px;
   border-radius: 7px;
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--s-bg);
   background: var(--s-accent);
@@ -603,7 +603,7 @@
 
 .replyChipLabel {
   font-family: var(--s-font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -614,7 +614,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   color: var(--s-muted);
 }
 
@@ -623,7 +623,7 @@
   padding: 0 4px;
   border: none;
   background: none;
-  font-size: 14px;
+  font-size: var(--text-xl);
   line-height: 1;
   color: var(--s-dim);
   cursor: pointer;
@@ -635,7 +635,7 @@
 
 .composerField {
   padding: 12px 14px;
-  font-size: 13px;
+  font-size: var(--text-lg);
   color: var(--s-dim);
 }
 
@@ -650,13 +650,13 @@
 }
 
 .composerHint {
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--s-dim);
 }
 
 .composerHint kbd {
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   padding: 1px 5px;
   border-radius: 4px;
   background: color-mix(in srgb, var(--s-ink) 8%, transparent);
@@ -674,7 +674,7 @@
 
 .contractHead {
   font-family: ui-monospace, monospace;
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.14em;
@@ -685,13 +685,13 @@
 .contractTable {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: var(--text-md);
 }
 
 .contractTable th {
   text-align: left;
   font-family: ui-monospace, monospace;
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.1em;

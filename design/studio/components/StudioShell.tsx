@@ -1,29 +1,35 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useState, type MouseEvent as ReactMouseEvent } from "react";
+import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { StatusBar } from "hudsonkit/chrome";
 import { StudioSidebar } from "@/components/StudioSidebar";
 import { PageStrip } from "@/components/PageStrip";
 import { FocusExit } from "@/components/FocusMode";
-import type { StudioPage } from "@/lib/studio-pages";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import {
+  SidebarWidthProvider,
+  useSidebarWidth,
+  DEFAULT_SIDEBAR_W,
+  MIN_SIDEBAR_W,
+  MAX_SIDEBAR_W,
+} from "@/components/sidebar-width";
+import {
+  STUDIO_PAGES,
+  pageForPath,
+  type StudioPage,
+} from "@/lib/studio-pages";
 
 /**
- * Top-level shell — persistent, resizable sidebar + per-page header strip.
+ * Studio shell.
  *
- * `?focus=1` opts pages out of chrome for fullscreen mocks / screenshots.
- *
- * Plans + eng docs live on disk, so the root layout reads them server-side
- * and passes them in. `studyMtimes` (study href → file mtime) is likewise
- * computed server-side so the sidebar can order Studies by recency.
- *
- * The sidebar width is user-draggable (persisted to localStorage) and shared
- * with the content offset so the two never desync.
+ * Left rail is ours (not Hudsonkit SidePanel) so resize is under full control.
+ * StatusBar stays from hudsonkit/chrome. Drag any [data-studio-resize-handle];
+ * width also via status-bar − / + and keyboard [ / ].
  */
 
-const MIN_W = 180;
-const MAX_W = 480;
-const DEFAULT_W = 220;
-const LS_KEY = "studio.sidebarWidth";
+const STATUS_H = 28;
 
 type ShellProps = {
   children: React.ReactNode;
@@ -33,100 +39,269 @@ type ShellProps = {
 
 export function StudioShell({ children, extraPages, studyMtimes }: ShellProps) {
   return (
-    <Suspense
-      fallback={
-        <ShellChrome extraPages={extraPages} studyMtimes={studyMtimes}>
-          {children}
-        </ShellChrome>
-      }
-    >
-      <ShellInner extraPages={extraPages} studyMtimes={studyMtimes}>
+    <SidebarWidthProvider>
+      <ShellBody extraPages={extraPages} studyMtimes={studyMtimes}>
         {children}
-      </ShellInner>
-    </Suspense>
+      </ShellBody>
+    </SidebarWidthProvider>
   );
 }
 
-function ShellInner({ children, extraPages, studyMtimes }: ShellProps) {
-  const params = useSearchParams();
-  const focusMode =
-    params.get("focus") === "1" || params.get("focus") === "true";
+function ShellBody({ children, extraPages, studyMtimes }: ShellProps) {
+  const { width, dragging, nudge, reset, beginResize } = useSidebarWidth();
+  const [focusMode, setFocusMode] = useState(false);
+  const pathname = usePathname();
+  const page = pageForPath(pathname, extraPages);
+  const totalPages = STUDIO_PAGES.length + extraPages.length;
 
-  if (focusMode) {
-    // Focus mode used to be a trapdoor: chrome gone, and no way back short of
-    // editing the URL. FocusExit is invisible at rest — so screenshots stay
-    // clean — and appears on hover or keyboard focus. Escape also leaves.
-    return (
-      <>
-        <main className="min-h-screen">{children}</main>
-        <FocusExit />
-      </>
-    );
-  }
-
-  return (
-    <ShellChrome extraPages={extraPages} studyMtimes={studyMtimes}>
-      {children}
-    </ShellChrome>
-  );
-}
-
-function ShellChrome({ children, extraPages, studyMtimes }: ShellProps) {
-  const [width, setWidth] = useState(DEFAULT_W);
-
-  // Restore the saved width after mount (kept out of the initial render to
-  // avoid an SSR/client hydration mismatch).
-  useEffect(() => {
-    const saved = Number(localStorage.getItem(LS_KEY));
-    if (Number.isFinite(saved) && saved >= MIN_W && saved <= MAX_W) {
-      setWidth(saved);
+  const status = useMemo(() => {
+    if (page?.status === "in-flight") {
+      return { label: "IN FLIGHT", color: "amber" as const };
     }
-  }, []);
+    if (page?.status === "shipped") {
+      return { label: "SHIPPED", color: "emerald" as const };
+    }
+    if (page?.status === "shelved") {
+      return { label: "SHELVED", color: "red" as const };
+    }
+    return { label: "STUDIO", color: "emerald" as const };
+  }, [page?.status]);
 
-  const onResizeStart = useCallback((e: ReactMouseEvent) => {
-    e.preventDefault();
-    const onMove = (ev: globalThis.MouseEvent) => {
-      setWidth(Math.min(MAX_W, Math.max(MIN_W, ev.clientX)));
-    };
-    const onUp = () => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      setWidth((w) => {
-        localStorage.setItem(LS_KEY, String(Math.round(w)));
-        return w;
-      });
-    };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-  }, []);
+  // Explicit px strings — never rely on React's unit coercion alone for
+  // layout chrome, so a bad number never silently becomes invalid CSS.
+  const widthPx = `${width}px`;
 
   return (
-    <div className="min-h-screen">
-      <StudioSidebar extraPages={extraPages} studyMtimes={studyMtimes} width={width} />
-      {/* Drag handle — straddles the sidebar's right border, full height,
-          above both panes so it always catches the grab. Double-click resets. */}
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize sidebar"
-        onMouseDown={onResizeStart}
-        onDoubleClick={() => {
-          setWidth(DEFAULT_W);
-          localStorage.setItem(LS_KEY, String(DEFAULT_W));
-        }}
-        className="group fixed top-0 z-40 h-screen w-[7px] cursor-col-resize"
-        style={{ left: width - 3 }}
+    <>
+      <Suspense fallback={null}>
+        <FocusModeWatcher onChange={setFocusMode} />
+      </Suspense>
+
+      {focusMode ? (
+        <>
+          <main className="min-h-screen">{children}</main>
+          <FocusExit />
+        </>
+      ) : (
+        <div className="min-h-screen bg-studio-canvas text-studio-ink">
+          {/* ── Left rail (fully owned) ───────────────────────────── */}
+          <aside
+            className="studio-rail fixed left-0 top-0 z-40 flex flex-col border-r border-studio-edge"
+            style={{
+              width: widthPx,
+              bottom: STATUS_H,
+            }}
+            data-studio-rail=""
+          >
+            <header className="flex shrink-0 items-center justify-between gap-2 border-b border-studio-edge px-3 py-3">
+              <Link
+                href="/"
+                className="studio-mark focus-ring rounded-[2px] font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink transition-colors hover:text-studio-ink"
+              >
+                <span className="studio-mark__sigil" aria-hidden />
+                <span>Scout · Studio</span>
+              </Link>
+              <div className="flex items-center gap-1">
+                <WidthButtons width={width} onNudge={nudge} onReset={reset} />
+              </div>
+            </header>
+
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <StudioSidebar
+                extraPages={extraPages}
+                studyMtimes={studyMtimes}
+              />
+            </div>
+
+            <footer className="shrink-0 border-t border-studio-edge px-3 py-2.5">
+              <ThemeToggle />
+            </footer>
+          </aside>
+
+          {/* Resize handle lives as a FIXED sibling of the rail (not inside
+           *  it) so it can straddle the rail/main seam and sit above main
+           *  content. Hit target is wider than the visual hairline. */}
+          <div
+            data-studio-resize-handle=""
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize sidebar"
+            aria-valuenow={width}
+            aria-valuemin={MIN_SIDEBAR_W}
+            aria-valuemax={MAX_SIDEBAR_W}
+            title={`Drag to resize (${width}px) · [ ] keys also work`}
+            data-dragging={dragging ? "true" : undefined}
+            onPointerDown={beginResize}
+            className={
+              "fixed z-[55] w-3 cursor-col-resize touch-none " +
+              "transition-colors " +
+              "hover:bg-[color-mix(in_oklab,var(--scout-accent)_16%,transparent)] " +
+              (dragging
+                ? "bg-[color-mix(in_oklab,var(--scout-accent)_26%,transparent)]"
+                : "")
+            }
+            style={{
+              left: width - 6,
+              top: 0,
+              bottom: STATUS_H,
+            }}
+          >
+            <span
+              aria-hidden
+              className={
+                "pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 " +
+                (dragging
+                  ? "bg-[color:var(--scout-accent)]"
+                  : "bg-studio-edge")
+              }
+            />
+            <span
+              aria-hidden
+              className={
+                "pointer-events-none absolute left-1/2 top-1/2 flex h-9 w-2.5 " +
+                "-translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center gap-[3px] " +
+                "rounded-[3px] border border-studio-edge bg-studio-canvas " +
+                "transition-colors " +
+                (dragging ? "border-[color:var(--scout-accent)]" : "")
+              }
+            >
+              <i className="block h-[2px] w-[2px] rounded-full bg-studio-ink-faint" />
+              <i className="block h-[2px] w-[2px] rounded-full bg-studio-ink-faint" />
+              <i className="block h-[2px] w-[2px] rounded-full bg-studio-ink-faint" />
+            </span>
+          </div>
+
+          {/* ── Main ──────────────────────────────────────────────── */}
+          <div
+            className="flex min-h-screen flex-col"
+            style={{ marginLeft: widthPx, paddingBottom: STATUS_H }}
+          >
+            <PageStrip extraPages={extraPages} />
+            <main className="flex-1">{children}</main>
+          </div>
+
+          {/* ── Status bar (Hudsonkit) ────────────────────────────── */}
+          <StatusBar
+            status={status}
+            left={
+              <span className="flex min-w-0 items-center gap-3">
+                <WidthButtons width={width} onNudge={nudge} onReset={reset} />
+                <span className="truncate text-muted-foreground">
+                  {page ? (
+                    <>
+                      <span className="text-foreground/80">{page.label}</span>
+                      {page.bucket ? (
+                        <span className="ml-2 uppercase tracking-eyebrow opacity-70">
+                          · {page.bucket}
+                        </span>
+                      ) : null}
+                    </>
+                  ) : (
+                    "OpenScout Studio"
+                  )}
+                </span>
+              </span>
+            }
+            right={
+              <span className="flex items-center gap-2 tabular-nums text-muted-foreground">
+                <span className="hidden sm:inline">[ ] resize</span>
+                <span className="text-muted-foreground/40" aria-hidden>
+                  ·
+                </span>
+                <span>{totalPages} pages</span>
+                <span className="text-muted-foreground/40" aria-hidden>
+                  ·
+                </span>
+                <StudioClock />
+              </span>
+            }
+          />
+        </div>
+      )}
+    </>
+  );
+}
+
+function WidthButtons({
+  width,
+  onNudge,
+  onReset,
+}: {
+  width: number;
+  onNudge: (d: number) => void;
+  onReset: () => void;
+}) {
+  return (
+    <div
+      className="flex shrink-0 items-center gap-0.5 rounded-[4px] border border-studio-edge p-0.5"
+      style={{ pointerEvents: "auto" }}
+    >
+      <button
+        type="button"
+        onClick={() => onNudge(-32)}
+        className="focus-ring rounded-[3px] px-1.5 py-0.5 font-mono text-xs text-studio-ink-faint transition-colors hover:bg-studio-canvas-alt hover:text-studio-ink"
+        title="Narrower (−32px) · key ["
+        aria-label="Narrow sidebar"
       >
-        <span className="absolute inset-y-0 left-[3px] w-px bg-transparent transition-colors group-hover:bg-[color:var(--scout-accent)]" />
-      </div>
-      <div style={{ marginLeft: width }} className="flex min-h-screen flex-col">
-        <PageStrip extraPages={extraPages} />
-        <main className="flex-1">{children}</main>
-      </div>
+        −
+      </button>
+      <button
+        type="button"
+        onClick={onReset}
+        className="focus-ring min-w-[2.5rem] rounded-[3px] px-1 py-0.5 font-mono text-xs tabular-nums text-studio-ink-muted transition-colors hover:bg-studio-canvas-alt hover:text-studio-ink"
+        title={`Reset to ${DEFAULT_SIDEBAR_W}px`}
+        aria-label={`Sidebar width ${width} pixels, click to reset`}
+      >
+        {width}
+      </button>
+      <button
+        type="button"
+        onClick={() => onNudge(32)}
+        className="focus-ring rounded-[3px] px-1.5 py-0.5 font-mono text-xs text-studio-ink-faint transition-colors hover:bg-studio-canvas-alt hover:text-studio-ink"
+        title="Wider (+32px) · key ]"
+        aria-label="Widen sidebar"
+      >
+        +
+      </button>
     </div>
   );
+}
+
+function StudioClock() {
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => {
+    setNow(new Date());
+    const id = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  const label = now
+    ? now.toLocaleTimeString("en-GB", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      })
+    : "––:––";
+  return (
+    <time
+      dateTime={now?.toISOString()}
+      suppressHydrationWarning
+      className="font-mono tabular-nums tracking-wide text-foreground"
+    >
+      {label}
+    </time>
+  );
+}
+
+function FocusModeWatcher({
+  onChange,
+}: {
+  onChange: (focus: boolean) => void;
+}) {
+  const params = useSearchParams();
+  const focus =
+    params.get("focus") === "1" || params.get("focus") === "true";
+  useEffect(() => {
+    onChange(focus);
+  }, [focus, onChange]);
+  return null;
 }

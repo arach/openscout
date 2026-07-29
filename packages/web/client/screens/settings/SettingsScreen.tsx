@@ -8,6 +8,7 @@ import { timeAgo } from "../../lib/time.ts";
 import type { PairingState, Route } from "../../lib/types.ts";
 import { pairingDeepLinks } from "../../../shared/pairing-link.js";
 import { AgentConfigurationScreen } from "../agents/AgentConfigurationScreen.tsx";
+import { SettingsPage, type DrawerSettingsSection } from "./SettingsDrawer.tsx";
 import "../system-surfaces-redesign.css";
 
 function relayHostLabel(input: string | null): string | null {
@@ -96,19 +97,27 @@ export function SettingsScreen({
     return <AgentConfigurationScreen navigate={navigate} selectedAgentId={agentId} />;
   }
 
-  // Operator / comms / credentials / voice / devices render via SettingsDrawer
-  // (shell overlay policy) driven by the same /settings/:section URL.
+  // First-class Settings pages. Each section owns a URL and renders in the
+  // normal center workspace; there is no modal/drawer presentation.
   if (
-    section === "operator"
+    section === undefined
+    || section === "appearance"
+    || section === "operator"
     || section === "comms"
     || section === "credentials"
     || section === "voice"
     || section === "devices"
   ) {
-    return null;
+    const pageSection = (section ?? "appearance") as DrawerSettingsSection;
+    return (
+      <SettingsPage
+        section={pageSection}
+        onSectionChange={(nextSection) => navigate({ view: "settings", section: nextSection })}
+      />
+    );
   }
 
-  // pairing (default /settings) — full routed screen.
+  // Detailed pairing diagnostics remain available at /settings/pairing.
   return <PairingSettingsScreen />;
 }
 

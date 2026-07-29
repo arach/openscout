@@ -279,10 +279,10 @@ function IdentityCard({ agent, engine }: { agent: RosterAgent; engine: EngineId 
         </div>
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex items-baseline gap-2">
-            <span className="truncate font-sans text-[15px] font-semibold tracking-tight text-studio-ink">
+            <span className="truncate font-sans text-2xl font-semibold tracking-tight text-studio-ink">
               {agent.name}
             </span>
-            <span className="font-mono text-[10.5px] text-studio-ink-faint">{agent.handle}</span>
+            <span className="font-mono text-xs text-studio-ink-faint">{agent.handle}</span>
           </div>
           <div className="mt-1 flex items-center gap-1.5">
             <span
@@ -295,7 +295,7 @@ function IdentityCard({ agent, engine }: { agent: RosterAgent; engine: EngineId 
                     : undefined,
               }}
             />
-            <span className="font-mono text-[10px] uppercase tracking-eyebrow" style={{ color: STATE_COLOR[agent.state] }}>
+            <span className="font-mono text-xs uppercase tracking-eyebrow" style={{ color: STATE_COLOR[agent.state] }}>
               {STATE_LABEL[agent.state]}
             </span>
           </div>
@@ -305,7 +305,7 @@ function IdentityCard({ agent, engine }: { agent: RosterAgent; engine: EngineId 
           </div>
         </div>
       </div>
-      <div className="flex items-center justify-between border-t border-studio-edge pt-2 font-mono text-[9px] text-studio-ink-faint">
+      <div className="flex items-center justify-between border-t border-studio-edge pt-2 font-mono text-2xs text-studio-ink-faint">
         <span>hue {id.palette.hue}°</span>
         <span>seed 0x{seed.toString(16).padStart(8, "0")}</span>
       </div>
@@ -315,7 +315,7 @@ function IdentityCard({ agent, engine }: { agent: RosterAgent; engine: EngineId 
 
 function Tag({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded-sm border border-studio-edge px-1.5 py-0.5 font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+    <span className="rounded-sm border border-studio-edge px-1.5 py-0.5 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
       {children}
     </span>
   );
@@ -333,13 +333,13 @@ export default function AgentIdentityPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-10 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · agent-identity
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Agent identity
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           A delightful, <span className="text-studio-ink">systematic</span> mark for every agent — derived entirely from
           its name. Hash the name to a seed, seed a PRNG, and pull every visual parameter from that one stream. Same name,
           same creature, forever, on every surface. All the color and personality lives in the mark; the chrome around it
@@ -350,7 +350,7 @@ export default function AgentIdentityPage() {
       {/* 00 — The heuristic */}
       <Section label="00 · The heuristic" hint="name → seed → stream → params">
         <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-          <div className="rounded-md border border-studio-edge bg-studio-surface p-4 font-mono text-[11.5px] leading-relaxed text-studio-ink-faint">
+          <div className="rounded-md border border-studio-edge bg-studio-surface p-4 font-mono text-sm leading-relaxed text-studio-ink-faint">
             <div><span className="text-studio-ink">name</span> = "{name}"</div>
             <div className="text-studio-ink-faint">↓ xmur3() — string → 32-bit seed</div>
             <div><span className="text-studio-ink">seed</span> = mulberry32(…) → repeatable [0,1) stream</div>
@@ -359,7 +359,7 @@ export default function AgentIdentityPage() {
             <div className="text-studio-ink-faint">↓ silhouette · eyes · antennae · legs · speckle …</div>
             <div className="mt-1 text-studio-ink">stable, storage-free, portable to Swift</div>
           </div>
-          <ul className="flex flex-col justify-center gap-2 font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+          <ul className="flex flex-col justify-center gap-2 font-sans text-md leading-relaxed text-studio-ink-faint">
             <li><span className="text-studio-ink">Deterministic.</span> No DB column, no upload — the name is the seed.</li>
             <li><span className="text-studio-ink">One hue per agent.</span> Lightness/chroma are fixed so nothing is garish; every mark belongs to the same family.</li>
             <li><span className="text-studio-ink">Color is quarantined to the mark.</span> Tags, rows, and state stay monochrome — the eye still sorts by name.</li>
@@ -376,7 +376,7 @@ export default function AgentIdentityPage() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               spellCheck={false}
-              className="focus-ring w-[220px] rounded-sm border border-studio-edge bg-studio-canvas px-3 py-1.5 font-mono text-[13px] text-studio-ink outline-none"
+              className="focus-ring w-[220px] rounded-sm border border-studio-edge bg-studio-canvas px-3 py-1.5 font-mono text-lg text-studio-ink outline-none"
               placeholder="agent name…"
             />
             <div className="flex flex-wrap gap-1.5">
@@ -384,7 +384,7 @@ export default function AgentIdentityPage() {
                 <button
                   key={ex}
                   onClick={() => setName(ex)}
-                  className="focus-ring rounded-sm border border-studio-edge px-2 py-1 font-mono text-[10.5px] text-studio-ink-faint transition-colors hover:bg-studio-canvas-alt hover:text-studio-ink"
+                  className="focus-ring rounded-sm border border-studio-edge px-2 py-1 font-mono text-xs text-studio-ink-faint transition-colors hover:bg-studio-canvas-alt hover:text-studio-ink"
                 >
                   {ex}
                 </button>
@@ -398,8 +398,8 @@ export default function AgentIdentityPage() {
                   <Mark name={name || " "} engine={eng.id} px={84} />
                 </div>
                 <div className="text-center">
-                  <div className="font-mono text-[11px] text-studio-ink">{eng.label}</div>
-                  <div className="font-mono text-[9px] text-studio-ink-faint">{eng.blurb}</div>
+                  <div className="font-mono text-sm text-studio-ink">{eng.label}</div>
+                  <div className="font-mono text-2xs text-studio-ink-faint">{eng.blurb}</div>
                 </div>
               </div>
             ))}
@@ -413,7 +413,7 @@ export default function AgentIdentityPage() {
           <div className="grid place-items-center rounded-md border border-studio-edge bg-studio-surface p-5">
             <SpriteMark sprite={spriteFor(name || "Hudson")} px={160} />
           </div>
-          <ul className="flex flex-col justify-center gap-2.5 font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+          <ul className="flex flex-col justify-center gap-2.5 font-sans text-md leading-relaxed text-studio-ink-faint">
             <li><span className="text-studio-ink">Mirror axis.</span> Only the left half is generated and reflected — bilateral symmetry is what turns noise into an organism.</li>
             <li><span className="text-studio-ink">Forced eye-band + spine.</span> A solid row gets a symmetric pair of eyes (sclera + pupil); a strong center column keeps the body connected. Guarantees a face.</li>
             <li><span className="text-studio-ink">Seeded traits.</span> Antennae, legs, wide/narrow eyes, a quiet mouth, and accent-tone speckle ("markings") are each a coin-flip from the stream — that's where the individuality comes from.</li>
@@ -431,7 +431,7 @@ export default function AgentIdentityPage() {
               onClick={() => setEngine(eng.id)}
               aria-pressed={engine === eng.id}
               className={[
-                "focus-ring rounded-sm border px-3 py-1.5 font-mono text-[11px] transition-colors",
+                "focus-ring rounded-sm border px-3 py-1.5 font-mono text-sm transition-colors",
                 engine === eng.id
                   ? "border-transparent bg-scout-accent-soft text-studio-ink"
                   : "border-studio-edge text-studio-ink-faint hover:bg-studio-canvas-alt hover:text-studio-ink",
@@ -445,7 +445,7 @@ export default function AgentIdentityPage() {
           {ROSTER.map((a) => (
             <div key={a.name} className="flex flex-col items-center gap-2">
               <Mark name={a.name} engine={engine} px={72} />
-              <span className="font-mono text-[10px] text-studio-ink-faint">{a.name}</span>
+              <span className="font-mono text-xs text-studio-ink-faint">{a.name}</span>
             </div>
           ))}
         </div>
@@ -458,7 +458,7 @@ export default function AgentIdentityPage() {
             <IdentityCard key={a.name} agent={a} engine={engine} />
           ))}
         </div>
-        <div className="mt-3 font-mono text-[9.5px] text-studio-ink-faint">
+        <div className="mt-3 font-mono text-2xs text-studio-ink-faint">
           cards follow the engine selected above · color lives in the mark, chrome stays monochrome
         </div>
       </Section>
@@ -469,11 +469,11 @@ export default function AgentIdentityPage() {
           <table className="w-full border-collapse">
             <thead>
               <tr className="border-b border-studio-edge">
-                <th className="px-4 py-2 text-left font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+                <th className="px-4 py-2 text-left font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
                   agent
                 </th>
                 {ENGINES.map((eng) => (
-                  <th key={eng.id} className="px-4 py-2 text-center font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+                  <th key={eng.id} className="px-4 py-2 text-center font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
                     {eng.label}
                   </th>
                 ))}
@@ -483,8 +483,8 @@ export default function AgentIdentityPage() {
               {ROSTER.map((a) => (
                 <tr key={a.name} className="border-b border-studio-edge last:border-b-0">
                   <td className="px-4 py-2 align-middle">
-                    <div className="font-sans text-[12.5px] text-studio-ink">{a.name}</div>
-                    <div className="font-mono text-[9.5px] text-studio-ink-faint">{a.handle}</div>
+                    <div className="font-sans text-md text-studio-ink">{a.name}</div>
+                    <div className="font-mono text-2xs text-studio-ink-faint">{a.handle}</div>
                   </td>
                   {ENGINES.map((eng) => (
                     <td key={eng.id} className="px-4 py-2 text-center">
@@ -502,10 +502,10 @@ export default function AgentIdentityPage() {
 
       {/* Footer */}
       <section className="mt-16 max-w-prose border-t border-studio-edge pt-6">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · source
         </div>
-        <ul className="space-y-1 font-mono text-[11px] leading-relaxed text-studio-ink-faint">
+        <ul className="space-y-1 font-mono text-sm leading-relaxed text-studio-ink-faint">
           <li><span className="text-studio-ink">lib/agent-identity.ts</span> — pure generator: hash · prng · palette · 4 engines</li>
           <li><span className="text-studio-ink">apps/macos/Sources/ScoutAppCore/ScoutCommsModels.swift</span> — ScoutAgentHue (the Swift port target)</li>
           <li><span className="text-studio-ink">packages/web/client/lib/colors.ts</span> — actorColor (the flat 8-color predecessor)</li>
@@ -521,8 +521,8 @@ function Section({ label, hint, children }: { label: string; hint: string; child
   return (
     <section className="mb-14">
       <div className="mb-4 flex items-baseline gap-3">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">{label}</div>
-        <div className="font-mono text-[10px] text-studio-ink-faint">{hint}</div>
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">{label}</div>
+        <div className="font-mono text-xs text-studio-ink-faint">{hint}</div>
         <div className="ml-3 h-px flex-1 bg-studio-edge" />
       </div>
       {children}

@@ -25,7 +25,7 @@ export type ManagedTerminalRelay = {
   readHealth: () => Promise<TerminalRelayHealth | null>;
   queueCommand: (request: TerminalRelayRunRequest) => Promise<void>;
   destroySession: (sessionId: string) => Promise<boolean>;
-  destroySurface: (backend: "tmux" | "zellij", sessionName: string) => Promise<number>;
+  destroySurface: (backend: "tmux" | "zellij" | "herdr", sessionName: string) => Promise<number>;
   shutdown: () => void;
   targetHttpUrl: string;
   targetWebSocketUrl: string;
@@ -420,7 +420,7 @@ function createManagedRelayHandle(input: {
       const body = await response.json().catch(() => null) as { destroyed?: unknown } | null;
       return body?.destroyed === true;
     },
-    destroySurface: async (backend: "tmux" | "zellij", sessionName: string) => {
+    destroySurface: async (backend: "tmux" | "zellij" | "herdr", sessionName: string) => {
       const response = await fetch(`${input.targetHttpUrl}/api/terminal/session/destroy-surface`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

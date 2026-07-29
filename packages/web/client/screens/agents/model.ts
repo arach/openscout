@@ -199,6 +199,7 @@ export type SessionInitiationResult = {
   sessionId?: string | null;
   handle?: string | null;
   flightId?: string | null;
+  invocationId?: string | null;
   messageId?: string | null;
 };
 

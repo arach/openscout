@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import type {
-  ConversationDefinition,
-  MessageRecord,
+import {
+  namedChannelNaturalKey,
+  stableChannelId,
+  type ConversationDefinition,
+  type MessageRecord,
 } from "@openscout/protocol";
 
 import {
@@ -79,6 +81,36 @@ describe("broker core message read model", () => {
       "msg-2",
       "msg-3",
     ]);
+  });
+
+  test("reads structural channel history through the definitive opaque channel id", () => {
+    const naturalKey = namedChannelNaturalKey("huddle-v1");
+    const canonicalId = stableChannelId(naturalKey);
+    const snapshot = createRuntimeRegistrySnapshot({
+      conversations: {
+        "channel.huddle-v1": conversation({
+          id: "channel.huddle-v1",
+          kind: "channel",
+          title: "huddle-v1",
+          metadata: { channel: "huddle-v1" },
+        }),
+        [canonicalId]: conversation({
+          id: canonicalId,
+          kind: "channel",
+          title: "huddle-v1",
+          metadata: { channel: "huddle-v1", naturalKey },
+        }),
+      },
+      messages: {
+        legacy: message({ id: "legacy", conversationId: "channel.huddle-v1", createdAt: 1_000 }),
+        canonical: message({ id: "canonical", conversationId: canonicalId, createdAt: 2_000 }),
+      },
+    });
+
+    expect(listBrokerMessages(
+      { snapshot: () => snapshot },
+      { conversationId: canonicalId },
+    ).map((item) => item.id)).toEqual(["legacy", "canonical"]);
   });
 
   test("filters participant and inbox views by authorship, conversations, and audience", () => {

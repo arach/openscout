@@ -239,13 +239,13 @@ export default function RoleBuilderPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-10 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · role builder
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Role builder
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           A role is what an agent <em className="text-studio-ink">is</em>, not what it{" "}
           <em className="text-studio-ink">does</em>. This study explores
           how that identity could read as a finished artifact (
@@ -261,7 +261,7 @@ export default function RoleBuilderPage() {
       <SectionTitle hint="Four roles, four dispositions, one form">
         The roster
       </SectionTitle>
-      <p className="mt-3 mb-6 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+      <p className="mt-3 mb-6 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
         Each card is a constructed agent rendered as a personnel
         dossier. Masthead carries identity; sections below stack like
         clipped-in pages. The form is the same across all four — what
@@ -272,7 +272,7 @@ export default function RoleBuilderPage() {
       <SectionTitle hint="Lettered callouts on the strongest specimen" className="mt-16">
         Anatomy of a dossier
       </SectionTitle>
-      <p className="mt-3 mb-6 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+      <p className="mt-3 mb-6 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
         Atlas, taken apart. Every part is load-bearing: the masthead
         names you, the disposition speaks for you, the mounted context
         is what you can reach for without asking.
@@ -282,7 +282,7 @@ export default function RoleBuilderPage() {
       <SectionTitle hint="Three stations: empty slate → mounted → ready" className="mt-16">
         The construction bench
       </SectionTitle>
-      <p className="mt-3 mb-6 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+      <p className="mt-3 mb-6 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
         On the bench, the half-built dossier sits to the left and the
         drawers of components line up to the right. Operators don&apos;t
         select or check — they pull a part out of a drawer and{" "}
@@ -295,7 +295,7 @@ export default function RoleBuilderPage() {
       <SectionTitle hint="Each kind reads at a glance" className="mt-16">
         Mounted context, by kind
       </SectionTitle>
-      <p className="mt-3 mb-6 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+      <p className="mt-3 mb-6 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
         The dossier is only as useful as what&apos;s mounted to it. Six
         kinds, each with a distinct silhouette so a glance across a
         column tells you what an agent reaches for.
@@ -303,10 +303,10 @@ export default function RoleBuilderPage() {
       <AttachmentKinds />
 
       <section className="mt-16 max-w-prose">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · how to read this study
         </div>
-        <p className="font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="font-sans text-lg leading-relaxed text-studio-ink-faint">
           Nothing here is interactive — no drag, no drop, no real
           mount. Every state is a frozen frame, drawn at full opacity
           so the design can be inspected as a system. If the dossier
@@ -342,7 +342,7 @@ function Dossier({ dossier }: { dossier: Dossier }) {
 
       <DossierSection label="Disposition" sub="how it speaks">
         <p
-          className="font-display text-[14px] italic leading-snug text-studio-ink"
+          className="font-display text-xl italic leading-snug text-studio-ink"
           style={{ textWrap: "pretty" as CSSProperties["textWrap"] }}
         >
           &ldquo;{dossier.disposition}&rdquo;
@@ -373,7 +373,7 @@ function Dossier({ dossier }: { dossier: Dossier }) {
           {dossier.permissions.map((p) => (
             <li
               key={p.label}
-              className="flex items-baseline gap-2 font-mono text-[10px]"
+              className="flex items-baseline gap-2 font-mono text-xs"
             >
               <span
                 className="uppercase tracking-eyebrow"
@@ -418,27 +418,27 @@ function Masthead({
           <CodenameMark hue={dossier.hue} />
           <div className="flex flex-col gap-0.5">
             <div
-              className="font-display text-[20px] leading-none tracking-tight"
+              className="font-display text-4xl leading-none tracking-tight"
               style={{ color: accentInk }}
             >
               {dossier.codename}
             </div>
-            <div className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-muted">
+            <div className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-muted">
               {dossier.classification}
             </div>
           </div>
         </div>
         <div className="flex flex-col items-end gap-0.5">
-          <div className="font-mono text-[8px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
             Role file
           </div>
-          <div className="font-mono text-[9px] tabular-nums text-studio-ink-muted">
+          <div className="font-mono text-2xs tabular-nums text-studio-ink-muted">
             R-{dossier.codename.slice(0, 2).toUpperCase()}-
             {String(dossier.hue).padStart(3, "0")}
           </div>
         </div>
       </div>
-      <p className="mt-3 font-sans text-[12px] leading-snug text-studio-ink">
+      <p className="mt-3 font-sans text-md leading-snug text-studio-ink">
         {dossier.oneline}
       </p>
     </header>
@@ -491,11 +491,11 @@ function DossierSection({
       className={`px-4 py-3 ${last ? "" : "border-b border-studio-edge"}`}
     >
       <div className="mb-2 flex items-baseline justify-between">
-        <div className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink">
+        <div className="font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink">
           {label}
         </div>
         {sub ? (
-          <div className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
             {sub}
           </div>
         ) : null}
@@ -545,11 +545,11 @@ function AttachmentChip({
       <div className="flex items-center gap-2 rounded-[3px] border border-studio-edge bg-studio-canvas-alt py-1 pl-1 pr-2">
         <SwatchGrid hues={item.swatchHues ?? [80]} />
         <div className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate font-mono text-[10.5px] text-studio-ink">
+          <span className="truncate font-mono text-xs text-studio-ink">
             {item.label}
           </span>
           {expanded && item.detail ? (
-            <span className="truncate font-mono text-[9px] text-studio-ink-faint">
+            <span className="truncate font-mono text-2xs text-studio-ink-faint">
               {item.detail}
             </span>
           ) : null}
@@ -569,11 +569,11 @@ function AttachmentChip({
         />
         <FileGlyph />
         <div className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate font-mono text-[10.5px] text-studio-ink">
+          <span className="truncate font-mono text-xs text-studio-ink">
             {item.label}
           </span>
           {expanded && item.detail ? (
-            <span className="truncate font-mono text-[9px] text-studio-ink-faint">
+            <span className="truncate font-mono text-2xs text-studio-ink-faint">
               {item.detail}
             </span>
           ) : null}
@@ -587,11 +587,11 @@ function AttachmentChip({
       <div className="flex items-center gap-2 rounded-[3px] border border-studio-edge bg-studio-canvas-alt py-1 pl-2 pr-2">
         <LinkGlyph />
         <div className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate font-mono text-[10.5px] text-studio-ink">
+          <span className="truncate font-mono text-xs text-studio-ink">
             {item.label}
           </span>
           {expanded && item.detail ? (
-            <span className="truncate font-mono text-[9px] text-studio-ink-faint">
+            <span className="truncate font-mono text-2xs text-studio-ink-faint">
               {item.detail}
             </span>
           ) : null}
@@ -612,11 +612,11 @@ function AttachmentChip({
         <div className="flex flex-1 items-center gap-2 py-1 pl-1">
           <SnippetGlyph />
           <div className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate font-mono text-[10.5px] italic text-studio-ink">
+            <span className="truncate font-mono text-xs italic text-studio-ink">
               {item.label}
             </span>
             {expanded && item.detail ? (
-              <span className="truncate font-mono text-[9px] text-studio-ink-faint">
+              <span className="truncate font-mono text-2xs text-studio-ink-faint">
                 {item.detail}
               </span>
             ) : null}
@@ -628,7 +628,7 @@ function AttachmentChip({
   }
   if (item.kind === "tool") {
     return (
-      <span className="inline-flex items-baseline gap-0.5 rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-1.5 py-0.5 font-mono text-[10px] text-studio-ink">
+      <span className="inline-flex items-baseline gap-0.5 rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-1.5 py-0.5 font-mono text-xs text-studio-ink">
         <span className="text-studio-ink-faint">[</span>
         {item.label}
         <span className="text-studio-ink-faint">]</span>
@@ -640,11 +640,11 @@ function AttachmentChip({
       <div className="flex items-center gap-2 rounded-[3px] border border-studio-edge bg-studio-canvas-alt py-1 pl-2 pr-2">
         <KeyGlyph />
         <div className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate font-mono text-[10.5px] text-studio-ink">
+          <span className="truncate font-mono text-xs text-studio-ink">
             {item.label}
           </span>
           {expanded && item.detail ? (
-            <span className="truncate font-mono text-[9px] text-studio-ink-faint">
+            <span className="truncate font-mono text-2xs text-studio-ink-faint">
               {item.detail}
             </span>
           ) : null}
@@ -658,11 +658,11 @@ function AttachmentChip({
     <div className="flex items-center gap-2 rounded-[3px] border border-studio-edge-strong bg-studio-canvas-alt py-1 pl-2 pr-2">
       <SkillGlyph />
       <div className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate font-mono text-[10.5px] text-studio-ink">
+        <span className="truncate font-mono text-xs text-studio-ink">
           /{item.label}
         </span>
         {expanded && item.detail ? (
-          <span className="truncate font-mono text-[9px] text-studio-ink-faint">
+          <span className="truncate font-mono text-2xs text-studio-ink-faint">
             {item.detail}
           </span>
         ) : null}
@@ -683,7 +683,7 @@ function KindBadge({ kind }: { kind: AttachmentKind }) {
     permission: "PERM",
   };
   return (
-    <span className="shrink-0 font-mono text-[8px] uppercase tracking-eyebrow text-studio-ink-faint">
+    <span className="shrink-0 font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
       {KIND_TEXT[kind]}
     </span>
   );
@@ -777,7 +777,7 @@ function Anatomy() {
         {/* Labeled-anatomy markers floating to the left of the dossier */}
         <AnatomyDossier />
       </div>
-      <dl className="m-0 space-y-3 font-mono text-[10.5px]">
+      <dl className="m-0 space-y-3 font-mono text-xs">
         <AnatomyItem letter="A" label="Masthead · identity">
           Codename + classification + the one-line disposition. The
           left-edge stripe carries the agent&apos;s hue; everything else
@@ -829,7 +829,7 @@ function AnatomyItem({
     <div className="flex items-baseline gap-3">
       <span
         aria-hidden
-        className="grid h-5 w-5 shrink-0 place-items-center rounded-full border font-mono text-[9px] font-semibold"
+        className="grid h-5 w-5 shrink-0 place-items-center rounded-full border font-mono text-2xs font-semibold"
         style={{
           borderColor: "var(--scout-accent)",
           color: "var(--scout-accent)",
@@ -839,7 +839,7 @@ function AnatomyItem({
       </span>
       <div className="flex flex-col gap-0.5">
         <dt className="uppercase tracking-eyebrow text-studio-ink">{label}</dt>
-        <dd className="font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+        <dd className="font-sans text-md leading-relaxed text-studio-ink-faint">
           {children}
         </dd>
       </div>
@@ -862,7 +862,7 @@ function AnatomyDossier() {
         <div className="relative">
           <DossierSection label="Disposition" sub="how it speaks">
             <p
-              className="font-display text-[14px] italic leading-snug text-studio-ink"
+              className="font-display text-xl italic leading-snug text-studio-ink"
               style={{ textWrap: "pretty" as CSSProperties["textWrap"] }}
             >
               &ldquo;{d.disposition}&rdquo;
@@ -901,7 +901,7 @@ function AnatomyDossier() {
               {d.permissions.map((p) => (
                 <li
                   key={p.label}
-                  className="flex items-baseline gap-2 font-mono text-[10px]"
+                  className="flex items-baseline gap-2 font-mono text-xs"
                 >
                   <span
                     className="uppercase tracking-eyebrow"
@@ -940,7 +940,7 @@ function Marker({
       aria-hidden
     >
       <span
-        className="grid h-5 w-5 place-items-center rounded-full border font-mono text-[9px] font-semibold"
+        className="grid h-5 w-5 place-items-center rounded-full border font-mono text-2xs font-semibold"
         style={{
           borderColor: "var(--scout-accent)",
           color: "var(--scout-accent)",
@@ -1049,7 +1049,7 @@ function BenchStation({
     <section>
       <div className="mb-3 flex items-baseline gap-3">
         <div
-          className="grid h-5 w-5 place-items-center rounded-full font-mono text-[9px] font-semibold"
+          className="grid h-5 w-5 place-items-center rounded-full font-mono text-2xs font-semibold"
           style={{
             background: "var(--studio-canvas-alt)",
             color: "var(--studio-ink)",
@@ -1058,11 +1058,11 @@ function BenchStation({
         >
           {n}
         </div>
-        <div className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink">
+        <div className="font-mono text-xs uppercase tracking-eyebrow text-studio-ink">
           {label}
         </div>
         {sub ? (
-          <div className="font-sans text-[12px] leading-snug text-studio-ink-faint">
+          <div className="font-sans text-md leading-snug text-studio-ink-faint">
             {sub}
           </div>
         ) : null}
@@ -1162,7 +1162,7 @@ function Slate({
       >
         {dispositionDraft ? (
           <p
-            className="font-display text-[14px] italic leading-snug text-studio-ink"
+            className="font-display text-xl italic leading-snug text-studio-ink"
             style={{ textWrap: "pretty" as CSSProperties["textWrap"] }}
           >
             &ldquo;{dispositionDraft}&rdquo;
@@ -1210,7 +1210,7 @@ function Slate({
             {partialPermissions.map((p) => (
               <li
                 key={p.label}
-                className="flex items-baseline gap-2 font-mono text-[10px]"
+                className="flex items-baseline gap-2 font-mono text-xs"
               >
                 <span
                   className="uppercase tracking-eyebrow"
@@ -1240,11 +1240,11 @@ function Slate({
             : undefined
         }
       >
-        <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           {instantiable ? "ready" : "incomplete"}
         </div>
         <div
-          className="font-mono text-[10px] uppercase tracking-eyebrow"
+          className="font-mono text-xs uppercase tracking-eyebrow"
           style={{
             color: instantiable
               ? "var(--scout-accent)"
@@ -1274,11 +1274,11 @@ function SlateSection({
       className={`px-4 py-3 ${last ? "" : "border-b border-studio-edge"}`}
     >
       <div className="mb-2 flex items-baseline justify-between">
-        <div className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink">
+        <div className="font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink">
           {label}
         </div>
         {sub ? (
-          <div className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
             {sub}
           </div>
         ) : null}
@@ -1295,7 +1295,7 @@ function VacantWell({ hint, small = false }: { hint: string; small?: boolean }) 
         small ? "py-1.5" : "py-3"
       }`}
     >
-      <span className="font-mono text-[10px] italic text-studio-ink-faint">
+      <span className="font-mono text-xs italic text-studio-ink-faint">
         {hint}
       </span>
     </div>
@@ -1379,10 +1379,10 @@ function DrawerWall({
       style={dimmed ? { opacity: 0.65 } : undefined}
     >
       <div className="flex items-center justify-between border-b border-studio-edge px-3 py-2">
-        <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink">
+        <div className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink">
           Drawers
         </div>
-        <div className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
           pull · mount
         </div>
       </div>
@@ -1420,15 +1420,15 @@ function DrawerHeader({ drawer, open }: { drawer: Drawer; open: boolean }) {
       <div className="flex items-center gap-2">
         <DrawerGlyph open={open} />
         <div className="flex flex-col">
-          <span className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink">
+          <span className="font-mono text-xs uppercase tracking-eyebrow text-studio-ink">
             {drawer.label}
           </span>
-          <span className="font-mono text-[8.5px] text-studio-ink-faint">
+          <span className="font-mono text-3xs text-studio-ink-faint">
             {drawer.sub}
           </span>
         </div>
       </div>
-      <span className="font-mono text-[8.5px] tabular-nums text-studio-ink-faint">
+      <span className="font-mono text-3xs tabular-nums text-studio-ink-faint">
         {drawer.contents.length}
       </span>
     </div>
@@ -1555,12 +1555,12 @@ function AttachmentKinds() {
           className="flex flex-col rounded-md border border-studio-edge bg-studio-surface p-4"
         >
           <div className="mb-1 flex items-baseline justify-between">
-            <div className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink">
+            <div className="font-mono text-xs uppercase tracking-eyebrow text-studio-ink">
               {s.title}
             </div>
             <KindBadge kind={s.kind} />
           </div>
-          <p className="mb-3 font-sans text-[11.5px] leading-snug text-studio-ink-faint">
+          <p className="mb-3 font-sans text-sm leading-snug text-studio-ink-faint">
             {s.note}
           </p>
           <div className={s.kind === "tool" ? "flex flex-wrap gap-1" : "space-y-1.5"}>
@@ -1592,11 +1592,11 @@ function SectionTitle({
 }) {
   return (
     <div className={`flex items-baseline gap-3 ${className}`}>
-      <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · {children}
       </div>
       {hint ? (
-        <div className="font-mono text-[10px] text-studio-ink-faint">{hint}</div>
+        <div className="font-mono text-xs text-studio-ink-faint">{hint}</div>
       ) : null}
       <div className="ml-3 h-px flex-1 bg-studio-edge" />
     </div>

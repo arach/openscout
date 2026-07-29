@@ -40,7 +40,7 @@ export function WorkInspector() {
 
   if (!detail) {
     return (
-      <div className="flex h-full items-center justify-center px-4 text-center text-[11px] font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-ghost)]">
+      <div className="flex h-full items-center justify-center px-4 text-center text-sm font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-ghost)]">
         Loading work item…
       </div>
     );
@@ -64,16 +64,16 @@ export function WorkInspector() {
     (detail.conversationId ? 1 : 0);
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto frame-scrollbar text-[11px]">
+    <div className="flex flex-col h-full overflow-y-auto frame-scrollbar text-sm">
       <div
         className="sticky top-0 z-10 border-b border-[var(--scout-chrome-border-soft)] bg-black/55 px-4 py-2 backdrop-blur"
       >
         <div className="flex items-center gap-2">
           <span className={`h-1.5 w-1.5 rounded-full ${stateColor.dot}`} />
-          <span className={`font-mono text-[10px] uppercase tracking-[0.15em] ${stateColor.text}`}>
+          <span className={`font-mono text-xs uppercase tracking-[0.15em] ${stateColor.text}`}>
             {stateLabel(detail.state)}
           </span>
-          <span className="min-w-0 flex-1 truncate text-[10px] text-[var(--scout-chrome-ink-faint)]">
+          <span className="min-w-0 flex-1 truncate text-xs text-[var(--scout-chrome-ink-faint)]">
             <span className="text-[var(--scout-chrome-ink)]">{ownerLabel}</span>
             {showNextMove && (
               <>
@@ -83,7 +83,7 @@ export function WorkInspector() {
             )}
           </span>
           {signal && (
-            <span className="shrink-0 rounded border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-amber-300/90">
+            <span className="shrink-0 rounded border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 font-mono text-2xs uppercase tracking-[0.12em] text-amber-300/90">
               {signal}
             </span>
           )}
@@ -99,7 +99,7 @@ export function WorkInspector() {
 
         <Section label="Timeline">
           {detail.timeline.length === 0 ? (
-            <div className="text-[10px] text-[var(--scout-chrome-ink-faint)]">No activity yet.</div>
+            <div className="text-xs text-[var(--scout-chrome-ink-faint)]">No activity yet.</div>
           ) : (
             <div className="flex flex-col gap-1.5">
               {detail.timeline.slice(0, TIMELINE_LIMIT).map((item) => (
@@ -154,17 +154,17 @@ export function WorkInspector() {
 
         {detail.lastMeaningfulSummary && (
           <Section label="Hudson context" collapsible defaultOpen={false}>
-            <div className="text-[11px] italic leading-relaxed text-[var(--scout-chrome-ink-soft)]">
+            <div className="text-sm italic leading-relaxed text-[var(--scout-chrome-ink-soft)]">
               {detail.lastMeaningfulSummary}
             </div>
             <div className="mt-2 flex gap-1.5">
-              <span className="rounded border border-[var(--scout-chrome-border-soft)] px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
+              <span className="rounded border border-[var(--scout-chrome-border-soft)] px-1.5 py-0.5 font-mono text-2xs uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
                 Plan
               </span>
-              <span className="rounded border border-[var(--scout-chrome-border-soft)] px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
+              <span className="rounded border border-[var(--scout-chrome-border-soft)] px-1.5 py-0.5 font-mono text-2xs uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
                 Docs
               </span>
-              <span className="rounded border border-[var(--scout-chrome-border-soft)] px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
+              <span className="rounded border border-[var(--scout-chrome-border-soft)] px-1.5 py-0.5 font-mono text-2xs uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
                 Code
               </span>
             </div>
@@ -234,7 +234,7 @@ function Section({
   if (!collapsible) {
     return (
       <div className="flex flex-col">
-        <div className="mb-1.5 text-[9px] font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
+        <div className="mb-1.5 text-2xs font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
           {label}
         </div>
         {children}
@@ -247,7 +247,7 @@ function Section({
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex items-center gap-1.5 text-left text-[9px] font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)] hover:text-[var(--scout-chrome-ink)]"
+        className="flex items-center gap-1.5 text-left text-2xs font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)] hover:text-[var(--scout-chrome-ink)]"
       >
         {open ? (
           <ChevronDown aria-hidden="true" size={10} strokeWidth={2} />
@@ -256,7 +256,7 @@ function Section({
         )}
         <span>{label}</span>
         {typeof count === "number" && count > 0 && (
-          <span className="rounded border border-[var(--scout-chrome-border-soft)] px-1 py-0 font-mono text-[8px] tracking-[0.1em] text-[var(--scout-chrome-ink-faint)]">
+          <span className="rounded border border-[var(--scout-chrome-border-soft)] px-1 py-0 font-mono text-3xs tracking-[0.1em] text-[var(--scout-chrome-ink-faint)]">
             {count}
           </span>
         )}
@@ -283,11 +283,11 @@ function InspectorActionButton({
     >
       <span className="min-w-0">
         {eyebrow && (
-          <span className="block font-mono text-[9px] uppercase tracking-[0.14em] text-[var(--scout-chrome-ink-faint)]">
+          <span className="block font-mono text-2xs uppercase tracking-[0.14em] text-[var(--scout-chrome-ink-faint)]">
             {eyebrow}
           </span>
         )}
-        <span className="block truncate font-mono text-[10px] text-[var(--scout-chrome-ink)]">
+        <span className="block truncate font-mono text-xs text-[var(--scout-chrome-ink)]">
           {label}
         </span>
       </span>
@@ -308,22 +308,22 @@ function TimelineEntry({
       <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${timelineDotClass(item)}`} />
       <span className="min-w-0 flex-1">
         <span className="flex items-center justify-between gap-2">
-          <span className="font-mono text-[9px] text-[var(--scout-chrome-ink-faint)]">{timeAgo(item.at)}</span>
-          <span className="shrink-0 rounded border border-[var(--scout-chrome-border-soft)] px-1 py-0.5 font-mono text-[8px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
+          <span className="font-mono text-2xs text-[var(--scout-chrome-ink-faint)]">{timeAgo(item.at)}</span>
+          <span className="shrink-0 rounded border border-[var(--scout-chrome-border-soft)] px-1 py-0.5 font-mono text-3xs uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
             {timelineKindLabel(item)}
           </span>
         </span>
-        <span className="mt-0.5 block truncate text-[10px] font-semibold text-[var(--scout-chrome-ink-strong)]">
+        <span className="mt-0.5 block truncate text-xs font-semibold text-[var(--scout-chrome-ink-strong)]">
           {item.actorName ?? "system"}
         </span>
         {item.title && (
-          <span className="mt-0.5 block truncate text-[10px] leading-snug text-[var(--scout-chrome-ink)]">
+          <span className="mt-0.5 block truncate text-xs leading-snug text-[var(--scout-chrome-ink)]">
             {item.title}
           </span>
         )}
         {item.summary && (
           <span
-            className="mt-0.5 block text-[10px] leading-relaxed text-[var(--scout-chrome-ink-faint)]"
+            className="mt-0.5 block text-xs leading-relaxed text-[var(--scout-chrome-ink-faint)]"
             style={{ display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2, overflow: "hidden" }}
           >
             {item.summary}
@@ -383,10 +383,10 @@ function timelineDotClass(item: WorkTimelineItem): string {
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline justify-between py-0.5 gap-2">
-      <span className="shrink-0 text-[10px] font-mono uppercase tracking-wider text-[var(--scout-chrome-ink-faint)]">
+      <span className="shrink-0 text-xs font-mono uppercase tracking-wider text-[var(--scout-chrome-ink-faint)]">
         {label}
       </span>
-      <span className="truncate text-[11px] font-mono text-[var(--scout-chrome-ink)]">
+      <span className="truncate text-sm font-mono text-[var(--scout-chrome-ink)]">
         {value}
       </span>
     </div>

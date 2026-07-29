@@ -43,6 +43,13 @@
       "when": 1784863090605,
       "tag": "0005_wet_shriek",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1785350949612,
+      "tag": "0006_woozy_dark_beast",
+      "breakpoints": true
     }
   ]
 }

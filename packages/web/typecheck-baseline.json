@@ -1,17 +1,11 @@
 {
   "note": "Known packages/web type errors that predate the typecheck gate. Never add to this file by hand: fix the error instead. The gate rewrites it downward on its own whenever an error is fixed; `node scripts/typecheck.mjs --update` refuses any change that would grow it.",
-  "total": 101,
+  "total": 84,
   "errors": [
     {
       "file": "client/lib/conversation-groups.ts",
       "code": "TS2339",
       "message": "Property 'repoKey' does not exist on type 'Agent'.",
-      "count": 1
-    },
-    {
-      "file": "client/lib/router.test.ts",
-      "code": "TS2345",
-      "message": "Argument of type '{ machineId: string; view: \"inbox\"; } | { machineId: string; view: \"conversation\"; conversationId: string; composeDraft?: string | undefined; } | { machineId: string; view: \"agent-info\"; conversationId: string; } | ... 18 more ... | { ...; }' is not assignable to parameter of type 'Route'.",
       "count": 1
     },
     {
@@ -36,12 +30,6 @@
       "file": "client/native-surfaces/lanes/NativeAgentLanes.test.ts",
       "code": "TS2322",
       "message": "Type 'TailDiscoveredTranscript[] | undefined' is not assignable to type 'TailDiscoveredTranscript[]'.",
-      "count": 1
-    },
-    {
-      "file": "client/OpenScoutAppShell.tsx",
-      "code": "TS2367",
-      "message": "This comparison appears to be unintentional because the types '\"broker\" | \"code\" | \"conversation\" | \"sessions\" | \"inbox\" | \"agent-info\" | \"messages\" | \"repos\" | \"harnesses\" | \"repo-diff\" | \"search\" | \"channels\" | \"mesh\" | \"briefings\" | \"activity\" | ... 5 more ... | \"terminal\"' and '\"agents-v2\"' have no overlap.",
       "count": 1
     },
     {
@@ -75,63 +63,9 @@
       "count": 1
     },
     {
-      "file": "client/screens/agents/AgentDefinitionsWorkspace.tsx",
-      "code": "TS2322",
-      "message": "Type '\"agents\" | \"agents-v2\"' is not assignable to type '\"broker\" | \"code\" | \"conversation\" | \"sessions\" | \"inbox\" | \"agent-info\" | \"agents-v2\" | \"messages\" | \"repos\" | \"harnesses\" | \"repo-diff\" | \"search\" | \"channels\" | \"mesh\" | \"briefings\" | ... 6 more ... | \"terminal\"'.",
-      "count": 1
-    },
-    {
-      "file": "client/screens/agents/profile.tsx",
-      "code": "TS2322",
-      "message": "Type '\"agents\"' is not assignable to type '\"agents-v2\"'.",
-      "count": 1
-    },
-    {
-      "file": "client/screens/agents/right.tsx",
-      "code": "TS2339",
-      "message": "Property 'agentId' does not exist on type 'never'.",
-      "count": 2
-    },
-    {
-      "file": "client/screens/agents/right.tsx",
-      "code": "TS2339",
-      "message": "Property 'projectSlug' does not exist on type 'never'.",
-      "count": 1
-    },
-    {
-      "file": "client/screens/agents/right.tsx",
-      "code": "TS2339",
-      "message": "Property 'tab' does not exist on type 'never'.",
-      "count": 2
-    },
-    {
-      "file": "client/screens/agents/right.tsx",
-      "code": "TS2367",
-      "message": "This comparison appears to be unintentional because the types '\"broker\" | \"code\" | \"conversation\" | \"sessions\" | \"inbox\" | \"messages\" | \"repos\" | \"harnesses\" | \"repo-diff\" | \"search\" | \"channels\" | \"mesh\" | \"briefings\" | \"activity\" | \"voice\" | ... 4 more ... | \"terminal\"' and '\"agents\"' have no overlap.",
-      "count": 1
-    },
-    {
-      "file": "client/screens/chat/conversation-model.ts",
-      "code": "TS2741",
-      "message": "Property 'sessions' is missing in type '{ id: string; invocationId: string; agentId: string; agentName: null; conversationId: string; collaborationRecordId: null; state: string; summary: string | null; startedAt: number | null; completedAt: number | null; dispatchOutcome: { ...; } | ... 1 more ... | undefined; }' but required in type 'Flight'.",
-      "count": 1
-    },
-    {
-      "file": "client/screens/chat/ConversationScreen.tsx",
-      "code": "TS2322",
-      "message": "Type '{ attachments?: OutgoingAttachment[] | undefined; id: string; conversationId: string; actorId: string; actorName: string; body: string; createdAt: number; class: string; }' is not assignable to type 'Message'.",
-      "count": 1
-    },
-    {
       "file": "client/screens/chat/ConversationScreen.tsx",
       "code": "TS2345",
       "message": "Argument of type 'string | null | undefined' is not assignable to parameter of type 'string'.",
-      "count": 1
-    },
-    {
-      "file": "client/screens/chat/left.tsx",
-      "code": "TS2322",
-      "message": "Type '{ depth: 0 | 1 | undefined; name: string; sub: string | undefined; meta: string | undefined; tone: \"dm\" | \"channel\" | AgentDisplayState; avatarName: string; avatarKind: \"channel\" | \"user\"; ... 10 more ...; onContextMenu: ((e: MouseEvent<...>) => void) | undefined; }' is not assignable to type 'IntrinsicAttributes & RailRowProps'.",
       "count": 1
     },
     {
@@ -139,12 +73,6 @@
       "code": "TS2345",
       "message": "Argument of type '\"quick\"' is not assignable to parameter of type 'RepoWatchScanDepth'.",
       "count": 2
-    },
-    {
-      "file": "client/screens/home/home-live-action.test.ts",
-      "code": "TS2322",
-      "message": "Type '{ id: string; definitionId?: string | undefined; name: string; handle?: string | null | undefined; agentClass?: string | undefined; harness: string | null; state: string | null; projectRoot?: string | ... 1 more ... | undefined; ... 34 more ...; runtimePolicy?: (AgentRuntimePolicy | null) | undefined; }' is not assignable to type 'Agent'.",
-      "count": 1
     },
     {
       "file": "client/screens/home/home-live-action.test.ts",
@@ -196,12 +124,6 @@
     },
     {
       "file": "client/screens/home/home-moving.test.ts",
-      "code": "TS2322",
-      "message": "Type '{ id: string; definitionId?: string | undefined; name: string; handle?: string | null | undefined; agentClass?: string | undefined; harness: string | null; state: string | null; projectRoot?: string | ... 1 more ... | undefined; ... 34 more ...; runtimePolicy?: (AgentRuntimePolicy | null) | undefined; }' is not assignable to type 'Agent'.",
-      "count": 1
-    },
-    {
-      "file": "client/screens/home/home-moving.test.ts",
       "code": "TS2739",
       "message": "Type '{ id: string; ts: number; kind: \"system\"; source: string; harness: \"unattributed\"; project: string; cwd: string; sessionId: string; summary: string; }' is missing the following properties from type 'TailEvent': pid, parentPid",
       "count": 1
@@ -228,12 +150,6 @@
       "file": "client/screens/home/home-moving.test.ts",
       "code": "TS2741",
       "message": "Property 'files' is missing in type '{ live: true; events: { id: string; t: number; kind: \"tool\"; text: string; live: true; }[]; }' but required in type 'ObserveData'.",
-      "count": 1
-    },
-    {
-      "file": "client/screens/home/home-now-card-model.test.ts",
-      "code": "TS2322",
-      "message": "Type '{ id: string; definitionId?: string | undefined; name: string; handle?: string | null | undefined; agentClass?: string | undefined; harness: string | null; state: string | null; projectRoot?: string | ... 1 more ... | undefined; ... 34 more ...; runtimePolicy?: (AgentRuntimePolicy | null) | undefined; }' is not assignable to type 'Agent'.",
       "count": 1
     },
     {
@@ -270,12 +186,6 @@
       "file": "client/screens/ops/AgentFloorView.tsx",
       "code": "TS7006",
       "message": "Parameter 'right' implicitly has an 'any' type.",
-      "count": 1
-    },
-    {
-      "file": "client/screens/ops/MissionControlCanvas.tsx",
-      "code": "TS2339",
-      "message": "Property 'pendingAsk' does not exist on type 'Agent'.",
       "count": 1
     },
     {

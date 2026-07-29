@@ -20,7 +20,7 @@
 .modeBar span {
   color: var(--s-dim);
   font-family: var(--s-font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -28,7 +28,7 @@
 
 .modeBar strong {
   color: var(--s-ink);
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 600;
 }
 
@@ -166,7 +166,7 @@
 .modalHead strong,
 .finderTitle strong {
   color: var(--s-ink);
-  font-size: 16px;
+  font-size: var(--text-2xl);
   font-weight: 650;
 }
 
@@ -185,7 +185,7 @@
   border-radius: 6px;
   color: var(--s-dim);
   background: transparent;
-  font-size: 15px;
+  font-size: var(--text-2xl);
 }
 
 .modalHead > button:hover {
@@ -266,7 +266,7 @@
 
 .triggerIdentity strong {
   color: var(--s-ink);
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-weight: 650;
 }
 
@@ -469,7 +469,7 @@
 .projectLine strong {
   overflow: hidden;
   color: var(--s-ink);
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -512,13 +512,13 @@
   max-width: 100%;
   overflow: hidden;
   color: var(--s-muted);
-  font-size: 10px;
+  font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .projectContext small {
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 
 .searchBox:focus-within {
@@ -561,7 +561,7 @@
 
 .empty strong {
   color: var(--s-muted);
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 600;
 }
 
@@ -676,7 +676,7 @@
   min-height: 82px;
   padding: 12px;
   color: var(--s-dim);
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 
 .composer > div {
@@ -761,14 +761,14 @@
 
 .ledgerRow strong {
   color: var(--s-ink);
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 650;
 }
 
 .ledgerRow span {
   max-width: 72ch;
   color: var(--s-muted);
-  font-size: 12px;
+  font-size: var(--text-md);
   line-height: 1.5;
 }
 

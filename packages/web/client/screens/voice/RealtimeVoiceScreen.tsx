@@ -96,10 +96,10 @@ export function RealtimeVoiceScreen({
   if (!enabled) {
     return (
       <div className="flex h-full flex-col justify-center gap-2 p-4">
-        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
+        <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
           Live voice is off
         </p>
-        <p className="text-[11px] leading-snug text-[var(--scout-chrome-ink-faint)]">
+        <p className="text-sm leading-snug text-[var(--scout-chrome-ink-faint)]">
           Turn on the <span className="font-mono">{SCOUT_REALTIME_VOICE_FLAG}</span> flag to hold live
           conversations with Scoutbot. Calls use the configured OpenAI API account.
         </p>
@@ -110,10 +110,10 @@ export function RealtimeVoiceScreen({
   if (!operatorEnabled) {
     return (
       <div className="flex h-full flex-col justify-center gap-2 p-4">
-        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
+        <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
           Live voice is disabled
         </p>
-        <p className="text-[11px] leading-snug text-[var(--scout-chrome-ink-faint)]">
+        <p className="text-sm leading-snug text-[var(--scout-chrome-ink-faint)]">
           Enable realtime voice in Settings → Voice. The footer Voice control starts and manages calls.
         </p>
       </div>
@@ -145,7 +145,7 @@ export function RealtimeVoicePage() {
   return (
     <main className="flex h-full min-h-0 flex-col overflow-hidden bg-[var(--scout-chrome-bg)]">
       <div className="border-b border-[var(--scout-chrome-border-soft)] px-6 py-5">
-        <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--scout-chrome-ink-faint)]">
+        <p className="font-mono text-xs uppercase tracking-[0.14em] text-[var(--scout-chrome-ink-faint)]">
           Scoutbot
         </p>
         <h1 className="mt-1 text-xl font-medium text-[var(--scout-chrome-ink)]">Live voice</h1>

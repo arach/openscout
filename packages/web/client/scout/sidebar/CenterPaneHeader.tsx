@@ -4,7 +4,7 @@
  * Slim title bar above ScoutContent:
  * - Route breadcrumb (left)
  * - AREA_SUB_NAV strip (projects/sessions)
- * - OpsSubnav / ChatSubnav owned here when sidebar chrome is on
+ * - OpsSubnav owned here when sidebar chrome is on
  * - Optional RIGHT-UTILITY slot for screen-level header actions
  *
  * Routes that intentionally return null (no title bar):
@@ -24,7 +24,6 @@ import { useScout } from "../Provider.tsx";
 import { getPrimaryArea, primaryAreaForRoute } from "../primary-areas.ts";
 import type { Route } from "../../lib/types.ts";
 import { OpsSubnav } from "../../screens/ops/OpsSubnav.tsx";
-import { ChatSubnav } from "../../screens/chat/ChatSubnav.tsx";
 import {
   hasSecondaryNavRow,
   secondaryNavKindForRoute,
@@ -114,11 +113,6 @@ export function CenterPaneHeader({
       {secondaryKind === "ops" ? (
         <div className="scout-center-pane-secondary" data-scout-secondary-nav="ops">
           <OpsSubnav activeRoute={route} navigate={navigate} />
-        </div>
-      ) : null}
-      {secondaryKind === "chat" ? (
-        <div className="scout-center-pane-secondary" data-scout-secondary-nav="chat">
-          <ChatSubnav activeRoute={route} navigate={navigate} />
         </div>
       ) : null}
     </>

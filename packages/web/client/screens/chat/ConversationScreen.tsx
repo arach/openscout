@@ -1,4 +1,9 @@
 import {
+  createClientMessageId,
+  pendingConversationFlight,
+  settlePendingConversationFlight,
+} from "../../lib/client-turn-transition.ts";
+import {
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -87,6 +92,8 @@ import { ConversationComposer } from "./ConversationComposer.tsx";
 import {
   ThreadLoadingSkeleton,
   ThreadMotionPanel,
+  WorkingTurnActions,
+  WorkingTurnActivityPreview,
 } from "./ConversationPanels.tsx";
 import { ConversationStatusStrip, PinnedAskCard } from "./ConversationStatus.tsx";
 import { DismissIcon } from "./conversation-icons.tsx";
@@ -104,11 +111,13 @@ import {
   keepPreviousIfJsonEqual,
   latestAgentMessageAt,
   mapEventFlight,
+  mergeCanonicalMessagesPreservingPending,
   matchMentionTrigger,
   matchSlashTrigger,
   messageClassLabel,
   parseAskReplyTag,
   pathLeaf,
+  optimisticMessageIndexForClientId,
   readScoutDispatch,
   resolveAgentByIdentity,
   resolveComposeAction,
@@ -117,12 +126,15 @@ import {
   resolveMessageAgent,
   resolveThreadEmbedProps,
   describeQueuedDrafts,
+  resolveSendDisposition,
   shouldFlushQueue,
+  type BusySendIntent,
   type QueuedDraft,
   selectCurrentFlight,
   selectOperatorPendingAsk,
   selectTurnActivity,
   selectTurnAsk,
+  selectTerminalFlightForConversation,
   sortMessages,
   type ComposeAction,
   type ConversationPresence,
@@ -136,6 +148,7 @@ import {
   type SendReceipt,
   type SlashCommand,
   type SlashSuggestState,
+  terminalTurnReceiptForFlight,
   type ThreadTreatment,
 } from "./conversation-model.ts";
 
@@ -152,6 +165,19 @@ function messageIdFromLocationHash(hash: string | null | undefined): string | nu
 }
 
 type ConversationMessageLoadMode = "initial" | "refresh" | "none";
+type SendAttemptOutcome = "sent" | "failed" | "unknown";
+
+function clientMessageIdFromMetadata(metadata: Record<string, unknown> | null | undefined): string | null {
+  const value = metadata?.["clientMessageId"];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function isAmbiguousTransportFailure(cause: unknown): boolean {
+  return cause instanceof TypeError
+    || (typeof DOMException !== "undefined"
+      && cause instanceof DOMException
+      && cause.name === "AbortError");
+}
 
 export function ConversationScreen({
   conversationId,
@@ -238,13 +264,14 @@ export function ConversationScreen({
       };
     });
   }, [conversationId]);
-  const [currentFlight, setCurrentFlight] = useState<Flight | null>(null);
+  const stagedFlight = pendingConversationFlight(conversationId);
+  const [currentFlight, setCurrentFlight] = useState<Flight | null>(stagedFlight);
   const [turnActivity, setTurnActivity] = useState<FleetActivity[]>([]);
   const [turnAsk, setTurnAsk] = useState<FleetAsk | null>(null);
   const [dismissedWorkingTurnIds, setDismissedWorkingTurnIds] = useState<
     Set<string>
   >(new Set());
-  const [allFlights, setAllFlights] = useState<Flight[]>([]);
+  const [terminalFlight, setTerminalFlight] = useState<Flight | null>(null);
   const [hashMessageId, setHashMessageId] = useState(() =>
     typeof window === "undefined" ? null : messageIdFromLocationHash(window.location.hash),
   );
@@ -264,6 +291,7 @@ export function ConversationScreen({
   const lastPostedReadCursorMessageIdRef = useRef<string | null>(null);
   const activeConversationIdRef = useRef(conversationId);
   activeConversationIdRef.current = conversationId;
+  const optimisticMessageIdByClientIdRef = useRef(new Map<string, string>());
   const canLoadEarlierMessages =
     canLoadEarlierConversationMessages(conversationId);
 
@@ -285,6 +313,8 @@ export function ConversationScreen({
     setLoadingEarlierMessages(false);
     pendingHistoryScrollRef.current = null;
     historyRestoreAppliedRef.current = false;
+    optimisticMessageIdByClientIdRef.current.clear();
+    setCurrentFlight(pendingConversationFlight(conversationId));
   }, [conversationId]);
 
   const agentId = sessionMeta?.agentId ?? null;
@@ -363,7 +393,7 @@ export function ConversationScreen({
       const shouldRefreshTail = messageMode === "refresh"
         || messageMode === "initial";
 
-      const [conversationMessages, activeFlights, fleet] = await Promise.all([
+      const [conversationMessages, activeFlights, recentFlights, fleet] = await Promise.all([
         shouldLoadHistory
           ? loadConversationHistory(canonicalConversationId)
           : shouldRefreshTail
@@ -372,6 +402,11 @@ export function ConversationScreen({
         api<Flight[]>(
           `/api/flights?conversationId=${encodeURIComponent(canonicalConversationId)}`,
         ),
+        meta?.kind === "direct"
+          ? api<Flight[]>(
+              `/api/flights?conversationId=${encodeURIComponent(canonicalConversationId)}&active=false`,
+            ).catch(() => [])
+          : Promise.resolve([]),
         api<FleetState>("/api/fleet?limit=24&activityLimit=160").catch(() =>
           emptyFleetState(),
         ),
@@ -384,7 +419,10 @@ export function ConversationScreen({
         (message) => !isNoisyConversationStatusMessage(message),
       );
       if (conversationMessages) {
-        setMessages((previous) => keepPreviousIfJsonEqual(previous, visibleMessages));
+        setMessages((previous) => keepPreviousIfJsonEqual(
+          previous,
+          mergeCanonicalMessagesPreservingPending(previous, visibleMessages),
+        ));
       }
       setThreadSettled(true);
       saveLastViewed(canonicalConversationId);
@@ -403,11 +441,25 @@ export function ConversationScreen({
           }
         });
       }
-      setAllFlights((previous) => keepPreviousIfJsonEqual(previous, activeFlights));
-      trackedInvocationIdsRef.current = new Set(
-        activeFlights.map((flight) => flight.invocationId),
+      const nextTerminalFlight = selectTerminalFlightForConversation(
+        recentFlights,
+        visibleMessages,
       );
-      const nextCurrentFlight = selectCurrentFlight(activeFlights);
+      setTerminalFlight((previous) => keepPreviousIfJsonEqual(previous, nextTerminalFlight));
+      const projectedCurrentFlight = selectCurrentFlight(activeFlights);
+      const stagedCurrentFlight = pendingConversationFlight(canonicalConversationId);
+      const nextCurrentFlight = projectedCurrentFlight ?? stagedCurrentFlight;
+      trackedInvocationIdsRef.current = new Set([
+        ...activeFlights.map((flight) => flight.invocationId),
+        ...(stagedCurrentFlight?.invocationId?.startsWith("pending:")
+          ? []
+          : stagedCurrentFlight?.invocationId
+            ? [stagedCurrentFlight.invocationId]
+            : []),
+      ]);
+      if (projectedCurrentFlight && stagedCurrentFlight?.id === projectedCurrentFlight.id) {
+        settlePendingConversationFlight(canonicalConversationId, projectedCurrentFlight.id);
+      }
       const turnAgentId = nextCurrentFlight?.agentId ?? resolvedAgentId ?? null;
       const nextTurnActivity = selectTurnActivity(
         fleet.activity,
@@ -857,6 +909,10 @@ export function ConversationScreen({
       }),
     [awaitingResponseSince, currentFlight, currentNowMs, presence, turnActivity, turnAsk],
   );
+  const terminalTurnReceipt = useMemo(
+    () => terminalTurnReceiptForFlight(terminalFlight),
+    [terminalFlight],
+  );
   const workingTurnCardClassName = [
     "s-thread-msg-card",
     "s-thread-msg-working-card",
@@ -925,6 +981,38 @@ export function ConversationScreen({
     if (sessionMeta) return sessionMeta.participantIds.includes("operator");
     return isDm;
   }, [isDm, sessionMeta]);
+
+  const workingAgentId = currentFlight?.agentId ?? agentId;
+  const openWorkingTrace = currentFlight?.id
+    ? () => {
+        openContent(
+          navigate,
+          {
+            view: "sessions",
+            flightId: currentFlight.id,
+            ...(machineId ? { machineId } : {}),
+          },
+          { returnTo: route },
+        );
+      }
+    : undefined;
+  const openWorkingTerminal = workingAgentId
+    ? () => {
+        openContent(
+          navigate,
+          { view: "terminal", agentId: workingAgentId, mode: "takeover" },
+          { returnTo: route },
+        );
+      }
+    : undefined;
+  const focusSteerComposer = isDm
+    ? () => {
+        requestAnimationFrame(() => {
+          composeRef.current?.focus({ preventScroll: true });
+          composeRef.current?.scrollIntoView({ block: "nearest" });
+        });
+      }
+    : undefined;
   const headerParticipants = useMemo<ConversationHeaderParticipant[]>(() => {
     const participantIds = sessionMeta
       ? sessionMeta.participantIds.filter((id) => id !== "operator")
@@ -1010,21 +1098,24 @@ export function ConversationScreen({
           if (isNoisyConversationStatusMessage(nextMessage)) return;
 
           setMessages((previous) => {
-            if (previous.some((candidate) => candidate.id === message.id))
+            const clientMessageId = clientMessageIdFromMetadata(message.metadata);
+            const knownOptimisticId = clientMessageId
+              ? optimisticMessageIdByClientIdRef.current.get(clientMessageId)
+              : undefined;
+            if (previous.some((candidate) => candidate.id === message.id)) {
+              if (clientMessageId) optimisticMessageIdByClientIdRef.current.delete(clientMessageId);
               return previous;
-            if (isOperatorActor) {
-              const optimisticIndex = previous.findIndex(
-                (candidate) =>
-                  candidate.id.startsWith("optimistic-") &&
-                  candidate.body === message.body &&
-                  Math.abs(
-                    (normalizeTimestampMs(candidate.createdAt) ?? 0) -
-                      (normalizeTimestampMs(message.createdAt) ?? 0),
-                  ) <= 60_000,
+            }
+            if (isOperatorActor && clientMessageId) {
+              const optimisticIndex = optimisticMessageIndexForClientId(
+                previous,
+                clientMessageId,
+                knownOptimisticId,
               );
               if (optimisticIndex !== -1) {
                 const next = [...previous];
                 next[optimisticIndex] = nextMessage;
+                optimisticMessageIdByClientIdRef.current.delete(clientMessageId);
                 return sortMessages(next);
               }
             }
@@ -1078,6 +1169,8 @@ export function ConversationScreen({
           if (!isTracked) return;
 
           if (TERMINAL_CONVERSATION_FLIGHT_STATES.has(flight.state)) {
+            settlePendingConversationFlight(conversationId, flight.id);
+            setTerminalFlight(mapEventFlight(flight, conversationId, agentId ?? ""));
             setCurrentFlight((current) =>
               current?.id === flight.id ? null : current,
             );
@@ -1180,14 +1273,23 @@ export function ConversationScreen({
 
   const attachments = useComposerAttachments();
   const [queued, setQueued] = useState<QueuedDraft[]>([]);
+  // What a Send press means while the agent is mid-turn. Queue is the default;
+  // Steer has to be armed, because it interrupts.
+  const [busyIntent, setBusyIntent] = useState<BusySendIntent>("queue");
+  // A queued draft pulled back into the input box. Its files were uploaded when
+  // it was queued, so they ride along as already-outgoing attachments rather
+  // than being re-staged and re-uploaded.
+  const [editingQueued, setEditingQueued] = useState<
+    { id: string | null; attachments: OutgoingAttachment[] } | null
+  >(null);
 
   const sendText = async (
     text: string,
     options?: { forceAction?: ComposeAction; attachments?: OutgoingAttachment[] },
-  ) => {
+  ): Promise<SendAttemptOutcome> => {
     const trimmed = text.trim();
     const outgoingAttachments = options?.attachments ?? [];
-    if ((!trimmed && outgoingAttachments.length === 0) || sending) return;
+    if ((!trimmed && outgoingAttachments.length === 0) || sending) return "failed";
     const forceAction = options?.forceAction;
     const action = forceAction ?? resolveComposeAction({
       isDm,
@@ -1195,14 +1297,19 @@ export function ConversationScreen({
     });
 
     const optimisticCreatedAt = Date.now();
+    const clientMessageId = createClientMessageId();
     const optimisticMessage: Message = {
-      id: `optimistic-${optimisticCreatedAt}`,
+      id: `optimistic-${clientMessageId}`,
       conversationId,
       actorId: "operator",
       actorName: operatorName,
       body: trimmed,
       createdAt: optimisticCreatedAt,
       class: "operator",
+      metadata: {
+        clientMessageId,
+        deliveryState: "sending",
+      },
       ...(outgoingAttachments.length > 0
         ? { attachments: outgoingAttachments }
         : {}),
@@ -1214,19 +1321,21 @@ export function ConversationScreen({
       setAwaitingResponseSince(optimisticCreatedAt);
     }
     setError(null);
+    optimisticMessageIdByClientIdRef.current.set(clientMessageId, optimisticMessage.id);
     setMessages((previous) => sortMessages([...previous, optimisticMessage]));
 
     try {
       const result = await api<SendResult>(
         `/api/chats/${encodeURIComponent(conversationId)}/messages`,
         {
-        method: "POST",
-        body: JSON.stringify({
-          body: trimmed,
-          ...(outgoingAttachments.length > 0
-            ? { attachments: outgoingAttachments }
-            : {}),
-        }),
+          method: "POST",
+          body: JSON.stringify({
+            body: trimmed,
+            clientMessageId,
+            ...(outgoingAttachments.length > 0
+              ? { attachments: outgoingAttachments }
+              : {}),
+          }),
         },
       );
       const routedConversationId = result.chatId?.trim() ?? result.conversationId?.trim();
@@ -1234,6 +1343,19 @@ export function ConversationScreen({
         throw new Error(
           `Send returned a different Chat (${routedConversationId}) instead of appending to ${conversationId}.`,
         );
+      }
+      if (result.messageId?.trim()) {
+        const canonicalMessageId = result.messageId.trim();
+        setMessages((previous) => sortMessages(previous.map((message) =>
+          message.id === optimisticMessage.id
+            ? {
+                ...message,
+                id: canonicalMessageId,
+                metadata: { clientMessageId },
+              }
+            : message
+        )));
+        optimisticMessageIdByClientIdRef.current.delete(clientMessageId);
       }
       if (result.flight) {
         trackedInvocationIdsRef.current.add(result.flight.invocationId);
@@ -1263,12 +1385,33 @@ export function ConversationScreen({
       } else {
         setSendReceipt({ tone: "success", text: "Posted to this room" });
       }
+      return "sent";
     } catch (cause) {
+      if (isAmbiguousTransportFailure(cause)) {
+        setMessages((previous) => previous.map((message) =>
+          message.id === optimisticMessage.id
+            ? {
+                ...message,
+                metadata: {
+                  ...(message.metadata ?? {}),
+                  deliveryState: "unknown",
+                },
+              }
+            : message
+        ));
+        setSendReceipt({
+          tone: "warning",
+          text: "Delivery unknown — waiting for broker reconciliation",
+        });
+        return "unknown";
+      }
       setMessages((previous) =>
         previous.filter((message) => message.id !== optimisticMessage.id),
       );
+      optimisticMessageIdByClientIdRef.current.delete(clientMessageId);
       setAwaitingResponseSince(null);
       setError(cause instanceof Error ? cause.message : String(cause));
+      return "failed";
     } finally {
       setSending(false);
     }
@@ -1283,7 +1426,8 @@ export function ConversationScreen({
   > => {
     const text = draft.trim();
     const files = attachments.files;
-    if (!text && files.length === 0) return null;
+    const carried = editingQueued?.attachments ?? [];
+    if (!text && files.length === 0 && carried.length === 0) return null;
 
     let uploaded: OutgoingAttachment[] = [];
     if (files.length > 0) {
@@ -1302,44 +1446,120 @@ export function ConversationScreen({
 
     setDraft("");
     attachments.clear();
-    return { body: text, attachments: uploaded };
+    setEditingQueued(null);
+    return { body: text, attachments: [...carried, ...uploaded] };
   };
 
   const send = async () => {
+    // Resolve before taking the draft: `takeDraft` clears the editing state the
+    // disposition is read from.
+    const disposition = resolveSendDisposition({
+      isAgentBusy,
+      intent: busyIntent,
+    });
+    const editingId = editingQueued?.id ?? null;
     const taken = await takeDraft();
     if (!taken) return;
 
-    // Mid-turn, a plain Send means "queue it" — the running turn keeps the
-    // floor and the draft is released the moment it lands. Steer is the
-    // explicit interrupt.
-    if (isAgentBusy) {
-      setQueued((previous) => [
-        ...previous,
-        {
-          id: `queued-${Date.now()}-${previous.length}`,
-          body: taken.body,
-          attachments: taken.attachments,
-          queuedAt: Date.now(),
-        },
-      ]);
+    // Mid-turn, Send does whatever the queue/steer modifier says. Queue holds
+    // the draft until the running turn lands; steer interrupts and delivers it.
+    if (disposition === "queue") {
+      setQueued((previous) => {
+        // A rewrite lands back in the slot it came from — editing must not
+        // reorder the queue.
+        if (editingId) {
+          return previous.map((entry) =>
+            entry.id === editingId
+              ? { ...entry, body: taken.body, attachments: taken.attachments }
+              : entry,
+          );
+        }
+        return [
+          ...previous,
+          {
+            id: `queued-${Date.now()}-${previous.length}`,
+            body: taken.body,
+            attachments: taken.attachments,
+            queuedAt: Date.now(),
+          },
+        ];
+      });
       return;
     }
 
-    await sendText(taken.body, { attachments: taken.attachments });
-  };
+    // Leaving the queue by any other route drops the row it was edited from.
+    if (editingId) {
+      setQueued((previous) => previous.filter((entry) => entry.id !== editingId));
+    }
 
-  const steer = async () => {
-    const taken = await takeDraft();
-    if (!taken) return;
-    await interrupt();
-    await sendText(taken.body, {
-      forceAction: "steer",
-      attachments: taken.attachments,
-    });
+    const restoreTakenDraft = () => {
+      setDraft(taken.body);
+      setEditingQueued(
+        taken.attachments.length > 0
+          ? { id: null, attachments: taken.attachments }
+          : null,
+      );
+      requestAnimationFrame(() => composeRef.current?.focus());
+    };
+
+    if (disposition === "steer") {
+      setBusyIntent("queue");
+      await interrupt();
+      const outcome = await sendText(taken.body, {
+        forceAction: "steer",
+        attachments: taken.attachments,
+      });
+      if (outcome === "failed") restoreTakenDraft();
+      return;
+    }
+
+    const outcome = await sendText(taken.body, { attachments: taken.attachments });
+    if (outcome === "failed") restoreTakenDraft();
   };
 
   const unqueue = (id: string) => {
     setQueued((previous) => previous.filter((entry) => entry.id !== id));
+    setEditingQueued((current) => (current?.id === id ? null : current));
+  };
+
+  // Pull a queued draft back into the input box. The row keeps its place in the
+  // queue — held out of the flush while it is being rewritten — so the draft in
+  // the box and the slot it will land in stay visibly the same thing. Its files
+  // were uploaded at queue time, so they ride along instead of re-uploading.
+  const editQueued = (id: string) => {
+    const entry = queued.find((candidate) => candidate.id === id);
+    if (!entry) return;
+    setDraft(entry.body);
+    setEditingQueued({ id, attachments: entry.attachments });
+    requestAnimationFrame(() => {
+      const field = composeRef.current;
+      if (!field) return;
+      field.focus();
+      field.setSelectionRange(field.value.length, field.value.length);
+    });
+  };
+
+  // Abandon a rewrite: the queued row is left exactly as it was.
+  const cancelEdit = () => {
+    setEditingQueued(null);
+    setDraft("");
+    attachments.clear();
+  };
+
+  // Cut a queued draft in ahead of the running turn: pull it out of the queue
+  // first so the flush effect can't release it a second time.
+  const sendQueuedNow = async (id: string) => {
+    const entry = queued.find((candidate) => candidate.id === id);
+    if (!entry) return;
+    setQueued((previous) => previous.filter((candidate) => candidate.id !== id));
+    await interrupt();
+    const outcome = await sendText(entry.body, {
+      forceAction: "steer",
+      attachments: entry.attachments,
+    });
+    if (outcome === "failed") {
+      setQueued((previous) => [entry, ...previous]);
+    }
   };
 
   const replyToHandle = useCallback((handle: string) => {
@@ -1373,27 +1593,50 @@ export function ConversationScreen({
     : sessionMeta?.kind === "channel"
       ? `Comment in #${conversationShortLabel(sessionMeta)} — mention @agent to request a reply`
       : `Comment in ${threadTitle} — mention @agent to request a reply`;
-  const isStopMode = !draft.trim() && !attachments.hasFiles && isAgentBusy;
+  const carriedAttachments = editingQueued?.attachments ?? [];
+  const isStopMode =
+    !draft.trim() &&
+    !attachments.hasFiles &&
+    carriedAttachments.length === 0 &&
+    isAgentBusy;
 
   // Release queued drafts one at a time as soon as the agent frees up. One per
   // pass keeps ordering intact: each send flips `sending`, which re-gates this.
+  // A row being rewritten is held back: it is in the box, not ready to go.
   const flushingRef = useRef(false);
   useEffect(() => {
-    if (!shouldFlushQueue({ isAgentBusy, sending, queued })) return;
+    const editingId = editingQueued?.id ?? null;
+    const flushable = editingId
+      ? queued.filter((entry) => entry.id !== editingId)
+      : queued;
+    if (!shouldFlushQueue({ isAgentBusy, sending, queued: flushable })) return;
     if (flushingRef.current) return;
-    const next = queued[0];
+    const next = flushable[0];
     if (!next) return;
     flushingRef.current = true;
     setQueued((previous) => previous.filter((entry) => entry.id !== next.id));
     void sendText(next.body, { attachments: next.attachments })
+      .then((outcome) => {
+        if (outcome === "failed") {
+          setQueued((previous) => [next, ...previous]);
+        }
+      })
       .finally(() => {
         flushingRef.current = false;
       });
-  }, [isAgentBusy, sending, queued]);
+  }, [isAgentBusy, sending, queued, editingQueued]);
+
+  // Steer is armed for one send. Once the turn it would have interrupted is
+  // over, fall back to the safe default rather than leaving it hot.
+  useEffect(() => {
+    if (!isAgentBusy) setBusyIntent("queue");
+  }, [isAgentBusy]);
 
   // Queued drafts belong to the conversation they were written in.
   useEffect(() => {
     setQueued([]);
+    setEditingQueued(null);
+    setBusyIntent("queue");
     attachments.clear();
   }, [conversationId]);
 
@@ -1622,6 +1865,9 @@ export function ConversationScreen({
                 workspaceName={workspaceName}
                 branch={sessionMeta?.currentBranch}
                 startedAt={turnMotionStartedAt}
+                onOpenTrace={openWorkingTrace}
+                onOpenTerminal={openWorkingTerminal}
+                onSteer={focusSteerComposer}
               />
             ) : (
               <div className="s-thread-empty">
@@ -1683,6 +1929,9 @@ export function ConversationScreen({
                   })
                 : null;
               const displayBody = askReply ? askReply.body : message.body;
+              const deliveryState = isYou && typeof message.metadata?.["deliveryState"] === "string"
+                ? message.metadata["deliveryState"]
+                : null;
 
               return (
                 <div
@@ -1807,6 +2056,15 @@ export function ConversationScreen({
                                 {badgeLabel}
                               </span>
                             )}
+                            {deliveryState && (
+                              <span
+                                className="s-thread-msg-delivery"
+                                data-state={deliveryState}
+                                aria-live={deliveryState === "unknown" ? "polite" : undefined}
+                              >
+                                {deliveryState === "unknown" ? "Delivery unknown" : "Sending"}
+                              </span>
+                            )}
                           </div>
                           <span
                             className="s-thread-msg-time"
@@ -1814,46 +2072,48 @@ export function ConversationScreen({
                           >
                             {timeAgo(message.createdAt)}
                           </span>
-                          {!isYou && actorHandle && (
+                          <span className="s-thread-msg-actions">
+                            {!isYou && actorHandle && (
+                              <button
+                                type="button"
+                                className="s-thread-msg-permalink"
+                                aria-label={`Reply to @${actorHandle}`}
+                                title={`Reply to @${actorHandle}`}
+                                onClick={() => replyToHandle(actorHandle)}
+                              >
+                                <ReplyGlyph />
+                              </button>
+                            )}
                             <button
                               type="button"
                               className="s-thread-msg-permalink"
-                              aria-label={`Reply to @${actorHandle}`}
-                              title={`Reply to @${actorHandle}`}
-                              onClick={() => replyToHandle(actorHandle)}
+                              aria-label="Copy link to message"
+                              title="Copy link to message"
+                              onClick={() => {
+                                const url = new URL(window.location.href);
+                                if (route.view === "agents-v2") {
+                                  url.searchParams.set("tab", "message");
+                                }
+                                url.hash = `msg-${message.id}`;
+                                void navigator.clipboard.writeText(url.toString());
+                              }}
                             >
-                              <ReplyGlyph />
+                              <svg
+                                width="12"
+                                height="12"
+                                viewBox="0 0 16 16"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <path d="M6.5 9.5a2.5 2.5 0 0 0 3.54 0l2.12-2.12a2.5 2.5 0 0 0-3.54-3.54l-.7.7" />
+                                <path d="M9.5 6.5a2.5 2.5 0 0 0-3.54 0L3.84 8.62a2.5 2.5 0 0 0 3.54 3.54l.7-.7" />
+                              </svg>
                             </button>
-                          )}
-                          <button
-                            type="button"
-                            className="s-thread-msg-permalink"
-                            aria-label="Copy link to message"
-                            title="Copy link to message"
-                            onClick={() => {
-                              const url = new URL(window.location.href);
-                              if (route.view === "agents-v2") {
-                                url.searchParams.set("tab", "message");
-                              }
-                              url.hash = `msg-${message.id}`;
-                              void navigator.clipboard.writeText(url.toString());
-                            }}
-                          >
-                            <svg
-                              width="12"
-                              height="12"
-                              viewBox="0 0 16 16"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              aria-hidden="true"
-                            >
-                              <path d="M6.5 9.5a2.5 2.5 0 0 0 3.54 0l2.12-2.12a2.5 2.5 0 0 0-3.54-3.54l-.7.7" />
-                              <path d="M9.5 6.5a2.5 2.5 0 0 0-3.54 0L3.84 8.62a2.5 2.5 0 0 0 3.54 3.54l.7-.7" />
-                            </svg>
-                          </button>
+                          </span>
                         </div>
 
                         {replyContext && (
@@ -2008,8 +2268,62 @@ export function ConversationScreen({
                           <dd>{workingTurnSnapshot.lastActivityLabel}</dd>
                         </div>
                       </dl>
+                      <WorkingTurnActivityPreview
+                        events={turnActivity}
+                        limit={3}
+                        compact
+                      />
+                      <WorkingTurnActions
+                        onOpenTrace={openWorkingTrace}
+                        onOpenTerminal={openWorkingTerminal}
+                        onSteer={focusSteerComposer}
+                        compact
+                      />
                     </div>
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {isDm && terminalTurnReceipt && !presence.showTyping && (
+            <div className="s-thread-feed-block s-thread-feed-block--terminal">
+              <div
+                className="s-thread-terminal-receipt"
+                data-tone={terminalTurnReceipt.tone}
+                aria-live="polite"
+              >
+                <span className="dot" aria-hidden="true" />
+                <div className="s-thread-terminal-receipt-copy">
+                  <span className="s-thread-terminal-receipt-label">
+                    {terminalTurnReceipt.label}
+                  </span>
+                  <span className="s-thread-terminal-receipt-detail">
+                    {terminalTurnReceipt.detail}
+                  </span>
+                </div>
+                <div className="s-thread-terminal-receipt-meta">
+                  {terminalTurnReceipt.completedAt && (
+                    <time title={formatAbsoluteTimestamp(terminalTurnReceipt.completedAt)}>
+                      {timeAgo(terminalTurnReceipt.completedAt)}
+                    </time>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      openContent(
+                        navigate,
+                        {
+                          view: "sessions",
+                          flightId: terminalTurnReceipt.flightId,
+                          ...(machineId ? { machineId } : {}),
+                        },
+                        { returnTo: route },
+                      );
+                    }}
+                  >
+                    Run details
+                  </button>
                 </div>
               </div>
             </div>
@@ -2059,8 +2373,16 @@ export function ConversationScreen({
           sendReceipt={sendReceipt}
           attachments={attachments}
           isAgentBusy={isAgentBusy}
-          onSteer={() => void steer()}
+          busyIntent={busyIntent}
+          onBusyIntentChange={setBusyIntent}
+          queued={queued}
           queueNote={queueNote}
+          onEditQueued={editQueued}
+          editingQueuedId={editingQueued?.id ?? null}
+          editingAttachmentCount={carriedAttachments.length}
+          onCancelEdit={cancelEdit}
+          onUnqueue={unqueue}
+          onSendQueuedNow={(id) => void sendQueuedNow(id)}
         />
       </div>
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { Route } from "../../lib/types.ts";
 import "./home-hero.css";
 
@@ -20,6 +20,8 @@ type ServiceQuotaWindowGauge = {
   capLabel: string;
   unitLabel: string;
   resetAt: number;
+  capturedAt?: number;
+  source?: string;
   history?: ServiceQuotaHistoryPoint[];
 };
 
@@ -35,6 +37,8 @@ export type ServiceGauge =
       resetAt: number;
       windows?: ServiceQuotaWindowGauge[];
       plan?: string;
+      capturedAt?: number;
+      source?: string;
     }
   | {
       id: string;
@@ -44,6 +48,8 @@ export type ServiceGauge =
       windowLabel?: string;
       detailLabel?: string;
       tone: GaugeTone;
+      capturedAt?: number;
+      source?: string;
     };
 
 export type HomeHeroProps = {
@@ -202,11 +208,30 @@ function QuotaUsageCell({ window }: { window: ServiceQuotaWindowGauge | null }) 
 function QuotaResetCell({
   window,
   now,
+  featured = false,
 }: {
   window: ServiceQuotaWindowGauge | null;
   now: Date;
+  featured?: boolean;
 }) {
   if (!window) return <EmptyGaugeCell />;
+  if (featured) {
+    const countdown = formatWeeklyResetCountdown(window.resetAt, now);
+    return (
+      <span
+        className={`hd-gauge-cell hd-gauge-reset hd-gauge-reset--featured hd-gauge-reset--${countdown.tone}`}
+        aria-live="off"
+        aria-label={countdown.ariaLabel}
+      >
+        <strong>{countdown.primary}</strong>
+        {countdown.dateTime ? (
+          <time dateTime={countdown.dateTime}>{countdown.secondary}</time>
+        ) : (
+          <span>{countdown.secondary}</span>
+        )}
+      </span>
+    );
+  }
   const chip = formatResetChip(window.resetAt, now);
   const rel = formatResetRelative(window.resetAt, now);
   return (
@@ -214,6 +239,81 @@ function QuotaResetCell({
       ↻ {rel}
     </span>
   );
+}
+
+function formatWeeklyResetCountdown(resetAt: number, now: Date): {
+  primary: string;
+  secondary: string;
+  ariaLabel: string;
+  tone: "normal" | "imminent" | "due" | "stale";
+  dateTime?: string;
+} {
+  if (!Number.isFinite(resetAt)) {
+    return {
+      primary: "—",
+      secondary: "unknown",
+      ariaLabel: "Weekly reset time unknown",
+      tone: "stale",
+    };
+  }
+
+  const diffMs = resetAt - now.getTime();
+  const reset = new Date(resetAt);
+  if (!Number.isFinite(reset.getTime())) {
+    return {
+      primary: "—",
+      secondary: "unknown",
+      ariaLabel: "Weekly reset time unknown",
+      tone: "stale",
+    };
+  }
+  const dateTime = reset.toISOString();
+  if (diffMs <= 0) {
+    const overdueMs = Math.abs(diffMs);
+    if (overdueMs <= 90_000) {
+      return {
+        primary: "reset due",
+        secondary: "refreshing…",
+        ariaLabel: "Weekly reset due; refreshing usage",
+        tone: "due",
+        dateTime,
+      };
+    }
+    const overdueMinutes = Math.floor(overdueMs / 60_000);
+    const overdueLabel = overdueMinutes >= 60
+      ? `+${Math.floor(overdueMinutes / 60)}h ${overdueMinutes % 60}m`
+      : `+${Math.max(1, overdueMinutes)}m`;
+    return {
+      primary: overdueMs <= 6 * 60 * 60_000 ? "reset due" : "stale",
+      secondary: overdueLabel,
+      ariaLabel: `Weekly reset data ${overdueLabel} overdue`,
+      tone: overdueMs <= 6 * 60 * 60_000 ? "due" : "stale",
+      dateTime,
+    };
+  }
+
+  const totalSeconds = Math.floor(diffMs / 1000);
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  const clock = [hours, minutes, seconds].map((value) => String(value).padStart(2, "0")).join(":");
+  const primary = days > 0 ? `${days}d ${clock}` : clock;
+  const today = reset.toDateString() === now.toDateString();
+  const absolute = reset.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const secondary = today
+    ? `today ${absolute}`
+    : `${reset.toLocaleDateString([], { weekday: "short" })} ${absolute}`;
+  const coarse = days > 0
+    ? `${days} ${days === 1 ? "day" : "days"} ${hours} hours`
+    : `${hours} hours ${minutes} minutes`;
+  return {
+    primary,
+    secondary,
+    ariaLabel: `Weekly quota resets in ${coarse}; ${secondary}`,
+    tone: diffMs < 6 * 60 * 60_000 ? "imminent" : "normal",
+    dateTime,
+  };
 }
 
 function buildSmoothPath(points: { x: number; y: number }[]): string {
@@ -234,49 +334,85 @@ function buildSmoothPath(points: { x: number; y: number }[]): string {
   return segs.join(" ");
 }
 
+/* The graph is drawn at 1:1 against its own measured width so the viewBox never
+ * letterboxes: a fixed viewBox in a fluid panel would scale to `meet` and leave
+ * the plot stranded as a narrow island in the middle of the panel. */
+function useMeasuredWidth(fallback: number) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState(fallback);
+
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const sync = (next: number) => {
+      const rounded = Math.round(next);
+      if (rounded > 0) setWidth((current) => (current === rounded ? current : rounded));
+    };
+    sync(node.getBoundingClientRect().width);
+    const observer = new ResizeObserver((entries) => {
+      sync(entries[0]?.contentRect.width ?? 0);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  return [ref, width] as const;
+}
+
 function HeartrateGraph({ buckets }: { buckets: HeartrateBucketView[] }) {
-  const W = 372;
+  const [ref, W] = useMeasuredWidth(372);
   const H = 70;
   const top = 6;
   const bottom = 56;
   const labelY = 67;
   const N = buckets.length;
   const allZero = N < 2 || buckets.every((b) => b.count === 0);
+  // Keep the trailing marker inside the box instead of clipping it at the edge.
+  const plotW = Math.max(1, W - 3);
+
+  const svgProps = {
+    viewBox: `0 0 ${W} ${H}`,
+    style: { width: "100%", height: H, display: "block" } as const,
+  };
 
   if (allZero) {
     return (
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: H, display: "block" }}>
-        <line x1="0" y1={bottom} x2={W} y2={bottom} stroke="var(--border)" />
-      </svg>
+      <div ref={ref}>
+        <svg {...svgProps}>
+          <line x1="0" y1={bottom} x2={W} y2={bottom} stroke="var(--border)" />
+        </svg>
+      </div>
     );
   }
 
-  const stepX = W / (N - 1);
+  const stepX = plotW / (N - 1);
   const points = buckets.map((b, i) => ({
     x: i * stepX,
     y: bottom - Math.max(0, Math.min(1, b.value)) * (bottom - top),
   }));
   const path = buildSmoothPath(points);
-  const areaPath = `${path} L ${W} ${bottom} L 0 ${bottom} Z`;
+  const areaPath = `${path} L ${plotW} ${bottom} L 0 ${bottom} Z`;
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: H, display: "block" }}>
-      <defs>
-        <linearGradient id="hrdFill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.22" />
-          <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <line x1="0" y1={top} x2={W} y2={top} stroke="var(--border)" opacity="0.18" />
-      <line x1="0" y1={(top + bottom) / 2} x2={W} y2={(top + bottom) / 2} stroke="var(--border)" opacity="0.22" />
-      <line x1="0" y1={bottom} x2={W} y2={bottom} stroke="var(--border)" />
-      <path d={areaPath} fill="url(#hrdFill)" />
-      <path d={path} fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" />
-      <circle cx={points[N - 1].x} cy={points[N - 1].y} r="2.5" fill="var(--accent)" />
-      <text x="0" y={labelY} fill="var(--dim)" fontSize="9" fontFamily="var(--font-mono)">7d</text>
-      <text x={W / 2} y={labelY} textAnchor="middle" fill="var(--dim)" fontSize="9" fontFamily="var(--font-mono)">3d</text>
-      <text x={W} y={labelY} textAnchor="end" fill="var(--dim)" fontSize="9" fontFamily="var(--font-mono)">now</text>
-    </svg>
+    <div ref={ref}>
+      <svg {...svgProps}>
+        <defs>
+          <linearGradient id="hrdFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.22" />
+            <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <line x1="0" y1={top} x2={W} y2={top} stroke="var(--border)" opacity="0.18" />
+        <line x1="0" y1={(top + bottom) / 2} x2={W} y2={(top + bottom) / 2} stroke="var(--border)" opacity="0.22" />
+        <line x1="0" y1={bottom} x2={W} y2={bottom} stroke="var(--border)" />
+        <path d={areaPath} fill="url(#hrdFill)" />
+        <path d={path} fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" />
+        <circle cx={points[N - 1].x} cy={points[N - 1].y} r="2.5" fill="var(--accent)" />
+        <text x="0" y={labelY} fill="var(--dim)" fontSize="9" fontFamily="var(--font-mono)">7d</text>
+        <text x={W / 2} y={labelY} textAnchor="middle" fill="var(--dim)" fontSize="9" fontFamily="var(--font-mono)">3d</text>
+        <text x={W} y={labelY} textAnchor="end" fill="var(--dim)" fontSize="9" fontFamily="var(--font-mono)">now</text>
+      </svg>
+    </div>
   );
 }
 
@@ -337,7 +473,7 @@ function Gauge({
     <Tag
       className={`hd-gauge hd-gauge--${tone}${onClick ? " hd-gauge--interactive" : ""}`}
       title={buildTooltip(gauge, now)}
-      aria-label={`${gauge.label} subscription usage`}
+      aria-label={`${gauge.label} subscription usage. ${buildTooltip(gauge, now)}`}
       {...interactiveProps}
     >
       <span className="hd-gauge-head">
@@ -347,7 +483,7 @@ function Gauge({
       <QuotaUsageCell window={shortWindow} />
       <QuotaResetCell window={shortWindow} now={now} />
       <QuotaUsageCell window={longWindow} />
-      <QuotaResetCell window={longWindow} now={now} />
+      <QuotaResetCell window={longWindow} now={now} featured />
     </Tag>
   );
 }
@@ -438,6 +574,20 @@ export default function HomeHero(props: HomeHeroProps) {
           <span className={`hd-dot hd-dot--${syncTone}`} aria-hidden="true" />
           <span className={`hd-meta hd-meta--${syncTone}`}>{syncLabel}</span>
           <span className="hd-topbar-actions">
+            <button
+              type="button"
+              className="hd-btn"
+              onClick={() => navigate({ view: "terminal" })}
+            >
+              [open terminal]
+            </button>
+            <button
+              type="button"
+              className="hd-btn"
+              onClick={() => navigate({ view: "code" })}
+            >
+              [open code]
+            </button>
             {opsEnabled && (
               <button
                 type="button"
@@ -478,7 +628,7 @@ export default function HomeHero(props: HomeHeroProps) {
                 <span>short window</span>
                 <span>resets</span>
                 <span>long window</span>
-                <span>resets</span>
+                <span>resets in</span>
               </div>
               {gauges.map((g) => (
                 <span key={g.id} className="hd-gauge-wrap">

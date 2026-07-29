@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildSurfaceRegistry } from "./discover-build.ts";
+import { buildLazySurfaceRegistry, buildSurfaceRegistry } from "./discover-build.ts";
 import { defineSurface } from "./types.ts";
 
 function mockScreen() {
@@ -26,7 +26,7 @@ const lanesSurface = defineSurface({
   screen: "AgentLanesView",
   embed: {
     path: "/embed/agent-lanes",
-    aliases: ["/ops/lanes/embed", "/embed/lanes"],
+    aliases: ["/ops/lanes/embed", "/embed/lanes", "/embed/traces"],
     profile: "macos.lanes",
   },
 });
@@ -74,6 +74,83 @@ describe("embeddable surface discovery", () => {
     expect(embedByPath.get("/embed/dispatch")?.id).toBe("dispatch");
     expect(embedByPath.get("/embed/agent-lanes")?.id).toBe("lanes");
     expect(embedByPath.get("/ops/lanes/embed")?.id).toBe("lanes");
+    expect(embedByPath.get("/embed/traces")?.id).toBe("lanes");
     expect(embedByPath.get("/embed/projects")?.id).toBe("projects");
+  });
+});
+
+describe("lazy embeddable surface discovery", () => {
+  test("loads only the screen module selected by the embed path", async () => {
+    const loadedModules: string[] = [];
+    const registry = buildLazySurfaceRegistry(
+      {
+        "../screens/broker/BrokerScreen.tsx": async () => {
+          loadedModules.push("broker");
+          return { scoutSurface: brokerSurface, BrokerScreen: mockScreen };
+        },
+        "../screens/projects/ProjectsScreen.tsx": async () => {
+          loadedModules.push("projects");
+          return { scoutSurface: projectsSurface, ProjectsEmbedScreen: mockScreen };
+        },
+      },
+      [
+        {
+          modulePath: "../screens/broker/BrokerScreen.tsx",
+          embedPaths: ["/embed/dispatch"],
+        },
+        {
+          modulePath: "../screens/projects/ProjectsScreen.tsx",
+          embedPaths: ["/embed/projects"],
+        },
+      ],
+    );
+
+    await expect(registry.resolve("/embed/projects")).resolves.toMatchObject({
+      id: "projects",
+      Screen: mockScreen,
+    });
+    expect(loadedModules).toEqual(["projects"]);
+    await expect(registry.resolve("/embed/missing")).resolves.toBeNull();
+    expect(loadedModules).toEqual(["projects"]);
+  });
+
+  test("resolves every canonical and alias path without reloading its module", async () => {
+    let loads = 0;
+    const registry = buildLazySurfaceRegistry(
+      {
+        "../screens/ops/AgentLanesView.tsx": async () => {
+          loads += 1;
+          return { scoutSurface: lanesSurface, AgentLanesView: mockScreen };
+        },
+      },
+      [{
+        modulePath: "../screens/ops/AgentLanesView.tsx",
+        embedPaths: ["/embed/agent-lanes", "/ops/lanes/embed", "/embed/lanes", "/embed/traces"],
+      }],
+    );
+
+    for (const path of ["/embed/agent-lanes", "/ops/lanes/embed", "/embed/lanes", "/embed/traces"]) {
+      await expect(registry.resolve(path)).resolves.toMatchObject({ id: "lanes" });
+    }
+    expect(loads).toBe(1);
+  });
+
+  test("rejects a stale lazy path index", async () => {
+    const registry = buildLazySurfaceRegistry(
+      {
+        "../screens/projects/ProjectsScreen.tsx": async () => ({
+          scoutSurface: projectsSurface,
+          ProjectsEmbedScreen: mockScreen,
+        }),
+      },
+      [{
+        modulePath: "../screens/projects/ProjectsScreen.tsx",
+        embedPaths: ["/embed/stale-projects"],
+      }],
+    );
+
+    await expect(registry.resolve("/embed/stale-projects")).rejects.toThrow(
+      'Lazy embed path "/embed/stale-projects" is not declared',
+    );
   });
 });

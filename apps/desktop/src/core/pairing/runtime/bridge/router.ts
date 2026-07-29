@@ -39,6 +39,7 @@ import {
   getScoutMobileConversations,
   getScoutMobileConversationMessages,
   getScoutMobileHome,
+  getScoutMobileRuntimeCapabilities,
   getScoutMobileServiceBudgets,
   getScoutMobileSessions,
   getScoutMobileSessionSnapshot,
@@ -680,6 +681,10 @@ const sessionRouter = t.router({
 // -- Mobile -----------------------------------------------------------------
 
 const mobileRouter = t.router({
+  runtimeCapabilities: procedure
+    .input(z.object({ projectRoot: z.string().optional() }).optional())
+    .query(({ input }) => getScoutMobileRuntimeCapabilities(input?.projectRoot)),
+
   inbox: procedure
     .query(({ ctx }) => ({
       items: queryMobileInboxItems(ctx.bridge),

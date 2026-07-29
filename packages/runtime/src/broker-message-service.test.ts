@@ -211,6 +211,59 @@ function createHarness(input: {
 }
 
 describe("BrokerMessageService", () => {
+  test("returns an idempotent client-message retry without replaying deliveries", async () => {
+    const existing = message({
+      id: "m-client-stable",
+      actorId: "operator",
+      class: "operator",
+      body: "same request",
+      replyToMessageId: undefined,
+      metadata: { clientMessageId: "web-stable-1" },
+    });
+    const harness = createHarness({ messages: { [existing.id]: existing } });
+
+    const result = await harness.service.postConversationMessage({
+      ...existing,
+      createdAt: existing.createdAt + 5_000,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      duplicate: true,
+      message: existing,
+      deliveries: [],
+    });
+    expect(harness.recordedMessages).toHaveLength(0);
+    expect(harness.forwardedPeerDeliveries).toHaveLength(0);
+  });
+
+  test("rejects reuse of a message id for different content", async () => {
+    const existing = message({
+      id: "m-client-stable",
+      metadata: { clientMessageId: "web-stable-1" },
+    });
+    const harness = createHarness({ messages: { [existing.id]: existing } });
+
+    await expect(harness.service.postConversationMessage({
+      ...existing,
+      body: "different request",
+    })).rejects.toThrow("already assigned to a different record");
+  });
+
+  test("rejects reuse of a message id with different attachments", async () => {
+    const existing = message({
+      id: "m-client-stable",
+      metadata: { clientMessageId: "web-stable-1" },
+      attachments: [{ id: "attachment-1", mediaType: "text/plain", fileName: "one.txt" }],
+    });
+    const harness = createHarness({ messages: { [existing.id]: existing } });
+
+    await expect(harness.service.postConversationMessage({
+      ...existing,
+      attachments: [{ id: "attachment-2", mediaType: "text/plain", fileName: "two.txt" }],
+    })).rejects.toThrow("already assigned to a different record");
+  });
+
   test("posts local messages durably, projects entries, reconciles, and completes matching invocations", async () => {
     const nextInvocation = invocation();
     const nextFlight = flight();

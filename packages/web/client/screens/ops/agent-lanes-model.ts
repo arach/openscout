@@ -921,7 +921,7 @@ export function nativeSessionAgent(
   };
 }
 
-const TERMINAL_BACKEND_HARNESSES = new Set(["tmux", "zellij"]);
+const TERMINAL_BACKEND_HARNESSES = new Set(["tmux", "zellij", "herdr"]);
 
 function projectFromPath(path: string | null | undefined): string | null {
   const trimmed = path?.trim();

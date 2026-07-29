@@ -33,14 +33,14 @@ export function BreadcrumbPath({
   const segments = relPath.split("/").filter(Boolean);
   if (segments.length === 0) {
     return (
-      <span className="font-mono text-[10.5px] text-studio-ink">
+      <span className="font-mono text-xs text-studio-ink">
         /
       </span>
     );
   }
 
   return (
-    <div className="flex min-w-0 flex-wrap items-baseline gap-1 font-mono text-[10.5px]">
+    <div className="flex min-w-0 flex-wrap items-baseline gap-1 font-mono text-xs">
       {segments.map((segment, i) => {
         const isLast = i === segments.length - 1;
         const parentRel = segments.slice(0, i + 1).join("/");

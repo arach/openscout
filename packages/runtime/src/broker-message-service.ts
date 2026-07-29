@@ -59,6 +59,31 @@ export type BrokerMessageServiceDeps = {
   activeLocalEndpointForAgent: (agentId: string) => unknown;
 };
 
+function clientMessageId(message: MessageRecord): string | null {
+  const value = message.metadata?.clientMessageId;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function isIdempotentMessageRetry(
+  existing: MessageRecord,
+  incoming: MessageRecord,
+): boolean {
+  const existingClientId = clientMessageId(existing);
+  return Boolean(
+    existingClientId
+    && existingClientId === clientMessageId(incoming)
+    && existing.conversationId === incoming.conversationId
+    && existing.actorId === incoming.actorId
+    && existing.class === incoming.class
+    && existing.body === incoming.body
+    && (existing.replyToMessageId ?? null) === (incoming.replyToMessageId ?? null)
+    && (existing.threadConversationId ?? null) === (incoming.threadConversationId ?? null)
+    && JSON.stringify(existing.mentions ?? []) === JSON.stringify(incoming.mentions ?? [])
+    && JSON.stringify(existing.attachments ?? []) === JSON.stringify(incoming.attachments ?? [])
+    && JSON.stringify(existing.speech ?? null) === JSON.stringify(incoming.speech ?? null)
+  );
+}
+
 export class BrokerMessageService {
   constructor(private readonly deps: BrokerMessageServiceDeps) {}
 
@@ -72,6 +97,19 @@ export class BrokerMessageService {
     authorityNodeId?: string;
     duplicate?: boolean;
   }> => {
+    const existing = this.deps.runtime.peek().messages[message.id];
+    if (existing) {
+      if (!isIdempotentMessageRetry(existing, message)) {
+        throw new Error(`message id ${message.id} is already assigned to a different record`);
+      }
+      return {
+        ok: true,
+        message: existing,
+        deliveries: [],
+        duplicate: true,
+      };
+    }
+
     const authority = this.deps.mesh.authorityNodeForConversation(message.conversationId);
     if (authority) {
       const forwarded = await this.deps.mesh.forwardConversationMessageToAuthority(message);

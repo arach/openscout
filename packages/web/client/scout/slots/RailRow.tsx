@@ -37,6 +37,8 @@ type RailRowProps = {
   expanded?: boolean;
   /** A compact live-work label shown under the subtitle. */
   activityLabel?: string;
+  /** Compact worktree context shown beneath the subtitle. */
+  worktreeLabel?: string;
   /** Visual tone for the compact live-work label. */
   activityTone?: "pending" | "working" | "attention";
   /** Hover/focus trailing actions (pin, archive, …). Clicks stop propagation. */
@@ -68,6 +70,7 @@ export function RailRow({
   detail,
   expanded,
   activityLabel,
+  worktreeLabel,
   activityTone = "working",
   actions,
   pinned,
@@ -129,6 +132,7 @@ export function RailRow({
             {name}
           </span>
           {sub && <span className="rr-row-sub">{sub}</span>}
+          {worktreeLabel && <span className="rr-row-worktree">{worktreeLabel}</span>}
           {activityLabel && (
             <span className={`rr-row-activity rr-row-activity--${activityTone}`}>
               <span className="rr-row-activity-bars" aria-hidden>

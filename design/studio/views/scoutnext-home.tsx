@@ -193,13 +193,13 @@ export default function ScoutNextHomeStudy() {
     <main className="px-6 py-6">
       <header className="mb-6 flex max-w-[1180px] flex-wrap items-end justify-between gap-5 border-b border-studio-edge pb-5">
         <div className="max-w-[76ch]">
-          <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             ios study - ScoutNext Home
           </div>
-          <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+          <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
             Tight fleet home
           </h1>
-          <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+          <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
             Browser-first mock of the Home surface. Tighten the vertical rhythm,
             the file-tree spine, the live working card, and the locked right-edge
             column here; then port the settled grammar back to SwiftUI.
@@ -242,7 +242,7 @@ export default function ScoutNextHomeStudy() {
 
         <section className="grid content-start gap-4">
           <Panel title="Row grammar">
-            <div className="grid gap-3 font-sans text-[13px] leading-relaxed text-studio-ink-muted">
+            <div className="grid gap-3 font-sans text-lg leading-relaxed text-studio-ink-muted">
               <GrammarRow
                 name="Working card"
                 value="pulse + name, action with caret, +dirty · branch · age"
@@ -267,7 +267,7 @@ export default function ScoutNextHomeStudy() {
           </Panel>
 
           <Panel title="Tightening rules">
-            <ul className="grid gap-2 font-sans text-[13px] leading-relaxed text-studio-ink-muted">
+            <ul className="grid gap-2 font-sans text-lg leading-relaxed text-studio-ink-muted">
               <li>Right edge is a locked column: runtime (dim mono) then a fixed age slot, tabular, never truncates.</li>
               <li>Hierarchy reads by tone — project ink, agent muted, runtime/age dim — not just size.</li>
               <li>One indent system: the tree spine is the indent; the last child elbows off.</li>
@@ -277,7 +277,7 @@ export default function ScoutNextHomeStudy() {
           </Panel>
 
           <Panel title="Port notes">
-            <div className="grid gap-2 font-mono text-[11px] leading-relaxed text-studio-ink-faint">
+            <div className="grid gap-2 font-mono text-sm leading-relaxed text-studio-ink-faint">
               <span>source: apps/ios/ScoutNext/HomeSurface.swift</span>
               <span>glyphs: apps/ios/ScoutNext/Glyphs.swift</span>
               <span>phone: iPhone 13 mini portrait, 375 pt width</span>
@@ -308,10 +308,10 @@ function HomeScreen({
       <div className="px-5 pt-2.5">
         <div className="flex items-center justify-between">
           <div className="flex items-baseline gap-2">
-            <span className="font-sans text-[26px] font-semibold tracking-tight text-white/92">
+            <span className="font-sans text-6xl font-semibold tracking-tight text-white/92">
               Scout
             </span>
-            <span className="font-mono text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--scout-accent)]">
+            <span className="font-mono text-sm font-bold uppercase tracking-[0.24em] text-[var(--scout-accent)]">
               Next
             </span>
           </div>
@@ -325,17 +325,17 @@ function HomeScreen({
         </div>
 
         <div className="mt-4 flex items-center gap-2.5">
-          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.2em] text-white/45">
+          <span className="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-white/45">
             Machines
           </span>
-          <span className="inline-flex items-center gap-2 rounded-full border border-white/[0.06] bg-white/[0.04] px-2.5 py-1 font-sans text-[12.5px] font-medium text-white/82">
+          <span className="inline-flex items-center gap-2 rounded-full border border-white/[0.06] bg-white/[0.04] px-2.5 py-1 font-sans text-md font-medium text-white/82">
             <Dot live />
             arachs mac mini
           </span>
           <button
             type="button"
             aria-label="Add machine"
-            className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.06] bg-white/[0.035] px-2.5 py-1 font-sans text-[12.5px] font-medium text-white/55 transition-colors hover:bg-white/[0.06]"
+            className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.06] bg-white/[0.035] px-2.5 py-1 font-sans text-md font-medium text-white/55 transition-colors hover:bg-white/[0.06]"
           >
             <AddGlyph />
             Add
@@ -344,7 +344,7 @@ function HomeScreen({
 
         <div className="mt-3 flex h-[40px] items-center gap-2.5 rounded-[9px] border border-white/[0.07] bg-black/60 px-3.5">
           <GlyphSvg kind="search" size={16} className="text-white/35" />
-          <span className="font-sans text-[14px] text-white/30">
+          <span className="font-sans text-xl text-white/30">
             Search the fleet
           </span>
         </div>
@@ -454,7 +454,7 @@ function ProjectRow({
         >
           {project.name}
         </span>
-        <span className="shrink-0 font-mono text-[11px] text-white/22">/</span>
+        <span className="shrink-0 font-mono text-sm text-white/22">/</span>
         {soloAgent ? (
           <span className="flex min-w-0 items-center gap-1.5">
             <GlyphSvg kind="agent" size={12} className="shrink-0 text-white/35" />
@@ -482,7 +482,7 @@ function ProjectRow({
         {live ? <Dot live pulse /> : null}
       </div>
       <RightSlot>
-        <span className="font-mono text-[10.5px] tabular-nums text-white/45">
+        <span className="font-mono text-xs tabular-nums text-white/45">
           {project.age}
         </span>
         {soloAgent ? (
@@ -537,13 +537,13 @@ function AgentRow({
       </span>
       <RightSlot>
         {runtime !== title ? (
-          <span className="shrink-0 font-mono text-[10px] font-medium text-white/32">
+          <span className="shrink-0 font-mono text-xs font-medium text-white/32">
             {runtime}
           </span>
         ) : null}
         <span
           className={[
-            "w-[26px] shrink-0 text-right font-mono text-[10px] tabular-nums",
+            "w-[26px] shrink-0 text-right font-mono text-xs tabular-nums",
             live ? "text-[var(--scout-accent)]" : "text-white/48",
           ].join(" ")}
         >
@@ -572,10 +572,10 @@ function ActivityRow({ event }: { event: ActivityEvent }) {
         style={{ background: tint }}
       />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="line-clamp-2 font-sans text-[12.5px] leading-snug text-white/85">
+        <span className="line-clamp-2 font-sans text-md leading-snug text-white/85">
           {event.summary}
         </span>
-        <span className="font-mono text-[9.5px] text-white/40">
+        <span className="font-mono text-2xs text-white/40">
           {event.source} · {event.kind} · {event.age}
         </span>
       </span>
@@ -605,17 +605,17 @@ function WorkingCard({ agent, project }: { agent: Agent; project: string }) {
     >
       <div className="flex items-center gap-1.5">
         <Dot live pulse />
-        <span className="min-w-0 truncate font-sans text-[12.5px] font-semibold text-white/92">
+        <span className="min-w-0 truncate font-sans text-md font-semibold text-white/92">
           {agent.title}
         </span>
       </div>
       <div className="flex min-w-0 items-baseline gap-1">
-        <span className="min-w-0 truncate font-mono text-[11px] text-white/55">
+        <span className="min-w-0 truncate font-mono text-sm text-white/55">
           {agent.action ?? "working"}
         </span>
         <Caret />
       </div>
-      <div className="truncate font-mono text-[9.5px] tracking-tight text-white/40">
+      <div className="truncate font-mono text-2xs tracking-tight text-white/40">
         {progress}
       </div>
     </div>
@@ -699,7 +699,7 @@ function Phone({
 function StatusBar() {
   return (
     <div className="flex h-11 items-center justify-between px-7 pt-1 font-sans text-white">
-      <span className="text-[15px] font-semibold tracking-tight">9:22</span>
+      <span className="text-2xl font-semibold tracking-tight">9:22</span>
       <span className="inline-flex items-end gap-[2px]">
         {[6, 9, 12, 15].map((h) => (
           <span
@@ -727,10 +727,10 @@ function SectionLabel({
   return (
     <div className="flex items-baseline gap-2">
       {accent ? <Dot live pulse className="self-center" /> : null}
-      <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.2em] text-white/55">
+      <span className="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-white/55">
         {title}
       </span>
-      <span className="font-mono text-[10px] font-semibold text-white/35">
+      <span className="font-mono text-xs font-semibold text-white/35">
         {count}
       </span>
       {onAll ? (
@@ -738,7 +738,7 @@ function SectionLabel({
           type="button"
           onClick={onAll}
           data-testid="scoutnext-section-all"
-          className="ml-auto self-center font-mono text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--scout-accent)] transition-opacity hover:opacity-80"
+          className="ml-auto self-center font-mono text-xs font-semibold uppercase tracking-[0.2em] text-[var(--scout-accent)] transition-opacity hover:opacity-80"
         >
           All
         </button>
@@ -769,7 +769,7 @@ function TabBar() {
             />
             <span
               className={[
-                "font-sans text-[10px]",
+                "font-sans text-xs",
                 active ? "text-[var(--scout-accent)]" : "text-white/45",
               ].join(" ")}
             >
@@ -784,7 +784,7 @@ function TabBar() {
 
 function Footer() {
   return (
-    <div className="flex h-9 items-center border-t border-white/[0.06] bg-black px-5 font-mono text-[10px] text-white/45">
+    <div className="flex h-9 items-center border-t border-white/[0.06] bg-black px-5 font-mono text-xs text-white/45">
       <GlyphSvg kind="signal" size={14} className="text-[var(--scout-accent)]" />
       <span className="ml-2 text-[var(--scout-accent)]">TSN</span>
       <span className="mx-2 text-white/25">·</span>
@@ -796,7 +796,7 @@ function Footer() {
 
 function RuntimePill({ label }: { label: string }) {
   return (
-    <span className="shrink-0 rounded-full border border-white/[0.08] bg-white/[0.05] px-1.5 py-[1px] font-mono text-[8.5px] font-semibold text-white/45">
+    <span className="shrink-0 rounded-full border border-white/[0.08] bg-white/[0.05] px-1.5 py-[1px] font-mono text-3xs font-semibold text-white/45">
       {label}
     </span>
   );
@@ -884,7 +884,7 @@ function Segmented({
 }) {
   return (
     <div className="rounded-md border border-studio-edge bg-studio-surface p-1">
-      <div className="mb-1 px-1 font-mono text-[8px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="mb-1 px-1 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         {label}
       </div>
       <div className="flex gap-1">
@@ -894,7 +894,7 @@ function Segmented({
             type="button"
             onClick={() => onChange(key)}
             className={[
-              "rounded-[4px] px-2 py-1 font-mono text-[10px] transition-colors",
+              "rounded-[4px] px-2 py-1 font-mono text-xs transition-colors",
               value === key
                 ? "bg-scout-accent text-black"
                 : "text-studio-ink-faint hover:bg-studio-canvas-alt hover:text-studio-ink",
@@ -917,7 +917,7 @@ function Panel({
 }) {
   return (
     <section className="rounded-md border border-studio-edge bg-studio-surface p-4">
-      <h2 className="mb-3 font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <h2 className="mb-3 font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         {title}
       </h2>
       {children}
@@ -928,7 +928,7 @@ function Panel({
 function GrammarRow({ name, value }: { name: string; value: string }) {
   return (
     <div className="grid gap-1 border-b border-studio-edge/60 pb-2 last:border-b-0 last:pb-0 sm:grid-cols-[140px_1fr]">
-      <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-studio-ink-faint">
+      <span className="font-mono text-xs uppercase tracking-[0.16em] text-studio-ink-faint">
         {name}
       </span>
       <span>{value}</span>

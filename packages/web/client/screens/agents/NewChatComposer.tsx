@@ -9,16 +9,17 @@ import {
   type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { ChevronDown, FileText, Loader2, Search } from "lucide-react";
+import { ChevronDown, FileText, Loader2, Search, X } from "lucide-react";
 import {
   MessageComposer,
-  type MessageComposerDictationStatus,
+  RuntimePicker,
 } from "../../components/MessageComposer/index.ts";
 import { api } from "../../lib/api.ts";
 import {
-  dictationBlocksContextCaptureClose,
-  type ContextCaptureDraft,
-} from "../../lib/context-capture-draft.ts";
+  createClientMessageId,
+  stageAcceptedConversationTurn,
+} from "../../lib/client-turn-transition.ts";
+import type { ContextCaptureDraft } from "../../lib/context-capture-draft.ts";
 import { useFocusTrap } from "../../lib/keyboard-nav.ts";
 import {
   dataTransferMayContainFiles,
@@ -33,7 +34,6 @@ import {
   chooseInitialProjectLaunchTarget,
   routeCaptureToAgent,
   searchProjectLaunchTargets,
-  startAgentSession,
   startProjectSession,
   type CaptureDeliveryMode,
   type ProjectLaunchTarget,
@@ -78,12 +78,6 @@ type RunnerOptionsState = {
   efforts: RunnerEffortOption[];
 };
 
-type RuntimeSelectOption = {
-  value: string;
-  label: string;
-  disabled?: boolean;
-};
-
 const FALLBACK_HARNESSES: RunnerHarnessOption[] = [
   { id: "claude", label: "Claude Code", description: null, state: null, ready: null, detail: null },
   { id: "codex", label: "Codex", description: null, state: null, ready: null, detail: null },
@@ -96,44 +90,8 @@ const FALLBACK_EFFORTS: RunnerEffortOption[] = [
   { id: "xhigh", label: "XHigh", description: "Highest supported", harnesses: ["claude", "codex"] },
 ];
 
-function RuntimeSelect({
-  label,
-  value,
-  displayValue,
-  options,
-  disabled,
-  onChange,
-  wide = false,
-}: {
-  label: string;
-  value: string;
-  displayValue: string;
-  options: RuntimeSelectOption[];
-  disabled: boolean;
-  onChange: (value: string) => void;
-  wide?: boolean;
-}) {
-  return (
-    <label className={`s-newchat-runtime-field${wide ? " s-newchat-runtime-field--wide" : ""}`}>
-      <span className="s-newchat-runtime-field-label">{label}</span>
-      <span className="s-newchat-runtime-control">
-        <span className="s-newchat-runtime-value">{displayValue}</span>
-        <select
-          value={value}
-          disabled={disabled}
-          onChange={(event) => onChange(event.currentTarget.value)}
-        >
-          {options.map((option) => (
-            <option key={option.value || "__default__"} value={option.value} disabled={option.disabled}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-        <ChevronDown size={13} aria-hidden="true" />
-      </span>
-    </label>
-  );
-}
+/** Rows the standing project list keeps on screen; the rest live behind the foot. */
+const PROJECT_STANDING_ROWS = 5;
 
 function firstModelForHarness(options: RunnerOptionsState, harness: string): string {
   const configuredDefault = options.defaults.harness === harness
@@ -229,7 +187,6 @@ export function NewChatComposer({
   initialFiles,
   initialAttachmentFeedback,
   initialProjectPath,
-  initialProjectQuery,
   defaultMode,
   draftRestored = false,
   onDraftChange,
@@ -264,9 +221,15 @@ export function NewChatComposer({
   const [projectLoadError, setProjectLoadError] = useState<string | null>(null);
   const [runnerLoadError, setRunnerLoadError] = useState<string | null>(null);
   const [projectPath, setProjectPath] = useState(() => initialProjectPath || preferredProjectRoot || "");
-  const [projectQuery, setProjectQuery] = useState(() => initialProjectQuery || routeAgent?.project || "");
-  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  // A filter, not the selected value — empty means "show the standing list".
+  // Deliberately NOT seeded from the draft: the draft preserves the selection
+  // (`projectPath`), and restoring filter text would narrow the standing list to
+  // whatever was last typed. Worse, the draft is rewritten on mount, so a stale
+  // title would keep re-persisting itself and never clear.
+  const [projectQuery, setProjectQuery] = useState("");
   const [activeProjectIndex, setActiveProjectIndex] = useState(0);
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  const [projectReminder, setProjectReminder] = useState<string | null>(null);
   const [message, setMessage] = useState(() => initialMessage ?? "");
   const [files, setFiles] = useState<File[]>(() => [...(initialFiles ?? [])]);
   const [mode, setMode] = useState<CaptureDeliveryMode>(() => {
@@ -280,7 +243,6 @@ export function NewChatComposer({
   const [attachmentFeedback, setAttachmentFeedback] = useState<string | null>(
     () => initialAttachmentFeedback ?? null,
   );
-  const [dictationStatus, setDictationStatus] = useState<MessageComposerDictationStatus | null>(null);
   const [harness, setHarness] = useState(() => routeAgent?.harness?.trim() || "claude");
   const [model, setModel] = useState(() => routeAgent?.model?.trim() || "");
   const [reasoningEffort, setReasoningEffort] = useState("medium");
@@ -291,7 +253,6 @@ export function NewChatComposer({
   const { ref, onKeyDown } = useFocusTrap<HTMLDivElement>(true);
   const textRef = useRef<HTMLTextAreaElement>(null);
   const projectInputRef = useRef<HTMLInputElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
   const projectSelectionTouchedRef = useRef(Boolean(initialProjectPath));
   const runtimeSelectionTouchedRef = useRef(false);
@@ -321,46 +282,59 @@ export function NewChatComposer({
     .filter((candidate) => candidate.harnesses.includes(harness));
   const selectedHarness = harnesses.find((candidate) => candidate.id === harness) ?? null;
   const runnerLoading = !runnerOptions && !runnerLoadError;
-  const harnessSelectOptions: RuntimeSelectOption[] = [
+  // RuntimePicker takes flat id lists and prepends its own "Default" entry, so
+  // the harness reads as its mark rather than a repeated word. A current value
+  // the catalog doesn't know (route agent pinned to something unlisted) is
+  // appended so selecting it stays possible instead of silently resetting.
+  const harnessOptions = [
+    // Unready harnesses stay listed but unselectable — the old select disabled
+    // them, and dropping that would let the operator pick a dead runtime.
     ...harnesses.map((candidate) => ({
       value: candidate.id,
-      label: candidate.ready === false ? `${candidate.label} — unavailable` : candidate.label,
+      label: candidate.label,
       disabled: candidate.ready === false,
     })),
-    ...(!harnesses.some((candidate) => candidate.id === harness) && harness
+    ...(harness && !harnesses.some((candidate) => candidate.id === harness)
       ? [{ value: harness, label: harness }]
       : []),
   ];
-  const modelSelectOptions: RuntimeSelectOption[] = [
-    { value: "", label: "Harness default" },
-    ...models.map((candidate) => ({
-      value: candidate.id,
-      label: candidate.label === candidate.id
-        ? candidate.label
-        : `${candidate.label} · ${candidate.id}`,
-    })),
-    ...(!models.some((candidate) => candidate.id === model) && model
+  const modelOptions = [
+    ...models.map((candidate) => ({ value: candidate.id, label: candidate.label })),
+    ...(model && !models.some((candidate) => candidate.id === model)
       ? [{ value: model, label: model }]
       : []),
   ];
-  const effortSelectOptions: RuntimeSelectOption[] = [
-    ...(!efforts.some((candidate) => candidate.id === reasoningEffort) && reasoningEffort
+  const effortOptions = [
+    ...efforts.map((candidate) => ({ value: candidate.id, label: candidate.label })),
+    ...(reasoningEffort && !efforts.some((candidate) => candidate.id === reasoningEffort)
       ? [{ value: reasoningEffort, label: reasoningEffort }]
       : []),
-    ...efforts.map((candidate) => ({
-      value: candidate.id,
-      label: `${candidate.label} — ${candidate.description}`,
-    })),
   ];
+  // Uncapped: only PROJECT_STANDING_ROWS are ever rendered, and the foot needs a
+  // truthful match count to report what it is holding back.
   const filteredProjects = useMemo(
-    () => searchProjectLaunchTargets(projectTargets, projectQuery).slice(0, 40),
+    () => searchProjectLaunchTargets(projectTargets, projectQuery),
     [projectQuery, projectTargets],
   );
+  // The list stands in normal flow rather than opening over the panel, so typing
+  // replaces these rows in place — nothing moves, nothing opens.
+  const visibleProjects = useMemo(() => {
+    const rows = filteredProjects.slice(0, PROJECT_STANDING_ROWS);
+    if (!projectPath || rows.some((candidate) => candidate.root === projectPath)) return rows;
+    // An active row you cannot see is worse than one fewer alternative.
+    const selected = filteredProjects.find((candidate) => candidate.root === projectPath);
+    return selected ? [selected, ...rows.slice(0, PROJECT_STANDING_ROWS - 1)] : rows;
+  }, [filteredProjects, projectPath]);
   const directPathCandidate = isDirectProjectPath(projectQuery)
     && !projectTargets.some((candidate) => candidate.root === projectQuery.trim())
     ? projectQuery.trim()
     : null;
-  const projectOptionCount = filteredProjects.length + (directPathCandidate ? 1 : 0);
+  const projectOptionCount = visibleProjects.length + (directPathCandidate ? 1 : 0);
+  // Count the real inventory when unfiltered; the match set once the user types.
+  const projectsHeldBack = Math.max(
+    0,
+    (projectQuery.trim() ? filteredProjects.length : projectTargets.length) - visibleProjects.length,
+  );
   const projectMatchesRouteAgent = Boolean(
     routeAgent
     && selectedProject
@@ -385,17 +359,15 @@ export function NewChatComposer({
     : committedMessage
       ? `Routing your first message through /${selectedProject?.title ?? routeAgent?.name ?? "project"}.`
       : `Starting a project-routed chat in /${selectedProject?.title ?? routeAgent?.name ?? "project"}.`;
-  const dictationCloseReason = dictationBlocksContextCaptureClose(dictationStatus?.state)
-    ? dictationStatus?.state === "recording"
-      ? "Voice is recording. Stop the mic before closing."
-      : "Finishing your transcript. This draft will stay open until it lands."
-    : null;
+  const showDeliveryMode = hasAttachments && canUseExistingChat;
+  const showRuntimeStatus = usesNewWorker
+    && (runnerLoading || Boolean(runnerLoadError) || selectedHarness?.ready === false);
+  const showConfig = showDeliveryMode || showRuntimeStatus;
 
   const requestClose = useCallback(() => {
     if (isStarting) return;
-    if (dictationBlocksContextCaptureClose(dictationStatus?.state)) return;
     onClose();
-  }, [dictationStatus?.state, isStarting, onClose]);
+  }, [isStarting, onClose]);
 
   const retainOnBackdropClick = useCallback(() => {
     setPreservationNotice("Draft kept open. Use Esc or × when you are ready to close it.");
@@ -464,8 +436,11 @@ export function NewChatComposer({
       currentDirectory: configuration?.context.currentDirectory,
     });
     if (!initial) return;
+    // Selection only. Typing the resolved project's title into the filter would
+    // open the dialog with the standing list already narrowed to one row — the
+    // choice was made for the operator, so it should be shown as the active row,
+    // not as a search term they have to clear.
     setProjectPath(initial.root);
-    setProjectQuery(initial.title);
   }, [configuration?.context.currentDirectory, preferredProjectRoot, projectTargets]);
 
   useEffect(() => {
@@ -484,11 +459,6 @@ export function NewChatComposer({
     setReasoningEffort(firstEffortForHarness(runnerOptions, nextHarness));
   }, [routeAgent?.harness, routeAgent?.model, runnerOptions, selectedProject?.defaultHarness, selectedProject?.root]);
 
-  useEffect(() => {
-    if (projectPickerOpen || !selectedProject) return;
-    setProjectQuery(selectedProject.title);
-  }, [projectPickerOpen, selectedProject]);
-
   useLayoutEffect(() => {
     onDraftChange?.({
       ...(routeAgentId ? { agentId: routeAgentId } : {}),
@@ -500,7 +470,11 @@ export function NewChatComposer({
       attachmentFeedback,
       mode,
       projectPath,
-      projectQuery: selectedProject?.title ?? projectQuery,
+      // The filter, not the selection. `projectPath` already carries which project
+      // is chosen; storing the title here used to be how the field remembered its
+      // value, and restoring it now would pre-filter the standing list down to the
+      // single row the operator had already picked.
+      projectQuery,
     });
   }, [
     attachmentFeedback,
@@ -545,7 +519,7 @@ export function NewChatComposer({
   const acceptTransfer = useCallback((dataTransfer: DataTransfer, action: string) => {
     const incoming = readTransferredFiles(dataTransfer);
     if (incoming.length === 0) {
-      setError("Scout could not read that file. Try the attachment picker instead.");
+      setError("Scout could not read that file. Try dropping or pasting it again.");
       return;
     }
     addFiles(incoming, action);
@@ -590,12 +564,16 @@ export function NewChatComposer({
     acceptTransfer(event.clipboardData, "Pasted");
   }, [acceptTransfer, isStarting]);
 
+  // The input is a FILTER, not a value holder — the selection shows as the active
+  // row plus the path line, so committing clears the filter and the standing list
+  // returns to the full set with the new choice marked.
   const selectProject = (project: ProjectLaunchTarget) => {
     projectSelectionTouchedRef.current = true;
     setProjectPath(project.root);
-    setProjectQuery(project.title);
-    setProjectPickerOpen(false);
+    setProjectQuery("");
     setActiveProjectIndex(0);
+    setProjectPickerOpen(false);
+    setProjectReminder(null);
     requestAnimationFrame(() => textRef.current?.focus());
   };
 
@@ -604,16 +582,26 @@ export function NewChatComposer({
     if (!trimmed) return;
     projectSelectionTouchedRef.current = true;
     setProjectPath(trimmed);
-    setProjectQuery(projectTitleFromPath(trimmed));
-    setProjectPickerOpen(false);
+    setProjectQuery("");
     setActiveProjectIndex(0);
+    setProjectPickerOpen(false);
+    setProjectReminder(null);
+    requestAnimationFrame(() => textRef.current?.focus());
+  };
+
+  const clearProject = () => {
+    projectSelectionTouchedRef.current = true;
+    setProjectPath("");
+    setProjectQuery("");
+    setActiveProjectIndex(0);
+    setProjectPickerOpen(false);
+    setProjectReminder(null);
     requestAnimationFrame(() => textRef.current?.focus());
   };
 
   const handleProjectKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      setProjectPickerOpen(true);
       setActiveProjectIndex((current) => {
         if (projectOptionCount === 0) return 0;
         const delta = event.key === "ArrowDown" ? 1 : -1;
@@ -621,20 +609,23 @@ export function NewChatComposer({
       });
       return;
     }
-    if (event.key === "Enter" && projectPickerOpen) {
+    // The listbox is always visible, so Enter always commits the active row.
+    if (event.key === "Enter") {
       event.preventDefault();
-      const project = filteredProjects[activeProjectIndex];
+      const project = visibleProjects[activeProjectIndex];
       if (project) selectProject(project);
-      else if (directPathCandidate && activeProjectIndex === filteredProjects.length) {
+      else if (directPathCandidate && activeProjectIndex === visibleProjects.length) {
         selectDirectPath(directPathCandidate);
       }
       return;
     }
-    if (event.key === "Escape" && projectPickerOpen) {
+    // Escape clears a filter in progress before it closes the dialog; with no
+    // filter to clear it falls through to the panel's own Esc handler.
+    if (event.key === "Escape" && projectPickerOpen && projectQuery) {
       event.preventDefault();
       event.stopPropagation();
-      setProjectPickerOpen(false);
-      if (selectedProject) setProjectQuery(selectedProject.title);
+      setProjectQuery("");
+      setActiveProjectIndex(0);
     }
   };
 
@@ -659,11 +650,27 @@ export function NewChatComposer({
     }
   };
 
+  const insertSlashCommand = useCallback(() => {
+    if (isStarting) return;
+    setMessage((current) => `${current}${current && !current.endsWith("\n") ? "\n" : ""}/`);
+    requestAnimationFrame(() => textRef.current?.focus());
+  }, [isStarting]);
+
   const start = async () => {
-    if ((!selectedProject && !routeAgent) || isStarting || runtimeBlocked) return;
+    if (isStarting) return;
+    if (!selectedProject) {
+      setError(null);
+      setProjectReminder("Choose a project before starting this task.");
+      setProjectPickerOpen(true);
+      requestAnimationFrame(() => projectInputRef.current?.focus());
+      return;
+    }
+    if (runtimeBlocked) return;
     setState("starting");
     setPhase(files.length > 0 ? "uploading" : "starting");
     setError(null);
+    const clientMessageId = createClientMessageId();
+    const submittedAt = Date.now();
     try {
       let attachments: OutgoingAttachment[] = [];
       if (files.length > 0) {
@@ -691,31 +698,36 @@ export function NewChatComposer({
         return;
       }
 
-      const result = selectedProject
-        ? await startProjectSession({
-            projectPath: selectedProject.root,
-            harness,
-            ...(model ? { model } : {}),
-            ...(reasoningEffort ? { reasoningEffort } : {}),
-            ...(committedMessage
-              ? { instructions: committedMessage }
-              : hasAttachments
-                ? { instructions: "Shared capture for context." }
-                : {}),
-            ...(attachments.length > 0 ? { attachments } : {}),
-          })
-        : await startAgentSession(
-            routeAgent!,
-            committedMessage || attachments.length > 0
-              ? {
-                  ...(committedMessage ? { instructions: committedMessage } : {}),
-                  ...(attachments.length > 0 ? { attachments } : {}),
-                }
-              : undefined,
-          );
+      const result = await startProjectSession({
+        projectPath: selectedProject.root,
+        harness,
+        ...(model ? { model } : {}),
+        ...(reasoningEffort ? { reasoningEffort } : {}),
+        ...(committedMessage
+          ? { instructions: committedMessage }
+          : hasAttachments
+            ? { instructions: "Shared capture for context." }
+            : {}),
+        ...(attachments.length > 0 ? { attachments } : {}),
+        clientMessageId,
+      });
       const conversationId = result.conversationId?.trim();
       if (!conversationId) {
         throw new Error("Message sent, but no Chat was returned.");
+      }
+      const messageId = result.messageId?.trim();
+      if (messageId) {
+        stageAcceptedConversationTurn({
+          conversationId,
+          messageId,
+          clientMessageId,
+          body: committedMessage || (attachments.length > 0 ? "Shared capture for context." : "New session started."),
+          attachments,
+          agentId: result.agentId,
+          flightId: result.flightId,
+          invocationId: result.invocationId,
+          createdAt: submittedAt,
+        });
       }
       navigate({
         view: "conversation",
@@ -760,21 +772,17 @@ export function NewChatComposer({
         <header className="s-newchat-head">
           <span className="s-newchat-title">{title}</span>
           <div className="s-newchat-head-status">
-            <span role="status" aria-live="polite">
-              {dictationCloseReason ? "" : preservationNotice}
-            </span>
-            <span role="alert">{dictationCloseReason}</span>
+            <span role="status" aria-live="polite">{preservationNotice}</span>
           </div>
           <button
             type="button"
             className="s-newchat-close"
             onClick={requestClose}
             disabled={isStarting}
-            aria-disabled={Boolean(dictationCloseReason) || undefined}
-            aria-label={dictationCloseReason ?? "Close (Esc)"}
-            title={dictationCloseReason ?? "Close (Esc)"}
+            aria-label="Close (Esc)"
+            title="Close (Esc)"
           >
-            ✕
+            <X size={14} aria-hidden="true" />
           </button>
         </header>
 
@@ -785,257 +793,269 @@ export function NewChatComposer({
         ) : null}
 
         <div className="s-newchat-body">
-          <div className="s-newchat-field">
-            <label className="s-newchat-field-label" htmlFor="s-newchat-project-search">Project</label>
-            <div className="s-newchat-project-picker">
-              <Search size={13} aria-hidden="true" className="s-newchat-project-search-icon" />
-              <input
-                ref={projectInputRef}
-                id="s-newchat-project-search"
-                className="s-newchat-project-search"
-                type="search"
-                role="combobox"
-                aria-autocomplete="list"
+          <div className="s-newchat-lead">
+            <div className="s-newchat-project-bar">
+              <span className="label-md s-newchat-project-label">Project</span>
+              <button
+                type="button"
+                className="s-newchat-project-summary"
+                data-empty={selectedProject ? undefined : "true"}
                 aria-expanded={projectPickerOpen}
-                aria-controls="s-newchat-project-results"
-                aria-activedescendant={projectPickerOpen && projectOptionCount > 0
-                  ? `s-newchat-project-option-${activeProjectIndex}`
-                  : undefined}
-                value={projectQuery}
-                placeholder={configuration ? "Search projects or enter a path…" : "Loading projects…"}
+                aria-controls="s-newchat-project-panel"
+                aria-describedby={projectReminder ? "s-newchat-project-reminder" : undefined}
                 disabled={isStarting}
-                spellCheck={false}
-                autoComplete="off"
-                onFocus={() => {
-                  setProjectPickerOpen(true);
-                  setProjectQuery("");
-                  setActiveProjectIndex(0);
+                onClick={() => {
+                  const nextOpen = !projectPickerOpen;
+                  setProjectPickerOpen(nextOpen);
+                  if (nextOpen) requestAnimationFrame(() => projectInputRef.current?.focus());
+                  else requestAnimationFrame(() => textRef.current?.focus());
                 }}
-                onBlur={() => {
-                  window.setTimeout(() => {
-                    setProjectPickerOpen(false);
-                    if (selectedProject) setProjectQuery(selectedProject.title);
-                  }, 120);
-                }}
-                onChange={(event) => {
-                  setProjectQuery(event.currentTarget.value);
-                  setProjectPickerOpen(true);
-                  setActiveProjectIndex(0);
-                }}
-                onKeyDown={handleProjectKeyDown}
-              />
-              {projectPickerOpen ? (
-                <div id="s-newchat-project-results" className="s-newchat-project-results" role="listbox">
-                  {filteredProjects.map((project, index) => (
-                    <button
+              >
+                <span className="s-newchat-project-summary-title">
+                  {selectedProject ? `/${selectedProject.title}` : "Choose a project"}
+                </span>
+                {selectedProject ? (
+                  <span className="s-newchat-project-summary-path" title={selectedProject.root}>
+                    {shortProjectPath(selectedProject.root)}
+                  </span>
+                ) : (
+                  <span className="s-newchat-project-summary-path">Required when you send</span>
+                )}
+                <ChevronDown size={13} aria-hidden="true" />
+              </button>
+            </div>
+
+            {projectReminder ? (
+              <p id="s-newchat-project-reminder" className="s-newchat-project-reminder" role="alert">
+                {projectReminder}
+              </p>
+            ) : null}
+
+            {projectPickerOpen ? (
+              <div id="s-newchat-project-panel" className="s-newchat-project-panel">
+                <div className="s-newchat-project-picker">
+                  <Search size={13} aria-hidden="true" className="s-newchat-project-search-icon" />
+                  <input
+                    ref={projectInputRef}
+                    id="s-newchat-project-search"
+                    className="s-newchat-project-search"
+                    type="search"
+                    role="combobox"
+                    aria-label="Filter projects or enter a project path"
+                    aria-autocomplete="list"
+                    aria-expanded="true"
+                    aria-controls="s-newchat-project-results"
+                    aria-activedescendant={projectOptionCount > 0
+                      ? `s-newchat-project-option-${activeProjectIndex}`
+                      : undefined}
+                    value={projectQuery}
+                    placeholder={configuration ? "Filter projects, or type a path…" : "Loading projects…"}
+                    disabled={isStarting}
+                    spellCheck={false}
+                    autoComplete="off"
+                    onChange={(event) => {
+                      setProjectQuery(event.currentTarget.value);
+                      setActiveProjectIndex(0);
+                    }}
+                    onKeyDown={handleProjectKeyDown}
+                  />
+                </div>
+
+                <div
+                  id="s-newchat-project-results"
+                  className="s-newchat-project-results"
+                  role="listbox"
+                  aria-label="Projects"
+                >
+                  {visibleProjects.map((project, index) => (
+                    <div
                       key={project.root}
                       id={`s-newchat-project-option-${index}`}
-                      type="button"
                       role="option"
                       aria-selected={project.root === projectPath}
+                      aria-disabled={isStarting || undefined}
                       className="s-newchat-project-option"
                       data-active={index === activeProjectIndex || undefined}
                       onMouseDown={(event) => event.preventDefault()}
                       onMouseEnter={() => setActiveProjectIndex(index)}
-                      onClick={() => selectProject(project)}
+                      onClick={() => {
+                        if (isStarting) return;
+                        selectProject(project);
+                      }}
                     >
                       <span className="s-newchat-project-option-title">/{project.title}</span>
                       <span className="s-newchat-project-option-path">{shortProjectPath(project.root)}</span>
-                    </button>
+                    </div>
                   ))}
                   {directPathCandidate ? (
-                    <button
-                      id={`s-newchat-project-option-${filteredProjects.length}`}
-                      type="button"
+                    <div
+                      id={`s-newchat-project-option-${visibleProjects.length}`}
                       role="option"
                       aria-selected={directPathCandidate === projectPath}
+                      aria-disabled={isStarting || undefined}
                       className="s-newchat-project-option s-newchat-project-option--path"
-                      data-active={activeProjectIndex === filteredProjects.length || undefined}
+                      data-active={activeProjectIndex === visibleProjects.length || undefined}
                       onMouseDown={(event) => event.preventDefault()}
-                      onMouseEnter={() => setActiveProjectIndex(filteredProjects.length)}
-                      onClick={() => selectDirectPath(directPathCandidate)}
+                      onMouseEnter={() => setActiveProjectIndex(visibleProjects.length)}
+                      onClick={() => {
+                        if (isStarting) return;
+                        selectDirectPath(directPathCandidate);
+                      }}
                     >
                       <span className="s-newchat-project-option-title">Use this project path</span>
                       <span className="s-newchat-project-option-path">{shortProjectPath(directPathCandidate)}</span>
-                    </button>
-                  ) : null}
-                  {filteredProjects.length === 0 && !directPathCandidate ? (
-                    <div className="s-newchat-project-empty">
-                      No project matched. Enter an absolute path such as ~/dev/my-project.
                     </div>
                   ) : null}
+                  {visibleProjects.length === 0 && !directPathCandidate ? (
+                    <p className="s-newchat-project-empty">
+                      No project matched. Type an absolute path such as ~/dev/my-project.
+                    </p>
+                  ) : null}
                 </div>
-              ) : null}
-            </div>
-          </div>
 
-          {selectedProject && (
-            <div className="s-newchat-target">
-              <span className="s-newchat-chip">/{selectedProject.title}</span>
-              <span className="s-newchat-chip" title={selectedProject.root}>{shortProjectPath(selectedProject.root)}</span>
-              <span className="s-newchat-chip">new worker</span>
-            </div>
-          )}
-
-          {projectLoadError && projectTargets.length === 0 ? (
-            <div className="s-newchat-error" role="alert">{projectLoadError}</div>
-          ) : null}
-
-          {hasAttachments && canUseExistingChat ? (
-            <div className="s-newchat-mode" role="group" aria-label="Delivery mode">
-              <button
-                type="button"
-                className={`s-newchat-mode-btn${mode === "existing-chat" ? " s-newchat-mode-btn--on" : ""}`}
-                disabled={isStarting}
-                onClick={() => setMode("existing-chat")}
-              >
-                Existing chat
-              </button>
-              <button
-                type="button"
-                className={`s-newchat-mode-btn${mode === "new-session" ? " s-newchat-mode-btn--on" : ""}`}
-                disabled={isStarting}
-                onClick={() => setMode("new-session")}
-              >
-                New chat
-              </button>
-            </div>
-          ) : null}
-
-          {usesNewWorker ? (
-            <section className="s-newchat-runtime" aria-labelledby="s-newchat-runtime-title">
-              <div className="s-newchat-runtime-head">
-                <div>
-                  <h3 id="s-newchat-runtime-title">Run with</h3>
-                  <p>Choose the harness, model, and thinking depth for this worker.</p>
+                <div className="s-newchat-project-panel-foot">
+                  {projectsHeldBack > 0 ? (
+                    <p className="s-newchat-project-foot">
+                      {visibleProjects.length} of{" "}
+                      {projectQuery.trim() ? filteredProjects.length : projectTargets.length}
+                      {projectQuery.trim() ? " matches" : " projects"} · type to narrow
+                    </p>
+                  ) : <span />}
+                  {selectedProject ? (
+                    <button type="button" className="s-newchat-project-clear" onClick={clearProject}>
+                      Clear project
+                    </button>
+                  ) : null}
                 </div>
-                {runnerLoading ? (
-                  <span className="s-newchat-runtime-readiness" data-loading="true">
-                    <Loader2 size={11} aria-hidden="true" />
-                    Loading models
-                  </span>
-                ) : selectedHarness?.ready !== null && selectedHarness?.ready !== undefined ? (
-                  <span
-                    className="s-newchat-runtime-readiness"
-                    data-ready={selectedHarness.ready ? "true" : "false"}
-                  >
-                    <span aria-hidden="true" />
-                    {selectedHarness.ready ? "Ready" : "Unavailable"}
-                  </span>
+
+                {projectLoadError && projectTargets.length === 0 ? (
+                  <div className="s-newchat-error" role="alert">{projectLoadError}</div>
                 ) : null}
               </div>
-              <div className="s-newchat-runtime-grid">
-                <RuntimeSelect
-                  label="Harness"
-                  value={harness}
-                  displayValue={selectedHarness?.label ?? harness}
-                  options={harnessSelectOptions}
-                  disabled={isStarting || runnerLoading}
-                  onChange={selectHarness}
-                />
-                <RuntimeSelect
-                  label="Model"
-                  value={model}
-                  displayValue={runnerLoading
-                    ? "Loading models…"
-                    : (models.find((candidate) => candidate.id === model)?.label ?? model) || "Harness default"}
-                  options={modelSelectOptions}
-                  disabled={isStarting || runnerLoading}
-                  wide
-                  onChange={(nextModel) => {
+            ) : null}
+
+            <MessageComposer
+              density="panel"
+              value={message}
+              onChange={setMessage}
+              onSend={() => void start()}
+              sendOnEnter
+              textareaRef={textRef}
+              placeholder={hasAttachments
+                ? "What should the agent do with this?"
+                : "Describe the task, or leave blank…"}
+              disabled={isStarting}
+              sending={isStarting}
+              canSend={!isStarting && !runtimeBlocked}
+              showDictation={false}
+              rows={7}
+              maxHeightPx={280}
+              sendTitle={hasAttachments ? "Route (Enter)" : "Start task (Enter)"}
+              sendAriaLabel={hasAttachments ? "Route capture" : "Start task"}
+              leadingTools={(
+                <button
+                  type="button"
+                  className="s-newchat-command-trigger"
+                  disabled={isStarting}
+                  onClick={insertSlashCommand}
+                >
+                  / Commands
+                </button>
+              )}
+              tools={(
+                <RuntimePicker
+                  harness={harness}
+                  model={model}
+                  effort={reasoningEffort}
+                  onHarnessChange={selectHarness}
+                  onModelChange={(nextModel) => {
                     runtimeSelectionTouchedRef.current = true;
                     setModel(nextModel);
                   }}
-                />
-                <RuntimeSelect
-                  label="Effort"
-                  value={reasoningEffort}
-                  displayValue={(efforts.find((candidate) => candidate.id === reasoningEffort)?.label ?? reasoningEffort) || "Harness default"}
-                  options={effortSelectOptions}
-                  disabled={isStarting || runnerLoading || effortSelectOptions.length === 0}
-                  onChange={(nextEffort) => {
+                  onEffortChange={(nextEffort) => {
                     runtimeSelectionTouchedRef.current = true;
                     setReasoningEffort(nextEffort);
                   }}
+                  harnessOptions={harnessOptions}
+                  modelOptions={modelOptions}
+                  effortOptions={effortOptions}
+                  showEffort
+                  disabled={isStarting || runnerLoading || !usesNewWorker}
                 />
+              )}
+            />
+
+            {files.length > 0 ? (
+              <div className="s-newchat-attachments" aria-label="Attached captures">
+                {files.map((file, index) => (
+                  <AttachmentPreview
+                    key={`${file.name}:${file.size}:${index}`}
+                    file={file}
+                    onRemove={() => setFiles((current) => current.filter((_, i) => i !== index))}
+                  />
+                ))}
               </div>
-              {selectedHarness?.detail || runnerLoadError ? (
-                <p
-                  className="s-newchat-runtime-note"
-                  data-warning={selectedHarness?.ready === false || Boolean(runnerLoadError) || undefined}
-                  role={selectedHarness?.ready === false ? "alert" : undefined}
-                >
-                  {selectedHarness?.detail || runnerLoadError}
+            ) : null}
+
+            {attachmentFeedback ? (
+              <div className="s-newchat-attachment-feedback" role="status" aria-live="polite">
+                {attachmentFeedback}
+              </div>
+            ) : null}
+
+            {error && <div className="s-newchat-error" role="alert">{error}</div>}
+
+            {isStarting && (
+              <div className="s-newchat-progress" role="status" aria-live="polite">
+                <Loader2 size={14} className="s-newchat-progress-spinner" aria-hidden="true" />
+                <div className="s-newchat-progress-copy">
+                  <span className="label-md s-newchat-progress-title">{phaseLabel}</span>
+                  <span className="s-newchat-progress-detail">{progressDetail}</span>
+                  {committedMessage && (
+                    <span className="s-newchat-progress-message">{committedMessage}</span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {showConfig ? (
+            <div className="s-newchat-config">
+              {showDeliveryMode ? (
+                <div className="s-newchat-mode" role="group" aria-label="Delivery mode">
+                  <button
+                    type="button"
+                    className={`s-newchat-mode-btn${mode === "existing-chat" ? " s-newchat-mode-btn--on" : ""}`}
+                    disabled={isStarting}
+                    onClick={() => setMode("existing-chat")}
+                  >
+                    Existing chat
+                  </button>
+                  <button
+                    type="button"
+                    className={`s-newchat-mode-btn${mode === "new-session" ? " s-newchat-mode-btn--on" : ""}`}
+                    disabled={isStarting}
+                    onClick={() => setMode("new-session")}
+                  >
+                    New chat
+                  </button>
+                </div>
+              ) : null}
+
+              {usesNewWorker && runnerLoading ? (
+                <p className="s-newchat-runtime-note" data-pending="true" role="status">
+                  <Loader2 size={11} className="s-newchat-runtime-note-spinner" aria-hidden="true" />
+                  Loading the model catalog…
+                </p>
+              ) : usesNewWorker && (runnerLoadError || selectedHarness?.ready === false) ? (
+                <p className="s-newchat-runtime-note" role="alert">
+                  {selectedHarness?.ready === false
+                    ? (selectedHarness.detail || `${selectedHarness.label} is unavailable.`)
+                    : runnerLoadError}
                 </p>
               ) : null}
-            </section>
-          ) : null}
-
-          {files.length > 0 ? (
-            <div className="s-newchat-attachments" aria-label="Attached captures">
-              {files.map((file, index) => (
-                <AttachmentPreview
-                  key={`${file.name}:${file.size}:${index}`}
-                  file={file}
-                  onRemove={() => setFiles((current) => current.filter((_, i) => i !== index))}
-                />
-              ))}
             </div>
           ) : null}
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            hidden
-            disabled={isStarting}
-            onChange={(event) => {
-              addFiles([...(event.target.files ?? [])]);
-              event.target.value = "";
-            }}
-          />
-          {attachmentFeedback ? (
-            <div className="s-newchat-attachment-feedback" role="status" aria-live="polite">
-              {attachmentFeedback}
-            </div>
-          ) : null}
-
-          {error && <div className="s-newchat-error" role="alert">{error}</div>}
-          {isStarting && (
-            <div className="s-newchat-progress" role="status" aria-live="polite">
-              <Loader2 size={14} className="s-newchat-progress-spinner" aria-hidden="true" />
-              <div className="s-newchat-progress-copy">
-                <span className="s-newchat-progress-title">{phaseLabel}</span>
-                <span className="s-newchat-progress-detail">{progressDetail}</span>
-                {committedMessage && (
-                  <span className="s-newchat-progress-message">{committedMessage}</span>
-                )}
-              </div>
-            </div>
-          )}
-
-          <MessageComposer
-            density="panel"
-            value={message}
-            onChange={setMessage}
-            onSend={() => void start()}
-            sendOnEnter
-            textareaRef={textRef}
-            placeholder={hasAttachments ? "What should the agent do with this?" : "Describe the task…"}
-            disabled={isStarting || (!selectedProject && !routeAgent)}
-            sending={isStarting}
-            canSend={Boolean(selectedProject || routeAgent) && !isStarting && !runtimeBlocked}
-            onDictationStatusChange={setDictationStatus}
-            showAttach
-            onAttach={() => fileInputRef.current?.click()}
-            attachTitle="Attach file — or paste / drop"
-            attachAriaLabel="Attach file"
-            sendTitle={hasAttachments ? "Route (Enter)" : "Start task (Enter)"}
-            sendAriaLabel={hasAttachments ? "Route capture" : "Start task"}
-            tools={(
-              <span className="s-msg-compose-tools-hint" aria-hidden="true">↵ send · ⇧↵ line</span>
-            )}
-          />
         </div>
       </div>
     </div>

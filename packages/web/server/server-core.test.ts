@@ -1,7 +1,19 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { Hono } from "hono";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { installScoutApiMiddleware } from "./server-core.ts";
+import { installScoutApiMiddleware, registerScoutWebAssets } from "./server-core.ts";
+
+const testDirectories = new Set<string>();
+
+afterEach(() => {
+  for (const directory of testDirectories) {
+    rmSync(directory, { recursive: true, force: true });
+  }
+  testDirectories.clear();
+});
 
 function createApp(options?: Parameters<typeof installScoutApiMiddleware>[2]) {
   const app = new Hono();
@@ -110,5 +122,42 @@ describe("installScoutApiMiddleware", () => {
     });
 
     expect(response.status).toBe(200);
+  });
+});
+
+describe("registerScoutWebAssets", () => {
+  function createStaticRoot(): string {
+    const root = mkdtempSync(join(tmpdir(), "openscout-web-assets-"));
+    testDirectories.add(root);
+    mkdirSync(join(root, "assets"), { recursive: true });
+    writeFileSync(join(root, "index.html"), "<!doctype html><body>Scout</body>", "utf8");
+    writeFileSync(join(root, "assets", "index-AbCd1234.js"), "export {};", "utf8");
+    writeFileSync(join(root, "assets", "index.js"), "export {};", "utf8");
+    return root;
+  }
+
+  test("caches fingerprinted assets immutably while keeping HTML uncached", async () => {
+    const app = new Hono();
+    await registerScoutWebAssets(app, {
+      assetMode: "static",
+      staticRoot: createStaticRoot(),
+      defaultViteUrl: "http://127.0.0.1:43122",
+    });
+
+    const assetResponse = await app.request("http://localhost/assets/index-AbCd1234.js");
+    expect(assetResponse.status).toBe(200);
+    expect(assetResponse.headers.get("cache-control")).toBe(
+      "public, max-age=31536000, immutable",
+    );
+
+    const unhashedAssetResponse = await app.request("http://localhost/assets/index.js");
+    expect(unhashedAssetResponse.status).toBe(200);
+    expect(unhashedAssetResponse.headers.get("cache-control")).toBeNull();
+
+    for (const path of ["/index.html", "/projects"]) {
+      const htmlResponse = await app.request(`http://localhost${path}`);
+      expect(htmlResponse.status).toBe(200);
+      expect(htmlResponse.headers.get("cache-control")).toBe("no-store");
+    }
   });
 });

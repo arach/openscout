@@ -1088,12 +1088,14 @@ describe("createScoutMcpServer", () => {
       to: "talkie",
       body: "How did you handle auth?",
       harness: "claude",
+      executionSource: { harness: "flag" },
       workspace: "new_worktree",
       session: "new",
       replyToSessionId: "019ddb1b-test-thread",
       replyMode: "none",
       currentDirectory: "/tmp/openscout-test",
       source: "scout-mcp",
+      aliasScope: undefined,
     });
     expect(result.structuredContent).toEqual({
       ok: true,

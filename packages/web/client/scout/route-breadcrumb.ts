@@ -19,7 +19,6 @@ export const ROUTE_VIEW_LABELS: Record<string, string> = {
   "repo-diff": "Diff",
   harnesses: "Agent Providers",
   search: "Search",
-  channels: "Channels",
   activity: "Activity Log",
   briefings: "Briefings",
   mesh: "Network",
@@ -48,7 +47,6 @@ export function routeBreadcrumbForRoute(route: Route): string | null {
     case "repos":
     case "repo-diff":
     case "harnesses":
-    case "channels":
     case "mesh":
     case "broker":
     case "work":

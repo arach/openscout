@@ -63,7 +63,6 @@ export function resolveSidebarContext(
 
     // ── Chat ───────────────────────────────────────────────────────────
     case "messages":
-    case "channels":
     case "conversation":
       return { body: <ChatLeft />, footer: null };
 

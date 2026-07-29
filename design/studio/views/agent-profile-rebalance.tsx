@@ -58,7 +58,7 @@ function TopBar() {
     >
       <button
         type="button"
-        className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.12em] transition-colors hover:text-[color:var(--studio-ink)]"
+        className="cursor-pointer font-mono text-xs uppercase tracking-[0.12em] transition-colors hover:text-[color:var(--studio-ink)]"
         style={{ color: FAINT }}
       >
         ← All agents
@@ -67,7 +67,7 @@ function TopBar() {
         {tabs.map((t, i) => (
           <span
             key={t}
-            className="cursor-pointer px-2 py-[7px] text-[11px] transition-colors"
+            className="cursor-pointer px-2 py-[7px] text-sm transition-colors"
             style={{
               color: i === 0 ? INKC : FAINT,
               borderBottom: i === 0 ? `2px solid ${ACCENT}` : "2px solid transparent",
@@ -85,11 +85,11 @@ function RailSection({ label, meta, children }: { label: string; meta?: React.Re
   return (
     <div>
       <div className="mb-2 flex items-baseline justify-between">
-        <span className="font-mono text-[8px] font-semibold uppercase tracking-[0.18em]" style={{ color: FAINT }}>
+        <span className="font-mono text-3xs font-semibold uppercase tracking-[0.18em]" style={{ color: FAINT }}>
           {label}
         </span>
         {meta != null ? (
-          <span className="font-mono text-[8.5px] tabular-nums" style={{ color: FAINT }}>
+          <span className="font-mono text-3xs tabular-nums" style={{ color: FAINT }}>
             {meta}
           </span>
         ) : null}
@@ -305,7 +305,7 @@ function FactSep() {
 function FactsDotted() {
   const facts = [ESSENTIALS.cwd, `⎇ ${ESSENTIALS.branch}`, ESSENTIALS.harness, ESSENTIALS.model, ESSENTIALS.host];
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10px]" style={{ color: MUTED }}>
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs" style={{ color: MUTED }}>
       {facts.map((v, i) => (
         <React.Fragment key={i}>
           {i > 0 ? <FactSep /> : null}
@@ -320,12 +320,12 @@ function FactsDotted() {
 function FactsTiered() {
   return (
     <div className="flex flex-col gap-1 font-mono">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10.5px]" style={{ color: MUTED }}>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs" style={{ color: MUTED }}>
         <span className="truncate">{ESSENTIALS.cwd}</span>
         <FactSep />
         <span className="truncate">⎇ {ESSENTIALS.branch}</span>
       </div>
-      <div className="flex flex-wrap items-center gap-x-2 text-[9px]" style={{ color: FAINT }}>
+      <div className="flex flex-wrap items-center gap-x-2 text-2xs" style={{ color: FAINT }}>
         <span>{ESSENTIALS.harness}</span>
         <FactSep />
         <span>{ESSENTIALS.model}</span>
@@ -348,7 +348,7 @@ function FactsGlyph() {
   ];
   return (
     <div
-      className="grid w-fit grid-cols-[auto_auto] gap-x-8 gap-y-1.5 font-mono text-[10px]"
+      className="grid w-fit grid-cols-[auto_auto] gap-x-8 gap-y-1.5 font-mono text-xs"
       style={{ color: MUTED }}
     >
       {cells.map((c, i) => (
@@ -376,8 +376,8 @@ function FactsLabeled() {
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
       {facts.map((f) => (
         <span key={f.k} className="inline-flex items-baseline gap-1.5 font-mono">
-          <span className="text-[7.5px] uppercase tracking-[0.14em]" style={{ color: FAINT }}>{f.k}</span>
-          <span className="text-[10px]" style={{ color: MUTED }}>{f.v}</span>
+          <span className="text-3xs uppercase tracking-[0.14em]" style={{ color: FAINT }}>{f.k}</span>
+          <span className="text-xs" style={{ color: MUTED }}>{f.v}</span>
         </span>
       ))}
     </div>
@@ -402,10 +402,10 @@ function ProfileHeader({ treatment }: { treatment: HeaderTreatment }) {
         </span>
         <div className="min-w-0">
           <div className="flex items-baseline gap-2">
-            <span className="font-display text-[20px] leading-none" style={{ color: INKC }}>
+            <span className="font-display text-4xl leading-none" style={{ color: INKC }}>
               {AGENT}
             </span>
-            <span className="font-mono text-[11px]" style={{ color: FAINT }}>
+            <span className="font-mono text-sm" style={{ color: FAINT }}>
               @hudson
             </span>
           </div>
@@ -424,7 +424,7 @@ function ProfileHeader({ treatment }: { treatment: HeaderTreatment }) {
       </div>
       <button
         type="button"
-        className="flex-none cursor-pointer rounded-[4px] px-3 py-[7px] font-mono text-[8.5px] font-semibold uppercase tracking-[0.1em]"
+        className="flex-none cursor-pointer rounded-[4px] px-3 py-[7px] font-mono text-3xs font-semibold uppercase tracking-[0.1em]"
         style={{ background: ACCENT, color: INK.canvas }}
       >
         + New session
@@ -470,20 +470,20 @@ function SessionRow({
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
-          <span className="truncate font-mono text-[11px]" style={{ color: selected ? INKC : MUTED }}>
+          <span className="truncate font-mono text-sm" style={{ color: selected ? INKC : MUTED }}>
             {s.id}
           </span>
           <span
-            className="flex-none font-mono text-[8.5px] uppercase tracking-[0.1em]"
+            className="flex-none font-mono text-3xs uppercase tracking-[0.1em]"
             style={{ color: active ? ACCENT : FAINT }}
           >
             {active ? "now" : `ended · ${s.ago}`}
           </span>
         </div>
-        <div className="mt-1 truncate text-[12px]" style={{ color: selected ? INKC : MUTED }}>
+        <div className="mt-1 truncate text-md" style={{ color: selected ? INKC : MUTED }}>
           {s.snapshot}
         </div>
-        <div className="mt-1.5 flex items-center gap-1.5 font-mono text-[8.5px]" style={{ color: FAINT }}>
+        <div className="mt-1.5 flex items-center gap-1.5 font-mono text-3xs" style={{ color: FAINT }}>
           <span>{prefix}</span>
           <Initiator s={s} size={12} />
           <span style={{ color: INK.edge }}>·</span>
@@ -510,10 +510,10 @@ function SessionsCenter({
       <TopBar />
       <ProfileHeader treatment={headerTreatment} />
       <div className="flex flex-none items-center justify-between px-4 pb-1 pt-3">
-        <span className="font-mono text-[8px] font-semibold uppercase tracking-[0.18em]" style={{ color: FAINT }}>
+        <span className="font-mono text-3xs font-semibold uppercase tracking-[0.18em]" style={{ color: FAINT }}>
           Recent sessions
         </span>
-        <span className="font-mono text-[8.5px] tabular-nums" style={{ color: FAINT }}>
+        <span className="font-mono text-3xs tabular-nums" style={{ color: FAINT }}>
           {SESSIONS.length} sessions
         </span>
       </div>
@@ -584,14 +584,14 @@ function EngageZone({ active }: { active: boolean }) {
   ];
   return (
     <div className="flex flex-col gap-2 pt-1">
-      <div className="font-mono text-[8px] font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>
+      <div className="font-mono text-3xs font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>
         Engage
       </div>
       <div className="flex flex-col gap-1.5">
         {rows.map((r) => (
           <div key={r.label} className="flex items-center gap-2.5">
             <span
-              className="w-[78px] flex-none font-mono text-[8px] uppercase tracking-[0.13em]"
+              className="w-[78px] flex-none font-mono text-3xs uppercase tracking-[0.13em]"
               style={{ color: FAINT }}
             >
               {r.label}
@@ -603,7 +603,7 @@ function EngageZone({ active }: { active: boolean }) {
                   type="button"
                   disabled={!a.on}
                   title={a.title}
-                  className="rounded-[4px] px-2.5 py-1.5 font-mono text-[8px] font-semibold uppercase tracking-[0.1em] disabled:cursor-default"
+                  className="rounded-[4px] px-2.5 py-1.5 font-mono text-3xs font-semibold uppercase tracking-[0.1em] disabled:cursor-default"
                   style={
                     a.primary && a.on
                       ? { background: ACCENT, color: INK.canvas, cursor: "pointer" }
@@ -630,7 +630,7 @@ function EngagePrimary({ active }: { active: boolean }) {
   return (
     <button
       type="button"
-      className="flex-none cursor-pointer rounded-[4px] px-4 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.12em]"
+      className="flex-none cursor-pointer rounded-[4px] px-4 py-2 font-mono text-2xs font-semibold uppercase tracking-[0.12em]"
       style={{ background: ACCENT, color: INK.canvas }}
       title={active ? "Send a message into this conversation" : "Reopen this conversation and message it"}
     >
@@ -655,7 +655,7 @@ function EngageSecondary({ active }: { active: boolean }) {
     <div className="flex flex-col gap-1.5">
       {rows.map((r) => (
         <div key={r.label} className="flex items-center gap-2.5">
-          <span className="w-[64px] flex-none font-mono text-[8px] uppercase tracking-[0.13em]" style={{ color: FAINT }}>
+          <span className="w-[64px] flex-none font-mono text-3xs uppercase tracking-[0.13em]" style={{ color: FAINT }}>
             {r.label}
           </span>
           <div className="flex gap-1.5">
@@ -665,7 +665,7 @@ function EngageSecondary({ active }: { active: boolean }) {
                 type="button"
                 disabled={!a.on}
                 title={a.title}
-                className="rounded-[4px] px-2.5 py-1.5 font-mono text-[8px] font-semibold uppercase tracking-[0.1em] disabled:cursor-default"
+                className="rounded-[4px] px-2.5 py-1.5 font-mono text-3xs font-semibold uppercase tracking-[0.1em] disabled:cursor-default"
                 style={{
                   cursor: a.on ? "pointer" : "default",
                   border: `1px solid ${a.on ? INK.edge : INK.edgeSoft}`,
@@ -712,7 +712,7 @@ function ActivitySparkline() {
           );
         })}
       </svg>
-      <div className="mt-1 flex justify-between font-mono text-[8px]" style={{ color: FAINT }}>
+      <div className="mt-1 flex justify-between font-mono text-3xs" style={{ color: FAINT }}>
         <span>16h ago</span>
         <span>now</span>
       </div>
@@ -728,8 +728,8 @@ function ActivityStats() {
       {SESSION_STATS.map((m, i) => (
         <span key={m.k} className="inline-flex items-baseline gap-1">
           {i > 0 ? <span className="mr-1" style={{ color: INK.edge }}>·</span> : null}
-          <span className="text-[12px] tabular-nums" style={{ color: INKC }}>{m.v}</span>
-          <span className="text-[8.5px] uppercase tracking-[0.08em]" style={{ color: FAINT }}>{m.k}</span>
+          <span className="text-md tabular-nums" style={{ color: INKC }}>{m.v}</span>
+          <span className="text-3xs uppercase tracking-[0.08em]" style={{ color: FAINT }}>{m.k}</span>
         </span>
       ))}
     </div>
@@ -759,7 +759,7 @@ function FilesTouched({ limit = 4 }: { limit?: number }) {
         const changed = f.state !== "read";
         const mark = f.state === "created" ? "+" : f.state === "modified" ? "~" : "·";
         return (
-          <div key={f.path} className="flex items-baseline justify-between gap-2 font-mono text-[10px] leading-tight" title={`${f.path} · ${f.state}`}>
+          <div key={f.path} className="flex items-baseline justify-between gap-2 font-mono text-xs leading-tight" title={`${f.path} · ${f.state}`}>
             <span className="flex min-w-0 items-baseline gap-1.5">
               <span className="flex-none tabular-nums" style={{ color: changed ? ACCENT : INK.edge }}>{mark}</span>
               <span className="flex min-w-0 items-baseline">
@@ -767,14 +767,14 @@ function FilesTouched({ limit = 4 }: { limit?: number }) {
                 <span className="flex-none" style={{ color: changed ? MUTED : FAINT }}>{name}</span>
               </span>
             </span>
-            <span className="flex-none tabular-nums text-[9px]" style={{ color: FAINT }}>×{f.touches}</span>
+            <span className="flex-none tabular-nums text-2xs" style={{ color: FAINT }}>×{f.touches}</span>
           </div>
         );
       })}
       {rest > 0 ? (
         <button
           type="button"
-          className="mt-0.5 w-fit cursor-pointer font-mono text-[9px] uppercase tracking-[0.1em]"
+          className="mt-0.5 w-fit cursor-pointer font-mono text-2xs uppercase tracking-[0.1em]"
           style={{ color: ACCENT }}
         >
           Open full diff →
@@ -798,14 +798,14 @@ function ContextHealth() {
   const fill = Math.round((c.tokens / c.windowTokens) * 100);
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex items-baseline justify-between font-mono text-[9px]" style={{ color: FAINT }}>
+      <div className="flex items-baseline justify-between font-mono text-2xs" style={{ color: FAINT }}>
         <span style={{ color: MUTED }}>{fmtK(c.tokens)} / {fmtK(c.windowTokens)} ctx</span>
         <span>{fill}%</span>
       </div>
       <div className="h-[3px] w-full overflow-hidden rounded-full" style={{ background: INK.module }}>
         <div className="h-full rounded-full" style={{ width: `${fill}%`, background: MUTED }} />
       </div>
-      <div className="font-mono text-[9.5px]" style={{ color: FAINT }}>
+      <div className="font-mono text-2xs" style={{ color: FAINT }}>
         {c.turns} / {c.maxTurns} turns · {c.ageHours}h · {fmtK(c.totalTokens)} tokens
       </div>
     </div>
@@ -823,13 +823,13 @@ function SessionSummary({ s }: { s: Session }) {
           the rest of the detail live in the rail, so this stays a narrow band. */}
       <div className="flex flex-wrap items-start gap-x-8 gap-y-3">
         <div className="min-w-[240px] flex-1">
-          <div className="mb-1.5 font-mono text-[8px] font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>
+          <div className="mb-1.5 font-mono text-3xs font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>
             Activity
           </div>
           <ActivitySparkline />
         </div>
         <div className="w-[200px] flex-none">
-          <div className="mb-1.5 font-mono text-[8px] font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>
+          <div className="mb-1.5 font-mono text-3xs font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>
             Context
           </div>
           <ContextHealth />
@@ -860,15 +860,15 @@ function SessionDetailBody({
       <div>
         <div className="flex items-center gap-1.5">
           <Dot on={active} size={6} />
-          <span className="font-mono text-[12px]" style={{ color: INKC }}>{s.id}</span>
-          <span className="rounded-sm px-1 font-mono text-[7px] uppercase tracking-[0.08em]" style={{ background: INK.module, color: FAINT }}>
+          <span className="font-mono text-md" style={{ color: INKC }}>{s.id}</span>
+          <span className="rounded-sm px-1 font-mono text-3xs uppercase tracking-[0.08em]" style={{ background: INK.module, color: FAINT }}>
             {s.transport}
           </span>
-          <span className="ml-auto font-mono text-[8px] uppercase tracking-[0.12em]" style={{ color: active ? ACCENT : FAINT }}>
+          <span className="ml-auto font-mono text-3xs uppercase tracking-[0.12em]" style={{ color: active ? ACCENT : FAINT }}>
             {active ? "now" : `ended · ${s.ago}`}
           </span>
         </div>
-        <div className="mt-1.5 text-[12.5px] leading-snug" style={{ color: MUTED }}>{s.snapshot}</div>
+        <div className="mt-1.5 text-md leading-snug" style={{ color: MUTED }}>{s.snapshot}</div>
       </div>
 
       {showSummary && active ? (
@@ -880,7 +880,7 @@ function SessionDetailBody({
       <RailSection label="Snapshot">
         <div className="flex flex-col gap-1.5">
           {s.context.map((line, i) => (
-            <div key={i} className="flex gap-2 text-[11px] leading-snug" style={{ color: MUTED }}>
+            <div key={i} className="flex gap-2 text-sm leading-snug" style={{ color: MUTED }}>
               <span className="flex-none" style={{ color: INK.edge }}>—</span>
               <span>{line}</span>
             </div>
@@ -905,7 +905,7 @@ function SessionDetailBody({
       </RailSection>
 
       <RailSection label="Initiated by">
-        <div className="flex items-center gap-2 font-mono text-[10px]" style={{ color: MUTED }}>
+        <div className="flex items-center gap-2 font-mono text-xs" style={{ color: MUTED }}>
           <Initiator s={s} size={16} />
           <span style={{ color: INK.edge }}>·</span>
           <span style={{ color: FAINT }}>{s.ago} ago</span>
@@ -915,7 +915,7 @@ function SessionDetailBody({
       {active ? (
         <RailSection label="Transcript">
           <div
-            className="rounded-[5px] p-2.5 font-mono text-[8.5px] leading-[1.5]"
+            className="rounded-[5px] p-2.5 font-mono text-3xs leading-[1.5]"
             style={{ background: "oklch(0.09 0.006 80)", border: `1px solid ${INK.edgeSoft}`, color: MUTED }}
           >
             {TAIL.map((l, i) => (
@@ -946,10 +946,10 @@ function ContextBody() {
         <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
           {SESSION_RUNTIME.map((f) => (
             <div key={f.k} className="min-w-0">
-              <div className="font-mono text-[7px] font-semibold uppercase tracking-[0.14em]" style={{ color: FAINT }}>
+              <div className="font-mono text-3xs font-semibold uppercase tracking-[0.14em]" style={{ color: FAINT }}>
                 {f.k}
               </div>
-              <div className="truncate font-mono text-[10px]" style={{ color: INKC }}>
+              <div className="truncate font-mono text-xs" style={{ color: INKC }}>
                 {f.v}
               </div>
             </div>
@@ -962,10 +962,10 @@ function ContextBody() {
           {TALKS_TO.map((p) => (
             <div key={p.name} className="flex items-center gap-2 px-1.5 py-1">
               <Dot on={p.state !== "idle"} size={5} />
-              <span className="min-w-0 flex-1 truncate font-mono text-[9.5px]" style={{ color: MUTED }}>
+              <span className="min-w-0 flex-1 truncate font-mono text-2xs" style={{ color: MUTED }}>
                 {p.name}
               </span>
-              <span className="font-mono text-[8px] tabular-nums" style={{ color: FAINT }}>
+              <span className="font-mono text-3xs tabular-nums" style={{ color: FAINT }}>
                 {p.count}
               </span>
             </div>
@@ -975,7 +975,7 @@ function ContextBody() {
       <RailSection label="Capabilities" meta="3">
         <div className="flex flex-wrap gap-1">
           {["chat", "invoke", "deliver"].map((c) => (
-            <span key={c} className="rounded-[3px] px-1.5 py-[2px] font-mono text-[8px]" style={{ background: INK.module, color: MUTED }}>
+            <span key={c} className="rounded-[3px] px-1.5 py-[2px] font-mono text-3xs" style={{ background: INK.module, color: MUTED }}>
               {c}
             </span>
           ))}
@@ -995,15 +995,15 @@ function RailStacked({ s }: { s: Session }) {
   return (
     <div className="flex flex-none flex-col" style={{ width: RAIL_W, background: INK.panel, borderLeft: `1px solid ${INK.edge}` }}>
       <div className="flex h-[34px] flex-none items-center justify-between px-3" style={{ borderBottom: `1px solid ${INK.edgeSoft}` }}>
-        <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>Session</span>
-        <span className="font-mono text-[8px] uppercase tracking-[0.12em]" style={{ color: active ? ACCENT : FAINT }}>
+        <span className="font-mono text-2xs font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>Session</span>
+        <span className="font-mono text-3xs uppercase tracking-[0.12em]" style={{ color: active ? ACCENT : FAINT }}>
           {active ? "now" : `ended · ${s.ago}`}
         </span>
       </div>
       <div className="flex flex-1 flex-col overflow-y-auto">
         <div className="p-3.5"><SessionDetailBody s={s} /></div>
         <div className="flex flex-col gap-4 p-3.5" style={{ borderTop: `1px solid ${INK.edge}`, background: "oklch(0.132 0.008 80)" }}>
-          <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>Context</span>
+          <span className="font-mono text-2xs font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>Context</span>
           <ContextBody />
         </div>
       </div>
@@ -1023,7 +1023,7 @@ function RailSwap({ s }: { s: Session }) {
               key={t}
               type="button"
               onClick={() => setTab(t)}
-              className="cursor-pointer rounded-[3px] px-2.5 py-[3px] font-mono text-[8px] font-semibold uppercase tracking-[0.12em] transition-colors"
+              className="cursor-pointer rounded-[3px] px-2.5 py-[3px] font-mono text-3xs font-semibold uppercase tracking-[0.12em] transition-colors"
               style={tab === t ? { background: ACCENT, color: INK.canvas } : { color: FAINT }}
             >
               {t}
@@ -1043,7 +1043,7 @@ function RailContextOnly() {
   return (
     <div className="flex flex-none flex-col" style={{ width: RAIL_W, background: INK.panel, borderLeft: `1px solid ${INK.edge}` }}>
       <div className="flex h-[34px] flex-none items-center px-3" style={{ borderBottom: `1px solid ${INK.edgeSoft}` }}>
-        <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>Context</span>
+        <span className="font-mono text-2xs font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>Context</span>
       </div>
       <div className="flex-1 overflow-y-auto p-3.5"><ContextBody /></div>
     </div>
@@ -1058,8 +1058,8 @@ function RailHybrid({ s }: { s: Session }) {
   return (
     <div className="flex flex-none flex-col" style={{ width: RAIL_W, background: INK.panel, borderLeft: `1px solid ${INK.edge}` }}>
       <div className="flex h-[34px] flex-none items-center justify-between px-3" style={{ borderBottom: `1px solid ${INK.edgeSoft}` }}>
-        <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>Session</span>
-        <span className="font-mono text-[8px] uppercase tracking-[0.12em]" style={{ color: active ? ACCENT : FAINT }}>
+        <span className="font-mono text-2xs font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>Session</span>
+        <span className="font-mono text-3xs uppercase tracking-[0.12em]" style={{ color: active ? ACCENT : FAINT }}>
           {active ? "now" : `ended · ${s.ago}`}
         </span>
       </div>
@@ -1070,10 +1070,10 @@ function RailHybrid({ s }: { s: Session }) {
             <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
               {SESSION_RUNTIME.map((f) => (
                 <div key={f.k} className="min-w-0">
-                  <div className="font-mono text-[7px] font-semibold uppercase tracking-[0.14em]" style={{ color: FAINT }}>
+                  <div className="font-mono text-3xs font-semibold uppercase tracking-[0.14em]" style={{ color: FAINT }}>
                     {f.k}
                   </div>
-                  <div className="truncate font-mono text-[10px]" style={{ color: INKC }}>
+                  <div className="truncate font-mono text-xs" style={{ color: INKC }}>
                     {f.v}
                   </div>
                 </div>
@@ -1170,10 +1170,10 @@ function Workspace() {
     <div className="flex flex-col gap-1.5">
       {rows.map((r) => (
         <div key={r.k} className="flex items-baseline justify-between gap-3">
-          <span className="flex-none font-mono text-[7.5px] uppercase tracking-[0.12em]" style={{ color: FAINT }}>
+          <span className="flex-none font-mono text-3xs uppercase tracking-[0.12em]" style={{ color: FAINT }}>
             {r.k}
           </span>
-          <span className="truncate font-mono text-[10px]" style={{ color: MUTED }}>
+          <span className="truncate font-mono text-xs" style={{ color: MUTED }}>
             {r.v}
           </span>
         </div>
@@ -1186,11 +1186,11 @@ function CurBand({ label, meta, children }: { label: string; meta?: React.ReactN
   return (
     <section className="flex flex-none flex-col" style={{ borderTop: `1px solid ${INK.edgeSoft}` }}>
       <header className="flex items-center justify-between px-4 pb-1.5 pt-3">
-        <span className="font-mono text-[8px] font-semibold uppercase tracking-[0.18em]" style={{ color: FAINT }}>
+        <span className="font-mono text-3xs font-semibold uppercase tracking-[0.18em]" style={{ color: FAINT }}>
           {label}
         </span>
         {meta != null ? (
-          <span className="font-mono text-[8.5px] tabular-nums" style={{ color: FAINT }}>
+          <span className="font-mono text-3xs tabular-nums" style={{ color: FAINT }}>
             {meta}
           </span>
         ) : null}
@@ -1206,7 +1206,7 @@ function CurrentCenter() {
       <TopBar />
       <div className="flex items-center gap-3.5" style={{ padding: "22px 18px 16px" }}>
         <SpriteAvatar name={AGENT} size={52} tile />
-        <span className="font-display text-[26px] leading-none" style={{ color: INKC }}>
+        <span className="font-display text-6xl leading-none" style={{ color: INKC }}>
           {AGENT}
         </span>
       </div>
@@ -1217,10 +1217,10 @@ function CurrentCenter() {
             <Dot on={false} />
           </span>
           <div className="min-w-0 flex-1">
-            <div className="text-[12px]" style={{ color: INKC }}>
+            <div className="text-md" style={{ color: INKC }}>
               Idle — ready for the next task
             </div>
-            <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono text-[8.5px]" style={{ color: FAINT }}>
+            <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono text-3xs" style={{ color: FAINT }}>
               <span>hudson</span>
               <span style={{ color: INK.edge }}>·</span>
               <span>⎇ feat/hud-markdown-renderer</span>
@@ -1240,10 +1240,10 @@ function CurrentCenter() {
               style={{ borderTop: i ? `1px solid ${INK.edgeSoft}` : undefined }}
             >
               <Dot on={false} size={5} />
-              <span className="min-w-0 flex-1 truncate text-[11.5px]" style={{ color: MUTED }}>
+              <span className="min-w-0 flex-1 truncate text-sm" style={{ color: MUTED }}>
                 {w.title}
               </span>
-              <span className="flex-none font-mono text-[8.5px] tabular-nums" style={{ color: FAINT }}>
+              <span className="flex-none font-mono text-3xs tabular-nums" style={{ color: FAINT }}>
                 {w.ago}
               </span>
             </div>
@@ -1252,7 +1252,7 @@ function CurrentCenter() {
       </CurBand>
 
       <CurBand label="Signal" meta="last 1h">
-        <div className="py-1 text-[11.5px]" style={{ color: FAINT }}>
+        <div className="py-1 text-sm" style={{ color: FAINT }}>
           No recent signal
         </div>
       </CurBand>
@@ -1275,12 +1275,12 @@ function CurrentRail() {
   return (
     <div className="flex w-[244px] flex-none flex-col" style={{ background: INK.panel, borderLeft: `1px solid ${INK.edge}` }}>
       <div className="flex h-[34px] flex-none items-center justify-between px-3" style={{ borderBottom: `1px solid ${INK.edgeSoft}` }}>
-        <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>
+        <span className="font-mono text-2xs font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>
           Context
         </span>
         <span className="flex gap-1">
           {["Trace", "Takeover"].map((t) => (
-            <span key={t} className="rounded-sm px-1.5 py-[2px] font-mono text-[7px] uppercase tracking-[0.1em]" style={{ border: `1px solid ${INK.edge}`, color: FAINT }}>
+            <span key={t} className="rounded-sm px-1.5 py-[2px] font-mono text-3xs uppercase tracking-[0.1em]" style={{ border: `1px solid ${INK.edge}`, color: FAINT }}>
               {t}
             </span>
           ))}
@@ -1291,10 +1291,10 @@ function CurrentRail() {
           <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
             {CUR_RUNTIME.map((f) => (
               <div key={f.k} className="min-w-0">
-                <div className="font-mono text-[7px] font-semibold uppercase tracking-[0.14em]" style={{ color: FAINT }}>
+                <div className="font-mono text-3xs font-semibold uppercase tracking-[0.14em]" style={{ color: FAINT }}>
                   {f.k}
                 </div>
-                <div className="truncate font-mono text-[10px]" style={{ color: INKC }}>
+                <div className="truncate font-mono text-xs" style={{ color: INKC }}>
                   {f.v}
                 </div>
               </div>
@@ -1311,11 +1311,11 @@ function CurrentRail() {
           >
             <div className="flex items-center gap-1.5">
               <Dot size={6} />
-              <span className="font-mono text-[9.5px]" style={{ color: INKC }}>relay-hu</span>
-              <span className="rounded-sm px-1 font-mono text-[7px] uppercase tracking-[0.08em]" style={{ background: INK.module, color: FAINT }}>
+              <span className="font-mono text-2xs" style={{ color: INKC }}>relay-hu</span>
+              <span className="rounded-sm px-1 font-mono text-3xs uppercase tracking-[0.08em]" style={{ background: INK.module, color: FAINT }}>
                 tmux
               </span>
-              <span className="ml-auto font-mono text-[7.5px] uppercase tracking-[0.12em]" style={{ color: ACCENT }}>
+              <span className="ml-auto font-mono text-3xs uppercase tracking-[0.12em]" style={{ color: ACCENT }}>
                 active
               </span>
             </div>
@@ -1327,10 +1327,10 @@ function CurrentRail() {
             {TALKS_TO.map((p) => (
               <div key={p.name} className="flex items-center gap-2 px-1.5 py-1">
                 <Dot on={p.state !== "idle"} size={5} />
-                <span className="min-w-0 flex-1 truncate font-mono text-[9.5px]" style={{ color: MUTED }}>
+                <span className="min-w-0 flex-1 truncate font-mono text-2xs" style={{ color: MUTED }}>
                   {p.name}
                 </span>
-                <span className="font-mono text-[8px] tabular-nums" style={{ color: FAINT }}>
+                <span className="font-mono text-3xs tabular-nums" style={{ color: FAINT }}>
                   {p.count}
                 </span>
               </div>
@@ -1340,7 +1340,7 @@ function CurrentRail() {
         <RailSection label="Capabilities" meta="3">
           <div className="flex flex-wrap gap-1">
             {["chat", "invoke", "deliver"].map((c) => (
-              <span key={c} className="rounded-[3px] px-1.5 py-[2px] font-mono text-[8px]" style={{ background: INK.module, color: MUTED }}>
+              <span key={c} className="rounded-[3px] px-1.5 py-[2px] font-mono text-3xs" style={{ background: INK.module, color: MUTED }}>
                 {c}
               </span>
             ))}
@@ -1396,13 +1396,13 @@ export default function AgentProfileRebalancePage() {
         }
       `}</style>
       <header className="mb-6 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · agent-profile-rebalance
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Agent Profile · Rebalance
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           Sessions-first. When you open an agent you care, in order, about{" "}
           <span className="text-studio-ink">the essentials (state · cwd · branch · harness · model)</span>,
           then <span className="text-studio-ink">its recent sessions by recency</span> — which are active
@@ -1430,7 +1430,7 @@ export default function AgentProfileRebalancePage() {
                 onClick={() => setView(v)}
                 aria-pressed={active}
                 className={cn(
-                  "cursor-pointer rounded-[4px] px-3.5 py-[6px] font-mono text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors",
+                  "cursor-pointer rounded-[4px] px-3.5 py-[6px] font-mono text-xs font-semibold uppercase tracking-[0.1em] transition-colors",
                   !active && "text-studio-ink-faint hover:bg-studio-canvas hover:text-studio-ink",
                 )}
                 style={active ? { background: ACCENT, color: INK.canvas } : undefined}
@@ -1443,7 +1443,7 @@ export default function AgentProfileRebalancePage() {
 
         {view === "rebalanced" ? (
           <div className="inline-flex items-center gap-2">
-            <span className="font-mono text-[8px] uppercase tracking-[0.16em] text-studio-ink-faint">Rail</span>
+            <span className="font-mono text-3xs uppercase tracking-[0.16em] text-studio-ink-faint">Rail</span>
             <div
               className="inline-flex rounded-[6px] p-[3px]"
               style={{ background: "var(--studio-canvas-alt, oklch(0.16 0.006 80))", border: "1px solid var(--studio-edge, oklch(0.27 0.008 80))" }}
@@ -1462,7 +1462,7 @@ export default function AgentProfileRebalancePage() {
                     onClick={() => setRailMode(m.id)}
                     aria-pressed={active}
                     className={cn(
-                      "cursor-pointer rounded-[4px] px-3 py-[6px] font-mono text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors",
+                      "cursor-pointer rounded-[4px] px-3 py-[6px] font-mono text-xs font-semibold uppercase tracking-[0.1em] transition-colors",
                       !active && "text-studio-ink-faint hover:bg-studio-canvas hover:text-studio-ink",
                     )}
                     style={active ? { background: ACCENT, color: INK.canvas } : undefined}
@@ -1477,7 +1477,7 @@ export default function AgentProfileRebalancePage() {
 
         {view === "rebalanced" ? (
           <div className="inline-flex items-center gap-2">
-            <span className="font-mono text-[8px] uppercase tracking-[0.16em] text-studio-ink-faint">Header</span>
+            <span className="font-mono text-3xs uppercase tracking-[0.16em] text-studio-ink-faint">Header</span>
             <div
               className="inline-flex rounded-[6px] p-[3px]"
               style={{ background: "var(--studio-canvas-alt, oklch(0.16 0.006 80))", border: "1px solid var(--studio-edge, oklch(0.27 0.008 80))" }}
@@ -1496,7 +1496,7 @@ export default function AgentProfileRebalancePage() {
                     onClick={() => setHeaderTreatment(m.id)}
                     aria-pressed={active}
                     className={cn(
-                      "cursor-pointer rounded-[4px] px-3 py-[6px] font-mono text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors",
+                      "cursor-pointer rounded-[4px] px-3 py-[6px] font-mono text-xs font-semibold uppercase tracking-[0.1em] transition-colors",
                       !active && "text-studio-ink-faint hover:bg-studio-canvas hover:text-studio-ink",
                     )}
                     style={active ? { background: ACCENT, color: INK.canvas } : undefined}
@@ -1511,7 +1511,7 @@ export default function AgentProfileRebalancePage() {
       </div>
 
       {view === "current" ? <CurrentFrame /> : <Frame railMode={railMode} headerTreatment={headerTreatment} />}
-      <div className="mt-2 font-mono text-[9px] uppercase tracking-[0.12em] text-studio-ink-faint">
+      <div className="mt-2 font-mono text-2xs uppercase tracking-[0.12em] text-studio-ink-faint">
         {view === "current"
           ? "Recreated from the live :43122 Hudson capture — center half-empty, rail packed"
           : `${
@@ -1534,10 +1534,10 @@ export default function AgentProfileRebalancePage() {
       </div>
 
       <section className="mt-9 max-w-prose">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">
           The hierarchy
         </div>
-        <ul className="flex flex-col gap-2 text-[12px] leading-relaxed text-studio-ink-faint">
+        <ul className="flex flex-col gap-2 text-md leading-relaxed text-studio-ink-faint">
           <li>
             <span className="text-studio-ink">Essentials, always in view.</span> A state dot by the
             name, then cwd · ⎇branch · harness · model · host in a single compact line — no big block,

@@ -146,11 +146,28 @@ describe("extractScoutbotUiActions + stripScoutbotUiFences", () => {
 
     expect(extractScoutbotUiActions(body)).toEqual([
       { type: "navigate", route: { view: "agents-v2", projectSlug: "openscout" } },
-      { type: "navigate", route: { view: "messages", filter: "dm", sort: "unread" } },
+      // Route unification retired filter/sort — the normalizer drops them.
+      { type: "navigate", route: { view: "messages" } },
       { type: "navigate", route: { view: "settings", section: "voice" } },
       { type: "navigate", route: { view: "repos", root: "/work/openscout" } },
       { type: "navigate", route: { view: "code", project: "openscout", path: "README.md", line: 12, endLine: 16 } },
       { type: "navigate", route: { view: "code", project: "blink", path: "Sources/App.swift", wt: "main" } },
+    ]);
+  });
+
+  test("folds the legacy channels intent onto the unified conversation route", () => {
+    const body = [
+      "```scout-ui",
+      JSON.stringify([
+        { type: "navigate", route: { view: "channels", channelId: "chan-1" } },
+        { type: "navigate", route: { view: "channels" } },
+      ]),
+      "```",
+    ].join("\n");
+
+    expect(extractScoutbotUiActions(body)).toEqual([
+      { type: "navigate", route: { view: "messages", conversationId: "chan-1" } },
+      { type: "navigate", route: { view: "messages" } },
     ]);
   });
 });

@@ -15,7 +15,7 @@ public enum ScoutTerminalDeepLink {
         )
         guard let session = clean(values["session"]),
               let surface = clean(values["surface"]),
-              surface.hasPrefix("tmux:") || surface.hasPrefix("zellij:")
+              surface.hasPrefix("tmux:") || surface.hasPrefix("zellij:") || surface.hasPrefix("herdr:")
         else { return nil }
 
         let requestedMode = clean(values["mode"])

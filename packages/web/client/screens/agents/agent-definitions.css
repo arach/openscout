@@ -23,7 +23,7 @@
 }
 
 .adef-headKind {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -32,7 +32,7 @@
 
 .adef-headPath {
   font-family: var(--hud-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--scout-chrome-ink-soft);
 }
 
@@ -47,7 +47,7 @@
   background: color-mix(in srgb, var(--hud-surface) 40%, transparent);
   color: var(--scout-chrome-ink-strong);
   font-family: var(--hud-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 
 .adef-loading {
@@ -56,7 +56,7 @@
   align-items: center;
   justify-content: center;
   font-family: var(--hud-font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--scout-chrome-ink-faint);
 }
 
@@ -79,7 +79,7 @@
 .adef-treeEmpty {
   padding: 16px 12px;
   font-family: var(--hud-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   line-height: 1.45;
   color: var(--scout-chrome-ink-faint);
 }
@@ -135,7 +135,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--hud-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 
 .adef-viewer {
@@ -171,13 +171,13 @@
 }
 
 .adef-inspectorHandle {
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-weight: 600;
   color: var(--scout-chrome-ink-strong);
 }
 
 .adef-inspectorSpec {
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--scout-chrome-ink-soft);
 }
 
@@ -191,7 +191,7 @@
 .adef-inspectorFacts dt {
   margin: 0;
   font-family: var(--hud-font-mono);
-  font-size: 8px;
+  font-size: var(--text-3xs);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--scout-chrome-ink-faint);
@@ -200,12 +200,12 @@
 .adef-inspectorFacts dd {
   margin: 0;
   font-family: var(--hud-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--scout-chrome-ink-soft);
 }
 
 .adef-inspectorSec {
-  font-size: 8px;
+  font-size: var(--text-3xs);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -215,7 +215,7 @@
 .adef-inspectorMono {
   margin: 0;
   font-family: var(--hud-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--scout-chrome-ink-soft);
 }
 
@@ -230,14 +230,14 @@
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--hud-ink) 10%, transparent);
   font-family: var(--hud-font-mono);
-  font-size: 8.5px;
+  font-size: var(--text-3xs);
   color: var(--scout-chrome-ink-soft);
 }
 
 .adef-inspectorMeta {
   margin: 0;
   font-family: var(--hud-font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--scout-chrome-ink-faint);
 }
 
@@ -255,7 +255,7 @@
   border-radius: 5px;
   background: none;
   font-family: var(--hud-font-mono);
-  font-size: 8.5px;
+  font-size: var(--text-3xs);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--scout-chrome-ink-faint);
@@ -287,7 +287,7 @@
 
 .adef-configField span {
   font-family: var(--hud-font-mono);
-  font-size: 8px;
+  font-size: var(--text-3xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--scout-chrome-ink-faint);
@@ -302,7 +302,7 @@
   background: color-mix(in srgb, var(--hud-surface) 30%, transparent);
   color: var(--scout-chrome-ink-strong);
   font-family: var(--hud-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 
 .adef-configSaveRow {
@@ -318,7 +318,7 @@
   align-items: center;
   gap: 5px;
   font-family: var(--hud-font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--scout-chrome-ink-soft);
 }
 
@@ -326,7 +326,7 @@
   grid-column: 1 / -1;
   margin: 0;
   font-family: var(--hud-font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--red);
 }
 

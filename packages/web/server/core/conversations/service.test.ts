@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, mock, test } from "bun:test";
+import { namedChannelNaturalKey, stableChannelId } from "@openscout/protocol";
 
 let brokerContextResult: unknown = null;
 
@@ -182,34 +183,36 @@ describe("getScoutConversations", () => {
 
   test("coalesces duplicate named channels and preserves their combined history", async () => {
     const snapshot = baseSnapshot();
+    const naturalKey = namedChannelNaturalKey("engineering-ci");
+    const canonicalId = stableChannelId(naturalKey);
     snapshot.actors["session-gauss"] = {
       id: "session-gauss",
       kind: "session",
       displayName: "openscout-gauss-4",
     };
-    snapshot.conversations["chn-engineering-a"] = {
-      id: "chn-engineering-a",
+    snapshot.conversations["channel.engineering-ci"] = {
+      id: "channel.engineering-ci",
       kind: "channel",
       title: "engineering-ci",
       visibility: "workspace",
       shareMode: "local",
       authorityNodeId: "node-1",
       participantIds: ["operator", "hudson.main.mini"],
-      metadata: { naturalKey: "channel:engineering-ci", channel: "engineering-ci" },
+      metadata: { channel: "engineering-ci" },
     };
-    snapshot.conversations["chn-engineering-b"] = {
-      id: "chn-engineering-b",
+    snapshot.conversations[canonicalId] = {
+      id: canonicalId,
       kind: "channel",
       title: "engineering-ci",
       visibility: "workspace",
       shareMode: "local",
       authorityNodeId: "node-1",
       participantIds: ["operator", "session-gauss"],
-      metadata: { naturalKey: "channel:engineering-ci", channel: "engineering-ci" },
+      metadata: { naturalKey, channel: "engineering-ci" },
     };
     snapshot.messages["msg-engineering-a"] = {
       id: "msg-engineering-a",
-      conversationId: "chn-engineering-a",
+      conversationId: "channel.engineering-ci",
       actorId: "hudson.main.mini",
       originNodeId: "node-1",
       class: "agent",
@@ -220,7 +223,7 @@ describe("getScoutConversations", () => {
     };
     snapshot.messages["msg-engineering-b"] = {
       id: "msg-engineering-b",
-      conversationId: "chn-engineering-b",
+      conversationId: canonicalId,
       actorId: "session-gauss",
       originNodeId: "node-1",
       class: "agent",
@@ -239,17 +242,17 @@ describe("getScoutConversations", () => {
     const engineering = conversations.filter((entry) => entry.naturalKey === "channel:engineering-ci");
     expect(engineering).toHaveLength(1);
     expect(engineering[0]).toMatchObject({
-      id: "chn-engineering-b",
-      equivalentConversationIds: ["chn-engineering-a", "chn-engineering-b"],
+      id: canonicalId,
+      equivalentConversationIds: [canonicalId, "channel.engineering-ci"].sort(),
       messageCount: 2,
       preview: "OpenScout report",
       participantIds: ["hudson.main.mini", "operator", "session-gauss"],
     });
 
-    const messages = await getScoutConversationMessages("chn-engineering-b", 80);
+    const messages = await getScoutConversationMessages(canonicalId, 80);
     expect(messages?.map((message) => ({ id: message.id, conversationId: message.conversationId }))).toEqual([
-      { id: "msg-engineering-a", conversationId: "chn-engineering-b" },
-      { id: "msg-engineering-b", conversationId: "chn-engineering-b" },
+      { id: "msg-engineering-a", conversationId: canonicalId },
+      { id: "msg-engineering-b", conversationId: canonicalId },
     ]);
   });
 

@@ -95,7 +95,7 @@ function buildComponents(fromSlug: string | undefined): Components {
     h1: ({ children }) => (
       <h1
         id={slugify(children)}
-        className="font-display text-[24px] font-medium tracking-tight text-studio-ink mt-8 mb-3 scroll-mt-24"
+        className="font-display text-5xl font-medium tracking-tight text-studio-ink mt-8 mb-3 scroll-mt-24"
       >
         {children}
       </h1>
@@ -103,7 +103,7 @@ function buildComponents(fromSlug: string | undefined): Components {
     h2: ({ children }) => (
       <h2
         id={slugify(children)}
-        className="font-display text-[20px] font-medium tracking-tight text-studio-ink mt-10 mb-3 pb-1.5 border-b border-studio-edge scroll-mt-24"
+        className="font-display text-4xl font-medium tracking-tight text-studio-ink mt-10 mb-3 pb-1.5 border-b border-studio-edge scroll-mt-24"
       >
         {children}
       </h2>
@@ -111,18 +111,18 @@ function buildComponents(fromSlug: string | undefined): Components {
     h3: ({ children }) => (
       <h3
         id={slugify(children)}
-        className="font-display text-[16px] font-medium tracking-tight text-studio-ink mt-7 mb-2 scroll-mt-24"
+        className="font-display text-2xl font-medium tracking-tight text-studio-ink mt-7 mb-2 scroll-mt-24"
       >
         {children}
       </h3>
     ),
     h4: ({ children }) => (
-      <h4 className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint mt-5 mb-1.5">
+      <h4 className="font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint mt-5 mb-1.5">
         {children}
       </h4>
     ),
     p: ({ children }) => (
-      <p className="font-sans text-[14px] leading-[1.65] text-studio-ink my-3">
+      <p className="font-sans text-xl leading-[1.65] text-studio-ink my-3">
         {children}
       </p>
     ),
@@ -151,12 +151,12 @@ function buildComponents(fromSlug: string | undefined): Components {
       );
     },
     ul: ({ children }) => (
-      <ul className="font-sans text-[14px] leading-[1.65] text-studio-ink my-3 ml-5 list-disc space-y-1">
+      <ul className="font-sans text-xl leading-[1.65] text-studio-ink my-3 ml-5 list-disc space-y-1">
         {children}
       </ul>
     ),
     ol: ({ children }) => (
-      <ol className="font-sans text-[14px] leading-[1.65] text-studio-ink my-3 ml-5 list-decimal space-y-1">
+      <ol className="font-sans text-xl leading-[1.65] text-studio-ink my-3 ml-5 list-decimal space-y-1">
         {children}
       </ol>
     ),
@@ -167,19 +167,19 @@ function buildComponents(fromSlug: string | undefined): Components {
     em: ({ children }) => <em className="italic">{children}</em>,
     hr: () => <hr className="my-8 border-studio-edge" />,
     blockquote: ({ children }) => (
-      <blockquote className="border-l-2 border-studio-edge pl-4 my-4 font-sans text-[14px] italic text-studio-ink-faint">
+      <blockquote className="border-l-2 border-studio-edge pl-4 my-4 font-sans text-xl italic text-studio-ink-faint">
         {children}
       </blockquote>
     ),
     code: (props) => <CodeRenderer {...props} fromSlug={fromSlug} />,
     pre: ({ children }) => (
-      <pre className="my-4 overflow-x-auto rounded-md border border-studio-edge bg-studio-canvas-alt p-4 font-mono text-[12.5px] leading-[1.55]">
+      <pre className="my-4 overflow-x-auto rounded-md border border-studio-edge bg-studio-canvas-alt p-4 font-mono text-md leading-[1.55]">
         {children}
       </pre>
     ),
     table: ({ children }) => (
       <div className="my-5 overflow-x-auto">
-        <table className="w-full border-collapse font-sans text-[13px]">
+        <table className="w-full border-collapse font-sans text-lg">
           {children}
         </table>
       </div>
@@ -190,7 +190,7 @@ function buildComponents(fromSlug: string | undefined): Components {
       </thead>
     ),
     th: ({ children }) => (
-      <th className="px-3 py-1.5 font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <th className="px-3 py-1.5 font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         {children}
       </th>
     ),
@@ -232,7 +232,7 @@ function ArcMarkdownDiagram({ src, alt }: { src: string; alt?: string }) {
 
   if (error) {
     return (
-      <div className="my-5 rounded-lg border border-rose-300/30 bg-rose-300/[0.07] px-4 py-3 font-mono text-[11px] text-rose-100/80">
+      <div className="my-5 rounded-lg border border-rose-300/30 bg-rose-300/[0.07] px-4 py-3 font-mono text-sm text-rose-100/80">
         Could not load Arc diagram: {src}
       </div>
     );
@@ -269,7 +269,7 @@ function ArcMarkdownDiagram({ src, alt }: { src: string; alt?: string }) {
         />
       </div>
       {alt ? (
-        <figcaption className="mt-2 font-mono text-[10px] text-studio-ink-faint">
+        <figcaption className="mt-2 font-mono text-xs text-studio-ink-faint">
           {alt}
         </figcaption>
       ) : null}
@@ -301,7 +301,7 @@ function CodeRenderer({
       return (
         <Link
           href={buildFileHref(viewable.path, fromSlug)}
-          className="font-mono text-[12.5px] bg-studio-canvas-alt text-studio-ink px-1 py-px rounded-[2px] underline decoration-studio-edge underline-offset-2 hover:decoration-studio-ink hover:text-studio-ink transition-colors"
+          className="font-mono text-md bg-studio-canvas-alt text-studio-ink px-1 py-px rounded-[2px] underline decoration-studio-edge underline-offset-2 hover:decoration-studio-ink hover:text-studio-ink transition-colors"
         >
           {children}
         </Link>
@@ -309,7 +309,7 @@ function CodeRenderer({
     }
     return (
       <code
-        className="font-mono text-[12.5px] bg-studio-canvas-alt text-studio-ink px-1 py-px rounded-[2px]"
+        className="font-mono text-md bg-studio-canvas-alt text-studio-ink px-1 py-px rounded-[2px]"
         {...rest}
       >
         {children}
@@ -317,7 +317,7 @@ function CodeRenderer({
     );
   }
   return (
-    <code className={`${className ?? ""} font-mono text-[12.5px]`} {...rest}>
+    <code className={`${className ?? ""} font-mono text-md`} {...rest}>
       {children}
     </code>
   );

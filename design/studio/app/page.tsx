@@ -67,19 +67,23 @@ export default function Landing() {
   const freshestHref = benchEntries[0]?.href ?? null;
 
   return (
-    <main className="mx-auto max-w-page px-7 py-8">
-      <div className="mb-8 border-b border-studio-edge pb-5">
-        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
-          · openscout · studio
+    <main className="mx-auto max-w-page px-7 py-9 sm:px-9">
+      <div className="mb-10 pb-6">
+        <div className="flex items-center gap-2 text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="text-scout-accent" aria-hidden>
+            ·
+          </span>
+          openscout · studio
         </div>
-        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-2 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Overview
         </h1>
-        <p className="mt-3 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
+        <p className="mt-3.5 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
           A planning + design surface that sits next to the codebase.
           Markdown plans render here; design studies live as routes; the
           atoms gallery shows shared web primitives in isolation.
         </p>
+        <div className="studio-rule mt-6 max-w-prose" />
       </div>
 
       <Bench entries={benchEntries} now={now} />
@@ -89,7 +93,7 @@ export default function Landing() {
         count={plans.length}
         empty="No plans yet. Add a markdown file to plans/ at the repo root."
       >
-        <ul className="grid gap-3">
+        <ul className="grid gap-2.5">
           {plans.map((plan) => (
             <li key={plan.slug}>
               <Card
@@ -109,9 +113,9 @@ export default function Landing() {
       <Section title="Engineering" count={engDocs.length}>
         <Link
           href="/eng"
-          className="focus-ring group block rounded-md border border-studio-edge px-5 py-4 transition-colors hover:border-studio-ink"
+          className="studio-card focus-ring group block px-5 py-4"
         >
-          <div className="flex items-baseline gap-3">
+          <div className="relative flex items-baseline gap-3">
             <Ember
               mtimeMs={freshestEngMtime(engPages)}
               now={now}
@@ -124,7 +128,7 @@ export default function Landing() {
               {scoCount} SCO · {engDocs.length - scoCount} NOTES
             </div>
           </div>
-          <p className="ml-5 mt-1.5 font-sans text-lg leading-relaxed text-studio-ink-faint">
+          <p className="relative ml-5 mt-1.5 font-sans text-lg leading-relaxed text-studio-ink-faint">
             Numbered proposals and supporting notes from{" "}
             <code className="font-mono text-sm text-studio-ink">
               docs/eng/
@@ -135,7 +139,7 @@ export default function Landing() {
       </Section>
 
       <Section title="Studies" count={studies.length}>
-        <ul className="grid gap-3">
+        <ul className="grid gap-2.5">
           {studies.map((s) => (
             <li key={s.href}>
               <Card
@@ -153,7 +157,7 @@ export default function Landing() {
       </Section>
 
       <Section title="Atoms" count={atoms.length}>
-        <ul className="grid gap-3">
+        <ul className="grid gap-2.5">
           {atoms.map((a) => (
             <li key={a.href}>
               <Card
@@ -169,7 +173,7 @@ export default function Landing() {
       </Section>
 
       <Section title="Insertion Points" count={insertionPoints.length}>
-        <ul className="grid gap-3">
+        <ul className="grid gap-2.5">
           {insertionPoints.map((point) => {
             const studies = studiesForInsertionPoint(point.id);
 
@@ -191,9 +195,9 @@ export default function Landing() {
         </ul>
       </Section>
 
-      <div className="mt-12 border-t border-studio-edge pt-5">
+      <div className="mt-14 border-t border-studio-edge pt-6">
         <EmberLegend />
-        <p className="mt-4 max-w-prose font-sans text-sm leading-relaxed text-studio-ink-faint">
+        <p className="mt-5 max-w-prose font-sans text-sm leading-relaxed text-studio-ink-faint">
           Plans are markdown files in{" "}
           <code className="font-mono text-xs text-studio-ink">plans/</code>;
           edit one and refresh to see it here. Studies and atoms are Next
@@ -239,15 +243,18 @@ function Section({
   empty?: string;
 }) {
   return (
-    <section className="mb-10">
-      <div className="mb-3 flex items-baseline gap-3">
-        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
-          · {title}
+    <section className="mb-12">
+      <div className="mb-3.5 flex items-baseline gap-3">
+        <div className="flex items-center gap-2 text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="text-scout-accent" aria-hidden>
+            ·
+          </span>
+          {title}
         </div>
         <div className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           {count} {count === 1 ? "entry" : "entries"}
         </div>
-        <div className="ml-3 h-px flex-1 bg-studio-edge" />
+        <div className="studio-rule ml-2 flex-1" />
       </div>
       {count === 0 && empty ? (
         <p className="font-sans text-md italic text-studio-ink-faint">
@@ -283,11 +290,8 @@ function Card({
   const age = isRecent(heat) ? shortAge(mtimeMs, now) : null;
 
   return (
-    <Link
-      href={href}
-      className="focus-ring group block rounded-md border border-studio-edge px-5 py-4 transition-colors hover:border-studio-ink"
-    >
-      <div className="flex items-baseline gap-3">
+    <Link href={href} className="studio-card focus-ring group block px-5 py-4">
+      <div className="relative flex items-baseline gap-3">
         <Ember mtimeMs={mtimeMs} now={now} sole={sole} className="self-center" />
         <div className="font-display text-3xl font-medium tracking-tight text-studio-ink">
           {title}
@@ -305,7 +309,7 @@ function Card({
         ) : null}
       </div>
       {blurb ? (
-        <p className="ml-5 mt-1.5 font-sans text-lg leading-relaxed text-studio-ink-faint">
+        <p className="relative ml-5 mt-1.5 font-sans text-lg leading-relaxed text-studio-ink-faint">
           {blurb}
         </p>
       ) : null}
@@ -327,9 +331,9 @@ function InsertionPointCard({
   studies: Array<{ href: string; label: string }>;
 }) {
   return (
-    <div className="rounded-md border border-studio-edge px-5 py-4">
+    <div className="studio-panel px-5 py-4">
       <div className="flex flex-wrap items-baseline gap-3">
-        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-scout-accent text-2xs font-semibold" aria-hidden>
           ·
         </div>
         <div className="font-display text-3xl font-medium tracking-tight text-studio-ink">
@@ -353,7 +357,7 @@ function InsertionPointCard({
             <Link
               key={study.href}
               href={study.href}
-              className="focus-ring rounded-sm border border-studio-edge px-2 py-1 font-mono text-xs uppercase tracking-ch text-studio-ink-faint transition-colors hover:border-studio-ink hover:text-studio-ink"
+              className="focus-ring rounded-[3px] border border-studio-edge px-2 py-1 font-mono text-xs uppercase tracking-ch text-studio-ink-faint transition-colors hover:border-studio-edge-strong hover:text-studio-ink"
             >
               {study.label}
             </Link>

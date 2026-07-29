@@ -90,6 +90,7 @@ struct ScoutApp: App {
     @StateObject private var appearance = ScoutAppearance.shared
 
     init() {
+        ScoutTerminalLaunchCommand.clearInheritedClaudeSessionFromCurrentProcess()
         if ScoutLaunchOptions.hudRequested {
             NSApplication.shared.setActivationPolicy(.accessory)
         } else {

@@ -42,7 +42,10 @@ export function CodeViewer({ content, filename }: CodeViewerProps) {
       setMode(root.dataset.theme === "light" ? "light" : "dark");
     read();
     const obs = new MutationObserver(read);
-    obs.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+    obs.observe(root, {
+      attributes: true,
+      attributeFilter: ["data-theme", "data-hudson-theme"],
+    });
     return () => obs.disconnect();
   }, []);
 

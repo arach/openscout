@@ -266,7 +266,7 @@ function NavRail({ active }: { active: ActiveSection }) {
       className="flex w-[40px] flex-none flex-col items-center gap-1 border-r border-studio-edge py-2"
       style={{ background: "var(--studio-canvas-alt)" }}
     >
-      <div className="mb-1 grid h-[26px] w-[26px] place-items-center rounded-[6px] bg-scout-accent font-display text-[12px] font-semibold text-studio-canvas">
+      <div className="mb-1 grid h-[26px] w-[26px] place-items-center rounded-[6px] bg-scout-accent font-display text-md font-semibold text-studio-canvas">
         S
       </div>
       {NAV_ITEMS.map((it) => (
@@ -291,7 +291,7 @@ function NavRail({ active }: { active: ActiveSection }) {
 function StatusBar({ active }: { active: ActiveSection }) {
   return (
     <div
-      className="flex h-[22px] flex-none items-center gap-2 border-t border-studio-edge px-3 font-mono text-[9px] uppercase tracking-eyebrow"
+      className="flex h-[22px] flex-none items-center gap-2 border-t border-studio-edge px-3 font-mono text-2xs uppercase tracking-eyebrow"
       style={{ background: "var(--studio-canvas-alt)" }}
     >
       <span className="inline-block h-1.5 w-1.5 rounded-full bg-status-ok-fg" />
@@ -377,7 +377,7 @@ function CommsList({ selectedCid = "a4d433a9" }: { selectedCid?: string }) {
       {/* header */}
       <div className="flex flex-none items-center justify-between border-b border-studio-edge px-3 py-2">
         <div className="flex items-center gap-1.5">
-          <span className="font-sans text-[12.5px] font-semibold tracking-tight text-studio-ink">
+          <span className="font-sans text-md font-semibold tracking-tight text-studio-ink">
             Conversations
           </span>
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-status-ok-fg" />
@@ -390,7 +390,7 @@ function CommsList({ selectedCid = "a4d433a9" }: { selectedCid?: string }) {
             </svg>
           </span>
           <span
-            className="rounded-[3px] px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow"
+            className="rounded-[3px] px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow"
             style={{ background: "var(--scout-accent-soft)", color: "var(--scout-accent)" }}
           >
             + New
@@ -404,7 +404,7 @@ function CommsList({ selectedCid = "a4d433a9" }: { selectedCid?: string }) {
             <span
               key={f}
               className={[
-                "rounded-[3px] px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow",
+                "rounded-[3px] px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow",
                 i === 0
                   ? "bg-studio-surface text-studio-ink"
                   : "text-studio-ink-faint",
@@ -419,7 +419,7 @@ function CommsList({ selectedCid = "a4d433a9" }: { selectedCid?: string }) {
             <circle cx="7" cy="7" r="4.2" stroke="currentColor" strokeWidth="1.2" />
             <path d="M10.2 10.2L13.5 13.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
           </svg>
-          <span className="font-mono text-[9.5px]">Search</span>
+          <span className="font-mono text-2xs">Search</span>
         </div>
       </div>
       {/* list */}
@@ -429,7 +429,7 @@ function CommsList({ selectedCid = "a4d433a9" }: { selectedCid?: string }) {
           if (rows.length === 0) return null;
           return (
             <div key={g}>
-              <div className="px-3 py-1 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+              <div className="px-3 py-1 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
                 {groupLabels[g]}
               </div>
               {rows.map((c) => {
@@ -443,19 +443,19 @@ function CommsList({ selectedCid = "a4d433a9" }: { selectedCid?: string }) {
                     ].join(" ")}
                   >
                     <div className="flex items-baseline justify-between gap-2">
-                      <span className="truncate font-sans text-[11px] font-semibold text-studio-ink">
+                      <span className="truncate font-sans text-sm font-semibold text-studio-ink">
                         {c.name}
                       </span>
-                      <span className="font-mono text-[8.5px] text-studio-ink-faint">
+                      <span className="font-mono text-3xs text-studio-ink-faint">
                         {c.time}
                       </span>
                     </div>
                     <div className="flex items-baseline gap-1.5">
-                      <span className="line-clamp-1 font-sans text-[9.5px] text-studio-ink-faint">
+                      <span className="line-clamp-1 font-sans text-2xs text-studio-ink-faint">
                         {c.preview}
                       </span>
                       {c.unread && c.unreadCount > 0 ? (
-                        <span className="ml-auto shrink-0 rounded-full bg-status-info-fg px-1 font-mono text-[7.5px] font-semibold text-studio-canvas">
+                        <span className="ml-auto shrink-0 rounded-full bg-status-info-fg px-1 font-mono text-3xs font-semibold text-studio-canvas">
                           {c.unreadCount}
                         </span>
                       ) : null}
@@ -463,7 +463,7 @@ function CommsList({ selectedCid = "a4d433a9" }: { selectedCid?: string }) {
                     {c.ask ? (
                       <span
                         className={[
-                          "self-start rounded-[2px] px-1 py-px font-mono text-[7.5px] font-semibold uppercase tracking-eyebrow",
+                          "self-start rounded-[2px] px-1 py-px font-mono text-3xs font-semibold uppercase tracking-eyebrow",
                           c.ask === "pending"
                             ? "bg-status-warn-bg text-status-warn-fg"
                             : "bg-status-ok-bg text-status-ok-fg",
@@ -518,7 +518,7 @@ function Inspector({
           </svg>
         </div>
         <span
-          className="rotate-180 font-mono text-[8px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint"
+          className="rotate-180 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint"
           style={{ writingMode: "vertical-rl" }}
         >
           Show inspector
@@ -539,12 +539,12 @@ function Inspector({
       <div className="flex items-center justify-between border-b border-studio-edge px-3 py-2">
         <div className="flex items-center gap-1.5">
           <div className="h-3 w-0.5 rounded-sm bg-scout-accent" />
-          <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             DM
           </span>
         </div>
         <span
-          className="inline-flex items-center gap-1 rounded-[3px] px-1.5 py-0.5 font-mono text-[8px] font-semibold uppercase tracking-eyebrow"
+          className="inline-flex items-center gap-1 rounded-[3px] px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow"
           style={{
             background: "var(--status-ok-bg)",
             color: "var(--status-ok-fg)",
@@ -559,14 +559,14 @@ function Inspector({
         {/* identity */}
         <div>
           <div className="flex items-center gap-2">
-            <div className="grid h-[28px] w-[28px] place-items-center rounded-full bg-studio-canvas-alt font-mono text-[11px] text-studio-ink">
+            <div className="grid h-[28px] w-[28px] place-items-center rounded-full bg-studio-canvas-alt font-mono text-sm text-studio-ink">
               {conversation.avatar}
             </div>
             <div className="min-w-0">
-              <div className="truncate font-sans text-[14px] font-semibold leading-tight tracking-tight text-studio-ink">
+              <div className="truncate font-sans text-xl font-semibold leading-tight tracking-tight text-studio-ink">
                 {conversation.name}
               </div>
-              <div className="truncate font-mono text-[9.5px] text-studio-ink-faint">
+              <div className="truncate font-mono text-2xs text-studio-ink-faint">
                 {conversation.agentId}
               </div>
             </div>
@@ -577,7 +577,7 @@ function Inspector({
         <div className="flex items-center gap-1.5">
           <button
             type="button"
-            className="rounded-[5px] border px-2.5 py-1 font-mono text-[9.5px] font-semibold uppercase tracking-eyebrow"
+            className="rounded-[5px] border px-2.5 py-1 font-mono text-2xs font-semibold uppercase tracking-eyebrow"
             style={{
               background: "var(--scout-accent-soft)",
               borderColor: "var(--scout-accent)",
@@ -588,7 +588,7 @@ function Inspector({
           </button>
           <button
             type="button"
-            className="rounded-[5px] border border-studio-edge bg-transparent px-2.5 py-1 font-mono text-[9.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted"
+            className="rounded-[5px] border border-studio-edge bg-transparent px-2.5 py-1 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-muted"
           >
             + New
           </button>
@@ -616,7 +616,7 @@ function Inspector({
             <div className="flex flex-col gap-1">
               <div className="flex items-center gap-1.5">
                 <span
-                  className="rounded-[2px] px-1 py-px font-mono text-[7.5px] font-semibold uppercase tracking-eyebrow"
+                  className="rounded-[2px] px-1 py-px font-mono text-3xs font-semibold uppercase tracking-eyebrow"
                   style={{
                     background: `var(--status-${askTone}-bg)`,
                     color: `var(--status-${askTone}-fg)`,
@@ -624,12 +624,12 @@ function Inspector({
                 >
                   {conversation.ask}
                 </span>
-                <span className="font-mono text-[8.5px] text-studio-ink-faint">
+                <span className="font-mono text-3xs text-studio-ink-faint">
                   from {conversation.askDetail?.from ?? "—"}
                 </span>
               </div>
               {conversation.askDetail ? (
-                <div className="font-sans text-[10.5px] leading-snug text-studio-ink-muted">
+                <div className="font-sans text-xs leading-snug text-studio-ink-muted">
                   {conversation.askDetail.text}
                 </div>
               ) : null}
@@ -667,7 +667,7 @@ function ISec({
                   : "var(--studio-edge-strong)",
           }}
         />
-        <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           {label}
         </div>
       </div>
@@ -679,11 +679,11 @@ function ISec({
 function KV({ k, v, vColor }: { k: string; v: string; vColor?: string }) {
   return (
     <div className="grid grid-cols-[60px_1fr] items-baseline gap-x-2">
-      <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         {k}
       </span>
       <span
-        className="truncate text-right font-mono text-[10px]"
+        className="truncate text-right font-mono text-xs"
         style={{ color: vColor ?? "var(--studio-ink-muted)" }}
       >
         {v}
@@ -704,10 +704,10 @@ export default function ScoutCommsInspectorPage() {
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-10 max-w-prose">
         <EyebrowLabel size="sm">· studies · macos · comms-inspector</EyebrowLabel>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Scout Comms · with inspector
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           The Comms surface gains a 300px right-rail inspector. This
           study is the visual spec for the Comms composition — §1 is
           the port target, §2 weighs how the inspector integrates with
@@ -725,10 +725,10 @@ export default function ScoutCommsInspectorPage() {
           §1 — The projection
           ──────────────────────────────────────────────────────────── */}
       <section className="mb-12">
-        <h2 className="mb-1 font-display text-[18px] font-medium tracking-tight text-studio-ink">
+        <h2 className="mb-1 font-display text-3xl font-medium tracking-tight text-studio-ink">
           §1 · The projection
         </h2>
-        <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mb-5 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
           The list is unchanged from the live app. The inspector is
           new — it follows the selection, uses the unified grammar
           from{" "}
@@ -751,10 +751,10 @@ export default function ScoutCommsInspectorPage() {
           §2 — Variants
           ──────────────────────────────────────────────────────────── */}
       <section className="mb-12">
-        <h2 className="mb-1 font-display text-[18px] font-medium tracking-tight text-studio-ink">
+        <h2 className="mb-1 font-display text-3xl font-medium tracking-tight text-studio-ink">
           §2 · Variants
         </h2>
-        <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mb-5 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
           Three ways the inspector could integrate. The §1 default
           (always visible) is the most familiar; the others preserve
           more list width at the cost of a step before the inspector
@@ -810,10 +810,10 @@ export default function ScoutCommsInspectorPage() {
           §3 — Composition
           ──────────────────────────────────────────────────────────── */}
       <section className="mb-12">
-        <h2 className="mb-1 font-display text-[18px] font-medium tracking-tight text-studio-ink">
+        <h2 className="mb-1 font-display text-3xl font-medium tracking-tight text-studio-ink">
           §3 · Composition
         </h2>
-        <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mb-5 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
           The Comms inspector as a composition of blocks from the
           library in{" "}
           <a href="/studies/inspector-system" className="text-scout-accent hover:underline">
@@ -826,9 +826,9 @@ export default function ScoutCommsInspectorPage() {
         </p>
 
         <div className="overflow-hidden rounded-md border border-studio-edge">
-          <table className="w-full border-collapse font-mono text-[11px]">
+          <table className="w-full border-collapse font-mono text-sm">
             <thead>
-              <tr className="bg-studio-canvas-alt text-left text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+              <tr className="bg-studio-canvas-alt text-left text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
                 <th className="px-3 py-2">#</th>
                 <th className="px-3 py-2">Block</th>
                 <th className="px-3 py-2">Reads from entity</th>
@@ -841,7 +841,7 @@ export default function ScoutCommsInspectorPage() {
                   key={row.block}
                   className={i % 2 === 0 ? "bg-studio-surface" : "bg-studio-canvas-alt"}
                 >
-                  <td className="px-3 py-2 font-mono text-[9.5px] text-studio-ink-faint">
+                  <td className="px-3 py-2 font-mono text-2xs text-studio-ink-faint">
                     {String(i + 1).padStart(2, "0")}
                   </td>
                   <td className="px-3 py-2">
@@ -862,7 +862,7 @@ export default function ScoutCommsInspectorPage() {
           </table>
         </div>
 
-        <p className="mt-3 max-w-prose font-sans text-[11.5px] leading-snug text-studio-ink-faint">
+        <p className="mt-3 max-w-prose font-sans text-sm leading-snug text-studio-ink-faint">
           The first three blocks (Identity, Action row, Conversation)
           are universal. Project is conditional — ~80% of DMs have an
           underlying project; the other 20% skip it. Ask is
@@ -878,15 +878,15 @@ export default function ScoutCommsInspectorPage() {
           §4 — Design decisions
           ──────────────────────────────────────────────────────────── */}
       <section className="mb-12">
-        <h2 className="mb-1 font-display text-[18px] font-medium tracking-tight text-studio-ink">
+        <h2 className="mb-1 font-display text-3xl font-medium tracking-tight text-studio-ink">
           §4 · Design decisions
         </h2>
-        <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mb-5 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
           Choices that don't follow mechanically from the inspector
           grammar or the other three surfaces.
         </p>
 
-        <ol className="flex max-w-prose flex-col gap-4 font-sans text-[13px] leading-relaxed text-studio-ink">
+        <ol className="flex max-w-prose flex-col gap-4 font-sans text-lg leading-relaxed text-studio-ink">
           <Decision
             n="1"
             title="The primary action is 'Open', not 'Send' or 'Compose'."
@@ -914,14 +914,14 @@ export default function ScoutCommsInspectorPage() {
           §5 — Open questions
           ──────────────────────────────────────────────────────────── */}
       <section className="mb-8">
-        <h2 className="mb-1 font-display text-[18px] font-medium tracking-tight text-studio-ink">
+        <h2 className="mb-1 font-display text-3xl font-medium tracking-tight text-studio-ink">
           §5 · Open questions
         </h2>
-        <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mb-5 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
           Comms-specific things this study raises but doesn't answer.
         </p>
 
-        <ul className="flex max-w-prose flex-col gap-3 font-sans text-[13px] leading-relaxed text-studio-ink">
+        <ul className="flex max-w-prose flex-col gap-3 font-sans text-lg leading-relaxed text-studio-ink">
           <OQ q="Should Comms gain keyboard navigation to match the inspector pattern?">
             Agents and Repos are j/k/h/l navigable, with the inspector
             following the cursor. Comms has no keyboard nav today.
@@ -946,7 +946,7 @@ export default function ScoutCommsInspectorPage() {
         </ul>
       </section>
 
-      <footer className="border-t border-studio-edge pt-4 font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <footer className="border-t border-studio-edge pt-4 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         Status · draft ·{" "}
         <span className="text-studio-ink-muted">ports to</span>{" "}
         ScoutCommsView + InspectorFrame (Swift)
@@ -977,19 +977,19 @@ function VariantCard({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-baseline justify-between gap-2">
-        <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-scout-accent">
+        <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-scout-accent">
           {name}
         </div>
         {selected ? (
-          <span className="rounded-[2px] bg-scout-accent-soft px-1 py-px font-mono text-[7.5px] font-semibold uppercase tracking-eyebrow text-scout-accent">
+          <span className="rounded-[2px] bg-scout-accent-soft px-1 py-px font-mono text-3xs font-semibold uppercase tracking-eyebrow text-scout-accent">
             Selected
           </span>
         ) : null}
       </div>
       {mock}
-      <div className="rounded-md border border-studio-edge bg-studio-canvas-alt p-3 font-sans text-[11px] leading-snug text-studio-ink">
+      <div className="rounded-md border border-studio-edge bg-studio-canvas-alt p-3 font-sans text-sm leading-snug text-studio-ink">
         <div className="mb-1.5">
-          <div className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-status-ok-fg">
+          <div className="font-mono text-3xs font-semibold uppercase tracking-eyebrow text-status-ok-fg">
             Pros
           </div>
           <ul className="mt-1 flex flex-col gap-0.5 text-studio-ink-faint">
@@ -999,7 +999,7 @@ function VariantCard({
           </ul>
         </div>
         <div className="mb-1.5 mt-2">
-          <div className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-status-warn-fg">
+          <div className="font-mono text-3xs font-semibold uppercase tracking-eyebrow text-status-warn-fg">
             Cons
           </div>
           <ul className="mt-1 flex flex-col gap-0.5 text-studio-ink-faint">
@@ -1009,7 +1009,7 @@ function VariantCard({
           </ul>
         </div>
         <div className="mt-2 border-t border-studio-edge pt-2">
-          <div className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink">
+          <div className="font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink">
             Verdict
           </div>
           <div className="mt-0.5 text-studio-ink">{verdict}</div>
@@ -1030,7 +1030,7 @@ function Decision({
 }) {
   return (
     <li className="flex gap-3">
-      <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-[3px] border border-studio-edge bg-studio-canvas-alt font-mono text-[10px] font-semibold text-studio-ink">
+      <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-[3px] border border-studio-edge bg-studio-canvas-alt font-mono text-xs font-semibold text-studio-ink">
         {n}
       </span>
       <div>

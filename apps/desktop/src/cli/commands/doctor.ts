@@ -1,7 +1,9 @@
 import type { ScoutCommandContext } from "../context.ts";
 import { defaultScoutContextDirectory } from "../context.ts";
 import { parseDoctorCommandOptions } from "../options.ts";
-import { loadScoutDoctorReport } from "../../core/setup/service.ts";
+import {
+  loadScoutDoctorReport,
+} from "../../core/setup/service.ts";
 import { resolveScoutWorkspaceRoot } from "../../shared/paths.ts";
 import {
   loadNativeScoutdDoctorReport,
@@ -90,7 +92,6 @@ export async function runDoctorCommand(context: ScoutCommandContext, args: strin
     yes: options.yes,
     env: context.env,
   });
-
   writeDoctorJsonLine(context, { phase: "native", nativeDaemon: native });
   writeDoctorJsonLine(context, {
     phase: "complete",

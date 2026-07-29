@@ -20,13 +20,13 @@ export default function HudCompactPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-8 max-w-prose">
-        <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · macos · hud-compact
         </div>
-        <h1 className="mt-1 font-sans text-[28px] font-semibold leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-sans text-6xl font-semibold leading-none tracking-tight text-studio-ink">
           HUD Compact
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           Locked reference at the compact size — a ~420px column the
           operator summons over any window. All four tabs (agents ·
           activity · tail · sessions) stacked here for one-pass review.
@@ -48,7 +48,7 @@ export default function HudCompactPage() {
 
 function Research() {
   return (
-    <section className="mt-20 w-full max-w-[920px] font-sans text-[13px] leading-relaxed text-studio-ink-muted">
+    <section className="mt-20 w-full max-w-[920px] font-sans text-lg leading-relaxed text-studio-ink-muted">
       <ResearchHeader surface="hud · macos · compact" />
 
       <ResearchBlock eyebrow="tier notes">

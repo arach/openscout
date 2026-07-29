@@ -12,6 +12,7 @@ import {
   channelNaturalKeyFromMetadata,
   directChannelNaturalKey,
   epochMs,
+  isScoutLaunchableHarness,
   SCOUT_LAUNCHABLE_HARNESSES,
   SCOUT_RUNTIME_EFFORT_CATALOG,
   SCOUT_RUNTIME_MODEL_CATALOG,
@@ -40,6 +41,7 @@ import {
   openScoutPeerSession,
   recordScoutBrokerReadCursor,
   registerScoutLocalAgentBinding,
+  ScoutDirectDeliveryUnavailableError,
   sendScoutConversationMessage,
   sendScoutDirectMessage,
   sendScoutMessage,
@@ -71,7 +73,7 @@ export async function getScoutMobileRuntimeCapabilities(projectRoot?: string) {
       const root = agent.projectRoot ?? agent.cwd;
       const harness = agent.harness?.trim().toLowerCase();
       const model = agent.model?.trim();
-      if (!root || resolve(root) !== normalizedProjectRoot || !harness || !model) continue;
+      if (!root || resolve(root) !== normalizedProjectRoot || !isScoutLaunchableHarness(harness) || !model) continue;
       const key = `${harness}:${model.toLowerCase()}`;
       if (!seenModels.add(key)) continue;
       models.push({ id: model, label: model, harnesses: [harness], source: "observed" });
@@ -281,6 +283,14 @@ export type ScoutMobileSendResult = {
   lifecycleState?: ScoutMobileSendLifecycleState | null;
   summary?: string | null;
   error?: string | null;
+  delivery?: ScoutMobileDeliveryState | null;
+};
+
+export type ScoutMobileDeliveryState = {
+  state: "accepted" | "recoverable";
+  reason?: "session_ended" | "target_unavailable";
+  action?: "start_replacement" | "retry";
+  detail?: string;
 };
 
 function mobileLifecycleStateForFlight(flight: { state?: string } | null | undefined): ScoutMobileSendLifecycleState | null {
@@ -306,7 +316,28 @@ function mobileSendResultFromDirect(result: ScoutDirectMessageResult): ScoutMobi
     lifecycleState: mobileLifecycleStateForFlight(result.flight) ?? (result.flight ? "dispatching" : null),
     summary: result.flight?.summary ?? null,
     error: result.flight?.error ?? null,
+    delivery: { state: "accepted" },
   };
+}
+
+function recoverableMobileDelivery(
+  error: ScoutDirectDeliveryUnavailableError,
+): ScoutMobileDeliveryState {
+  const remediation = error.delivery.remediation;
+  const sessionEnded = remediation?.kind === "session_reference_not_attachable";
+  return sessionEnded
+    ? {
+        state: "recoverable",
+        reason: "session_ended",
+        action: "start_replacement",
+        detail: "This session ended. Start a new session from the project to deliver this message.",
+      }
+    : {
+        state: "recoverable",
+        reason: "target_unavailable",
+        action: "retry",
+        detail: "Message saved. Retry delivery when the target is available.",
+      };
 }
 
 function normalizeTimestamp(value: number | null | undefined): number | null {
@@ -1704,18 +1735,51 @@ export async function sendScoutMobileComms(
   if (conv.kind === "direct") {
     const targetAgentId = conv.participantIds.find((p) => !selfIds.has(p));
     if (!targetAgentId) throw new Error("Conversation has no agent participant to address.");
-    const result = await sendScoutMobileMessage(
-      {
-        agentId: targetAgentId,
-        body: input.body,
+    try {
+      const result = await sendScoutMobileMessage(
+        {
+          agentId: targetAgentId,
+          body: input.body,
+          attachments: input.attachments,
+          clientMessageId: input.clientMessageId,
+          replyToMessageId: input.replyToMessageId,
+        },
+        currentDirectory,
+        deviceId,
+      );
+      return mobileSendResultFromDirect(result);
+    } catch (error) {
+      if (!(error instanceof ScoutDirectDeliveryUnavailableError)) throw error;
+
+      // Routing/session liveness is broker-owned, but drafting is not. Keep the
+      // operator's outbound message in the conversation even when its transport
+      // cannot currently attach, and return a typed recovery action to the app.
+      const persisted = await sendScoutConversationMessage({
+        conversationId: input.conversationId,
+        senderId: MOBILE_OPERATOR_ID,
+        body: input.body.trim() || (input.attachments?.length ? "Review the attached message." : ""),
         attachments: input.attachments,
-        clientMessageId: input.clientMessageId,
         replyToMessageId: input.replyToMessageId,
-      },
-      currentDirectory,
-      deviceId,
-    );
-    return mobileSendResultFromDirect(result);
+        clientMessageId: input.clientMessageId,
+        source: "scout-mobile",
+        currentDirectory,
+      });
+      if (!persisted.usedBroker || !persisted.messageId) {
+        throw new Error("The broker disconnected before it could save this message.");
+      }
+      const delivery = recoverableMobileDelivery(error);
+      return {
+        conversationId: persisted.conversationId ?? input.conversationId,
+        messageId: persisted.messageId,
+        flightId: null,
+        invocationId: null,
+        targetAgentId,
+        lifecycleState: "failed",
+        summary: delivery.detail ?? null,
+        error: null,
+        delivery,
+      };
+    }
   }
 
   // Groups and threads must post to THIS conversation — collapsing to a 1:1 DM

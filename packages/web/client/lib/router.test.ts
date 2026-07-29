@@ -242,19 +242,17 @@ describe("agents route parsing", () => {
     });
     expect(routePath(conversationRoute)).toBe("/c/c.hudson-chat?machineId=node-b");
 
+    // Route unification retired filter/sort: legacy params are dropped, but the
+    // machine scope still composes with the conversation route.
     const messagesRoute = routeFromUrl(
       "http://127.0.0.1:43120/messages/c.font-studio?filter=channel&sort=unread&machineId=node-b",
     );
     expect(messagesRoute).toEqual({
       view: "messages",
       conversationId: "c.font-studio",
-      filter: "channel",
-      sort: "unread",
       machineId: "node-b",
     });
-    expect(routePath(messagesRoute)).toBe(
-      "/messages/c.font-studio?filter=channel&sort=unread&machineId=node-b",
-    );
+    expect(routePath(messagesRoute)).toBe("/messages/c.font-studio?machineId=node-b");
   });
 
   test("machine scope helpers set and explicitly clear scoped routes", () => {
@@ -315,6 +313,7 @@ describe("agents route parsing", () => {
       agentId: "hudson.main",
     });
     expect(routePath(route)).toBe("/sessions/codex-thread-1?agentId=hudson.main");
+    if (route.view !== "sessions") throw new Error("expected a sessions route");
     expect(routePath({ ...route, machineId: "node-b" })).toBe(
       "/sessions/codex-thread-1?agentId=hudson.main&machineId=node-b",
     );
@@ -503,11 +502,14 @@ describe("agents route parsing", () => {
     expect(routePath({ view: "broker", filter: "failed" })).toBe(
       "/dispatch?filter=failed",
     );
+    // /channels is a legacy alias onto the unified conversation route; it parses
+    // but never serializes back — canonical form is /messages/<id>.
     expect(routeFromUrl("http://127.0.0.1:43120/channels/chan-1")).toEqual({
-      view: "channels",
-      channelId: "chan-1",
+      view: "messages",
+      conversationId: "chan-1",
     });
-    expect(routePath({ view: "channels", channelId: "chan-1" })).toBe("/channels/chan-1");
+    expect(routePath({ view: "messages", conversationId: "chan-1" })).toBe("/messages/chan-1");
+    expect(routeFromUrl("http://127.0.0.1:43120/channels")).toEqual({ view: "messages" });
     expect(routeFromUrl("http://127.0.0.1:43120/work/w-1")).toEqual({
       view: "work",
       workId: "w-1",
@@ -679,25 +681,17 @@ describe("agents route parsing", () => {
     expect(routeFromUrl("http://127.0.0.1:43120/repo-diff")).toEqual({ view: "inbox" });
   });
 
-  test("messages route preserves conversationId, filter, and sort", () => {
+  test("messages route keeps conversationId and drops legacy filter/sort params", () => {
     const route = routeFromUrl(
       "http://127.0.0.1:43120/messages/c.font-studio?filter=channel&sort=unread",
     );
-    expect(route).toEqual({
-      view: "messages",
-      conversationId: "c.font-studio",
-      filter: "channel",
-      sort: "unread",
-    });
-    expect(routePath(route)).toBe(
-      "/messages/c.font-studio?filter=channel&sort=unread",
-    );
+    expect(route).toEqual({ view: "messages", conversationId: "c.font-studio" });
+    expect(routePath(route)).toBe("/messages/c.font-studio");
   });
 
-  test("messages defaults (all + recent) stay out of the URL", () => {
-    expect(
-      routePath({ view: "messages", conversationId: "c.foo", filter: "all", sort: "recent" }),
-    ).toBe("/messages/c.foo");
+  test("messages routes carry no query params of their own", () => {
+    expect(routePath({ view: "messages" })).toBe("/messages");
+    expect(routePath({ view: "messages", conversationId: "c.foo" })).toBe("/messages/c.foo");
   });
 
   test("project registry routes round-trip and old agents-v2 input serializes canonically", () => {

@@ -1,6 +1,6 @@
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import {
   buildScoutReturnAddress as buildScoutReturnAddressRecord,
@@ -22,6 +22,8 @@ import {
   type ConversationBinding,
   type ConversationDefinition,
   type ConversationReadCursor,
+  conversationNaturalKey,
+  conversationsWithNaturalKey,
   BUILT_IN_AGENT_DEFINITION_IDS,
   type ControlEvent,
   type CollaborationAcceptanceState,
@@ -48,7 +50,10 @@ import {
   type RouteAliasBinding,
   type RouteAliasScope,
   epochMs,
+  namedChannelNaturalKey,
   parseScoutComposerRouteTarget,
+  stableChannelId,
+  systemChannelNaturalKey,
 } from "@openscout/protocol";
 import {
   ensureRelayAgentConfigured,
@@ -519,6 +524,19 @@ export type ScoutDirectMessageResult = {
   flight?: ScoutFlightRecord;
 };
 
+export class ScoutDirectDeliveryUnavailableError extends Error {
+  readonly delivery: Exclude<ScoutDeliverResponse, { kind: "delivery" }>;
+
+  constructor(delivery: Exclude<ScoutDeliverResponse, { kind: "delivery" }>) {
+    const detail = delivery.kind === "question"
+      ? delivery.question.detail
+      : delivery.rejection.detail;
+    super(detail);
+    this.name = "ScoutDirectDeliveryUnavailableError";
+    this.delivery = delivery;
+  }
+}
+
 export type ScoutWatchOptions = {
   channel?: string;
   conversationId?: string;
@@ -570,9 +588,7 @@ type RelayConfig = {
   openaiApiKey?: string;
 };
 
-const BROKER_SHARED_CHANNEL_ID = "channel.shared";
-const BROKER_VOICE_CHANNEL_ID = "channel.voice";
-const BROKER_SYSTEM_CHANNEL_ID = "channel.system";
+const LEGACY_SCOUT_DIRECT_CONVERSATION_ID = "channel.shared";
 const OPERATOR_ID = "operator";
 function relayHubDirectory(): string {
   return resolveOpenScoutSupportPaths().relayHubDirectory;
@@ -730,6 +746,19 @@ function clientMessageMetadata(
   const normalized =
     typeof clientMessageId === "string" ? clientMessageId.trim() : "";
   return normalized ? { clientMessageId: normalized } : {};
+}
+
+function deliveryRequestId(
+  clientMessageId: string | null | undefined,
+  createdAt: number,
+): string {
+  const normalized =
+    typeof clientMessageId === "string" ? clientMessageId.trim() : "";
+  if (!normalized) {
+    return `deliver-${createdAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+  const digest = createHash("sha256").update(normalized).digest("hex").slice(0, 32);
+  return `deliver-client-${digest}`;
 }
 
 function metadataStringList(
@@ -1701,13 +1730,21 @@ export async function requireScoutBrokerContext(
 }
 
 export function scoutConversationIdForChannel(channel?: string): string {
-  const normalizedChannel = channel?.trim() || "shared";
-  const sanitizedChannel = sanitizeConversationSegment(normalizedChannel);
-  if (sanitizedChannel.startsWith("channel.")) return sanitizedChannel;
-  if (sanitizedChannel === "voice") return BROKER_VOICE_CHANNEL_ID;
-  if (sanitizedChannel === "system") return BROKER_SYSTEM_CHANNEL_ID;
-  if (sanitizedChannel === "shared") return BROKER_SHARED_CHANNEL_ID;
-  return `channel.${sanitizedChannel}`;
+  const channelName = scoutChannelName(channel);
+  return stableChannelId(scoutChannelNaturalKey(channelName));
+}
+
+function scoutChannelName(channel?: string): string {
+  const sanitized = sanitizeConversationSegment(channel?.trim() || "shared");
+  return sanitized.startsWith("channel.")
+    ? sanitized.slice("channel.".length) || "shared"
+    : sanitized;
+}
+
+function scoutChannelNaturalKey(channelName: string): string {
+  return channelName === "system"
+    ? systemChannelNaturalKey(channelName)
+    : namedChannelNaturalKey(channelName);
 }
 
 function buildMentionCandidate(
@@ -2442,7 +2479,8 @@ function conversationDefinition(
   senderId: string,
   targetParticipantIds: string[] = [],
 ): ScoutBrokerConversationRecord {
-  const normalizedChannel = channel?.trim() || "shared";
+  const normalizedChannel = scoutChannelName(channel);
+  const naturalKey = scoutChannelNaturalKey(normalizedChannel);
   const sharedParticipants = [
     ...new Set([OPERATOR_ID, senderId, ...Object.keys(snapshot.agents)]),
   ].sort();
@@ -2452,7 +2490,7 @@ function conversationDefinition(
 
   if (normalizedChannel === "voice") {
     return {
-      id: BROKER_VOICE_CHANNEL_ID,
+      id: stableChannelId(naturalKey),
       kind: "channel",
       title: "voice",
       visibility: "workspace",
@@ -2464,35 +2502,35 @@ function conversationDefinition(
       ),
       authorityNodeId: nodeId,
       participantIds: scopedParticipants,
-      metadata: { surface: "scout-cli", channel: "voice" },
+      metadata: { surface: "scout-cli", channel: "voice", naturalKey },
     };
   }
   if (normalizedChannel === "system") {
     return {
-      id: BROKER_SYSTEM_CHANNEL_ID,
+      id: stableChannelId(naturalKey),
       kind: "system",
       title: "system",
       visibility: "system",
       shareMode: "local",
       authorityNodeId: nodeId,
       participantIds: [OPERATOR_ID, senderId].sort(),
-      metadata: { surface: "scout-cli", channel: "system" },
+      metadata: { surface: "scout-cli", channel: "system", naturalKey },
     };
   }
   if (normalizedChannel === "shared") {
     return {
-      id: BROKER_SHARED_CHANNEL_ID,
+      id: stableChannelId(naturalKey),
       kind: "channel",
       title: "shared-channel",
       visibility: "workspace",
       shareMode: "shared",
       authorityNodeId: nodeId,
       participantIds: sharedParticipants,
-      metadata: { surface: "scout-cli", channel: "shared" },
+      metadata: { surface: "scout-cli", channel: "shared", naturalKey },
     };
   }
   return {
-    id: `channel.${sanitizeConversationSegment(normalizedChannel)}`,
+    id: stableChannelId(naturalKey),
     kind: "channel",
     title: normalizedChannel,
     visibility: "workspace",
@@ -2504,7 +2542,7 @@ function conversationDefinition(
     ),
     authorityNodeId: nodeId,
     participantIds: scopedParticipants,
-    metadata: { surface: "scout-cli", channel: normalizedChannel },
+    metadata: { surface: "scout-cli", channel: normalizedChannel, naturalKey },
   };
 }
 
@@ -2524,9 +2562,13 @@ async function ensureBrokerConversation(
     targetParticipantIds,
   );
   const existing = snapshot.conversations[definition.id];
+  const naturalKey = conversationNaturalKey(definition);
+  const equivalentConversations = naturalKey
+    ? conversationsWithNaturalKey(Object.values(snapshot.conversations), naturalKey)
+    : [];
   const nextParticipants = [
     ...new Set([
-      ...(existing?.participantIds ?? []),
+      ...equivalentConversations.flatMap((conversation) => conversation.participantIds),
       ...definition.participantIds,
     ]),
   ].sort();
@@ -2586,12 +2628,12 @@ function relayAudienceReason(
 }
 
 function relayRouteKind(
-  conversation: Pick<ScoutBrokerConversationRecord, "id" | "kind">,
+  conversation: Pick<ScoutBrokerConversationRecord, "id" | "kind" | "metadata">,
 ): "dm" | "channel" | "broadcast" {
   if (conversation.kind === "direct") {
     return "dm";
   }
-  return conversation.id === BROKER_SHARED_CHANNEL_ID ? "broadcast" : "channel";
+  return conversation.metadata?.channel === "shared" ? "broadcast" : "channel";
 }
 
 function buildScoutEntityId(prefix: string, createdAtMs: number): string {
@@ -2919,7 +2961,7 @@ async function ensureBrokerDirectConversationBetween(
 ): Promise<ScoutDirectSessionResult> {
   const conversationId =
     targetId === SCOUT_AGENT_ID && sourceId === OPERATOR_ID
-      ? BROKER_SHARED_CHANNEL_ID
+      ? LEGACY_SCOUT_DIRECT_CONVERSATION_ID
       : directConversationIdForActors(sourceId, targetId);
   const participantIds = [...new Set([sourceId, targetId])].sort();
   const nextShareMode = resolveConversationShareMode(
@@ -3725,23 +3767,15 @@ export async function sendScoutDirectMessage(input: {
   deviceId?: string;
 }): Promise<ScoutDirectMessageResult> {
   const broker = await requireScoutBrokerContext();
+  const createdAt = Date.now();
   const source = input.source?.trim() || "scout-mobile";
-  const targetEndpoints = Object.values(broker.snapshot.endpoints ?? {})
-    .filter((endpoint) => endpoint.agentId === input.agentId);
-  const targetIsSuperseded = isSupersededBrokerAgent(broker.snapshot, input.agentId)
-    || (
-      targetEndpoints.length > 0
-      && targetEndpoints.every((endpoint) => (
-        metadataBoolean(endpoint.metadata, "retiredFromFleet")
-        || metadataBoolean(endpoint.metadata, "staleLocalRegistration")
-      ))
-    );
-  if (targetIsSuperseded) {
-    throw new Error(
-      `${displayNameForBrokerActor(broker.snapshot, input.agentId)} is a superseded local registration. Start the current project session from Workspaces before sending.`,
-    );
-  }
+  const attachments = normalizeOutgoingAttachments(input.attachments);
+  // The bridge accepts attachment-only posts, while `/v1/deliver` requires a
+  // non-empty consult body. Preserve the attachment and supply the invocation
+  // task instead of surfacing a raw invalid_request after upload.
+  const body = input.body.trim() || (attachments?.length ? "Review the attached message." : "");
   const delivery = await brokerPostDeliver(broker.baseUrl, {
+    id: deliveryRequestId(input.clientMessageId, createdAt),
     caller: {
       actorId: OPERATOR_ID,
       nodeId: broker.node.id,
@@ -3753,8 +3787,8 @@ export async function sendScoutDirectMessage(input: {
       agentId: input.agentId,
     },
     targetAgentId: input.agentId,
-    body: input.body.trim(),
-    attachments: normalizeOutgoingAttachments(input.attachments),
+    body,
+    attachments,
     intent: "consult",
     replyToMessageId: input.replyToMessageId ?? undefined,
     execution: {
@@ -3762,6 +3796,7 @@ export async function sendScoutDirectMessage(input: {
       session: "new",
     },
     ensureAwake: true,
+    createdAt,
     messageMetadata: {
       source,
       destinationKind: "direct",
@@ -3778,9 +3813,7 @@ export async function sendScoutDirectMessage(input: {
     },
   });
   if (delivery.kind !== "delivery") {
-    throw new Error(
-      delivery.kind === "question" ? delivery.question.detail : delivery.rejection.detail,
-    );
+    throw new ScoutDirectDeliveryUnavailableError(delivery);
   }
 
   return {
@@ -4073,7 +4106,7 @@ export async function deliverScoutAsk(input: {
     messageId: delivery.message.id,
     bindingRef: delivery.receipt?.bindingRef ?? delivery.bindingRef,
     sessionAlias: delivery.receipt?.sessionAlias ?? delivery.sessionAlias,
-    executionResolution: delivery.receipt.executionResolution,
+    executionResolution: delivery.receipt?.executionResolution,
     workItem,
   };
 }

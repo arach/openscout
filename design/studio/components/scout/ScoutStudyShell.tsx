@@ -47,13 +47,13 @@ export function ScoutStudyShell({
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div className="max-w-prose">
-          <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             · studies · macos · {pageId}
           </div>
-          <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+          <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
             {title}
           </h1>
-          <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+          <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
             {blurb}
           </p>
         </div>
@@ -86,7 +86,7 @@ export function ScoutSkinToggle({
               : "text-studio-ink-faint hover:text-studio-ink"
           }`}
         >
-          <div className="flex items-center gap-1.5 font-mono text-[11px] font-semibold">
+          <div className="flex items-center gap-1.5 font-mono text-sm font-semibold">
             {s.label}
             {s.current ? (
               <span
@@ -95,7 +95,7 @@ export function ScoutSkinToggle({
               />
             ) : null}
           </div>
-          <div className="font-mono text-[8.5px] uppercase tracking-eyebrow opacity-70">
+          <div className="font-mono text-3xs uppercase tracking-eyebrow opacity-70">
             {s.tone}
           </div>
         </button>

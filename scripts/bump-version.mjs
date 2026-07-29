@@ -32,6 +32,13 @@ const RELEASE_MANIFESTS = [
   "packages/web",
 ];
 
+const RELEASE_VERSION_SOURCES = [
+  {
+    path: "apps/desktop/src/shared/product.ts",
+    pattern: /(export const SCOUT_APP_VERSION = process\.env\.SCOUT_APP_VERSION\?\.trim\(\) \|\| ")([^"]+)(";)/,
+  },
+];
+
 const DEP_SECTIONS = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
 const BACKUP_FILENAME = ".package.json.publish-backup";
 
@@ -129,12 +136,28 @@ async function main() {
     }
   }
 
+  for (const source of RELEASE_VERSION_SOURCES) {
+    const file = path.join(REPO_ROOT, source.path);
+    const contents = await fs.readFile(file, "utf8");
+    const match = source.pattern.exec(contents);
+    if (!match) {
+      throw new Error(`Could not find release version in ${source.path}`);
+    }
+    if (match[2] === nextVersion) continue;
+
+    if (!dryRun) {
+      await fs.writeFile(file, contents.replace(source.pattern, `$1${nextVersion}$3`));
+    }
+    touched += 1;
+    console.log(`  ${source.path}: ${match[2]} -> ${nextVersion}${dryRun ? " (dry)" : ""}`);
+  }
+
   if (touched === 0) {
-    console.log(`\nAll release package manifests are already ${nextVersion}.`);
+    console.log(`\nAll release version sources are already ${nextVersion}.`);
     return;
   }
 
-  console.log(`\n${dryRun ? "Would bump" : "Bumped"} ${touched} package(s) to ${nextVersion}.`);
+  console.log(`\n${dryRun ? "Would bump" : "Bumped"} ${touched} release version source(s) to ${nextVersion}.`);
 }
 
 await main();

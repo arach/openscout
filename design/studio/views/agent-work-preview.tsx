@@ -171,13 +171,13 @@ export default function AgentWorkPreviewPage() {
     <main className="mx-auto max-w-page px-7 py-8">
       <style>{`@keyframes awp-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }`}</style>
       <header className="mb-8 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · macos · agent-work-preview
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Agent work-in-progress
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           When an agent is <strong className="text-studio-ink-muted">working</strong>, a live block
           appears below the metadata card so you can see what it&apos;s doing without going a level
           deeper. <strong className="text-studio-ink-muted">NOW</strong> previews the Observe
@@ -209,7 +209,7 @@ export default function AgentWorkPreviewPage() {
 function Labeled({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="w-[300px]">
-      <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-scout-accent">
+      <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-scout-accent">
         {label}
       </div>
       {children}
@@ -266,7 +266,7 @@ function CardHeader({ agent }: { agent: InspectorAgent }) {
       title={`Open ${agent.name}'s profile`}
     >
       <div
-        className="relative grid h-[30px] w-[30px] shrink-0 place-items-center rounded-full font-mono text-[12px]"
+        className="relative grid h-[30px] w-[30px] shrink-0 place-items-center rounded-full font-mono text-md"
         style={{ background: avatarColor(agent.name), color: "var(--studio-canvas)" }}
       >
         {agent.name[0]?.toUpperCase()}
@@ -276,10 +276,10 @@ function CardHeader({ agent }: { agent: InspectorAgent }) {
         />
       </div>
       <div className="min-w-0 flex-1 pt-0.5">
-        <div className="truncate font-sans text-[15px] font-semibold tracking-tight text-studio-ink decoration-studio-ink-faint underline-offset-2 group-hover:underline">
+        <div className="truncate font-sans text-2xl font-semibold tracking-tight text-studio-ink decoration-studio-ink-faint underline-offset-2 group-hover:underline">
           {agent.name}
         </div>
-        <div className="truncate font-mono text-[9.5px] text-studio-ink-faint">{agent.id}</div>
+        <div className="truncate font-mono text-2xs text-studio-ink-faint">{agent.id}</div>
       </div>
     </button>
   );
@@ -375,20 +375,20 @@ function NowRow({ event }: { event: ObserveEvent }) {
     <div className="flex flex-col gap-0.5">
       <div className="flex items-center gap-1.5">
         <span
-          className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow"
+          className="font-mono text-3xs font-semibold uppercase tracking-eyebrow"
           style={{ color: meta.color }}
         >
           {meta.label}
         </span>
         {event.tool ? (
-          <code className="rounded-[3px] bg-studio-canvas-alt px-1 py-px font-mono text-[9px] text-scout-accent">
+          <code className="rounded-[3px] bg-studio-canvas-alt px-1 py-px font-mono text-2xs text-scout-accent">
             {event.tool}
           </code>
         ) : null}
-        <span className="ml-auto shrink-0 font-mono text-[9px] text-studio-ink-faint">{event.t}</span>
+        <span className="ml-auto shrink-0 font-mono text-2xs text-studio-ink-faint">{event.t}</span>
       </div>
       <p
-        className={`line-clamp-2 font-sans text-[11px] leading-snug ${
+        className={`line-clamp-2 font-sans text-sm leading-snug ${
           muted ? "text-studio-ink-muted" : "text-studio-ink"
         }`}
       >
@@ -422,14 +422,14 @@ function TailSection({ live }: { live: LiveData }) {
 function TailRow({ event }: { event: TailEvent }) {
   const meta = TAIL_KIND[event.kind];
   return (
-    <div className="flex items-baseline gap-1.5 font-mono text-[10px]">
+    <div className="flex items-baseline gap-1.5 font-mono text-xs">
       <span className="w-2.5 shrink-0 text-center" style={{ color: meta.color }}>
         {meta.glyph}
       </span>
       <span className="truncate text-studio-ink-muted" title={event.summary}>
         {event.summary}
       </span>
-      <span className="ml-auto shrink-0 text-[9px] text-studio-ink-faint">{event.age}</span>
+      <span className="ml-auto shrink-0 text-2xs text-studio-ink-faint">{event.age}</span>
     </div>
   );
 }
@@ -442,7 +442,7 @@ function FilesSection({ live }: { live: LiveData }) {
         <div className="flex items-center gap-2">
           <SectionLabel>Files</SectionLabel>
           {live.files.length ? (
-            <span className="rounded-[3px] bg-studio-canvas-alt px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-muted">
+            <span className="rounded-[3px] bg-studio-canvas-alt px-1.5 py-0.5 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-muted">
               {live.files.length} changed
             </span>
           ) : null}
@@ -470,10 +470,10 @@ function FileRow({ file }: { file: FileTouch }) {
         style={{ background: FILE_STATE_COLOR[file.state] }}
       />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-right font-mono text-[10px] text-studio-ink" dir="rtl" title={file.path}>
+        <div className="truncate text-right font-mono text-xs text-studio-ink" dir="rtl" title={file.path}>
           {file.path}
         </div>
-        <div className="truncate font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="truncate font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
           {file.state} · {file.touches}× · {file.age}
         </div>
       </div>
@@ -487,7 +487,7 @@ function Section({ label, rows }: { label: string; rows: [string, string][] }) {
   return (
     <div className="flex flex-col gap-1.5">
       <SectionLabel>{label}</SectionLabel>
-      <div className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-1 font-mono text-[10.5px]">
+      <div className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-1 font-mono text-xs">
         {rows.map(([k, v]) => (
           <Fragment key={k}>
             <span className="uppercase tracking-eyebrow text-studio-ink-faint">{k}</span>
@@ -506,7 +506,7 @@ function SessionSection({ session }: { session: NonNullable<InspectorAgent["sess
         <SectionLabel>Session</SectionLabel>
         <ObserveButton />
       </div>
-      <div className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-1 font-mono text-[10.5px]">
+      <div className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-1 font-mono text-xs">
         <span className="uppercase tracking-eyebrow text-studio-ink-faint">id</span>
         <span className="truncate text-right text-studio-ink" title={session.id}>
           {session.id.slice(0, 8)}
@@ -524,7 +524,7 @@ function ObserveButton() {
     <button
       type="button"
       title="Observe this session"
-      className="flex shrink-0 items-center gap-1.5 rounded-[5px] border border-studio-edge-strong bg-studio-canvas-alt px-2 py-1 font-mono text-[9.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted transition-colors hover:border-[color-mix(in_oklab,var(--status-ok-fg)_50%,transparent)] hover:bg-[color-mix(in_oklab,var(--status-ok-fg)_12%,transparent)] hover:text-[var(--status-ok-fg)]"
+      className="flex shrink-0 items-center gap-1.5 rounded-[5px] border border-studio-edge-strong bg-studio-canvas-alt px-2 py-1 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-muted transition-colors hover:border-[color-mix(in_oklab,var(--status-ok-fg)_50%,transparent)] hover:bg-[color-mix(in_oklab,var(--status-ok-fg)_12%,transparent)] hover:text-[var(--status-ok-fg)]"
     >
       <EyeIcon />
       Observe
@@ -536,7 +536,7 @@ function NewSessionLink() {
   return (
     <button
       type="button"
-      className="flex items-center gap-1 self-start font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint transition-colors hover:text-scout-accent"
+      className="flex items-center gap-1 self-start font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint transition-colors hover:text-scout-accent"
     >
       <PlusIcon /> New session
     </button>
@@ -545,7 +545,7 @@ function NewSessionLink() {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+    <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
       {children}
     </div>
   );
@@ -557,7 +557,7 @@ function OpenLink({ label, icon }: { label: string; icon: React.ReactNode }) {
     <button
       type="button"
       title={`Open full ${label}`}
-      className="flex shrink-0 items-center gap-1 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint transition-colors hover:text-scout-accent"
+      className="flex shrink-0 items-center gap-1 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint transition-colors hover:text-scout-accent"
     >
       {icon}
       {label}
@@ -566,7 +566,7 @@ function OpenLink({ label, icon }: { label: string; icon: React.ReactNode }) {
 }
 
 function Hint({ children }: { children: React.ReactNode }) {
-  return <div className="font-mono text-[10px] text-studio-ink-faint">{children}</div>;
+  return <div className="font-mono text-xs text-studio-ink-faint">{children}</div>;
 }
 
 function Divider() {

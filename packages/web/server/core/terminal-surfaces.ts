@@ -1,4 +1,4 @@
-export type TerminalSurfaceBackend = "tmux" | "zellij";
+export type TerminalSurfaceBackend = "tmux" | "zellij" | "herdr";
 
 export type TerminalSurfaceDescriptor = {
   backend: TerminalSurfaceBackend;
@@ -39,6 +39,16 @@ export function resolveTerminalSurface(input: TerminalSurfaceInput): TerminalSur
       metadata.tmuxSession,
       input.transport === "tmux" ? input.endpointSessionId : null,
     )
+    : backend === "herdr"
+      ? firstString(
+        surface?.sessionName,
+        surface?.terminalSession,
+        relay?.sessionName,
+        relay?.herdrSession,
+        metadata.terminalSession,
+        metadata.herdrSession,
+        input.transport === "herdr" ? input.endpointSessionId : null,
+      )
     : firstString(
       surface?.sessionName,
       surface?.terminalSession,
@@ -74,7 +84,7 @@ function terminalBackend(...values: unknown[]): TerminalSurfaceBackend | null {
   for (const value of values) {
     if (typeof value !== "string") continue;
     const normalized = value.trim().toLowerCase();
-    if (normalized === "tmux" || normalized === "zellij") {
+    if (normalized === "tmux" || normalized === "zellij" || normalized === "herdr") {
       return normalized;
     }
   }

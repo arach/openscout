@@ -164,7 +164,7 @@ function RailButton({
         className={cn(
           "pointer-events-none absolute left-[44px] top-1/2 -translate-y-1/2",
           "rounded-[3px] border border-studio-edge px-2 py-1",
-          "font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink",
+          "font-mono text-2xs uppercase tracking-eyebrow text-studio-ink",
           "opacity-0 transition-opacity group-hover:opacity-100",
           "whitespace-nowrap",
         )}

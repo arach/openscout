@@ -8,6 +8,7 @@ import { routeFromUrl, routePath } from "../../lib/router.ts";
 import {
   resolveScoutNativeThemeVars,
   resolveScoutStartupTheme,
+  SCOUT_DEFAULT_APPEARANCE_DETAILS,
 } from "../../lib/theme.ts";
 import {
   ScoutContext,
@@ -156,6 +157,8 @@ function TerminalEmbedScoutProvider({
     agentsLoaded: apiConnection.status !== "checking",
     onlineCount,
     apiConnection,
+    appearanceDetails: SCOUT_DEFAULT_APPEARANCE_DETAILS,
+    updateAppearanceDetails: () => {},
     reload,
     onboarding: null,
     refreshOnboarding: async () => {},

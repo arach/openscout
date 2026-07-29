@@ -7,7 +7,7 @@
  */
 import type { CSSProperties, ReactNode } from "react";
 import { RailToggle, type RailToggleSide } from "../../components/RailToggle.tsx";
-import { RAIL_COLLAPSED_WIDTH } from "./sidebar-collapse-state.ts";
+import { RAIL_COLLAPSED_WIDTH, RAIL_TOGGLE_HEADER_TOP } from "./sidebar-collapse-state.ts";
 
 export function CollapsedRail({
   side,
@@ -55,8 +55,9 @@ export function CollapsedRail({
       {/* SCO-087 (review fix): center the chevron ON the rail's boundary line
           (its inner edge — right edge for a left rail, left edge for a right
           rail) so collapsed matches the expanded-state band, instead of
-          flex-centering it ~24px inside the 48px strip. top:8 == the expanded
-          railToggleTop offset (RAIL_TOGGLE_HEADER_TOP). */}
+          flex-centering it ~24px inside the 48px strip. The vertical offset is
+          the SHARED band constant, so this chevron lands on exactly the same
+          baseline as the shell's sidebar-edge chevron next to it. */}
       <RailToggle
         side={side}
         collapsed
@@ -65,7 +66,7 @@ export function CollapsedRail({
         className="scout-collapsed-rail-toggle"
         style={{
           position: "absolute",
-          top: 8,
+          top: RAIL_TOGGLE_HEADER_TOP,
           zIndex: 46,
           ...(side === "left"
             ? { right: 0, transform: "translateX(50%)" }

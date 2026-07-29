@@ -5,7 +5,7 @@ import { normalizeAgentState } from "../../lib/agent-state.ts";
 import {
   MISSION_ACTIVITY_WINDOWS,
   clearMissionSelection,
-  requestMissionCanvasFocus,
+  requestMissionReveal,
   setMissionActivityFilter,
   setMissionActivityWindow,
   setMissionGroupMode,
@@ -118,7 +118,7 @@ export function OpsMissionLeft() {
       </div>
 
       <div className="ml-section ml-section--grouping">
-        <div className="ml-section-label">Group by</div>
+        <div className="ml-section-label">Order by</div>
         <div className="ml-chips ml-chips--grouping">
           {([
             ["activity", "Activity"],
@@ -193,7 +193,7 @@ export function OpsMissionLeft() {
                     toggleExpand(agent.id);
                   }
                 }}
-                onFocusOnCanvas={() => requestMissionCanvasFocus(agent.id)}
+                onReveal={() => requestMissionReveal(agent.id)}
                 onOpen={() => navigate({ view: "agents-v2", agentId: agent.id })}
               />
             );

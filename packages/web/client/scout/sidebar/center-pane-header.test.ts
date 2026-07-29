@@ -54,8 +54,7 @@ describe("center-pane header seam projections (SCO-085 / SCO-086)", () => {
       const sub = areaSubNavForRoute(route);
       const secondary = secondaryNavKindForRoute(route);
       const hasSeam = Boolean(crumb) || Boolean(sub) || Boolean(secondary);
-      // Top-level landings without sub-nav stay flush (Home, Search, …).
-      // Chat landings now own a secondary strip in the title bar (SCO-086).
+      // Top-level landings without sub-nav stay flush (Home, Search, Chat, …).
       if (route.view === "inbox") expect(hasSeam).toBe(false);
       if (route.view === "agents-v2") expect(hasSeam).toBe(true); // sub-nav
       if (route.view === "code") expect(hasSeam).toBe(true); // crumb + sub-nav
@@ -80,12 +79,13 @@ describe("center-pane header seam projections (SCO-085 / SCO-086)", () => {
     }
   });
 
-  test("title bar owns Operations and Messages secondary strips", () => {
+  test("title bar owns only the Operations secondary strip", () => {
     expect(secondaryNavKindForRoute({ view: "ops", mode: "lanes" })).toBe("ops");
     expect(secondaryNavKindForRoute({ view: "mesh" })).toBe("ops");
     expect(secondaryNavKindForRoute({ view: "harnesses" })).toBe("ops");
-    expect(secondaryNavKindForRoute({ view: "messages" })).toBe("chat");
-    expect(secondaryNavKindForRoute({ view: "channels" })).toBe("chat");
+    // Route unification retired the Chat strip: one conversation route,
+    // nothing left to switch between.
+    expect(secondaryNavKindForRoute({ view: "messages" })).toBeNull();
     expect(secondaryNavKindForRoute({ view: "inbox" })).toBeNull();
     expect(secondaryNavKindForRoute({ view: "agents-v2" })).toBeNull();
   });
@@ -94,14 +94,12 @@ describe("center-pane header seam projections (SCO-085 / SCO-086)", () => {
   // superseded). hasSecondaryNavRow now gates whether the INLINE tab cluster (and
   // its slash separator) render beside the section name — either the Ops/Chat
   // strip OR the projects/sessions area sub-nav.
-  test("hasSecondaryNavRow is true for Operations/Messages and area-sub-nav routes", () => {
-    // Ops / Chat secondary strips.
+  test("hasSecondaryNavRow is true for Operations and area-sub-nav routes", () => {
+    // Ops secondary strip.
     expect(hasSecondaryNavRow({ view: "ops", mode: "lanes" })).toBe(true);
     expect(hasSecondaryNavRow({ view: "mesh" })).toBe(true);
     expect(hasSecondaryNavRow({ view: "harnesses" })).toBe(true);
-    expect(hasSecondaryNavRow({ view: "messages" })).toBe(true);
-    expect(hasSecondaryNavRow({ view: "channels" })).toBe(true);
-    // Projects / Sessions area sub-nav (no Ops/Chat kind, still an inline cluster).
+    // Projects / Sessions area sub-nav (no Ops kind, still an inline cluster).
     expect(secondaryNavKindForRoute({ view: "agents-v2" })).toBeNull();
     expect(hasSecondaryNavRow({ view: "agents-v2" })).toBe(true);
     expect(hasSecondaryNavRow({ view: "terminal" })).toBe(true);
@@ -112,5 +110,7 @@ describe("center-pane header seam projections (SCO-085 / SCO-086)", () => {
     // No tab cluster: the top row shows just the section name (no slash, no tabs).
     expect(hasSecondaryNavRow({ view: "inbox" })).toBe(false);
     expect(hasSecondaryNavRow({ view: "search" })).toBe(false);
+    // Chat flushes too now — the rail is the only chat nav (D1/D6).
+    expect(hasSecondaryNavRow({ view: "messages" })).toBe(false);
   });
 });

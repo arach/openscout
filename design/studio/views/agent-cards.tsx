@@ -125,13 +125,13 @@ export default function AgentCardsPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-8 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · agent-cards
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Agent cards
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           Canonical agent tile. Five rows: identity · state · task ·
           project · capabilities. The first one is shown selected
           (accent rule on left) — the rest in their default state.
@@ -145,24 +145,24 @@ export default function AgentCardsPage() {
       </div>
 
       <section className="mt-12 max-w-prose">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · used by
         </div>
-        <ul className="font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+        <ul className="font-sans text-md leading-relaxed text-studio-ink-faint">
           <li>
-            <code className="font-mono text-[11px] text-studio-ink">
+            <code className="font-mono text-sm text-studio-ink">
               packages/web/client/scout/inspector/HomeAgentsInspector.tsx
             </code>{" "}
             — agent roster
           </li>
           <li>
-            <code className="font-mono text-[11px] text-studio-ink">
+            <code className="font-mono text-sm text-studio-ink">
               packages/web/client/scout/inspector/AgentsInspector.tsx
             </code>{" "}
             — agent detail
           </li>
           <li>
-            <code className="font-mono text-[11px] text-studio-ink">
+            <code className="font-mono text-sm text-studio-ink">
               packages/web/client/screens/AgentsScreen.tsx
             </code>{" "}
             — the agents fleet view
@@ -204,7 +204,7 @@ function AgentCardView({
       {/* Header — avatar · name+handle · state · unread */}
       <header className="flex items-start gap-3">
         <div
-          className="relative grid h-9 w-9 shrink-0 place-items-center rounded-full font-mono text-[13px]"
+          className="relative grid h-9 w-9 shrink-0 place-items-center rounded-full font-mono text-lg"
           style={{
             background: avatarColor(agent.name),
             color: "var(--studio-canvas)",
@@ -224,15 +224,15 @@ function AgentCardView({
 
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
-            <span className="font-sans text-[15px] font-semibold tracking-tight text-studio-ink">
+            <span className="font-sans text-2xl font-semibold tracking-tight text-studio-ink">
               {agent.name}
             </span>
-            <span className="font-mono text-[10.5px] text-studio-ink-faint">
+            <span className="font-mono text-xs text-studio-ink-faint">
               {agent.handle}
             </span>
           </div>
           <div
-            className="mt-0.5 font-mono text-[9.5px] font-semibold uppercase tracking-eyebrow"
+            className="mt-0.5 font-mono text-2xs font-semibold uppercase tracking-eyebrow"
             style={{ color: stateColor }}
           >
             {STATE_LABEL[agent.state]}
@@ -244,7 +244,7 @@ function AgentCardView({
 
         {agent.unread ? (
           <span
-            className="rounded-[3px] px-1.5 py-0.5 font-mono text-[9px] font-semibold tabular-nums"
+            className="rounded-[3px] px-1.5 py-0.5 font-mono text-2xs font-semibold tabular-nums"
             style={{
               color: "var(--status-error-fg)",
               background: "var(--status-error-bg)",
@@ -258,8 +258,8 @@ function AgentCardView({
       {/* Task — current activity with progress */}
       {agent.task ? (
         <div className="rounded-[4px] bg-studio-canvas-alt px-2.5 py-2">
-          <div className="flex items-baseline gap-2 font-sans text-[12.5px] text-studio-ink">
-            <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="flex items-baseline gap-2 font-sans text-md text-studio-ink">
+            <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
               task
             </span>
             <span className="min-w-0 flex-1 truncate">{agent.task}</span>
@@ -279,7 +279,7 @@ function AgentCardView({
       ) : null}
 
       {/* Project — repo / branch / cwd */}
-      <div className="grid grid-cols-[60px_1fr] gap-x-2 gap-y-1 font-mono text-[10.5px]">
+      <div className="grid grid-cols-[60px_1fr] gap-x-2 gap-y-1 font-mono text-xs">
         <span className="uppercase tracking-eyebrow text-studio-ink-faint">
           Branch
         </span>
@@ -302,7 +302,7 @@ function AgentCardView({
 
       {/* Footer — harness · model · tools. No top border; whitespace +
        *  the lighter "tools" chips do the partitioning. */}
-      <footer className="mt-0.5 flex flex-wrap items-baseline gap-x-3 gap-y-1 pt-1 font-mono text-[9.5px]">
+      <footer className="mt-0.5 flex flex-wrap items-baseline gap-x-3 gap-y-1 pt-1 font-mono text-2xs">
         <span className="uppercase tracking-eyebrow text-studio-ink-faint">
           {agent.harness}
         </span>
@@ -313,7 +313,7 @@ function AgentCardView({
           {agent.tools.map((t) => (
             <code
               key={t}
-              className="rounded-[2px] bg-studio-canvas-alt px-1 py-px text-[9px] text-studio-ink-muted"
+              className="rounded-[2px] bg-studio-canvas-alt px-1 py-px text-2xs text-studio-ink-muted"
             >
               {t}
             </code>

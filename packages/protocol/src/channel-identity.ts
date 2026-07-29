@@ -1,5 +1,11 @@
 import type { MetadataMap, ScoutId } from "./common.js";
 
+export type ConversationIdentityRecord = {
+  id: ScoutId;
+  kind: string;
+  metadata?: MetadataMap;
+};
+
 export const CHANNEL_ID_PREFIX = "chn-";
 export const CHAT_ID_PREFIX = CHANNEL_ID_PREFIX;
 export const LEGACY_CHAT_ID_PREFIX = "chat_";
@@ -58,6 +64,74 @@ export function channelNaturalKeyFromMetadata(
 ): string | null {
   const value = metadata?.[CHANNEL_NATURAL_KEY_METADATA];
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/**
+ * Read the semantic identity of a conversation, including the structural ids
+ * written by Scout versions that predate `metadata.naturalKey`.
+ *
+ * Structural ids remain read-only compatibility aliases. New writes must use
+ * an opaque id and persist the natural key in metadata.
+ */
+export function conversationNaturalKey(
+  conversation: ConversationIdentityRecord,
+): string | null {
+  const explicit = channelNaturalKeyFromMetadata(conversation.metadata);
+  if (explicit) {
+    return explicit;
+  }
+
+  if (conversation.kind !== "channel" && conversation.kind !== "system") {
+    return null;
+  }
+
+  const metadataChannel = conversation.metadata?.channel;
+  const legacyChannel = conversation.id.startsWith("channel.")
+    ? conversation.id.slice("channel.".length)
+    : null;
+  const channel = typeof metadataChannel === "string" && metadataChannel.trim()
+    ? metadataChannel.trim()
+    : legacyChannel?.trim() || null;
+  if (!channel) {
+    return null;
+  }
+
+  return conversation.kind === "system"
+    ? systemChannelNaturalKey(channel)
+    : namedChannelNaturalKey(channel);
+}
+
+/**
+ * Return every record for one semantic conversation in deterministic priority
+ * order: the stable named-channel id, another opaque id, then structural
+ * compatibility aliases. This prevents snapshot insertion order from choosing
+ * which chat receives a write.
+ */
+export function conversationsWithNaturalKey<T extends ConversationIdentityRecord>(
+  conversations: Iterable<T>,
+  naturalKey: string,
+): T[] {
+  const normalizedNaturalKey = naturalKey.trim();
+  const stableId = normalizedNaturalKey.startsWith("channel:")
+    || normalizedNaturalKey.startsWith("system:")
+    ? stableChannelId(normalizedNaturalKey)
+    : null;
+  const priority = (conversation: T): number => {
+    if (stableId && conversation.id === stableId) return 0;
+    if (isOpaqueChannelId(conversation.id)) return 1;
+    return 2;
+  };
+
+  return [...conversations]
+    .filter((conversation) => conversationNaturalKey(conversation) === normalizedNaturalKey)
+    .sort((left, right) => priority(left) - priority(right) || left.id.localeCompare(right.id));
+}
+
+export function preferredConversationWithNaturalKey<T extends ConversationIdentityRecord>(
+  conversations: Iterable<T>,
+  naturalKey: string,
+): T | undefined {
+  return conversationsWithNaturalKey(conversations, naturalKey)[0];
 }
 
 function stableIdentityParts(values: ScoutId[]): string[] {

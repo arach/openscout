@@ -18,13 +18,13 @@ export default function HudMediumPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-8 max-w-prose">
-        <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · macos · hud-medium
         </div>
-        <h1 className="mt-1 font-sans text-[28px] font-semibold leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-sans text-6xl font-semibold leading-none tracking-tight text-studio-ink">
           HUD Medium
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           Locked reference at the medium size — a ~680px panel where
           the operator has room to see more state per item without
           drilling in. Agents become a 2-up tile grid; activity widens
@@ -48,7 +48,7 @@ export default function HudMediumPage() {
 
 function Research() {
   return (
-    <section className="mt-20 w-full max-w-[920px] font-sans text-[13px] leading-relaxed text-studio-ink-muted">
+    <section className="mt-20 w-full max-w-[920px] font-sans text-lg leading-relaxed text-studio-ink-muted">
       <ResearchHeader surface="hud · macos · medium" />
 
       <ResearchBlock eyebrow="tier notes">

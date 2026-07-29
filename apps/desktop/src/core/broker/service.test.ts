@@ -8,7 +8,12 @@ import {
   writeProjectConfig,
   writeRelayAgentOverrides,
 } from "@openscout/runtime/setup";
-import type { ScoutCapabilityMatrixSnapshot } from "@openscout/protocol";
+import {
+  namedChannelNaturalKey,
+  stableChannelId,
+  systemChannelNaturalKey,
+  type ScoutCapabilityMatrixSnapshot,
+} from "@openscout/protocol";
 import {
   registerActiveScoutBrokerService,
   type ActiveScoutBrokerService,
@@ -493,12 +498,18 @@ describe("resolveScoutBrokerUrl", () => {
 });
 
 describe("scoutConversationIdForChannel", () => {
-  test("accepts friendly channel names and normalized channel ids", () => {
-    expect(scoutConversationIdForChannel()).toBe("channel.shared");
-    expect(scoutConversationIdForChannel("shared")).toBe("channel.shared");
-    expect(scoutConversationIdForChannel("channel.shared")).toBe("channel.shared");
-    expect(scoutConversationIdForChannel("font studio")).toBe("channel.font-studio");
-    expect(scoutConversationIdForChannel("channel.font-studio")).toBe("channel.font-studio");
+  test("maps friendly and structural channel names to one definitive opaque id", () => {
+    const sharedId = stableChannelId(namedChannelNaturalKey("shared"));
+    const fontStudioId = stableChannelId(namedChannelNaturalKey("font-studio"));
+
+    expect(scoutConversationIdForChannel()).toBe(sharedId);
+    expect(scoutConversationIdForChannel("shared")).toBe(sharedId);
+    expect(scoutConversationIdForChannel("channel.shared")).toBe(sharedId);
+    expect(scoutConversationIdForChannel("font studio")).toBe(fontStudioId);
+    expect(scoutConversationIdForChannel("channel.font-studio")).toBe(fontStudioId);
+    expect(scoutConversationIdForChannel("system")).toBe(
+      stableChannelId(systemChannelNaturalKey("system")),
+    );
   });
 });
 
@@ -684,7 +695,7 @@ describe("scoutAskHandler", () => {
       error: {
         code: "invalid_request",
         message:
-          "provide exactly one of to, projectPath, runtimeProfile, or existingHandle",
+          "provide one existing target, or a project/runtime launch target",
       },
     });
   });
@@ -2585,6 +2596,93 @@ describe("sendScoutMessage", () => {
     );
   }, 15000);
 
+  test("routes plain named-channel sends to the definitive opaque conversation", async () => {
+    useIsolatedOpenScoutHome();
+    const naturalKey = namedChannelNaturalKey("huddle-v1");
+    const canonicalId = stableChannelId(naturalKey);
+    const captured: {
+      conversation?: {
+        id: string;
+        participantIds: string[];
+        metadata?: Record<string, unknown>;
+      };
+      message?: { conversationId: string; body: string };
+    } = {};
+    const snapshot = {
+      actors: {},
+      agents: {},
+      endpoints: {},
+      conversations: {
+        "channel.huddle-v1": {
+          id: "channel.huddle-v1",
+          kind: "channel",
+          title: "huddle-v1",
+          visibility: "workspace",
+          shareMode: "local",
+          authorityNodeId: "node-1",
+          participantIds: ["legacy-agent", "operator"],
+          metadata: { channel: "huddle-v1" },
+        },
+        [canonicalId]: {
+          id: canonicalId,
+          kind: "channel",
+          title: "huddle-v1",
+          visibility: "workspace",
+          shareMode: "local",
+          authorityNodeId: "node-1",
+          participantIds: ["operator"],
+          metadata: { channel: "huddle-v1", naturalKey },
+        },
+      },
+      messages: {},
+      flights: {},
+    };
+
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse(snapshot);
+      }
+      if (request.method === "POST" && url.pathname === "/v1/actors") {
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/conversations") {
+        captured.conversation = await request.json() as NonNullable<typeof captured.conversation>;
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/messages") {
+        captured.message = await request.json() as NonNullable<typeof captured.message>;
+        return jsonResponse({ ok: true });
+      }
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const result = await sendScoutMessage({
+      senderId: "operator",
+      body: "plain channel update",
+      channel: "huddle-v1",
+      currentDirectory: process.cwd(),
+    });
+
+    expect(result.conversationId).toBe(canonicalId);
+    expect(captured.conversation).toMatchObject({
+      id: canonicalId,
+      participantIds: ["legacy-agent", "operator"],
+      metadata: { channel: "huddle-v1", naturalKey },
+    });
+    expect(captured.message).toMatchObject({
+      conversationId: canonicalId,
+      body: "plain channel update",
+    });
+  });
+
   test("uses explicit send target as route intent and leaves body mentions as text", async () => {
     useIsolatedOpenScoutHome();
 
@@ -3257,7 +3355,7 @@ describe("watchScoutMessages", () => {
           payload: {
             message: {
               id: "m-1",
-              conversationId: "channel.shared",
+              conversationId: stableChannelId(namedChannelNaturalKey("shared")),
               actorId: "scout.main.mini",
               body: "hello from a sibling session",
               class: "agent",

@@ -46,7 +46,6 @@ const LIMIT = 10;
 export function SideRailCollapsedBody({ route }: { route: Route }) {
   switch (route.view) {
     case "messages":
-    case "channels":
     case "conversation":
       return <ChatCollapsedStrip />;
     case "inbox":
@@ -91,7 +90,7 @@ export function InspectorCollapsedBody() {
       onClick: () => navigate(route),
     });
   }
-  if (route.view === "messages" || route.view === "channels" || route.view === "conversation") {
+  if (route.view === "messages" || route.view === "conversation") {
     chips.push({
       key: "chat",
       title: "Chat context",

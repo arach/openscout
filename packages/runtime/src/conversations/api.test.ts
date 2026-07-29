@@ -6,6 +6,8 @@ import { join } from "node:path";
 import {
   CHAT_ID_PREFIX,
   directChannelNaturalKey,
+  namedChannelNaturalKey,
+  stableChannelId,
   type ConversationDefinition,
 } from "@openscout/protocol";
 
@@ -269,6 +271,37 @@ describe("Conversations", () => {
         participantIds: ["operator", "agent-1"],
       });
       expect(duplicate.id).toBe(created.id);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("promotes a structural named channel to its definitive stable id", () => {
+    const store = createStore();
+    try {
+      seedActorsAndNode(store, ["operator", "agent-1"]);
+      store.conversations.upsert(makeConversation({
+        id: "channel.huddle-v1",
+        kind: "channel",
+        title: "huddle-v1",
+        participantIds: ["agent-1"],
+        metadata: { channel: "huddle-v1" },
+      }));
+      const naturalKey = namedChannelNaturalKey("huddle-v1");
+
+      const created = store.conversations.ensureByNaturalKey({
+        naturalKey,
+        kind: "channel",
+        title: "huddle-v1",
+        visibility: "workspace",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["operator"],
+      });
+
+      expect(created.id).toBe(stableChannelId(naturalKey));
+      expect(created.participantIds).toEqual(["agent-1", "operator"]);
+      expect(store.conversations.findByNaturalKey(naturalKey)?.id).toBe(created.id);
     } finally {
       store.close();
     }

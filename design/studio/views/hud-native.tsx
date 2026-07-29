@@ -305,13 +305,13 @@ export default function HudNativePage() {
 function PageHeader() {
   return (
     <header className="mb-9 max-w-prose">
-      <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · studies · macos · hud-native · v5
       </div>
-      <h1 className="mt-1.5 font-display text-[40px] font-medium leading-[1.05] tracking-tight text-studio-ink">
+      <h1 className="mt-1.5 font-display text-6xl font-medium leading-[1.05] tracking-tight text-studio-ink">
         HUD Native — one cockpit, N slotted views
       </h1>
-      <p className="mt-3 font-sans text-[14px] leading-relaxed text-studio-ink-muted">
+      <p className="mt-3 font-sans text-xl leading-relaxed text-studio-ink-muted">
         The HUD has two halves. One native, deeply-iterated surface — the
         always-on AI assistant in Ranger DNA — is the centerpiece we own
         and refine. Everything else (tail, fleet, mission, canvas, brief
@@ -321,7 +321,7 @@ function PageHeader() {
         that fed thinking on IA density, then the slot model that brings
         the rest of the studio into the shell.
       </p>
-      <p className="mt-3 font-sans text-[13px] italic leading-relaxed text-studio-ink-faint">
+      <p className="mt-3 font-sans text-lg italic leading-relaxed text-studio-ink-faint">
         Same glass DNA holds throughout — dark base, layered white
         overlays, top-edge rim, mesh-light specular, gradient hairlines.
         Color is reserved: cyan for focus, rose for an explicit ask;
@@ -336,7 +336,7 @@ function PageHeader() {
 function FormFamilySection() {
   return (
     <section className="mt-16">
-      <p className="mb-6 max-w-prose font-sans text-[12.5px] italic leading-relaxed text-studio-ink-faint">
+      <p className="mb-6 max-w-prose font-sans text-md italic leading-relaxed text-studio-ink-faint">
         Earlier explorations of agent-state IA at three depths — bar,
         panel, sheet. These remain useful as reference for slot content
         density at different scales; the cockpit above subsumes their job
@@ -422,13 +422,13 @@ function FormFamilyDesktop() {
           backdropFilter: "blur(8px)",
         }}
       >
-        <span className="font-mono text-[10px] text-studio-ink-faint"></span>
-        <span className="font-mono text-[10px] text-studio-ink-faint">File</span>
-        <span className="font-mono text-[10px] text-studio-ink-faint">Edit</span>
-        <span className="font-mono text-[10px] text-studio-ink-faint">View</span>
+        <span className="font-mono text-xs text-studio-ink-faint"></span>
+        <span className="font-mono text-xs text-studio-ink-faint">File</span>
+        <span className="font-mono text-xs text-studio-ink-faint">Edit</span>
+        <span className="font-mono text-xs text-studio-ink-faint">View</span>
         <div className="ml-auto flex items-center gap-3">
           <MenuBarOpenScoutGlyph />
-          <span className="font-mono text-[10px] text-studio-ink-faint">9:24</span>
+          <span className="font-mono text-xs text-studio-ink-faint">9:24</span>
         </div>
       </div>
 
@@ -528,7 +528,7 @@ function FormFamilyAnchor({
     >
       {children}
       <div
-        className="absolute left-0 right-0 text-center font-mono text-[9px] uppercase tracking-eyebrow"
+        className="absolute left-0 right-0 text-center font-mono text-2xs uppercase tracking-eyebrow"
         style={{
           [side === "bottom" ? "top" : "bottom"]: side === "bottom" ? h + 6 : h + 6,
           color: "var(--studio-ink)",
@@ -558,16 +558,16 @@ function FormFamilyTradeoff({
     <div className="flex gap-3">
       <span
         aria-hidden
-        className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-[3px] border border-studio-edge font-mono text-[10px] font-semibold text-studio-ink-faint"
+        className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-[3px] border border-studio-edge font-mono text-xs font-semibold text-studio-ink-faint"
       >
         {mark}
       </span>
       <div className="flex-1">
-        <div className="font-display text-[15px] text-studio-ink">{title}</div>
-        <div className="mt-0.5 font-mono text-[10px] text-studio-ink-faint">
+        <div className="font-display text-2xl text-studio-ink">{title}</div>
+        <div className="mt-0.5 font-mono text-xs text-studio-ink-faint">
           {size} · {summon}
         </div>
-        <p className="mt-1.5 font-sans text-[12px] leading-relaxed text-studio-ink-muted">
+        <p className="mt-1.5 font-sans text-md leading-relaxed text-studio-ink-muted">
           {note}
         </p>
       </div>
@@ -638,7 +638,7 @@ function VariantABarSection() {
         </StateCardBar>
       </div>
 
-      <p className="mx-auto mt-6 max-w-prose font-sans text-[12.5px] italic leading-relaxed text-studio-ink-faint">
+      <p className="mx-auto mt-6 max-w-prose font-sans text-md italic leading-relaxed text-studio-ink-faint">
         Always-on rather than hotkey-summoned because the form is small
         enough that it doesn&apos;t earn its keep otherwise — if you have to
         summon it, you may as well summon the panel and get the row depth.
@@ -660,7 +660,7 @@ function StateCardBar({
 }) {
   return (
     <div className="flex flex-col">
-      <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · {label}
       </div>
       <div
@@ -673,7 +673,7 @@ function StateCardBar({
       >
         {children}
       </div>
-      <p className="mt-2 font-sans text-[11.5px] italic leading-relaxed text-studio-ink-faint">
+      <p className="mt-2 font-sans text-sm italic leading-relaxed text-studio-ink-faint">
         {caption}
       </p>
     </div>
@@ -741,7 +741,7 @@ function TopLeftBar({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <MenuBarOpenScoutGlyph />
-            <span className="font-display text-[12px] leading-none text-studio-ink">
+            <span className="font-display text-md leading-none text-studio-ink">
               OpenScout
             </span>
             <span
@@ -749,7 +749,7 @@ function TopLeftBar({
               className="h-3 w-px"
               style={{ background: "var(--hud-glass-stroke-soft)" }}
             />
-            <span className="font-mono text-[9.5px] tabular-nums text-studio-ink-muted">
+            <span className="font-mono text-2xs tabular-nums text-studio-ink-muted">
               {fleet.length} agents
             </span>
           </div>
@@ -779,7 +779,7 @@ function TopLeftBar({
             }}
           />
           <span
-            className="truncate font-sans text-[11px] leading-tight text-studio-ink"
+            className="truncate font-sans text-sm leading-tight text-studio-ink"
             style={{ opacity: 0.95 }}
           >
             <span className="font-medium">{headline.agent.name}</span>{" "}
@@ -816,7 +816,7 @@ function FleetChip({
       }}
     >
       <span
-        className="font-mono text-[8.5px] font-semibold leading-none"
+        className="font-mono text-3xs font-semibold leading-none"
         style={{
           color: attention || completed ? bg : `color-mix(in oklab, ${bg} 90%, white)`,
           letterSpacing: "0.02em",
@@ -896,12 +896,12 @@ function DesktopMenuBar() {
         backdropFilter: "blur(8px)",
       }}
     >
-      <span className="font-mono text-[10px] text-studio-ink-faint"></span>
-      <span className="font-mono text-[10px] text-studio-ink-faint">File</span>
-      <span className="font-mono text-[10px] text-studio-ink-faint">Edit</span>
+      <span className="font-mono text-xs text-studio-ink-faint"></span>
+      <span className="font-mono text-xs text-studio-ink-faint">File</span>
+      <span className="font-mono text-xs text-studio-ink-faint">Edit</span>
       <div className="ml-auto flex items-center gap-3">
         <MenuBarOpenScoutGlyph />
-        <span className="font-mono text-[10px] text-studio-ink-faint">9:24</span>
+        <span className="font-mono text-xs text-studio-ink-faint">9:24</span>
       </div>
     </div>
   );
@@ -938,8 +938,8 @@ function VariantBPanelSection() {
       </Caption>
 
       <div className="mt-12">
-        <h3 className="font-display text-[18px] font-medium text-studio-ink">Content range</h3>
-        <p className="mt-1 max-w-prose font-sans text-[12.5px] text-studio-ink-muted">
+        <h3 className="font-display text-3xl font-medium text-studio-ink">Content range</h3>
+        <p className="mt-1 max-w-prose font-sans text-md text-studio-ink-muted">
           Same shell, different fleet states. The deepened row pays off here — the operator gets enough on each row to decide whether to drill in without summoning the sheet.
         </p>
         <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
@@ -993,8 +993,8 @@ function VariantBPanelSection() {
       </div>
 
       <div className="mt-12">
-        <h3 className="font-display text-[18px] font-medium text-studio-ink">Calibrated for dark hosts</h3>
-        <p className="mt-1 max-w-prose font-sans text-[12.5px] text-studio-ink-muted">
+        <h3 className="font-display text-3xl font-medium text-studio-ink">Calibrated for dark hosts</h3>
+        <p className="mt-1 max-w-prose font-sans text-md text-studio-ink-muted">
           The panel only earns its keep over dark surfaces — coding, terminal, dim desktop. On a light host it would still draw, but the rim light and cool palette stop being the right vocabulary.
         </p>
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -1039,7 +1039,7 @@ function StateCard({
 }) {
   return (
     <div className="flex flex-col">
-      <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · {label}
       </div>
       <div
@@ -1054,7 +1054,7 @@ function StateCard({
           {children}
         </div>
       </div>
-      <p className="mt-2 font-sans text-[11.5px] italic leading-relaxed text-studio-ink-faint">
+      <p className="mt-2 font-sans text-sm italic leading-relaxed text-studio-ink-faint">
         {caption}
       </p>
     </div>
@@ -1072,11 +1072,11 @@ function BackdropCell({
 }) {
   return (
     <div className="flex flex-col">
-      <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · {label}
       </div>
       <div className="mt-2 flex justify-center">{children}</div>
-      <p className="mt-2 font-sans text-[11.5px] leading-relaxed text-studio-ink-muted">
+      <p className="mt-2 font-sans text-sm leading-relaxed text-studio-ink-muted">
         {note}
       </p>
     </div>
@@ -1096,10 +1096,10 @@ function VariantCSheetSection() {
 
       {/* Layout 1 — Standard (hero) */}
       <div className="mt-6">
-        <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · layout 1 · standard
         </div>
-        <p className="mt-1 max-w-prose font-sans text-[12.5px] text-studio-ink-muted">
+        <p className="mt-1 max-w-prose font-sans text-md text-studio-ink-muted">
           The default. Fleet rail on the left, filter strip across the top, a 4-column grid of full agent cards underneath. Every card carries a real last-turn summary, a stat block, the most recent cross-agent message, and an explicit ask if there is one.
         </p>
         <div className="mt-4 flex justify-center">
@@ -1109,10 +1109,10 @@ function VariantCSheetSection() {
 
       <div className="mt-10 flex flex-col gap-10">
         <div>
-          <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             · standard · filter on "needs you"
           </div>
-          <p className="mt-1 max-w-prose font-sans text-[12.5px] text-studio-ink-muted">
+          <p className="mt-1 max-w-prose font-sans text-md text-studio-ink-muted">
             Filter strip collapses the grid to just the agent(s) waiting on the operator. Drover's card grows to fill the freed column, and the empty columns get a sleeping-dots glyph so the sheet doesn&apos;t look broken.
           </p>
           <div className="mt-4 flex justify-center">
@@ -1121,10 +1121,10 @@ function VariantCSheetSection() {
         </div>
 
         <div>
-          <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             · standard · just-completed run
           </div>
-          <p className="mt-1 max-w-prose font-sans text-[12.5px] text-studio-ink-muted">
+          <p className="mt-1 max-w-prose font-sans text-md text-studio-ink-muted">
             Atlas just finished its icon-set run. The card flips to a check-notch posture; the cross-agent message and a single &quot;open in studio&quot; CTA replace the live pulse. Operator can act on the handoff without leaving the briefing.
           </p>
           <div className="mt-4 flex justify-center">
@@ -1135,18 +1135,18 @@ function VariantCSheetSection() {
 
       {/* Alternative IA stances — Mission view + Conversation graph */}
       <div className="mt-14">
-        <h3 className="font-display text-[18px] font-medium text-studio-ink">
+        <h3 className="font-display text-3xl font-medium text-studio-ink">
           Three sheet stances — same data, different IA
         </h3>
-        <p className="mt-1 max-w-prose font-sans text-[12.5px] text-studio-ink-muted">
+        <p className="mt-1 max-w-prose font-sans text-md text-studio-ink-muted">
           The sheet has the real estate to take radically different stances on the same fleet. Pick what serves the moment; switch with a re-summon, or — eventually — a cycle key. Above is Layout 1 · Standard. Below are two alternatives.
         </p>
 
         <div className="mt-8">
-          <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             · layout 2 · mission view
           </div>
-          <p className="mt-1 max-w-prose font-sans text-[12.5px] text-studio-ink-muted">
+          <p className="mt-1 max-w-prose font-sans text-md text-studio-ink-muted">
             Agents grouped by what they&apos;re working on, not as a flat list. Each mission is a labeled cluster. The operator sees which <em>initiatives</em> are active — not just which agents. The mission with the rose left-border is the one carrying the operator-blocked agent.
           </p>
           <div className="mt-4 flex justify-center">
@@ -1155,10 +1155,10 @@ function VariantCSheetSection() {
         </div>
 
         <div className="mt-10">
-          <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             · layout 3 · conversation graph
           </div>
-          <p className="mt-1 max-w-prose font-sans text-[12.5px] text-studio-ink-muted">
+          <p className="mt-1 max-w-prose font-sans text-md text-studio-ink-muted">
             Agents as positioned nodes; cross-agent messages as arcs between them. The shape of the graph answers a question the standard layout can&apos;t: who is talking to whom, and about what. The operator sits in the corner as a larger node; rose arc points at the operator from any agent waiting on a call.
           </p>
           <div className="mt-4 flex justify-center">
@@ -1221,16 +1221,16 @@ function MissionRow({ group, agents }: { group: MissionGroup; agents: HudAgent[]
     >
       <div className="flex items-baseline justify-between gap-2">
         <div className="flex items-baseline gap-2">
-          <span className="font-display text-[13px] text-studio-ink">{group.title}</span>
+          <span className="font-display text-lg text-studio-ink">{group.title}</span>
           <span
-            className="font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-faint"
+            className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint"
           >
             {agents.length} {agents.length === 1 ? "agent" : "agents"}
           </span>
         </div>
         {group.attention ? (
           <span
-            className="font-mono text-[8.5px] uppercase tracking-eyebrow"
+            className="font-mono text-3xs uppercase tracking-eyebrow"
             style={{ color: "var(--hud-rose)" }}
           >
             blocked on you
@@ -1275,18 +1275,18 @@ function MissionAgentCard({ agent }: { agent: HudAgent }) {
       />
       <div className="flex items-center gap-1.5 pl-1">
         <StatusGlyph state={agent.state} color={glyphColor} />
-        <span className="truncate font-sans text-[12px] font-medium text-studio-ink">
+        <span className="truncate font-sans text-md font-medium text-studio-ink">
           {agent.name}
         </span>
         <span
-          className="ml-auto shrink-0 font-mono text-[9px] tabular-nums text-studio-ink"
+          className="ml-auto shrink-0 font-mono text-2xs tabular-nums text-studio-ink"
           style={{ opacity: 0.65 }}
         >
           {agent.ago}
         </span>
       </div>
       <p
-        className="font-sans text-[10.5px] leading-snug text-studio-ink pl-1"
+        className="font-sans text-xs leading-snug text-studio-ink pl-1"
         style={{
           opacity: 0.85,
           display: "-webkit-box",
@@ -1301,13 +1301,13 @@ function MissionAgentCard({ agent }: { agent: HudAgent }) {
         <div className="flex min-w-0 items-center gap-1 pl-1">
           <MessageArrow />
           <span
-            className="shrink-0 font-mono text-[9px] text-studio-ink"
+            className="shrink-0 font-mono text-2xs text-studio-ink"
             style={{ opacity: 0.92 }}
           >
             @{agent.lastMessage.to}
           </span>
           <span
-            className="truncate font-sans text-[9.5px] italic text-studio-ink"
+            className="truncate font-sans text-2xs italic text-studio-ink"
             style={{ opacity: 0.72 }}
           >
             “{agent.lastMessage.text}”
@@ -1768,11 +1768,11 @@ function SheetLeftRail({ fleet }: { fleet: HudAgent[] }) {
       {/* Identity */}
       <div className="flex items-center gap-2.5">
         <MenuBarOpenScoutGlyph />
-        <span className="font-display text-[16px] leading-none text-studio-ink">
+        <span className="font-display text-2xl leading-none text-studio-ink">
           OpenScout
         </span>
       </div>
-      <div className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-xs uppercase tracking-eyebrow text-studio-ink-faint">
         · fleet briefing · 9:24am
       </div>
 
@@ -1796,16 +1796,16 @@ function SheetLeftRail({ fleet }: { fleet: HudAgent[] }) {
           <div className="flex items-center gap-1.5">
             <StatusGlyph state="needs-attention" color="var(--hud-rose)" />
             <span
-              className="font-mono text-[9px] uppercase tracking-eyebrow"
+              className="font-mono text-2xs uppercase tracking-eyebrow"
               style={{ color: "var(--hud-rose)" }}
             >
               waiting on you
             </span>
           </div>
-          <div className="mt-1 font-sans text-[12px] font-medium text-studio-ink">
+          <div className="mt-1 font-sans text-md font-medium text-studio-ink">
             {attentionAgent.name}
           </div>
-          <p className="mt-0.5 font-sans text-[11px] leading-snug text-studio-ink">
+          <p className="mt-0.5 font-sans text-sm leading-snug text-studio-ink">
             {attentionAgent.pendingAsk}
           </p>
         </div>
@@ -1813,7 +1813,7 @@ function SheetLeftRail({ fleet }: { fleet: HudAgent[] }) {
 
       {/* Fleet hue legend */}
       <div className="mt-auto flex flex-col gap-1.5">
-        <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           · fleet
         </div>
         {fleet.map((a) => (
@@ -1822,7 +1822,7 @@ function SheetLeftRail({ fleet }: { fleet: HudAgent[] }) {
       </div>
 
       {/* Hotkey hint */}
-      <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         <span style={{ color: "var(--studio-ink)" }}>⌥⇧ space</span> to dismiss
       </div>
     </div>
@@ -1848,11 +1848,11 @@ function RailStat({
         border: "0.75px solid var(--hud-glass-stroke-soft)",
       }}
     >
-      <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         {label}
       </span>
       <span
-        className="font-mono text-[18px] font-medium leading-none tabular-nums"
+        className="font-mono text-3xl font-medium leading-none tabular-nums"
         style={{ color }}
       >
         {value}
@@ -1872,11 +1872,11 @@ function RailLegendRow({ agent }: { agent: HudAgent }) {
         className="block h-2 w-2 rounded-[1.5px]"
         style={{ background: color }}
       />
-      <span className="flex-1 font-sans text-[11px] text-studio-ink">
+      <span className="flex-1 font-sans text-sm text-studio-ink">
         {agent.name}
       </span>
       <span
-        className="font-mono text-[9px] tabular-nums text-studio-ink"
+        className="font-mono text-2xs tabular-nums text-studio-ink"
         style={{ opacity: 0.65 }}
       >
         {agent.runtime}
@@ -1917,7 +1917,7 @@ function SheetFilterStrip({
       </div>
       <div className="flex items-center gap-3">
         <Hotkey keys={["⌥", "⇧", "space"]} compact />
-        <span className="font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           toggle to dismiss
         </span>
       </div>
@@ -1948,13 +1948,13 @@ function FilterChip({
       }}
     >
       <span
-        className="font-sans text-[11px] leading-none"
+        className="font-sans text-sm leading-none"
         style={{ color: active ? color : "var(--studio-ink)" }}
       >
         {label}
       </span>
       <span
-        className="font-mono text-[9.5px] tabular-nums leading-none"
+        className="font-mono text-2xs tabular-nums leading-none"
         style={{
           color: active ? color : "var(--studio-ink)",
           opacity: active ? 1 : 0.65,
@@ -2014,17 +2014,17 @@ function AgentCard({
         </div>
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex items-baseline justify-between gap-2">
-            <span className="truncate font-sans text-[13px] font-medium text-studio-ink">
+            <span className="truncate font-sans text-lg font-medium text-studio-ink">
               {agent.name}
             </span>
             <span
-              className="shrink-0 font-mono text-[9px] tabular-nums text-studio-ink"
+              className="shrink-0 font-mono text-2xs tabular-nums text-studio-ink"
               style={{ opacity: 0.65 }}
             >
               {agent.ago}
             </span>
           </div>
-          <span className="truncate font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="truncate font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
             {agent.role}
           </span>
         </div>
@@ -2039,10 +2039,10 @@ function AgentCard({
             border: "0.75px solid var(--hud-rose-soft)",
           }}
         >
-          <div className="font-mono text-[8.5px] uppercase tracking-eyebrow" style={{ color: "var(--hud-rose)" }}>
+          <div className="font-mono text-3xs uppercase tracking-eyebrow" style={{ color: "var(--hud-rose)" }}>
             waiting on you
           </div>
-          <p className="mt-0.5 font-sans text-[11px] leading-snug text-studio-ink">
+          <p className="mt-0.5 font-sans text-sm leading-snug text-studio-ink">
             {agent.pendingAsk}
           </p>
         </div>
@@ -2050,11 +2050,11 @@ function AgentCard({
 
       {/* Last turn summary */}
       <div className="flex flex-col gap-1">
-        <div className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
           · last turn
         </div>
         <p
-          className="font-sans text-[11.5px] italic leading-snug text-studio-ink"
+          className="font-sans text-sm italic leading-snug text-studio-ink"
           style={{
             opacity: 0.92,
             display: "-webkit-box",
@@ -2073,7 +2073,7 @@ function AgentCard({
       {/* Cross-agent message */}
       {agent.lastMessage ? (
         <div className="flex flex-col gap-1">
-          <div className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
             · last message
           </div>
           <CrossAgentSnippet to={agent.lastMessage.to} text={agent.lastMessage.text} />
@@ -2100,11 +2100,11 @@ function AgentCard({
             border: "0.75px solid var(--hud-glass-stroke-soft)",
           }}
         >
-          <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-muted">
+          <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-muted">
             handoff ready
           </span>
           <span
-            className="inline-flex items-center gap-1 font-mono text-[9.5px] text-studio-ink"
+            className="inline-flex items-center gap-1 font-mono text-2xs text-studio-ink"
             style={{ opacity: 0.92 }}
           >
             open in studio
@@ -2150,13 +2150,13 @@ function StatKV({
   return (
     <>
       <span
-        className="font-mono text-[8.5px] uppercase leading-tight tracking-eyebrow text-studio-ink"
+        className="font-mono text-3xs uppercase leading-tight tracking-eyebrow text-studio-ink"
         style={{ opacity: 0.65 }}
       >
         {k}
       </span>
       <span
-        className={`leading-tight tabular-nums ${mono ? "font-mono text-[10px]" : "font-sans text-[10.5px]"} text-studio-ink truncate`}
+        className={`leading-tight tabular-nums ${mono ? "font-mono text-xs" : "font-sans text-xs"} text-studio-ink truncate`}
         style={span ? { gridColumn: `span ${span}` } : undefined}
       >
         {v}
@@ -2179,13 +2179,13 @@ function CrossAgentSnippet({ to, text }: { to: string; text: string }) {
       </span>
       <span className="min-w-0 flex-1">
         <span
-          className="font-mono text-[10px] text-studio-ink"
+          className="font-mono text-xs text-studio-ink"
           style={{ opacity: 0.92 }}
         >
           @{to}
         </span>
         <span
-          className="font-sans text-[10.5px] leading-snug text-studio-ink"
+          className="font-sans text-xs leading-snug text-studio-ink"
           style={{ opacity: 0.85 }}
         >
           {" "}
@@ -2199,7 +2199,7 @@ function CrossAgentSnippet({ to, text }: { to: string; text: string }) {
 function SpawnLineage({ spawnedBy, self }: { spawnedBy?: string; self: string }) {
   if (!spawnedBy) return <span />;
   return (
-    <span className="inline-flex items-center gap-1 font-mono text-[9px] text-studio-ink" style={{ opacity: 0.6 }}>
+    <span className="inline-flex items-center gap-1 font-mono text-2xs text-studio-ink" style={{ opacity: 0.6 }}>
       <span>{spawnedBy === "operator" ? "you" : `@${spawnedBy.toLowerCase()}`}</span>
       <LineageArrow />
       <span>{self.toLowerCase()}</span>
@@ -2309,7 +2309,7 @@ function IAExplorationsSection() {
         </IATreatmentCard>
       </div>
 
-      <p className="mx-auto mt-5 max-w-prose font-sans text-[12.5px] italic leading-relaxed text-studio-ink-faint">
+      <p className="mx-auto mt-5 max-w-prose font-sans text-md italic leading-relaxed text-studio-ink-faint">
         Same agent, four IA stances — sketches to react to, not finished design. The panel ships one of these; the sheet may compose two or three on the same card.
       </p>
     </section>
@@ -2327,7 +2327,7 @@ function IATreatmentCard({
 }) {
   return (
     <div className="flex flex-col">
-      <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · {label}
       </div>
       <div
@@ -2340,7 +2340,7 @@ function IATreatmentCard({
       >
         {children}
       </div>
-      <p className="mt-2 font-sans text-[11.5px] italic leading-relaxed text-studio-ink-faint">
+      <p className="mt-2 font-sans text-sm italic leading-relaxed text-studio-ink-faint">
         {caption}
       </p>
     </div>
@@ -2425,19 +2425,19 @@ function IATreatmentDense({ agent }: { agent: HudAgent }) {
         <div className="flex items-baseline justify-between gap-2">
           <div className="flex items-baseline gap-2">
             <StatusGlyph state={agent.state} color={isAttention ? "var(--hud-rose)" : "var(--hud-cyan)"} />
-            <span className="font-sans text-[13px] font-medium text-studio-ink">
+            <span className="font-sans text-lg font-medium text-studio-ink">
               {agent.name}
             </span>
-            <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+            <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
               {agent.role}
             </span>
           </div>
-          <span className="font-mono text-[9.5px] tabular-nums text-studio-ink" style={{ opacity: 0.65 }}>
+          <span className="font-mono text-2xs tabular-nums text-studio-ink" style={{ opacity: 0.65 }}>
             {agent.ago}
           </span>
         </div>
         <p
-          className="font-sans text-[10.5px] leading-snug text-studio-ink"
+          className="font-sans text-xs leading-snug text-studio-ink"
           style={{ opacity: 0.78 }}
         >
           {agent.task}
@@ -2471,16 +2471,16 @@ function IATreatmentNarrative({ agent }: { agent: HudAgent }) {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <StatusGlyph state={agent.state} color={isAttention ? "var(--hud-rose)" : "var(--hud-cyan)"} />
-            <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+            <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
               {agent.name} · {agent.role}
             </span>
           </div>
-          <span className="font-mono text-[9.5px] tabular-nums text-studio-ink" style={{ opacity: 0.65 }}>
+          <span className="font-mono text-2xs tabular-nums text-studio-ink" style={{ opacity: 0.65 }}>
             {agent.ago} · {agent.runtime}
           </span>
         </div>
         <p
-          className="flex-1 font-sans text-[12px] italic leading-snug text-studio-ink"
+          className="flex-1 font-sans text-md italic leading-snug text-studio-ink"
           style={{ opacity: 0.95 }}
         >
           “{agent.lastTurn}”
@@ -2492,10 +2492,10 @@ function IATreatmentNarrative({ agent }: { agent: HudAgent }) {
             border: "0.75px solid var(--hud-glass-stroke-soft)",
           }}
         >
-          <span className="font-mono text-[9.5px] tabular-nums text-studio-ink" style={{ opacity: 0.75 }}>
+          <span className="font-mono text-2xs tabular-nums text-studio-ink" style={{ opacity: 0.75 }}>
             {agent.files}f · {agent.tokens} · {agent.model}
           </span>
-          <span className="font-mono text-[9.5px] tabular-nums text-studio-ink" style={{ opacity: 0.6 }}>
+          <span className="font-mono text-2xs tabular-nums text-studio-ink" style={{ opacity: 0.6 }}>
             {agent.branch}
           </span>
         </div>
@@ -2512,12 +2512,12 @@ function IATreatmentTimeline({ agent }: { agent: HudAgent }) {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <StatusGlyph state={agent.state} color={isAttention ? "var(--hud-rose)" : "var(--hud-cyan)"} />
-            <span className="font-sans text-[13px] font-medium text-studio-ink">{agent.name}</span>
-            <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+            <span className="font-sans text-lg font-medium text-studio-ink">{agent.name}</span>
+            <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
               {agent.role}
             </span>
           </div>
-          <span className="font-mono text-[9.5px] tabular-nums text-studio-ink" style={{ opacity: 0.65 }}>
+          <span className="font-mono text-2xs tabular-nums text-studio-ink" style={{ opacity: 0.65 }}>
             since {agent.runtime}
           </span>
         </div>
@@ -2531,7 +2531,7 @@ function IATreatmentTimeline({ agent }: { agent: HudAgent }) {
           ]}
         />
         <p
-          className="font-sans text-[11px] leading-snug text-studio-ink"
+          className="font-sans text-sm leading-snug text-studio-ink"
           style={{ opacity: 0.85 }}
         >
           {isAttention ? agent.pendingAsk : agent.task}
@@ -2554,7 +2554,7 @@ function EventTimeline({
         {events.map((e, i) => (
           <div key={i} className="flex flex-col items-center gap-1">
             <span
-              className="font-mono text-[8.5px] tabular-nums text-studio-ink"
+              className="font-mono text-3xs tabular-nums text-studio-ink"
               style={{ opacity: 0.65 }}
             >
               {e.t}
@@ -2563,7 +2563,7 @@ function EventTimeline({
               <TimelineGlyph kind={e.glyph} attention={e.attention} />
             </span>
             <span
-              className="font-mono text-[8.5px] uppercase tracking-eyebrow"
+              className="font-mono text-3xs uppercase tracking-eyebrow"
               style={{
                 color: e.attention ? "var(--hud-rose)" : "var(--studio-ink)",
                 opacity: e.attention ? 1 : 0.78,
@@ -2642,33 +2642,33 @@ function IATreatmentSnippet({ agent }: { agent: HudAgent }) {
     <IAShell attention={isAttention}>
       <div className="flex h-full flex-col gap-2 px-3.5 py-3 pl-4">
         <div className="flex items-center justify-between">
-          <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
             {agent.name} · {agent.runtime} · {agent.files}f
           </span>
-          <span className="font-mono text-[9.5px] tabular-nums text-studio-ink" style={{ opacity: 0.65 }}>
+          <span className="font-mono text-2xs tabular-nums text-studio-ink" style={{ opacity: 0.65 }}>
             {agent.ago}
           </span>
         </div>
         <div className="flex flex-1 flex-col justify-center gap-2">
           <div className="flex items-baseline gap-1.5">
-            <span className="text-[14px]">
+            <span className="text-xl">
               <MessageArrowLarge />
             </span>
             <span
-              className="font-mono text-[14px] text-studio-ink"
+              className="font-mono text-xl text-studio-ink"
               style={{ opacity: 0.95 }}
             >
               @{m.to}
             </span>
           </div>
-          <p className="font-sans text-[13px] italic leading-snug text-studio-ink">
+          <p className="font-sans text-lg italic leading-snug text-studio-ink">
             “{m.text}”
           </p>
         </div>
         <div className="flex items-center justify-between">
           <StatusGlyph state={agent.state} color={isAttention ? "var(--hud-rose)" : "var(--hud-cyan)"} />
           <span
-            className="font-mono text-[9.5px] tabular-nums text-studio-ink"
+            className="font-mono text-2xs tabular-nums text-studio-ink"
             style={{ opacity: 0.65 }}
           >
             {agent.branch} · {agent.model}
@@ -2704,18 +2704,18 @@ function SummonGesturesSection() {
         <ChordLegend />
       </div>
 
-      <p className="mx-auto mt-5 max-w-prose text-center font-sans text-[12.5px] italic leading-relaxed text-studio-ink-faint">
+      <p className="mx-auto mt-5 max-w-prose text-center font-sans text-md italic leading-relaxed text-studio-ink-faint">
         One chord enters the family; arrows navigate between postures.
         Forms are not mutually exclusive — the bar can stay on while the
-        sheet drops. <span className="not-italic font-mono text-[11px] text-studio-ink">⎋</span> dismisses everything.
+        sheet drops. <span className="not-italic font-mono text-sm text-studio-ink">⎋</span> dismisses everything.
       </p>
 
       {/* Live state sequence — 4 panels showing coexistence */}
       <div className="mt-10">
-        <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · live state sequence
         </div>
-        <p className="mt-1 max-w-prose font-sans text-[12.5px] text-studio-ink-muted">
+        <p className="mt-1 max-w-prose font-sans text-md text-studio-ink-muted">
           The chord opens the bar; the panel slides in alongside; the sheet drops while everything else stays put; Esc clears the surface. Each frame is a snapshot of the mock desktop at the moment after the keypress.
         </p>
         <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -2763,7 +2763,7 @@ function ChordLegend() {
         {/* Hyper+A → bar */}
         <div className="flex flex-col items-center gap-2">
           <HyperA />
-          <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
             summons family
           </span>
         </div>
@@ -2781,7 +2781,7 @@ function ChordLegend() {
         </ChordFormThumb>
       </div>
 
-      <div className="mt-7 flex flex-wrap items-center justify-center gap-x-6 gap-y-3 font-mono text-[10.5px] text-studio-ink">
+      <div className="mt-7 flex flex-wrap items-center justify-center gap-x-6 gap-y-3 font-mono text-xs text-studio-ink">
         <span className="flex items-center gap-2">
           <ArrowKey kind="left" />
           <span className="text-studio-ink-faint">step back / collapse</span>
@@ -2816,7 +2816,7 @@ function ChordFormThumb({
       >
         {children}
       </div>
-      <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         {mark} · {label}
       </span>
     </div>
@@ -2835,7 +2835,7 @@ function ChordArrow({
       <SummonArrow />
       {withKey ? <div className="-mt-1">{withKey}</div> : null}
       {caption ? (
-        <span className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
           {caption}
         </span>
       ) : null}
@@ -2851,7 +2851,7 @@ function HyperA() {
       <ModCap glyph="⌥" />
       <ModCap glyph="⇧" />
       <ModCap glyph="⌘" />
-      <span className="mx-[2px] font-mono text-[10px] text-studio-ink-faint">+</span>
+      <span className="mx-[2px] font-mono text-xs text-studio-ink-faint">+</span>
       <LetterCap letter="A" />
     </div>
   );
@@ -2860,7 +2860,7 @@ function HyperA() {
 function ModCap({ glyph }: { glyph: string }) {
   return (
     <span
-      className="inline-grid h-[22px] w-[22px] place-items-center rounded-[4px] border border-studio-edge font-mono text-[11px] text-studio-ink"
+      className="inline-grid h-[22px] w-[22px] place-items-center rounded-[4px] border border-studio-edge font-mono text-sm text-studio-ink"
       style={{
         background: "var(--studio-canvas)",
         boxShadow: "0 1px 0 var(--studio-edge), 0 2px 0 var(--studio-canvas-alt)",
@@ -2874,7 +2874,7 @@ function ModCap({ glyph }: { glyph: string }) {
 function LetterCap({ letter }: { letter: string }) {
   return (
     <span
-      className="inline-grid h-[22px] w-[22px] place-items-center rounded-[4px] border border-studio-edge font-mono text-[11px] font-semibold text-studio-ink"
+      className="inline-grid h-[22px] w-[22px] place-items-center rounded-[4px] border border-studio-edge font-mono text-sm font-semibold text-studio-ink"
       style={{
         background: "var(--studio-canvas)",
         boxShadow: "0 1px 0 var(--studio-edge), 0 2px 0 var(--studio-canvas-alt)",
@@ -2889,7 +2889,7 @@ function ArrowKey({ kind }: { kind: "left" | "right" | "up" | "down" }) {
   const glyph = kind === "left" ? "←" : kind === "right" ? "→" : kind === "up" ? "↑" : "↓";
   return (
     <span
-      className="inline-grid h-[22px] w-[22px] place-items-center rounded-[4px] border border-studio-edge font-mono text-[11px] text-studio-ink"
+      className="inline-grid h-[22px] w-[22px] place-items-center rounded-[4px] border border-studio-edge font-mono text-sm text-studio-ink"
       style={{
         background: "var(--studio-canvas)",
         boxShadow: "0 1px 0 var(--studio-edge), 0 2px 0 var(--studio-canvas-alt)",
@@ -2903,7 +2903,7 @@ function ArrowKey({ kind }: { kind: "left" | "right" | "up" | "down" }) {
 function EscKey() {
   return (
     <span
-      className="inline-grid h-[22px] place-items-center rounded-[4px] border border-studio-edge px-2 font-mono text-[10px] text-studio-ink"
+      className="inline-grid h-[22px] place-items-center rounded-[4px] border border-studio-edge px-2 font-mono text-xs text-studio-ink"
       style={{
         background: "var(--studio-canvas)",
         boxShadow: "0 1px 0 var(--studio-edge), 0 2px 0 var(--studio-canvas-alt)",
@@ -2936,7 +2936,7 @@ function ChordSequenceFrame({
   return (
     <div className="flex flex-col">
       <div className="flex items-center justify-between">
-        <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · step {step}
         </span>
         {keypress}
@@ -3016,7 +3016,7 @@ function ChordSequenceFrame({
           </div>
         ) : null}
       </div>
-      <p className="mt-2 font-sans text-[11.5px] italic leading-relaxed text-studio-ink-faint">
+      <p className="mt-2 font-sans text-sm italic leading-relaxed text-studio-ink-faint">
         {caption}
       </p>
     </div>
@@ -3099,7 +3099,7 @@ function Hotkey({ keys, compact }: { keys: string[]; compact?: boolean }) {
         <span
           key={i}
           className={`inline-grid place-items-center rounded-[4px] border border-studio-edge font-mono text-studio-ink ${
-            compact ? "h-6 min-w-[24px] text-[10px]" : "h-9 min-w-[36px] text-[12px]"
+            compact ? "h-6 min-w-[24px] text-xs" : "h-9 min-w-[36px] text-md"
           } px-2`}
           style={{
             background: "var(--studio-canvas)",
@@ -3176,13 +3176,13 @@ function AnatomyItem({
     <li className="flex list-none gap-3">
       <span
         aria-hidden
-        className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-[3px] border border-studio-edge font-mono text-[10px] font-semibold text-studio-ink-faint"
+        className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-[3px] border border-studio-edge font-mono text-xs font-semibold text-studio-ink-faint"
       >
         {mark}
       </span>
       <div className="flex-1">
-        <div className="font-display text-[15px] text-studio-ink">{name}</div>
-        <p className="mt-1 font-sans text-[12px] leading-relaxed text-studio-ink-muted">
+        <div className="font-display text-2xl text-studio-ink">{name}</div>
+        <p className="mt-1 font-sans text-md leading-relaxed text-studio-ink-muted">
           {body}
         </p>
       </div>
@@ -3206,7 +3206,7 @@ function CalloutPip({
   const bg = tone === "rose" ? "var(--hud-rose)" : "var(--hud-cyan)";
   return (
     <span
-      className="absolute grid h-4 w-4 place-items-center rounded-full font-mono text-[9px] font-semibold"
+      className="absolute grid h-4 w-4 place-items-center rounded-full font-mono text-2xs font-semibold"
       style={{ left, right, top, background: bg, color: "rgb(8,10,14)" }}
     >
       {mark}
@@ -3355,13 +3355,13 @@ function HudHeader({ header, subhead }: { header: string; subhead: string }) {
     <div className="relative" style={{ height: 44 }}>
       <div className="flex h-full items-center justify-between px-3.5">
         <div className="flex items-baseline gap-2">
-          <span className="font-display text-[14px] text-studio-ink">{header}</span>
+          <span className="font-display text-xl text-studio-ink">{header}</span>
           <span
             aria-hidden
             className="h-3 w-px shrink-0 self-center"
             style={{ background: "var(--hud-glass-stroke-soft)" }}
           />
-          <span className="font-mono text-[10.5px] tabular-nums text-studio-ink-muted">
+          <span className="font-mono text-xs tabular-nums text-studio-ink-muted">
             {subhead}
           </span>
         </div>
@@ -3389,10 +3389,10 @@ function HudEmpty({ message }: { message: string }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-5">
       <EmptyGlyph />
-      <p className="mt-3 text-center font-sans text-[12px] leading-relaxed text-studio-ink-muted">
+      <p className="mt-3 text-center font-sans text-md leading-relaxed text-studio-ink-muted">
         {message}
       </p>
-      <p className="mt-1 text-center font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <p className="mt-1 text-center font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         ⌥ space to dismiss
       </p>
     </div>
@@ -3472,14 +3472,14 @@ function HudAgentRow({
         <div className="shrink-0">
           <StatusGlyph state={agent.state} color={glyphColor} />
         </div>
-        <span className="truncate font-sans text-[13px] font-medium text-studio-ink">
+        <span className="truncate font-sans text-lg font-medium text-studio-ink">
           {agent.name}
         </span>
-        <span className="truncate font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="truncate font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           {agent.role}
         </span>
         <span
-          className="ml-auto shrink-0 font-mono text-[9.5px] tabular-nums text-studio-ink"
+          className="ml-auto shrink-0 font-mono text-2xs tabular-nums text-studio-ink"
           style={{ opacity: 0.65 }}
         >
           {agent.ago}
@@ -3489,7 +3489,7 @@ function HudAgentRow({
       {/* Row 2 — last turn (or ask) */}
       {isAttention && agent.pendingAsk ? (
         <p
-          className="font-sans text-[11px] leading-snug text-studio-ink"
+          className="font-sans text-sm leading-snug text-studio-ink"
           style={{
             opacity: 1,
             display: "-webkit-box",
@@ -3499,7 +3499,7 @@ function HudAgentRow({
           }}
         >
           <span
-            className="font-mono text-[8.5px] uppercase tracking-eyebrow"
+            className="font-mono text-3xs uppercase tracking-eyebrow"
             style={{ color: "var(--hud-rose)" }}
           >
             waiting on you ·{" "}
@@ -3508,7 +3508,7 @@ function HudAgentRow({
         </p>
       ) : (
         <p
-          className="font-sans text-[11px] italic leading-snug text-studio-ink"
+          className="font-sans text-sm italic leading-snug text-studio-ink"
           style={{
             opacity: 0.82,
             display: "-webkit-box",
@@ -3522,7 +3522,7 @@ function HudAgentRow({
       )}
 
       {/* Row 3 — stat strip (compact) */}
-      <div className="flex items-center gap-2 font-mono text-[9px] tabular-nums text-studio-ink" style={{ opacity: 0.72 }}>
+      <div className="flex items-center gap-2 font-mono text-2xs tabular-nums text-studio-ink" style={{ opacity: 0.72 }}>
         <span>{agent.runtime}</span>
         <PanelStatDot />
         <span>{agent.files}f</span>
@@ -3537,13 +3537,13 @@ function HudAgentRow({
         <div className="flex min-w-0 items-center gap-1">
           <MessageArrow />
           <span
-            className="shrink-0 font-mono text-[9.5px] text-studio-ink"
+            className="shrink-0 font-mono text-2xs text-studio-ink"
             style={{ opacity: 0.92 }}
           >
             @{agent.lastMessage.to}
           </span>
           <span
-            className="truncate font-sans text-[10px] italic text-studio-ink"
+            className="truncate font-sans text-xs italic text-studio-ink"
             style={{ opacity: 0.78 }}
           >
             “{agent.lastMessage.text}”
@@ -3554,7 +3554,7 @@ function HudAgentRow({
       {/* Done state pip — neutral ink; cyan reserved for the check-notch status glyph */}
       {isDone ? (
         <span
-          className="inline-flex w-fit items-center gap-1 rounded-[3px] px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink"
+          className="inline-flex w-fit items-center gap-1 rounded-[3px] px-1.5 py-0.5 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink"
           style={{
             border: "0.75px solid var(--hud-glass-stroke-soft)",
             background: "var(--hud-glass-fill)",
@@ -3598,11 +3598,11 @@ function HudOpenStudioPip() {
         className="flex items-center justify-between px-3.5 py-2"
         style={{ background: "rgba(255,255,255,0.025)" }}
       >
-        <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-muted">
+        <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-muted">
           Atlas finished
         </span>
         <span
-          className="inline-flex items-center gap-1 font-mono text-[9.5px] text-studio-ink"
+          className="inline-flex items-center gap-1 font-mono text-2xs text-studio-ink"
           style={{ opacity: 0.92 }}
         >
           Open in studio
@@ -3758,7 +3758,7 @@ function BackdropEditor() {
         <span className="h-2 w-2 rounded-full" style={{ background: "var(--status-error-fg)" }} />
         <span className="h-2 w-2 rounded-full" style={{ background: "var(--status-warn-fg)" }} />
         <span className="h-2 w-2 rounded-full" style={{ background: "var(--status-ok-fg)" }} />
-        <span className="ml-3 font-mono text-[9px] text-studio-ink-faint">QuickSteer.tsx — openscout/design/studio</span>
+        <span className="ml-3 font-mono text-2xs text-studio-ink-faint">QuickSteer.tsx — openscout/design/studio</span>
       </div>
       <div className="flex h-[calc(100%-22px)]">
         <div
@@ -3768,7 +3768,7 @@ function BackdropEditor() {
           {LINES.map((_, i) => (
             <span
               key={i}
-              className="font-mono text-[9.5px] tabular-nums"
+              className="font-mono text-2xs tabular-nums"
               style={{ color: "var(--studio-ink-faint)", opacity: 0.55, lineHeight: "16px" }}
             >
               {i + 1}
@@ -3910,13 +3910,13 @@ function SectionHead({
 }) {
   return (
     <header className="max-w-prose">
-      <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · {kicker}
       </div>
-      <h2 className="mt-1 m-0 font-display text-[26px] font-medium leading-tight tracking-tight text-studio-ink">
+      <h2 className="mt-1 m-0 font-display text-6xl font-medium leading-tight tracking-tight text-studio-ink">
         {title}
       </h2>
-      <p className="mt-2 font-sans text-[13.5px] leading-relaxed text-studio-ink-muted">
+      <p className="mt-2 font-sans text-lg leading-relaxed text-studio-ink-muted">
         {lede}
       </p>
     </header>
@@ -3925,7 +3925,7 @@ function SectionHead({
 
 function Caption({ children }: { children: ReactNode }) {
   return (
-    <div className="mt-3 text-center font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+    <div className="mt-3 text-center font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
       {children}
     </div>
   );
@@ -3933,7 +3933,7 @@ function Caption({ children }: { children: ReactNode }) {
 
 function PageFooter() {
   return (
-    <footer className="mt-14 border-t border-studio-edge pt-3 font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+    <footer className="mt-14 border-t border-studio-edge pt-3 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
       <span>study · </span>
       <span className="text-studio-ink">hud-native</span>
       <span className="mx-1.5">·</span>
@@ -3992,10 +3992,10 @@ function CockpitSection() {
 
       {/* Mode frames — 4 more states */}
       <div className="mt-14">
-        <h3 className="font-display text-[18px] font-medium text-studio-ink">
+        <h3 className="font-display text-3xl font-medium text-studio-ink">
           The four modes the cockpit cycles through
         </h3>
-        <p className="mt-1 max-w-prose font-sans text-[12.5px] text-studio-ink-muted">
+        <p className="mt-1 max-w-prose font-sans text-md text-studio-ink-muted">
           One key away from each. The strip on top tells the operator
           which mode they&apos;re in; the input dock at the bottom is the
           mouth of all four. Command and search overlay a small floating
@@ -4058,7 +4058,7 @@ function CockpitSection() {
         </div>
       </div>
 
-      <p className="mx-auto mt-10 max-w-prose font-sans text-[12.5px] italic leading-relaxed text-studio-ink-faint">
+      <p className="mx-auto mt-10 max-w-prose font-sans text-md italic leading-relaxed text-studio-ink-faint">
         The cockpit is one thing. The slot library further down is everything
         else. The cockpit gets the design budget every week; the slot
         library gets the studio surfaces it already has.
@@ -4081,13 +4081,13 @@ function CockpitFrameBlock({
   return (
     <div className="flex w-full flex-col items-center">
       <div className="mb-2 flex items-baseline gap-3">
-        <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · frame {n}
         </span>
-        <span className="font-mono text-[10.5px] text-studio-ink">{label}</span>
+        <span className="font-mono text-xs text-studio-ink">{label}</span>
       </div>
       {children}
-      <p className="mx-auto mt-3 max-w-[680px] text-center font-sans text-[11.5px] italic leading-relaxed text-studio-ink-faint">
+      <p className="mx-auto mt-3 max-w-[680px] text-center font-sans text-sm italic leading-relaxed text-studio-ink-faint">
         {caption}
       </p>
     </div>
@@ -4282,14 +4282,14 @@ function CockpitTopStrip({ mode, fleet }: { mode: CockpitMode; fleet: HudAgent[]
     >
       {/* Mode indicator */}
       <span
-        className="font-mono text-[10px] font-semibold tabular-nums"
+        className="font-mono text-xs font-semibold tabular-nums"
         style={{ color: modeColor, letterSpacing: "0.08em" }}
       >
         {modeLabel}
       </span>
 
       {/* Fleet pulse summary — center */}
-      <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-2 font-mono text-[10px] text-studio-ink" style={{ opacity: 0.85 }}>
+      <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-2 font-mono text-xs text-studio-ink" style={{ opacity: 0.85 }}>
         <span className="tabular-nums">{running} running</span>
         <PanelStatDot />
         <span
@@ -4306,7 +4306,7 @@ function CockpitTopStrip({ mode, fleet }: { mode: CockpitMode; fleet: HudAgent[]
       </div>
 
       {/* Hotkey hints — right */}
-      <div className="flex items-center gap-2 font-mono text-[9.5px] text-studio-ink" style={{ opacity: 0.62 }}>
+      <div className="flex items-center gap-2 font-mono text-2xs text-studio-ink" style={{ opacity: 0.62 }}>
         <span>?</span>
         <span style={{ opacity: 0.7 }}>help</span>
         <PanelStatDot />
@@ -4338,10 +4338,10 @@ function CockpitColumnFleet({
         className="flex items-center justify-between px-3 py-2"
         style={{ borderBottom: "1px solid var(--hud-glass-stroke-soft)" }}
       >
-        <span className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · fleet
         </span>
-        <span className="font-mono text-[9px] tabular-nums text-studio-ink" style={{ opacity: 0.6 }}>
+        <span className="font-mono text-2xs tabular-nums text-studio-ink" style={{ opacity: 0.6 }}>
           {fleet.length}
         </span>
       </div>
@@ -4394,18 +4394,18 @@ function CockpitFleetRow({ agent, selected }: { agent: HudAgent; selected: boole
       ) : null}
       <div className="flex items-center gap-1.5 pl-1.5">
         <StatusGlyph state={agent.state} color={glyphColor} />
-        <span className="truncate font-sans text-[11.5px] font-medium text-studio-ink">
+        <span className="truncate font-sans text-sm font-medium text-studio-ink">
           {agent.name}
         </span>
         <span
-          className="ml-auto shrink-0 font-mono text-[8.5px] tabular-nums text-studio-ink"
+          className="ml-auto shrink-0 font-mono text-3xs tabular-nums text-studio-ink"
           style={{ opacity: 0.55 }}
         >
           {agent.ago}
         </span>
       </div>
       <p
-        className="truncate pl-1.5 font-sans text-[10px] leading-tight text-studio-ink"
+        className="truncate pl-1.5 font-sans text-xs leading-tight text-studio-ink"
         style={{ opacity: selected ? 0.88 : 0.66 }}
       >
         {agent.task}
@@ -4435,10 +4435,10 @@ function CockpitColumnContext({
         className="flex items-center justify-between px-3 py-2"
         style={{ borderBottom: "1px solid var(--hud-glass-stroke-soft)" }}
       >
-        <span className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · context · {agent.name.toLowerCase()}
         </span>
-        <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           {agent.role}
         </span>
       </div>
@@ -4446,11 +4446,11 @@ function CockpitColumnContext({
       <div className="flex flex-1 min-h-0 flex-col gap-2.5 overflow-hidden px-3 py-2.5">
         {/* Recent turn summary */}
         <div>
-          <div className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
             · recent turn
           </div>
           <p
-            className="mt-1 font-sans text-[10.5px] italic leading-snug text-studio-ink"
+            className="mt-1 font-sans text-xs italic leading-snug text-studio-ink"
             style={{
               opacity: 0.92,
               display: "-webkit-box",
@@ -4469,7 +4469,7 @@ function CockpitColumnContext({
         {/* Cross-agent message snippet */}
         {agent.lastMessage ? (
           <div>
-            <div className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+            <div className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
               · last message
             </div>
             <div className="mt-1 flex items-start gap-1.5">
@@ -4477,10 +4477,10 @@ function CockpitColumnContext({
                 <MessageArrow />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="font-mono text-[9.5px] text-studio-ink" style={{ opacity: 0.92 }}>
+                <span className="font-mono text-2xs text-studio-ink" style={{ opacity: 0.92 }}>
                   @{agent.lastMessage.to}
                 </span>
-                <span className="font-sans text-[10px] italic leading-snug text-studio-ink" style={{ opacity: 0.82 }}>
+                <span className="font-sans text-xs italic leading-snug text-studio-ink" style={{ opacity: 0.82 }}>
                   {" "}
                   “{agent.lastMessage.text}”
                 </span>
@@ -4499,12 +4499,12 @@ function CockpitColumnContext({
             }}
           >
             <div
-              className="font-mono text-[8.5px] uppercase tracking-eyebrow"
+              className="font-mono text-3xs uppercase tracking-eyebrow"
               style={{ color: "var(--hud-rose)" }}
             >
               waiting on you
             </div>
-            <p className="mt-0.5 font-sans text-[10.5px] leading-snug text-studio-ink">
+            <p className="mt-0.5 font-sans text-xs leading-snug text-studio-ink">
               {agent.pendingAsk}
             </p>
           </div>
@@ -4512,7 +4512,7 @@ function CockpitColumnContext({
 
         {/* Drill targets list — pushed to the bottom */}
         <div className="mt-auto flex flex-col gap-0.5 pt-1.5">
-          <div className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
             · drill
           </div>
           <CockpitDrillRow
@@ -4575,19 +4575,19 @@ function CockpitDrillRow({
     >
       <span
         aria-hidden
-        className="font-mono text-[10px]"
+        className="font-mono text-xs"
         style={{ color, opacity: selected ? 1 : 0.55 }}
       >
         {arrow}
       </span>
       <span
-        className="flex-1 font-sans text-[10px] text-studio-ink"
+        className="flex-1 font-sans text-xs text-studio-ink"
         style={{ opacity: selected ? 1 : 0.78 }}
       >
         {label}
       </span>
       <span
-        className="font-mono text-[9px] tabular-nums"
+        className="font-mono text-2xs tabular-nums"
         style={{ color, opacity: selected ? 1 : 0.55 }}
       >
         ({count})
@@ -4646,10 +4646,10 @@ function CockpitColumnFocus({
         className="flex items-center justify-between px-3 py-2"
         style={{ borderBottom: "1px solid var(--hud-glass-stroke-soft)" }}
       >
-        <span className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           {headerLabel}
         </span>
-        <span className="font-mono text-[9px] tabular-nums text-studio-ink" style={{ opacity: 0.55 }}>
+        <span className="font-mono text-2xs tabular-nums text-studio-ink" style={{ opacity: 0.55 }}>
           enter ↵ to drill
         </span>
       </div>
@@ -4675,30 +4675,30 @@ function CockpitLastTurnFocus({ agent }: { agent: HudAgent }) {
   return (
     <article className="flex flex-1 min-h-0 flex-col gap-2 overflow-hidden">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
           {agent.ago} · turn 14
         </span>
-        <span className="font-mono text-[9px] tabular-nums text-studio-ink" style={{ opacity: 0.55 }}>
+        <span className="font-mono text-2xs tabular-nums text-studio-ink" style={{ opacity: 0.55 }}>
           {agent.model}
         </span>
       </div>
       <p
-        className="font-sans text-[12px] italic leading-relaxed text-studio-ink"
+        className="font-sans text-md italic leading-relaxed text-studio-ink"
         style={{ opacity: 0.94 }}
       >
         {agent.lastTurn}
       </p>
-      <p className="font-sans text-[11.5px] leading-relaxed text-studio-ink" style={{ opacity: 0.78 }}>
+      <p className="font-sans text-sm leading-relaxed text-studio-ink" style={{ opacity: 0.78 }}>
         Next planned step: assemble the failure-branch patch, run it through the
         existing audit-trail tests, and hand the diff back to you for sign-off
-        before merging into <span className="font-mono text-[10.5px]">{agent.branch}</span>.
+        before merging into <span className="font-mono text-xs">{agent.branch}</span>.
       </p>
-      <p className="font-sans text-[11px] leading-relaxed text-studio-ink" style={{ opacity: 0.65 }}>
+      <p className="font-sans text-sm leading-relaxed text-studio-ink" style={{ opacity: 0.65 }}>
         I&apos;ll keep going on the patch unless you want me to wait for
-        Drover&apos;s migration first — they overlap on the <span className="font-mono text-[10px]">sessions</span> schema.
+        Drover&apos;s migration first — they overlap on the <span className="font-mono text-xs">sessions</span> schema.
       </p>
       <div className="mt-auto flex items-center justify-between pt-1.5">
-        <span className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
           · turn buffer · 1/5
         </span>
         <CockpitTurnPagination current={1} total={5} />
@@ -4731,10 +4731,10 @@ function CockpitAssistantFocus({ agent: _agent }: { agent: HudAgent }) {
   return (
     <article className="flex flex-1 min-h-0 flex-col gap-2 overflow-hidden">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
           assistant · now
         </span>
-        <span className="font-mono text-[9px] tabular-nums text-studio-ink" style={{ opacity: 0.55 }}>
+        <span className="font-mono text-2xs tabular-nums text-studio-ink" style={{ opacity: 0.55 }}>
           opus-4-7 · streaming
         </span>
       </div>
@@ -4742,14 +4742,14 @@ function CockpitAssistantFocus({ agent: _agent }: { agent: HudAgent }) {
       <CockpitThinkingPulse />
       {/* First-line forming — the response is materializing */}
       <p
-        className="font-sans text-[12px] leading-relaxed text-studio-ink"
+        className="font-sans text-md leading-relaxed text-studio-ink"
         style={{ opacity: 0.96 }}
       >
         On it. I&apos;ll route the migration file to Drover the moment it lands and tell Hudson to hold the audit-trail patch
         <CockpitInlineCursor />
       </p>
       <p
-        className="font-sans text-[11.5px] leading-relaxed text-studio-ink"
+        className="font-sans text-sm leading-relaxed text-studio-ink"
         style={{ opacity: 0.42 }}
       >
         — staging the message now —
@@ -4760,10 +4760,10 @@ function CockpitAssistantFocus({ agent: _agent }: { agent: HudAgent }) {
           className="block h-1 w-1 rounded-full"
           style={{ background: "var(--scout-accent)" }}
         />
-        <span className="font-mono text-[9px] uppercase tracking-eyebrow" style={{ color: "var(--scout-accent)" }}>
+        <span className="font-mono text-2xs uppercase tracking-eyebrow" style={{ color: "var(--scout-accent)" }}>
           live · will commit on stop
         </span>
-        <span className="ml-auto font-mono text-[9px] tabular-nums text-studio-ink" style={{ opacity: 0.55 }}>
+        <span className="ml-auto font-mono text-2xs tabular-nums text-studio-ink" style={{ opacity: 0.55 }}>
           esc to cancel
         </span>
       </div>
@@ -4789,7 +4789,7 @@ function CockpitInlineCursor() {
 function CockpitThinkingPulse() {
   return (
     <div className="flex items-center gap-1.5">
-      <span className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <span className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
         · thinking
       </span>
       <span className="flex items-center gap-[3px]">
@@ -4814,26 +4814,26 @@ function CockpitAskFocus({ agent }: { agent: HudAgent }) {
     <article className="flex flex-1 min-h-0 flex-col gap-2.5 overflow-hidden">
       <div className="flex items-baseline justify-between">
         <span
-          className="font-mono text-[9px] uppercase tracking-eyebrow"
+          className="font-mono text-2xs uppercase tracking-eyebrow"
           style={{ color: "var(--hud-rose)" }}
         >
           · operator decision
         </span>
-        <span className="font-mono text-[9px] tabular-nums text-studio-ink" style={{ opacity: 0.55 }}>
+        <span className="font-mono text-2xs tabular-nums text-studio-ink" style={{ opacity: 0.55 }}>
           {agent.ago} · blocking Hudson downstream
         </span>
       </div>
       <p
-        className="font-sans text-[12px] italic leading-relaxed text-studio-ink"
+        className="font-sans text-md italic leading-relaxed text-studio-ink"
         style={{ opacity: 0.95 }}
       >
         “{agent.pendingAsk}”
       </p>
       <p
-        className="font-sans text-[11.5px] leading-relaxed text-studio-ink"
+        className="font-sans text-sm leading-relaxed text-studio-ink"
         style={{ opacity: 0.82 }}
       >
-        Both migrations touch the <span className="font-mono text-[10.5px]">sessions</span> table.
+        Both migrations touch the <span className="font-mono text-xs">sessions</span> table.
         Order changes the shape of the patch on the other side — there isn&apos;t a wrong answer here,
         just a cheaper one and a more expensive one.
       </p>
@@ -4864,7 +4864,7 @@ function CockpitAskFocus({ agent }: { agent: HudAgent }) {
         />
       </div>
       <div className="mt-auto flex items-center gap-2 pt-1">
-        <span className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
           press a / b / c · or type below
         </span>
       </div>
@@ -4887,7 +4887,7 @@ function CockpitOptionRow({
     <div className="flex items-start gap-2">
       <span
         aria-hidden
-        className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-[3px] border font-mono text-[9px] font-semibold"
+        className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-[3px] border font-mono text-2xs font-semibold"
         style={{
           background: recommended ? "color-mix(in oklab, var(--hud-cyan) 16%, transparent)" : "transparent",
           borderColor: recommended ? "var(--hud-cyan-soft)" : "var(--hud-glass-stroke-soft)",
@@ -4898,19 +4898,19 @@ function CockpitOptionRow({
       </span>
       <div className="flex-1">
         <div className="flex items-baseline gap-2">
-          <span className="font-sans text-[11px] font-medium text-studio-ink">
+          <span className="font-sans text-sm font-medium text-studio-ink">
             {title}
           </span>
           {recommended ? (
             <span
-              className="font-mono text-[8.5px] uppercase tracking-eyebrow"
+              className="font-mono text-3xs uppercase tracking-eyebrow"
               style={{ color: "var(--hud-cyan)" }}
             >
               recommended
             </span>
           ) : null}
         </div>
-        <p className="font-sans text-[10.5px] leading-snug text-studio-ink" style={{ opacity: 0.7 }}>
+        <p className="font-sans text-xs leading-snug text-studio-ink" style={{ opacity: 0.7 }}>
           {detail}
         </p>
       </div>
@@ -4931,10 +4931,10 @@ function CockpitFilesFocus({ agent }: { agent: HudAgent }) {
   return (
     <article className="flex flex-1 min-h-0 flex-col gap-1.5 overflow-hidden">
       <div className="flex items-baseline justify-between">
-        <span className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
           · {agent.branch}
         </span>
-        <span className="font-mono text-[9px] tabular-nums text-studio-ink" style={{ opacity: 0.55 }}>
+        <span className="font-mono text-2xs tabular-nums text-studio-ink" style={{ opacity: 0.55 }}>
           {agent.files} files
         </span>
       </div>
@@ -4945,13 +4945,13 @@ function CockpitFilesFocus({ agent }: { agent: HudAgent }) {
             className="flex items-baseline gap-2 rounded-[3px] px-1.5 py-1"
             style={{ background: "rgba(255,255,255,0.018)" }}
           >
-            <span className="truncate font-mono text-[10px] text-studio-ink" style={{ opacity: 0.88 }}>
+            <span className="truncate font-mono text-xs text-studio-ink" style={{ opacity: 0.88 }}>
               {f.path}
             </span>
-            <span className="ml-auto font-mono text-[9.5px] tabular-nums text-studio-ink" style={{ opacity: 0.82 }}>
+            <span className="ml-auto font-mono text-2xs tabular-nums text-studio-ink" style={{ opacity: 0.82 }}>
               +{f.added}
             </span>
-            <span className="font-mono text-[9.5px] tabular-nums text-studio-ink" style={{ opacity: 0.55 }}>
+            <span className="font-mono text-2xs tabular-nums text-studio-ink" style={{ opacity: 0.55 }}>
               −{f.removed}
             </span>
           </div>
@@ -4973,10 +4973,10 @@ function CockpitMessagesFocus({ agent: _agent }: { agent: HudAgent }) {
   return (
     <article className="flex flex-1 min-h-0 flex-col gap-1.5 overflow-hidden">
       <div className="flex items-baseline justify-between">
-        <span className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
           · 6 of 47 · newest first
         </span>
-        <span className="font-mono text-[9px] tabular-nums text-studio-ink" style={{ opacity: 0.55 }}>
+        <span className="font-mono text-2xs tabular-nums text-studio-ink" style={{ opacity: 0.55 }}>
           j/k to scroll
         </span>
       </div>
@@ -4984,15 +4984,15 @@ function CockpitMessagesFocus({ agent: _agent }: { agent: HudAgent }) {
         {log.map((m, i) => (
           <div key={i} className="flex flex-col gap-0.5">
             <div className="flex items-baseline gap-2">
-              <span className="font-mono text-[9px] tabular-nums text-studio-ink" style={{ opacity: 0.55 }}>
+              <span className="font-mono text-2xs tabular-nums text-studio-ink" style={{ opacity: 0.55 }}>
                 {m.ago}
               </span>
-              <span className="font-mono text-[9.5px] text-studio-ink" style={{ opacity: 0.92 }}>
+              <span className="font-mono text-2xs text-studio-ink" style={{ opacity: 0.92 }}>
                 @{m.to}
               </span>
             </div>
             <p
-              className="font-sans text-[10.5px] leading-snug text-studio-ink"
+              className="font-sans text-xs leading-snug text-studio-ink"
               style={{ opacity: 0.85 }}
             >
               “{m.text}”
@@ -5032,12 +5032,12 @@ function CockpitInputDock({
   if (isCommand) {
     displayText = commandQuery ?? "";
     leadingGlyph = (
-      <span className="font-mono text-[13px] text-studio-ink" style={{ opacity: 0.95 }}>:</span>
+      <span className="font-mono text-lg text-studio-ink" style={{ opacity: 0.95 }}>:</span>
     );
   } else if (isSearch) {
     displayText = searchQuery ?? "";
     leadingGlyph = (
-      <span className="font-mono text-[13px] text-studio-ink" style={{ opacity: 0.95 }}>/</span>
+      <span className="font-mono text-lg text-studio-ink" style={{ opacity: 0.95 }}>/</span>
     );
   } else if (isTalk) {
     displayText = talkTranscript ?? "";
@@ -5079,7 +5079,7 @@ function CockpitInputDock({
         {leadingGlyph}
         {displayText ? (
           <span
-            className="truncate font-mono text-[12px] text-studio-ink"
+            className="truncate font-mono text-md text-studio-ink"
             style={{ opacity: 0.95 }}
           >
             {displayText}
@@ -5087,7 +5087,7 @@ function CockpitInputDock({
           </span>
         ) : (
           <span
-            className="truncate font-mono text-[11.5px] text-studio-ink-faint"
+            className="truncate font-mono text-sm text-studio-ink-faint"
             style={{ fontStyle: "italic" }}
           >
             {placeholder}
@@ -5096,7 +5096,7 @@ function CockpitInputDock({
       </div>
 
       {/* Mode-specific hint + send */}
-      <span className="hidden shrink-0 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint md:inline">
+      <span className="hidden shrink-0 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint md:inline">
         {isCommand
           ? "↵ run"
           : isSearch
@@ -5170,10 +5170,10 @@ function CockpitCommandPalette({ query }: { query: string }) {
         className="flex items-center justify-between px-3 py-1.5"
         style={{ borderBottom: "1px solid var(--hud-glass-stroke-soft)" }}
       >
-        <span className="font-mono text-[8.5px] uppercase tracking-eyebrow" style={{ color: "var(--hud-cyan)" }}>
+        <span className="font-mono text-3xs uppercase tracking-eyebrow" style={{ color: "var(--hud-cyan)" }}>
           · command · {visible.length} matches for &quot;:{query}&quot;
         </span>
-        <span className="font-mono text-[9px] tabular-nums text-studio-ink" style={{ opacity: 0.55 }}>
+        <span className="font-mono text-2xs tabular-nums text-studio-ink" style={{ opacity: 0.55 }}>
           j/k · ↵ run
         </span>
       </div>
@@ -5187,17 +5187,17 @@ function CockpitCommandPalette({ query }: { query: string }) {
             }}
           >
             <span
-              className="font-mono text-[11px] font-medium text-studio-ink"
+              className="font-mono text-sm font-medium text-studio-ink"
               style={{ minWidth: 80 }}
             >
               {c.key}
             </span>
-            <span className="font-sans text-[10.5px] text-studio-ink" style={{ opacity: 0.78 }}>
+            <span className="font-sans text-xs text-studio-ink" style={{ opacity: 0.78 }}>
               {c.detail}
             </span>
             {c.match ? (
               <span
-                className="ml-auto font-mono text-[8.5px] uppercase tracking-eyebrow"
+                className="ml-auto font-mono text-3xs uppercase tracking-eyebrow"
                 style={{ color: "var(--hud-cyan)" }}
               >
                 ↵
@@ -5238,10 +5238,10 @@ function CockpitSearchResults({ query }: { query: string }) {
         className="flex items-center justify-between px-3 py-1.5"
         style={{ borderBottom: "1px solid var(--hud-glass-stroke-soft)" }}
       >
-        <span className="font-mono text-[8.5px] uppercase tracking-eyebrow" style={{ color: "var(--hud-cyan)" }}>
+        <span className="font-mono text-3xs uppercase tracking-eyebrow" style={{ color: "var(--hud-cyan)" }}>
           · search · {results.length} matches for &quot;/{query}&quot;
         </span>
-        <span className="font-mono text-[9px] tabular-nums text-studio-ink" style={{ opacity: 0.55 }}>
+        <span className="font-mono text-2xs tabular-nums text-studio-ink" style={{ opacity: 0.55 }}>
           j/k · ↵ jump
         </span>
       </div>
@@ -5255,10 +5255,10 @@ function CockpitSearchResults({ query }: { query: string }) {
             }}
           >
             <CockpitResultGlyph kind={r.glyph} />
-            <span className="font-sans text-[11px] font-medium text-studio-ink">
+            <span className="font-sans text-sm font-medium text-studio-ink">
               {r.title}
             </span>
-            <span className="font-mono text-[9.5px] text-studio-ink" style={{ opacity: 0.6 }}>
+            <span className="font-mono text-2xs text-studio-ink" style={{ opacity: 0.6 }}>
               {r.detail}
             </span>
           </div>
@@ -5311,18 +5311,18 @@ function CockpitKeyboardCallout() {
       className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-[6px] border border-studio-edge px-4 py-2.5"
       style={{ background: "var(--studio-canvas-alt)" }}
     >
-      <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · keyboard
       </span>
       {cells.map((c) => (
         <span key={c.keys} className="flex items-center gap-1.5">
           <span
-            className="inline-grid place-items-center rounded-[3px] border border-studio-edge px-1.5 py-0.5 font-mono text-[10px] text-studio-ink"
+            className="inline-grid place-items-center rounded-[3px] border border-studio-edge px-1.5 py-0.5 font-mono text-xs text-studio-ink"
             style={{ background: "var(--studio-canvas)" }}
           >
             {c.keys}
           </span>
-          <span className="font-mono text-[10px] text-studio-ink-faint">{c.label}</span>
+          <span className="font-mono text-xs text-studio-ink-faint">{c.label}</span>
         </span>
       ))}
     </div>
@@ -5350,10 +5350,10 @@ function SlotModelSection() {
 
       {/* A — slot library */}
       <div className="mt-8">
-        <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · A · slot library
         </div>
-        <p className="mt-1 max-w-prose font-sans text-[12.5px] text-studio-ink-muted">
+        <p className="mt-1 max-w-prose font-sans text-md text-studio-ink-muted">
           Six candidate surfaces drawn at slot scale (~{SLOT_W}×{SLOT_H}). Each renders inside the same HUD-shaped frame. The shell is identical; the contents are existing studio surfaces.
         </p>
         <div className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
@@ -5376,33 +5376,33 @@ function SlotModelSection() {
             <SlotBriefInFlight />
           </SlotCard>
         </div>
-        <p className="mx-auto mt-5 max-w-prose text-center font-sans text-[12px] italic leading-relaxed text-studio-ink-faint">
+        <p className="mx-auto mt-5 max-w-prose text-center font-sans text-md italic leading-relaxed text-studio-ink-faint">
           Any of these — and more — can be slotted into the HUD shell. The shell handles glass + position + hotkey + persistence; the view renders itself.
         </p>
       </div>
 
       {/* B — hotkey registration table */}
       <div className="mt-14">
-        <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · B · hotkey registration
         </div>
-        <p className="mt-1 max-w-prose font-sans text-[12.5px] text-studio-ink-muted">
+        <p className="mt-1 max-w-prose font-sans text-md text-studio-ink-muted">
           The settings panel an operator uses to wire slots to keys. The cockpit row is non-editable — it&apos;s the assistant, always on the hyper chord. The rest are user-assignable; defaults ship sane.
         </p>
         <div className="mt-5 flex justify-center">
           <SlotHotkeyTable />
         </div>
-        <p className="mx-auto mt-3 max-w-prose text-center font-sans text-[12px] italic leading-relaxed text-studio-ink-faint">
+        <p className="mx-auto mt-3 max-w-prose text-center font-sans text-md italic leading-relaxed text-studio-ink-faint">
           Each operator wires the slots to their own work. Defaults ship sane; everything but the cockpit is reassignable.
         </p>
       </div>
 
       {/* C — summoning sequence */}
       <div className="mt-14">
-        <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · C · summoning flow
         </div>
-        <p className="mt-1 max-w-prose font-sans text-[12.5px] text-studio-ink-muted">
+        <p className="mt-1 max-w-prose font-sans text-md text-studio-ink-muted">
           Four frames. The operator binds tail to ⌘1 and canvas to ⌘5; presses both in sequence. The shell stays in place; the content swaps. (Design choice: a single shell with swapped content — the operator&apos;s spatial memory is for &quot;where the HUD lives,&quot; not &quot;which HUD is which.&quot;)
         </p>
         <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -5434,7 +5434,7 @@ function SlotModelSection() {
       </div>
 
       {/* D — editorial coda */}
-      <p className="mx-auto mt-12 max-w-prose font-sans text-[13px] italic leading-relaxed text-studio-ink-muted">
+      <p className="mx-auto mt-12 max-w-prose font-sans text-lg italic leading-relaxed text-studio-ink-muted">
         The leverage of the slot model: don&apos;t port studio surfaces to native, just slot them. The shell is small and well-tuned; the views inherit the studio design system; the cockpit stays as the one deeply-crafted native surface we iterate on. New slot? Wire it up in the registration panel; the shell handles the rest.
       </p>
     </section>
@@ -5446,7 +5446,7 @@ function SlotModelSection() {
 function SlotCard({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex flex-col items-center">
-      <div className="mb-2 self-start font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="mb-2 self-start font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · {label}
       </div>
       <SlotShell>{children}</SlotShell>
@@ -5534,13 +5534,13 @@ function SlotTail() {
             <div key={i} className="flex items-baseline gap-1.5 py-[2px] pl-1.5"
               style={{ borderLeft: `1.5px solid ${stripe}` }}
             >
-              <span className="font-mono text-[8.5px] tabular-nums text-studio-ink" style={{ opacity: 0.55, minWidth: 22 }}>
+              <span className="font-mono text-3xs tabular-nums text-studio-ink" style={{ opacity: 0.55, minWidth: 22 }}>
                 {e.ago}
               </span>
-              <span className="font-mono text-[9px] text-studio-ink" style={{ opacity: 0.92, minWidth: 44 }}>
+              <span className="font-mono text-2xs text-studio-ink" style={{ opacity: 0.92, minWidth: 44 }}>
                 {e.agent}
               </span>
-              <span className="truncate font-sans text-[9.5px] text-studio-ink" style={{ opacity: isAttention ? 1 : 0.78 }}>
+              <span className="truncate font-sans text-2xs text-studio-ink" style={{ opacity: isAttention ? 1 : 0.78 }}>
                 {e.label}
               </span>
               <span className="ml-auto shrink-0">
@@ -5597,7 +5597,7 @@ function SlotFleet() {
                 style={{ width: 2, background: stripe }}
               />
               <StatusGlyph state={a.state} color={glyphColor} />
-              <span className="truncate font-sans text-[10px] font-medium text-studio-ink">
+              <span className="truncate font-sans text-xs font-medium text-studio-ink">
                 {a.name}
               </span>
             </div>
@@ -5633,16 +5633,16 @@ function SlotMission() {
             }}
           >
             <div className="flex min-w-0 flex-col">
-              <span className="truncate font-sans text-[10.5px] font-medium text-studio-ink">
+              <span className="truncate font-sans text-xs font-medium text-studio-ink">
                 {g.title}
               </span>
-              <span className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+              <span className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
                 {g.count} {g.count === 1 ? "agent" : "agents"}
               </span>
             </div>
             {g.attention ? (
               <span
-                className="font-mono text-[8.5px] uppercase tracking-eyebrow"
+                className="font-mono text-3xs uppercase tracking-eyebrow"
                 style={{ color: "var(--hud-rose)" }}
               >
                 blocked on you
@@ -5684,17 +5684,17 @@ function SlotAgentDetail() {
           <StatKV k="model" v={HUDSON.model!} />
         </div>
         <div>
-          <div className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
             · recent turns
           </div>
           <div className="mt-1 flex flex-col gap-1">
             {turns.map((t, i) => (
               <div key={i} className="flex items-baseline gap-1.5">
-                <span className="font-mono text-[8.5px] tabular-nums text-studio-ink" style={{ opacity: 0.55, minWidth: 22 }}>
+                <span className="font-mono text-3xs tabular-nums text-studio-ink" style={{ opacity: 0.55, minWidth: 22 }}>
                   {t.ago}
                 </span>
                 <span
-                  className="truncate font-sans text-[9.5px] italic text-studio-ink"
+                  className="truncate font-sans text-2xs italic text-studio-ink"
                   style={{ opacity: 0.85 }}
                 >
                   “{t.text}”
@@ -5788,22 +5788,22 @@ function SlotBriefInFlight() {
       <SlotHeader title="Brief" detail="in-flight · auth-mw audit" />
       <div className="flex flex-1 flex-col gap-2 overflow-hidden px-3 py-2.5">
         <div className="flex items-baseline gap-2">
-          <span className="font-mono text-[8.5px] uppercase tracking-eyebrow" style={{ color: "var(--hud-cyan)" }}>
+          <span className="font-mono text-3xs uppercase tracking-eyebrow" style={{ color: "var(--hud-cyan)" }}>
             · in flight · 14m
           </span>
-          <span className="ml-auto font-mono text-[9px] tabular-nums text-studio-ink" style={{ opacity: 0.55 }}>
+          <span className="ml-auto font-mono text-2xs tabular-nums text-studio-ink" style={{ opacity: 0.55 }}>
             Hudson
           </span>
         </div>
-        <p className="font-sans text-[11px] font-medium leading-snug text-studio-ink">
+        <p className="font-sans text-sm font-medium leading-snug text-studio-ink">
           Audit the auth middleware for SOC 2 trail completeness.
         </p>
         <p
-          className="font-sans text-[10px] italic leading-snug text-studio-ink"
+          className="font-sans text-xs italic leading-snug text-studio-ink"
           style={{ opacity: 0.78 }}
         >
           Walk the four sign-in paths, confirm every failure branch emits a
-          structured event with a <span className="font-mono text-[9.5px]">reason</span> field,
+          structured event with a <span className="font-mono text-2xs">reason</span> field,
           and patch any gaps before merge.
         </p>
         <div className="mt-1 flex flex-col gap-0.5">
@@ -5839,10 +5839,10 @@ function SlotBriefBullet({
         className="block h-1.5 w-1.5 shrink-0 rounded-full"
         style={{ background: color }}
       />
-      <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         {label}
       </span>
-      <span className="ml-auto font-sans text-[9.5px] text-studio-ink" style={{ opacity: 0.82 }}>
+      <span className="ml-auto font-sans text-2xs text-studio-ink" style={{ opacity: 0.82 }}>
         {detail}
       </span>
     </div>
@@ -5859,8 +5859,8 @@ function SlotHeader({ title, detail }: { title: string; detail: string }) {
         background: "rgba(0,0,0,0.18)",
       }}
     >
-      <span className="font-display text-[11px] text-studio-ink">{title}</span>
-      <span className="font-mono text-[9px] tabular-nums text-studio-ink" style={{ opacity: 0.62 }}>
+      <span className="font-display text-sm text-studio-ink">{title}</span>
+      <span className="font-mono text-2xs tabular-nums text-studio-ink" style={{ opacity: 0.62 }}>
         {detail}
       </span>
     </div>
@@ -5889,10 +5889,10 @@ function SlotHotkeyTable() {
       style={{ background: "var(--studio-canvas-alt)", width: 540 }}
     >
       <div className="mb-3 flex items-baseline justify-between">
-        <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · settings · HUD shortcuts
         </span>
-        <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           {rows.length - 1} editable · 1 locked
         </span>
       </div>
@@ -5904,15 +5904,15 @@ function SlotHotkeyTable() {
             style={{ background: "var(--studio-canvas)" }}
           >
             <div className="shrink-0">{r.chord}</div>
-            <span className="flex-1 font-sans text-[12px] text-studio-ink">
+            <span className="flex-1 font-sans text-md text-studio-ink">
               {r.binding}
             </span>
             {r.locked ? (
-              <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+              <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
                 built-in · not editable
               </span>
             ) : (
-              <span className="flex items-center gap-1 font-mono text-[9.5px] text-studio-ink-faint">
+              <span className="flex items-center gap-1 font-mono text-2xs text-studio-ink-faint">
                 <span style={{ opacity: r.current ? 1 : 0.7 }}>{r.current ? "current" : "default"}</span>
                 <SlotDropdownGlyph />
               </span>
@@ -5938,7 +5938,7 @@ function SlotKeycapCombo({ combo }: { combo: string[] }) {
       {combo.map((k, i) => (
         <span
           key={i}
-          className="inline-grid h-[20px] min-w-[20px] place-items-center rounded-[3px] border border-studio-edge px-1 font-mono text-[10px] text-studio-ink"
+          className="inline-grid h-[20px] min-w-[20px] place-items-center rounded-[3px] border border-studio-edge px-1 font-mono text-xs text-studio-ink"
           style={{
             background: "var(--studio-canvas)",
             boxShadow: "0 1px 0 var(--studio-edge), 0 2px 0 var(--studio-canvas-alt)",
@@ -5955,7 +5955,7 @@ function SlotKeycapCombo({ combo }: { combo: string[] }) {
 
 function SlotKeypressIdle() {
   return (
-    <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+    <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
       idle
     </span>
   );
@@ -5977,7 +5977,7 @@ function SlotSummonFrame({
   return (
     <div className="flex flex-col">
       <div className="flex items-center justify-between">
-        <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · step {step}
         </span>
         {keypress}
@@ -6033,7 +6033,7 @@ function SlotSummonFrame({
               className="flex h-3.5 items-center px-1.5"
               style={{ background: "rgba(0,0,0,0.20)", borderBottom: "1px solid var(--hud-glass-stroke-soft)" }}
             >
-              <span className="font-mono text-[7.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+              <span className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
                 · {show}
               </span>
             </div>
@@ -6042,7 +6042,7 @@ function SlotSummonFrame({
           </div>
         ) : null}
       </div>
-      <p className="mt-2 font-sans text-[11.5px] italic leading-relaxed text-studio-ink-faint">
+      <p className="mt-2 font-sans text-sm italic leading-relaxed text-studio-ink-faint">
         {caption}
       </p>
     </div>

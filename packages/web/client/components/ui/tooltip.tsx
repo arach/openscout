@@ -61,7 +61,7 @@ function TooltipContent({
             // SCO-088c: dark surface fill + a single low-ink hairline (no light
             // border); a step larger in type + padding so it doesn't read cramped;
             // vertically centered on the trigger (align="center").
-            "z-[80] w-fit max-w-xs rounded-md border border-[var(--hud-border)] bg-[var(--hud-surface)] px-2.5 py-1.5 text-[11px] font-medium text-sidebar-foreground shadow-md",
+            "z-[80] w-fit max-w-xs rounded-md border border-[var(--hud-border)] bg-[var(--hud-surface)] px-2.5 py-1.5 text-sm font-medium text-sidebar-foreground shadow-md",
             className,
           )}
           {...props}

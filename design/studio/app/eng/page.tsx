@@ -25,13 +25,16 @@ export default function EngIndex() {
   };
 
   return (
-    <main className="mx-auto max-w-page px-7 py-6 pb-16">
-      <header className="mb-6 flex flex-wrap items-baseline gap-4 border-b border-studio-edge pb-4 pt-1.5">
+    <main className="mx-auto max-w-page px-7 py-9 pb-16 sm:px-9">
+      <header className="mb-8 flex flex-wrap items-baseline gap-4 pb-5">
         <div>
-          <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="flex items-center gap-2 text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+            <span className="text-scout-accent" aria-hidden>
+              ·
+            </span>
             Engineering · SCO series
           </div>
-          <h1 className="m-0 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
+          <h1 className="m-0 mt-2 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
             Engineering Docs
           </h1>
         </div>
@@ -54,13 +57,14 @@ export default function EngIndex() {
         </div>
       </header>
 
-      <p className="mb-8 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
+      <p className="mb-4 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
         Decision docs for the OpenScout codebase. Source of truth lives at{" "}
         <code className="font-mono text-sm text-studio-ink">docs/eng/</code>
         . Edits to the markdown files appear here on next request — no copy
         step. Sibling implementation plans and reviews collapse under their
         proposal.
       </p>
+      <div className="studio-rule mb-10 max-w-prose" />
 
       <Section
         title="SCO proposals"
@@ -92,15 +96,18 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="mb-10">
-      <div className="mb-3 flex items-baseline gap-3">
-        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
-          · {title}
+    <section className="mb-12">
+      <div className="mb-3.5 flex items-baseline gap-3">
+        <div className="flex items-center gap-2 text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="text-scout-accent" aria-hidden>
+            ·
+          </span>
+          {title}
         </div>
         <div className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           {count} {count === 1 ? "entry" : "entries"}
         </div>
-        <div className="ml-3 h-px flex-1 bg-studio-edge" />
+        <div className="studio-rule ml-2 flex-1" />
       </div>
       {count === 0 && emptyCopy ? (
         <p className="font-sans text-md italic text-studio-ink-faint">
@@ -126,7 +133,7 @@ function DocList({
   docs: ReturnType<typeof listEngDocs>;
 }) {
   return (
-    <div className="border-t border-studio-edge">
+    <div className="overflow-hidden rounded-[6px] border border-studio-edge">
       {docs.map((d) => (
         <DocRow key={d.slug} doc={d} />
       ))}
@@ -142,7 +149,7 @@ function DocRow({
   return (
     <Link
       href={`/eng/${doc.slug}`}
-      className="focus-ring group flex items-baseline gap-4 border-b border-studio-edge px-3 py-1.5 transition-colors hover:bg-studio-canvas-alt"
+      className="focus-ring group flex items-baseline gap-4 border-b border-studio-edge px-3.5 py-2 transition-colors last:border-b-0 hover:bg-[color-mix(in_oklab,var(--studio-ink)_3.5%,transparent)]"
     >
       <span className="w-[80px] shrink-0 font-mono text-sm font-semibold uppercase tracking-[0.15em] text-studio-ink-faint tabular-nums group-hover:text-scout-accent">
         {doc.scoId ? doc.scoId.toUpperCase() : "note"}

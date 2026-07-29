@@ -28,7 +28,7 @@
   border-radius: 6px;
   padding: 4px 10px;
   font-family: var(--scope-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 
 [data-scope-presentation] .scout-nav-action--scout:hover {
@@ -48,7 +48,7 @@
 
 [data-scope-presentation] .scout-nav-scope-tag {
   font-family: var(--scope-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--scope-muted);

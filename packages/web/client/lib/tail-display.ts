@@ -1,4 +1,4 @@
-import type { ObserveEvent, TailAttribution, TailEvent } from "./types.ts";
+import type { ObserveEvent, TailAttribution, TailEvent, TailEventKind } from "./types.ts";
 
 /** Consumer-side tail presentation policy — the firehose stays complete upstream. */
 export type TailDisplayMode = "work" | "all";
@@ -503,3 +503,25 @@ export function collapseTailDisplayRows<TMeta>(
 
   return out;
 }
+
+/**
+ * Row glyph/label dialect for tail lines. Shared so every surface that renders
+ * the firehose (the Tail view, the Mission Control wall) reads the same.
+ */
+export const TAIL_KIND_GLYPH: Record<TailEventKind, string> = {
+  user: ">",
+  assistant: "<",
+  tool: "*",
+  "tool-result": "=",
+  system: "~",
+  other: "·",
+};
+
+export const TAIL_KIND_LABEL: Record<TailEventKind, string> = {
+  user: "USR",
+  assistant: "AST",
+  tool: "TOL",
+  "tool-result": "OUT",
+  system: "SYS",
+  other: "EVT",
+};

@@ -396,13 +396,13 @@ export default function ScoutGreenQuestionStudy() {
 
       {/* Header */}
       <header className="mb-6 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · cross · scout-green-question
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Scout — The Green Question
         </h1>
-        <p className="mt-3 text-[13px] leading-relaxed text-studio-ink-muted">
+        <p className="mt-3 text-lg leading-relaxed text-studio-ink-muted">
           Scout ships three near-neighbor greens: the HUD lime{" "}
           <span className="gq-swatchinline" style={{ background: GREEN.lime }} /> <code className="gq-code">#94E36B</code>,
           the menu-bar green <span className="gq-swatchinline" style={{ background: GREEN.menu }} />{" "}
@@ -495,11 +495,11 @@ export default function ScoutGreenQuestionStudy() {
 
       {/* Cost ledger */}
       <section className="mt-12">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">Cost ledger</div>
-        <h2 className="mb-1 mt-1 font-display text-[19px] font-medium tracking-tight text-studio-ink">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">Cost ledger</div>
+        <h2 className="mb-1 mt-1 font-display text-4xl font-medium tracking-tight text-studio-ink">
           What each answer actually costs
         </h2>
-        <p className="mb-4 max-w-[76ch] text-[13px] leading-relaxed text-studio-ink-muted">
+        <p className="mb-4 max-w-[76ch] text-lg leading-relaxed text-studio-ink-muted">
           Two of the three answers are a handful of colour constants; the third is a feature. Priced against the real
           files.
         </p>
@@ -513,16 +513,16 @@ export default function ScoutGreenQuestionStudy() {
             const t = TAG[r.tag];
             return (
               <div key={i} className={`gq-ledger-row ${i > 0 ? "brd" : ""}`}>
-                <span className="text-[12px] font-semibold leading-snug text-studio-ink">{r.treatment}</span>
+                <span className="text-md font-semibold leading-snug text-studio-ink">{r.treatment}</span>
                 <span>
                   <span
-                    className="inline-block rounded-[3px] px-1.5 py-px font-mono text-[8px] font-semibold uppercase tracking-eyebrow"
+                    className="inline-block rounded-[3px] px-1.5 py-px font-mono text-3xs font-semibold uppercase tracking-eyebrow"
                     style={{ background: t.bg, color: t.fg }}
                   >
                     {t.label}
                   </span>
                 </span>
-                <span className="text-[11px] leading-snug text-studio-ink-muted">{r.change}</span>
+                <span className="text-sm leading-snug text-studio-ink-muted">{r.change}</span>
               </div>
             );
           })}
@@ -540,10 +540,10 @@ export default function ScoutGreenQuestionStudy() {
 
 /* ── Scoped CSS (raw <style>, scout-ios idiom). ────────────────────────── */
 const GQ_CSS = `
-.gq-code { font-family:"JetBrains Mono", ui-monospace, monospace; font-size:10.5px;
+.gq-code { font-family:"JetBrains Mono", ui-monospace, monospace; font-size: var(--text-xs);
   color:var(--studio-ink); background:color-mix(in oklab, var(--studio-ink) 8%, transparent);
   padding:0 4px; border-radius:3px; }
-.gq-hex { font-family:"JetBrains Mono", ui-monospace, monospace; font-size:10px; font-weight:600;
+.gq-hex { font-family:"JetBrains Mono", ui-monospace, monospace; font-size: var(--text-xs); font-weight:600;
   color:var(--studio-ink-muted); letter-spacing:0; }
 .gq-swatchinline { display:inline-block; width:9px; height:9px; border-radius:2px; vertical-align:-1px;
   box-shadow:inset 0 0 0 1px color-mix(in oklab, var(--studio-ink) 20%, transparent); }
@@ -554,17 +554,17 @@ const GQ_CSS = `
 /* ── The tension callout ─────────────────────────────────────────────── */
 .gq-tension { margin-bottom:34px; padding:16px 18px; border-radius:11px;
   border:1px solid var(--studio-edge); background:var(--studio-canvas-alt); max-width:96ch; }
-.gq-tension-eyebrow { font-family:"JetBrains Mono", ui-monospace, monospace; font-size:9px; font-weight:700;
+.gq-tension-eyebrow { font-family:"JetBrains Mono", ui-monospace, monospace; font-size: var(--text-2xs); font-weight:700;
   text-transform:uppercase; letter-spacing:0.14em; color:var(--studio-ink-faint); margin-bottom:8px; }
-.gq-tension-lede { font-size:13px; line-height:1.6; color:var(--studio-ink-muted); max-width:88ch; }
+.gq-tension-lede { font-size: var(--text-lg); line-height:1.6; color:var(--studio-ink-muted); max-width:88ch; }
 .gq-tension-lede strong, .gq-tension-side strong { color:var(--studio-ink); font-weight:650; }
 .gq-tension-split { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:12px; }
 .gq-tension-side { padding:11px 13px; border-radius:9px; border:1px solid var(--studio-edge);
   background:var(--studio-surface); }
-.gq-tension-tag { font-family:"JetBrains Mono", ui-monospace, monospace; font-size:9.5px; font-weight:700;
+.gq-tension-tag { font-family:"JetBrains Mono", ui-monospace, monospace; font-size: var(--text-2xs); font-weight:700;
   text-transform:uppercase; letter-spacing:0.08em; color:var(--scout-accent); margin-bottom:6px; }
-.gq-tension-side p { font-size:12px; line-height:1.5; color:var(--studio-ink-muted); }
-.gq-tension-foot { margin-top:12px; font-size:12.5px; font-weight:600; color:var(--studio-ink); }
+.gq-tension-side p { font-size: var(--text-md); line-height:1.5; color:var(--studio-ink-muted); }
+.gq-tension-foot { margin-top:12px; font-size: var(--text-md); font-weight:600; color:var(--studio-ink); }
 
 /* ── Matrix layout ───────────────────────────────────────────────────── */
 .gq-scroll { overflow-x:auto; padding-bottom:6px; margin:0 -4px; }
@@ -573,44 +573,44 @@ const GQ_CSS = `
 .gq-rowgroup { display:contents; }
 
 .gq-corner { display:flex; align-items:flex-end; padding:6px 4px 8px; }
-.gq-corner-label { font-family:"JetBrains Mono", ui-monospace, monospace; font-size:8.5px; font-weight:700;
+.gq-corner-label { font-family:"JetBrains Mono", ui-monospace, monospace; font-size: var(--text-3xs); font-weight:700;
   text-transform:uppercase; letter-spacing:0.08em; color:var(--studio-ink-faint); line-height:1.4; }
 
 .gq-colhead { padding:9px 11px; border-radius:9px; border:1px solid var(--studio-edge);
   background:var(--studio-surface); align-self:stretch; }
 .gq-colhead.cost { border-color:color-mix(in oklab, var(--studio-ink) 22%, transparent); }
-.gq-colhead-title { font-size:12.5px; font-weight:700; color:var(--studio-ink); line-height:1.3;
+.gq-colhead-title { font-size: var(--text-md); font-weight:700; color:var(--studio-ink); line-height:1.3;
   display:flex; flex-wrap:wrap; align-items:baseline; gap:5px; }
-.gq-colhead-cap { margin-top:5px; font-size:10.5px; line-height:1.45; color:var(--studio-ink-muted); }
+.gq-colhead-cap { margin-top:5px; font-size: var(--text-xs); line-height:1.45; color:var(--studio-ink-muted); }
 .gq-colhead-cost { margin-top:7px; padding-top:7px; border-top:1px solid var(--studio-edge);
-  font-size:10px; line-height:1.45; color:var(--studio-ink-faint); }
+  font-size: var(--text-xs); line-height:1.45; color:var(--studio-ink-faint); }
 .gq-colhead-cost strong { color:var(--studio-ink-muted); font-weight:650; }
 
 .gq-gutter { padding:8px 8px 8px 4px; }
-.gq-gutter-name { font-size:13px; font-weight:650; color:var(--studio-ink); }
+.gq-gutter-name { font-size: var(--text-lg); font-weight:650; color:var(--studio-ink); }
 .gq-gutter-shipswatch { display:flex; align-items:center; gap:6px; margin-top:5px; }
-.gq-gutter-hex { font-family:"JetBrains Mono", ui-monospace, monospace; font-size:9.5px; font-weight:600;
+.gq-gutter-hex { font-family:"JetBrains Mono", ui-monospace, monospace; font-size: var(--text-2xs); font-weight:600;
   color:var(--studio-ink-faint); text-transform:uppercase; letter-spacing:0.04em; }
-.gq-gutter-role { margin-top:8px; font-size:11px; line-height:1.5; color:var(--studio-ink-muted); }
-.gq-gutter-note { margin-top:8px; font-size:10px; line-height:1.5; color:var(--studio-ink-faint);
+.gq-gutter-role { margin-top:8px; font-size: var(--text-sm); line-height:1.5; color:var(--studio-ink-muted); }
+.gq-gutter-note { margin-top:8px; font-size: var(--text-xs); line-height:1.5; color:var(--studio-ink-faint);
   padding-top:8px; border-top:1px solid var(--studio-edge); }
 
 .gq-cell { display:flex; flex-direction:column; gap:8px; }
 .gq-cell-mock { }
 .gq-cell-foot { display:flex; align-items:center; gap:6px; padding-left:2px; }
-.gq-cell-hex { font-family:"JetBrains Mono", ui-monospace, monospace; font-size:9.5px; font-weight:600;
+.gq-cell-hex { font-family:"JetBrains Mono", ui-monospace, monospace; font-size: var(--text-2xs); font-weight:600;
   color:var(--studio-ink-faint); letter-spacing:0.04em; }
 .gq-cell-echo { display:flex; flex-direction:column; gap:4px; padding:8px 9px; border-radius:8px;
   border:1px dashed color-mix(in oklab, var(--studio-ink) 16%, transparent);
   background:color-mix(in oklab, var(--studio-ink) 3%, transparent); }
-.gq-echo-label { font-family:"JetBrains Mono", ui-monospace, monospace; font-size:8px; font-weight:700;
+.gq-echo-label { font-family:"JetBrains Mono", ui-monospace, monospace; font-size: var(--text-3xs); font-weight:700;
   text-transform:uppercase; letter-spacing:0.08em; color:var(--studio-ink-faint); }
 .gq-echo { display:flex; align-items:center; gap:7px; padding:5px 8px; border-radius:7px; }
 .gq-echo-dot { width:6px; height:6px; border-radius:50%; flex:none; }
-.gq-echo-word { font-family:"JetBrains Mono", ui-monospace, monospace; font-size:9.5px; font-weight:700;
+.gq-echo-word { font-family:"JetBrains Mono", ui-monospace, monospace; font-size: var(--text-2xs); font-weight:700;
   letter-spacing:0.05em; }
 .gq-echo-pip { width:6px; height:6px; border-radius:50%; margin-left:auto; }
-.gq-echo-btn { margin-left:auto; font-size:9.5px; font-weight:600; padding:2px 8px; border-radius:999px;
+.gq-echo-btn { margin-left:auto; font-size: var(--text-2xs); font-weight:600; padding:2px 8px; border-radius:999px;
   border:1px solid transparent; white-space:nowrap; }
 
 /* ── HUD broadsheet mock ─────────────────────────────────────────────── */
@@ -620,20 +620,20 @@ const GQ_CSS = `
   font-family:"Inter Tight", ui-sans-serif, system-ui, sans-serif; }
 .gq-hud-grain { position:absolute; inset:0; pointer-events:none; opacity:0.5;
   background-image:radial-gradient(rgba(255,255,255,0.02) 0.5px, transparent 0.6px); background-size:3px 3px; }
-.gq-hud-eyebrow { position:relative; font-family:"JetBrains Mono", ui-monospace, monospace; font-size:8.5px;
+.gq-hud-eyebrow { position:relative; font-family:"JetBrains Mono", ui-monospace, monospace; font-size: var(--text-3xs);
   font-weight:700; text-transform:uppercase; letter-spacing:0.16em; }
 .gq-hud-rule { position:relative; height:1px; margin:9px 0 9px; }
 .gq-hud-row { position:relative; display:flex; align-items:center; gap:8px; }
 .gq-workdot { width:7px; height:7px; border-radius:50%; flex:none;
   animation:gqPulse 1.6s ease-in-out infinite; }
-.gq-hud-name { font-size:14px; font-weight:600; letter-spacing:-0.01em; }
-.gq-hud-status { font-family:"JetBrains Mono", ui-monospace, monospace; font-size:9px; font-weight:700;
+.gq-hud-name { font-size: var(--text-xl); font-weight:600; letter-spacing:-0.01em; }
+.gq-hud-status { font-family:"JetBrains Mono", ui-monospace, monospace; font-size: var(--text-2xs); font-weight:700;
   letter-spacing:0.09em; }
 .gq-hud-spacer { flex:1; }
 .gq-pip { width:7px; height:7px; border-radius:50%; flex:none;
   box-shadow:0 0 6px currentColor; }
 .gq-hud-meta { position:relative; margin-top:8px; font-family:"JetBrains Mono", ui-monospace, monospace;
-  font-size:9.5px; letter-spacing:0.01em; }
+  font-size: var(--text-2xs); letter-spacing:0.01em; }
 
 /* ── Menu-bar helper mock ────────────────────────────────────────────── */
 .gq-menu { position:relative; overflow:hidden; border-radius:10px; border:1px solid;
@@ -645,16 +645,16 @@ const GQ_CSS = `
   background-size:26px 26px; mask-image:linear-gradient(180deg, rgba(0,0,0,0.25), transparent 70%); }
 .gq-menu-head { position:relative; display:flex; align-items:baseline; justify-content:space-between;
   padding:10px 13px 8px; }
-.gq-menu-mast { font-family:"JetBrains Mono", ui-monospace, monospace; font-size:13px; font-weight:700;
+.gq-menu-mast { font-family:"JetBrains Mono", ui-monospace, monospace; font-size: var(--text-lg); font-weight:700;
   letter-spacing:-0.01em; }
-.gq-menu-sub { font-family:"JetBrains Mono", ui-monospace, monospace; font-size:9px; }
+.gq-menu-sub { font-family:"JetBrains Mono", ui-monospace, monospace; font-size: var(--text-2xs); }
 .gq-menu-body { position:relative; padding:2px 8px 6px; display:flex; flex-direction:column; gap:1px; }
 .gq-menu-svc { display:flex; align-items:center; gap:9px; padding:6px 5px; border-radius:6px; }
 .gq-svcdot { width:7px; height:7px; border-radius:50%; flex:none; }
-.gq-menu-svcname { font-size:12.5px; font-weight:500; flex:1; }
-.gq-menu-svcstate { font-family:"JetBrains Mono", ui-monospace, monospace; font-size:10px; }
+.gq-menu-svcname { font-size: var(--text-md); font-weight:500; flex:1; }
+.gq-menu-svcstate { font-family:"JetBrains Mono", ui-monospace, monospace; font-size: var(--text-xs); }
 .gq-menu-foot { position:relative; padding:9px 13px 11px; border-top:1px solid; margin-top:2px; }
-.gq-menu-btn { font-size:11.5px; font-weight:600; padding:5px 13px; border-radius:8px; border:1px solid;
+.gq-menu-btn { font-size: var(--text-sm); font-weight:600; padding:5px 13px; border-radius:8px; border:1px solid;
   cursor:default; }
 
 /* ── iOS deck-card mock ──────────────────────────────────────────────── */
@@ -662,17 +662,17 @@ const GQ_CSS = `
   font-family:"Inter Tight", ui-sans-serif, system-ui, sans-serif; }
 .gq-ios-deckhead { display:flex; align-items:center; gap:7px; padding:1px 3px 9px; }
 .gq-livedot { width:6px; height:6px; border-radius:50%; flex:none; animation:gqPulseRing 1.6s ease-out infinite; }
-.gq-ios-decklabel { font-family:"JetBrains Mono", ui-monospace, monospace; font-size:9px; font-weight:700;
+.gq-ios-decklabel { font-family:"JetBrains Mono", ui-monospace, monospace; font-size: var(--text-2xs); font-weight:700;
   letter-spacing:0.13em; }
-.gq-needs { margin-left:auto; font-family:"JetBrains Mono", ui-monospace, monospace; font-size:9px; font-weight:700;
+.gq-needs { margin-left:auto; font-family:"JetBrains Mono", ui-monospace, monospace; font-size: var(--text-2xs); font-weight:700;
   letter-spacing:0.04em; text-transform:uppercase; padding:2px 8px; border-radius:999px; border:1px solid; }
 .gq-ioscard { border-radius:14px; padding:11px 12px; border:1px solid; }
-.gq-ios-task { font-size:13px; font-weight:600; line-height:1.35; }
+.gq-ios-task { font-size: var(--text-lg); font-weight:600; line-height:1.35; }
 .gq-ios-attr { display:flex; align-items:center; gap:7px; margin-top:9px; }
-.gq-ios-name { font-size:11.5px; font-weight:500; }
-.gq-ios-proj { font-family:"JetBrains Mono", ui-monospace, monospace; font-size:10px; }
+.gq-ios-name { font-size: var(--text-sm); font-weight:500; }
+.gq-ios-proj { font-family:"JetBrains Mono", ui-monospace, monospace; font-size: var(--text-xs); }
 .gq-ios-status { display:flex; align-items:center; gap:6px; margin-top:9px; }
-.gq-ios-word { font-family:"JetBrains Mono", ui-monospace, monospace; font-size:9.5px; font-weight:700;
+.gq-ios-word { font-family:"JetBrains Mono", ui-monospace, monospace; font-size: var(--text-2xs); font-weight:700;
   letter-spacing:0.05em; }
 
 @keyframes gqPulse { 0%,100%{ box-shadow:0 0 0 0 transparent; } 50%{ opacity:0.72; } }
@@ -682,7 +682,7 @@ const GQ_CSS = `
 /* ── Ledger ──────────────────────────────────────────────────────────── */
 .gq-ledger-head { display:grid; grid-template-columns:1.3fr 84px 3fr; gap:16px;
   padding:8px 16px; border-bottom:1px solid var(--studio-edge); background:var(--studio-canvas-alt);
-  font-family:"JetBrains Mono", ui-monospace, monospace; font-size:8.5px; font-weight:700;
+  font-family:"JetBrains Mono", ui-monospace, monospace; font-size: var(--text-3xs); font-weight:700;
   text-transform:uppercase; letter-spacing:0.1em; color:var(--studio-ink-faint); }
 .gq-ledger-row { display:grid; grid-template-columns:1.3fr 84px 3fr; gap:16px; padding:12px 16px;
   align-items:start; }
@@ -692,7 +692,7 @@ const GQ_CSS = `
 .gq-verdict { margin-top:26px; padding:14px 16px; border-radius:10px;
   border:1px dashed color-mix(in oklab, var(--studio-ink) 22%, transparent);
   background:color-mix(in oklab, var(--studio-ink) 2%, transparent); }
-.gq-verdict-label { font-family:"JetBrains Mono", ui-monospace, monospace; font-size:9px; font-weight:700;
+.gq-verdict-label { font-family:"JetBrains Mono", ui-monospace, monospace; font-size: var(--text-2xs); font-weight:700;
   text-transform:uppercase; letter-spacing:0.14em; color:var(--studio-ink-faint); }
 .gq-verdict-slot { height:34px; margin-top:8px; border-radius:7px;
   border:1px solid var(--studio-edge); background:var(--studio-surface); }

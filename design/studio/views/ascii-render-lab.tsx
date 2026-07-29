@@ -565,21 +565,21 @@ const CSS = `
   overflow-y:auto;padding-bottom:40px;scrollbar-width:thin}
 .arl-head{position:sticky;top:0;z-index:2;background:#0e0d0c;padding:14px 15px 12px;
   border-bottom:1px solid var(--lab-edge)}
-.arl-head p{margin:0;font-family:var(--font-mono,ui-monospace),monospace;font-size:10px;
+.arl-head p{margin:0;font-family:var(--font-mono,ui-monospace),monospace;font-size: var(--text-xs);
   letter-spacing:.17em;text-transform:uppercase;color:var(--lab-ink2)}
 .arl-acts{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
-.arl button{font-family:var(--font-mono,ui-monospace),monospace;font-size:9px;
+.arl button{font-family:var(--font-mono,ui-monospace),monospace;font-size: var(--text-2xs);
   letter-spacing:.11em;text-transform:uppercase;background:#0a0a09;color:var(--lab-ink2);
   border:1px solid var(--lab-edge2);border-radius:3px;padding:6px 9px;cursor:pointer}
 .arl button:hover{color:var(--lab-ink);border-color:var(--lab-ink3)}
 
 .arl details{border-bottom:1px solid var(--lab-edge)}
 .arl summary{cursor:pointer;list-style:none;padding:10px 15px;
-  font-family:var(--font-mono,ui-monospace),monospace;font-size:9px;letter-spacing:.17em;
+  font-family:var(--font-mono,ui-monospace),monospace;font-size: var(--text-2xs);letter-spacing:.17em;
   text-transform:uppercase;color:var(--lab-ink3);display:flex;justify-content:space-between;
   align-items:center}
 .arl summary::-webkit-details-marker{display:none}
-.arl summary::after{content:'+';color:var(--lab-edge2);font-size:11px}
+.arl summary::after{content:'+';color:var(--lab-edge2);font-size: var(--text-sm)}
 .arl details[open] summary::after{content:'–'}
 .arl details[open] summary{color:var(--lab-ink2)}
 .arl-body{padding:2px 15px 14px}
@@ -587,12 +587,12 @@ const CSS = `
 .arl-p{margin:0 0 10px}
 .arl-lab{display:flex;justify-content:space-between;align-items:baseline;gap:8px;
   margin-bottom:3px}
-.arl-lab span{font-size:11px;color:var(--lab-ink2)}
-.arl-lab output{font-family:var(--font-mono,ui-monospace),monospace;font-size:10px;
+.arl-lab span{font-size: var(--text-sm);color:var(--lab-ink2)}
+.arl-lab output{font-family:var(--font-mono,ui-monospace),monospace;font-size: var(--text-xs);
   color:var(--lab-ink3);font-variant-numeric:tabular-nums}
 .arl select,.arl input[type=text]{width:100%;background:#0a0a09;color:var(--lab-ink);
   border:1px solid var(--lab-edge2);border-radius:3px;padding:5px 7px;
-  font-family:var(--font-mono,ui-monospace),monospace;font-size:11px}
+  font-family:var(--font-mono,ui-monospace),monospace;font-size: var(--text-sm)}
 
 /* Hairline track + small neutral thumb. The stock accent-color fill turns every
    slider into a green bar, which spends the one rationed hue on chrome. */
@@ -606,7 +606,7 @@ const CSS = `
   background:var(--lab-ink3)}
 .arl input[type=range]:hover::-webkit-slider-thumb{background:var(--lab-ink2)}
 .arl input[type=range]:active::-webkit-slider-thumb{background:var(--lab-accent)}
-.arl-chk{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--lab-ink2);
+.arl-chk{display:flex;align-items:center;gap:8px;font-size: var(--text-sm);color:var(--lab-ink2);
   cursor:pointer;margin:0 0 10px}
 .arl-chk input{accent-color:var(--lab-accent);width:13px;height:13px;margin:0}
 .arl :focus-visible{outline:1px solid var(--lab-accent);outline-offset:2px}
@@ -616,7 +616,7 @@ const CSS = `
 .arl-stage pre{margin:0;white-space:pre}
 .arl-stage pre + pre{position:absolute;inset:0}
 .arl-meta{position:absolute;left:22px;bottom:18px;
-  font-family:var(--font-mono,ui-monospace),monospace;font-size:10px;letter-spacing:.07em;
+  font-family:var(--font-mono,ui-monospace),monospace;font-size: var(--text-xs);letter-spacing:.07em;
   color:var(--lab-ink3)}
 .arl-ghost{position:absolute;right:22px;bottom:16px;width:72px;height:72px;opacity:.4}
 

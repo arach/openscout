@@ -57,7 +57,7 @@ function TopBar() {
     >
       <button
         type="button"
-        className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.12em] transition-colors hover:text-[color:var(--studio-ink)]"
+        className="cursor-pointer font-mono text-xs uppercase tracking-[0.12em] transition-colors hover:text-[color:var(--studio-ink)]"
         style={{ color: FAINT }}
       >
         ← Back to inbox
@@ -66,7 +66,7 @@ function TopBar() {
         {tabs.map((t, i) => (
           <span
             key={t}
-            className="cursor-pointer px-2 py-[7px] text-[11px] transition-colors"
+            className="cursor-pointer px-2 py-[7px] text-sm transition-colors"
             style={{
               color: i === 0 ? INKC : FAINT,
               borderBottom: i === 0 ? `2px solid ${ACCENT}` : "2px solid transparent",
@@ -86,7 +86,7 @@ function IdentityHeader() {
   return (
     <div className="flex items-center gap-3.5" style={{ padding: "22px 18px 18px" }}>
       <SpriteAvatar name={AGENT_NAME} size={52} tile />
-      <span className="font-display text-[26px] leading-none" style={{ color: INKC }}>
+      <span className="font-display text-6xl leading-none" style={{ color: INKC }}>
         {AGENT_NAME}
       </span>
     </div>
@@ -112,11 +112,11 @@ function Module({
       style={{ borderTop: `1px solid ${INK.edgeSoft}` }}
     >
       <header className="flex flex-none items-center justify-between px-4 pb-1.5 pt-3">
-        <span className="font-mono text-[8px] font-semibold uppercase tracking-[0.18em]" style={{ color: FAINT }}>
+        <span className="font-mono text-3xs font-semibold uppercase tracking-[0.18em]" style={{ color: FAINT }}>
           {label}
         </span>
         {meta != null ? (
-          <span className="font-mono text-[8.5px] tabular-nums" style={{ color: FAINT }}>
+          <span className="font-mono text-3xs tabular-nums" style={{ color: FAINT }}>
             {meta}
           </span>
         ) : null}
@@ -137,10 +137,10 @@ function NowModule() {
           <Dot />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[12px]" style={{ color: INKC }}>
+          <div className="truncate text-md" style={{ color: INKC }}>
             Reviewing the TalkieAgent overlay settings page
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono text-[8.5px]" style={{ color: FAINT }}>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono text-3xs" style={{ color: FAINT }}>
             <span>talkie</span>
             <span style={{ color: INK.edge }}>·</span>
             <span>⎇ main</span>
@@ -173,10 +173,10 @@ function RecentWork() {
             <span className="flex-none">
               <Dot on={false} size={5} />
             </span>
-            <span className="min-w-0 flex-1 truncate text-[11.5px]" style={{ color: MUTED }}>
+            <span className="min-w-0 flex-1 truncate text-sm" style={{ color: MUTED }}>
               {w.title}
             </span>
-            <span className="flex-none font-mono text-[8.5px] tabular-nums" style={{ color: FAINT }}>
+            <span className="flex-none font-mono text-3xs tabular-nums" style={{ color: FAINT }}>
               {w.ago}
             </span>
           </div>
@@ -218,10 +218,10 @@ function Conversations() {
               <span className="flex-none">
                 <Dot on={!!c.live} size={5} />
               </span>
-              <span className="min-w-0 flex-1 truncate text-[11.5px]" style={{ color: selected ? INKC : MUTED }}>
+              <span className="min-w-0 flex-1 truncate text-sm" style={{ color: selected ? INKC : MUTED }}>
                 {c.title}
               </span>
-              <span className="flex-none font-mono text-[8.5px] tabular-nums" style={{ color: FAINT }}>
+              <span className="flex-none font-mono text-3xs tabular-nums" style={{ color: FAINT }}>
                 {c.msgs} · {c.ago}
               </span>
             </button>
@@ -252,11 +252,11 @@ function RailSection({ label, meta, children }: { label: string; meta?: React.Re
   return (
     <div>
       <div className="mb-2 flex items-baseline justify-between">
-        <span className="font-mono text-[8px] font-semibold uppercase tracking-[0.18em]" style={{ color: FAINT }}>
+        <span className="font-mono text-3xs font-semibold uppercase tracking-[0.18em]" style={{ color: FAINT }}>
           {label}
         </span>
         {meta != null ? (
-          <span className="font-mono text-[8.5px] tabular-nums" style={{ color: FAINT }}>
+          <span className="font-mono text-3xs tabular-nums" style={{ color: FAINT }}>
             {meta}
           </span>
         ) : null}
@@ -281,10 +281,10 @@ function Runtime() {
     <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
       {RUNTIME.map((f) => (
         <div key={f.k} className="min-w-0">
-          <div className="font-mono text-[7px] font-semibold uppercase tracking-[0.14em]" style={{ color: FAINT }}>
+          <div className="font-mono text-3xs font-semibold uppercase tracking-[0.14em]" style={{ color: FAINT }}>
             {f.k}
           </div>
-          <div className="truncate font-mono text-[10px]" style={{ color: INKC }}>
+          <div className="truncate font-mono text-xs" style={{ color: INKC }}>
             {f.v}
           </div>
         </div>
@@ -304,10 +304,10 @@ function Workspace() {
     <div className="flex flex-col gap-1.5">
       {rows.map((r) => (
         <div key={r.k} className="flex items-baseline justify-between gap-3">
-          <span className="flex-none font-mono text-[7.5px] uppercase tracking-[0.12em]" style={{ color: FAINT }}>
+          <span className="flex-none font-mono text-3xs uppercase tracking-[0.12em]" style={{ color: FAINT }}>
             {r.k}
           </span>
-          <span className="truncate font-mono text-[10px]" style={{ color: MUTED }}>
+          <span className="truncate font-mono text-xs" style={{ color: MUTED }}>
             {r.v}
           </span>
         </div>
@@ -328,11 +328,11 @@ function ActiveSession() {
     >
       <div className="flex items-center gap-1.5">
         <Dot size={6} />
-        <span className="font-mono text-[9.5px]" style={{ color: INKC }}>relay-cl</span>
-        <span className="rounded-sm px-1 font-mono text-[7px] uppercase tracking-[0.08em]" style={{ background: INK.module, color: FAINT }}>
+        <span className="font-mono text-2xs" style={{ color: INKC }}>relay-cl</span>
+        <span className="rounded-sm px-1 font-mono text-3xs uppercase tracking-[0.08em]" style={{ background: INK.module, color: FAINT }}>
           tmux
         </span>
-        <span className="ml-auto font-mono text-[7.5px] uppercase tracking-[0.12em]" style={{ color: ACCENT }}>
+        <span className="ml-auto font-mono text-3xs uppercase tracking-[0.12em]" style={{ color: ACCENT }}>
           active · 1h
         </span>
       </div>
@@ -345,7 +345,7 @@ function ActiveSession() {
           <button
             key={b.label}
             type="button"
-            className="flex-1 cursor-pointer rounded-[4px] py-1.5 font-mono text-[8px] font-semibold uppercase tracking-[0.1em]"
+            className="flex-1 cursor-pointer rounded-[4px] py-1.5 font-mono text-3xs font-semibold uppercase tracking-[0.1em]"
             style={
               b.primary
                 ? { background: ACCENT, color: INK.canvas }
@@ -376,11 +376,11 @@ function Sessions() {
           className="flex w-full cursor-pointer items-center gap-2 rounded-[4px] px-2 py-1.5 text-left transition-colors hover:bg-[oklch(0.165_0.008_80)]"
         >
           <Dot on={false} size={5} />
-          <span className="font-mono text-[9.5px]" style={{ color: MUTED }}>{s.id}</span>
-          <span className="rounded-sm px-1 font-mono text-[7px] uppercase tracking-[0.08em]" style={{ background: INK.module, color: FAINT }}>
+          <span className="font-mono text-2xs" style={{ color: MUTED }}>{s.id}</span>
+          <span className="rounded-sm px-1 font-mono text-3xs uppercase tracking-[0.08em]" style={{ background: INK.module, color: FAINT }}>
             {s.harness}
           </span>
-          <span className="ml-auto font-mono text-[7.5px] tabular-nums" style={{ color: FAINT }}>{s.ago}</span>
+          <span className="ml-auto font-mono text-3xs tabular-nums" style={{ color: FAINT }}>{s.ago}</span>
         </button>
       ))}
     </div>
@@ -428,8 +428,8 @@ function TalksTo() {
             className="flex w-full cursor-pointer items-center gap-2 rounded-[4px] px-1.5 py-1 text-left transition-colors hover:bg-[oklch(0.165_0.008_80)]"
           >
             <Dot on={p.state !== "idle"} size={5} />
-            <span className="min-w-0 flex-1 truncate font-mono text-[9.5px]" style={{ color: MUTED }}>{p.name}</span>
-            <span className="font-mono text-[8px] tabular-nums" style={{ color: FAINT }}>{p.count}</span>
+            <span className="min-w-0 flex-1 truncate font-mono text-2xs" style={{ color: MUTED }}>{p.name}</span>
+            <span className="font-mono text-3xs tabular-nums" style={{ color: FAINT }}>{p.count}</span>
           </button>
         ))}
       </div>
@@ -441,7 +441,7 @@ function Caps() {
   return (
     <div className="flex flex-wrap gap-1">
       {["read", "edit", "shell", "ask"].map((c) => (
-        <span key={c} className="rounded-[3px] px-1.5 py-[2px] font-mono text-[8px]" style={{ background: INK.module, color: MUTED }}>
+        <span key={c} className="rounded-[3px] px-1.5 py-[2px] font-mono text-3xs" style={{ background: INK.module, color: MUTED }}>
           {c}
         </span>
       ))}
@@ -453,7 +453,7 @@ function Rail() {
   return (
     <div className="flex w-[248px] flex-none flex-col" style={{ background: INK.panel, borderLeft: `1px solid ${INK.edge}` }}>
       <div className="flex h-[34px] flex-none items-center px-3" style={{ borderBottom: `1px solid ${INK.edgeSoft}` }}>
-        <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>
+        <span className="font-mono text-2xs font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>
           Context
         </span>
       </div>
@@ -498,13 +498,13 @@ export default function AgentProfileModularPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-6 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · agent-profile-modular
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Agent Profile · Modular stack
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           Center is the work narrative (sprite + name → Now → Recent work → Conversations). The rail
           is the agent&apos;s context card and stops replaying who we&apos;re looking at: Runtime
           (harness · model · transport · role · class · host, a tight 2-col grid) → Workspace
@@ -517,10 +517,10 @@ export default function AgentProfileModularPage() {
       <Frame />
 
       <section className="mt-9 max-w-prose">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">
           What changed in the rail
         </div>
-        <ul className="flex flex-col gap-2 text-[12px] leading-relaxed text-studio-ink-faint">
+        <ul className="flex flex-col gap-2 text-md leading-relaxed text-studio-ink-faint">
           <li>
             <span style={{ color: INKC }}>No identity replay →</span> when you&apos;re already focused
             on one agent, the rail doesn&apos;t repeat the avatar / name / @handle / Ready·time. (That

@@ -39,31 +39,31 @@ import { SpriteAvatar } from "@/components/SpriteAvatar";
 
 function Eyebrow({ children }: { children: ReactNode }) {
   return (
-    <div className="mb-1 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+    <div className="mb-1 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
       {children}
     </div>
   );
 }
 function H2({ children }: { children: ReactNode }) {
-  return <h2 className="mb-1 font-display text-[19px] font-medium tracking-tight text-studio-ink">{children}</h2>;
+  return <h2 className="mb-1 font-display text-4xl font-medium tracking-tight text-studio-ink">{children}</h2>;
 }
 function Lede({ children }: { children: ReactNode }) {
-  return <p className="mb-5 max-w-[82ch] text-[13px] leading-relaxed text-studio-ink-muted">{children}</p>;
+  return <p className="mb-5 max-w-[82ch] text-lg leading-relaxed text-studio-ink-muted">{children}</p>;
 }
 function Ground({ children }: { children: ReactNode }) {
-  return <p className="mt-4 max-w-[92ch] text-[11.5px] leading-snug text-studio-ink-faint">{children}</p>;
+  return <p className="mt-4 max-w-[92ch] text-sm leading-snug text-studio-ink-faint">{children}</p>;
 }
 /** Frame caption — a mono eyebrow over an optional one-line note. */
 function FrameCap({ k, tone = "muted", children }: { k: string; tone?: "muted" | "accent"; children?: ReactNode }) {
   return (
     <div className="mb-3">
       <div
-        className="font-mono text-[9px] font-semibold uppercase tracking-[0.14em]"
+        className="font-mono text-2xs font-semibold uppercase tracking-[0.14em]"
         style={{ color: tone === "accent" ? "var(--scout-accent)" : "var(--studio-ink-faint)" }}
       >
         {k}
       </div>
-      {children ? <div className="mt-1 max-w-[44ch] text-[11.5px] leading-snug text-studio-ink-muted">{children}</div> : null}
+      {children ? <div className="mt-1 max-w-[44ch] text-sm leading-snug text-studio-ink-muted">{children}</div> : null}
     </div>
   );
 }
@@ -347,7 +347,7 @@ function BlockA() {
         </div>
         <span className="ssl-loop-arrow">↺</span>
       </div>
-      <p className="mt-2 font-mono text-[10px] text-studio-ink-faint">
+      <p className="mt-2 font-mono text-xs text-studio-ink-faint">
         The dashed link is the starved one — attention has no source today.
       </p>
 
@@ -355,11 +355,11 @@ function BlockA() {
         {FACTS.map((f) => (
           <div key={f.n} className="rounded-[10px] border border-studio-edge bg-studio-surface p-3.5">
             <div className="flex items-baseline gap-2">
-              <span className="font-mono text-[10px] font-bold text-studio-ink-faint">{f.n}</span>
-              <span className="text-[12.5px] font-semibold leading-snug text-studio-ink">{f.title}</span>
+              <span className="font-mono text-xs font-bold text-studio-ink-faint">{f.n}</span>
+              <span className="text-md font-semibold leading-snug text-studio-ink">{f.title}</span>
             </div>
-            <p className="mt-2 text-[11.5px] leading-snug text-studio-ink-muted">{f.body}</p>
-            <div className="mt-2.5 font-mono text-[9px] leading-snug text-studio-ink-faint">{f.ref}</div>
+            <p className="mt-2 text-sm leading-snug text-studio-ink-muted">{f.body}</p>
+            <div className="mt-2.5 font-mono text-2xs leading-snug text-studio-ink-faint">{f.ref}</div>
           </div>
         ))}
       </div>
@@ -1018,7 +1018,7 @@ function BlockD() {
 
       <div className="overflow-hidden rounded-[8px] border border-studio-edge">
         <div
-          className="grid gap-x-4 border-b border-studio-edge bg-studio-canvas-alt px-4 py-2 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint"
+          className="grid gap-x-4 border-b border-studio-edge bg-studio-canvas-alt px-4 py-2 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint"
           style={{ gridTemplateColumns: "1.5fr 62px 82px 2.6fr" }}
         >
           <span>Change</span>
@@ -1034,23 +1034,23 @@ function BlockD() {
               className={["grid items-start gap-x-4 px-4 py-3", i > 0 ? "border-t border-studio-edge" : ""].join(" ")}
               style={{ gridTemplateColumns: "1.5fr 62px 82px 2.6fr" }}
             >
-              <span className="text-[12px] font-semibold leading-snug text-studio-ink">{r.change}</span>
-              <span className="font-mono text-[10px] leading-snug text-studio-ink-muted">{r.layer}</span>
+              <span className="text-md font-semibold leading-snug text-studio-ink">{r.change}</span>
+              <span className="font-mono text-xs leading-snug text-studio-ink-muted">{r.layer}</span>
               <span>
                 <span
-                  className="inline-block rounded-[3px] px-1.5 py-px font-mono text-[8px] font-semibold uppercase tracking-eyebrow"
+                  className="inline-block rounded-[3px] px-1.5 py-px font-mono text-3xs font-semibold uppercase tracking-eyebrow"
                   style={{ background: d.bg, color: d.fg }}
                 >
                   {d.label}
                 </span>
               </span>
-              <span className="text-[11px] leading-snug text-studio-ink-muted">{r.where}</span>
+              <span className="text-sm leading-snug text-studio-ink-muted">{r.where}</span>
             </div>
           );
         })}
       </div>
 
-      <p className="mt-4 max-w-[82ch] text-[12.5px] font-medium leading-relaxed text-studio-ink">
+      <p className="mt-4 max-w-[82ch] text-md font-medium leading-relaxed text-studio-ink">
         The loop closes cheaply: dispatch already has a grammar (the HUD dock), work already has an atom (the lane cockpit), and
         attention already has a source (the fleet query) — it just needs to be emitted. Three ships plus two refines (the iOS
         bridge and the two-definitions reconcile) wake the whole cycle before a single new screen is drawn.
@@ -1067,11 +1067,11 @@ function BlockD() {
 
 const STEERING_CSS = `
 /* ── inline code (studio-token, outside frames) ─────────────────────── */
-.ssl-code { font-family:"JetBrains Mono", ui-monospace, monospace; font-size:10.5px;
+.ssl-code { font-family:"JetBrains Mono", ui-monospace, monospace; font-size: var(--text-xs);
   color:var(--studio-ink); background:color-mix(in oklab, var(--studio-ink) 8%, transparent);
   padding:0 4px; border-radius:3px; white-space:nowrap; }
 /* dependency marker in a frame caption (studio-token) */
-.ssl-dep { display:inline-block; margin-top:5px; font-size:10.5px; line-height:1.42; font-style:italic;
+.ssl-dep { display:inline-block; margin-top:5px; font-size: var(--text-xs); line-height:1.42; font-style:italic;
   color:var(--studio-ink-faint); }
 
 /* ── loop diagram (studio-token) ────────────────────────────────────── */
@@ -1079,11 +1079,11 @@ const STEERING_CSS = `
 .ssl-loop-node { flex:1; min-width:180px; display:flex; flex-direction:column; gap:3px;
   padding:12px 14px; border-radius:10px; border:1px solid var(--studio-edge); background:var(--studio-surface); }
 .ssl-loop-node.accent { border-style:dashed; border-color:color-mix(in oklab, var(--scout-accent) 45%, var(--studio-edge)); }
-.ssl-loop-k { font-family:"JetBrains Mono", monospace; font-size:9px; font-weight:700; letter-spacing:0.1em;
+.ssl-loop-k { font-family:"JetBrains Mono", monospace; font-size: var(--text-2xs); font-weight:700; letter-spacing:0.1em;
   text-transform:uppercase; color:var(--studio-ink-faint); }
 .ssl-loop-node.accent .ssl-loop-k { color:var(--scout-accent); }
-.ssl-loop-v { font-size:12.5px; color:var(--studio-ink); }
-.ssl-loop-arrow { align-self:center; font-family:"JetBrains Mono", monospace; color:var(--studio-ink-faint); font-size:15px; }
+.ssl-loop-v { font-size: var(--text-md); color:var(--studio-ink); }
+.ssl-loop-arrow { align-self:center; font-family:"JetBrains Mono", monospace; color:var(--studio-ink-faint); font-size: var(--text-2xl); }
 
 /* ── sprite + corner state dot (phone-token) — static; a single pulse
    fires on state-change only, never an idle loop (Reduce Motion honored) ─ */
@@ -1096,15 +1096,15 @@ const STEERING_CSS = `
 /* ── deck header + horizon dial (phone-token) ───────────────────────── */
 .ssl-deckhead { display:flex; align-items:center; gap:8px; padding:8px 4px 10px; }
 .ssl-deckhead .iSecLabel { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.ssl-deck-needs { flex:none; font-family:var(--i-mono); font-size:9.5px; font-weight:700; letter-spacing:0.05em;
+.ssl-deck-needs { flex:none; font-family:var(--i-mono); font-size: var(--text-2xs); font-weight:700; letter-spacing:0.05em;
   text-transform:uppercase; color:var(--i-accent); background:var(--i-accent-soft);
   padding:2px 8px; border-radius:999px; margin-left:auto; white-space:nowrap; }
 .ssl-horizonwrap { display:inline-flex; align-items:center; gap:8px; }
-.ssl-horizoncap { font-family:var(--i-mono); font-size:9px; font-weight:700; letter-spacing:0.08em;
+.ssl-horizoncap { font-family:var(--i-mono); font-size: var(--text-2xs); font-weight:700; letter-spacing:0.08em;
   text-transform:uppercase; color:var(--i-dim); }
 .ssl-horizon { display:inline-flex; padding:2px; border-radius:9px; background:var(--i-bg);
   border:1px solid var(--i-hairline-strong); flex:none; }
-.ssl-horizon button { font-family:var(--i-mono); font-size:9.5px; font-weight:700; letter-spacing:0.03em;
+.ssl-horizon button { font-family:var(--i-mono); font-size: var(--text-2xs); font-weight:700; letter-spacing:0.03em;
   padding:4px 9px; border-radius:6px; border:none; background:transparent; color:var(--i-dim); cursor:pointer; }
 .ssl-horizon button.on { background:var(--i-surface); color:var(--i-accent);
   box-shadow:inset 0 0 0 1px color-mix(in oklab, var(--i-accent) 35%, transparent); }
@@ -1118,18 +1118,18 @@ const STEERING_CSS = `
   box-shadow:inset 0 1px 0 var(--i-keylight),
     0 0 0 1px color-mix(in oklab, var(--i-accent) 22%, transparent),
     0 2px 10px color-mix(in oklab, var(--i-accent) 14%, transparent); }
-.ssl-card-task { font-size:13px; font-weight:600; line-height:1.35; color:var(--i-ink);
+.ssl-card-task { font-size: var(--text-lg); font-weight:600; line-height:1.35; color:var(--i-ink);
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
 .ssl-card-attr-row { display:flex; align-items:center; gap:8px; margin-top:8px; }
-.ssl-card-name { font-size:11.5px; font-weight:500; color:var(--i-muted); white-space:nowrap;
+.ssl-card-name { font-size: var(--text-sm); font-weight:500; color:var(--i-muted); white-space:nowrap;
   overflow:hidden; text-overflow:ellipsis; flex:none; max-width:42%; }
-.ssl-card-attr { font-size:10px; font-family:var(--i-mono); color:var(--i-dim); min-width:0;
+.ssl-card-attr { font-size: var(--text-xs); font-family:var(--i-mono); color:var(--i-dim); min-width:0;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .ssl-card-open { color:var(--i-dim); flex:none; margin-left:auto; }
-.ssl-card-ask { font-size:12px; line-height:1.45; color:var(--i-ink); margin-top:8px;
+.ssl-card-ask { font-size: var(--text-md); line-height:1.45; color:var(--i-ink); margin-top:8px;
   padding:7px 9px; border-radius:8px; background:var(--i-accent-soft); }
 .ssl-card-status { display:flex; align-items:center; gap:6px; margin-top:9px;
-  font-family:var(--i-mono); font-size:10px; }
+  font-family:var(--i-mono); font-size: var(--text-xs); }
 .ssl-card-word { font-weight:700; letter-spacing:0.04em; text-transform:uppercase; color:var(--i-dim); }
 .ssl-card-word.needs, .ssl-card-word.working { color:var(--i-accent); }
 .ssl-card-dot { color:var(--i-dim); }
@@ -1144,14 +1144,14 @@ const STEERING_CSS = `
 .ssl-accessory-plus { width:26px; height:26px; border-radius:50%; display:grid; place-items:center; flex:none;
   background:var(--i-accent-soft); color:var(--i-accent);
   border:1px solid color-mix(in oklab, var(--i-accent) 35%, transparent); }
-.ssl-accessory-text { flex:1; font-size:13px; color:var(--i-dim); }
+.ssl-accessory-text { flex:1; font-size: var(--text-lg); color:var(--i-dim); }
 .ssl-accessory-mic { color:var(--i-muted); display:grid; place-items:center; flex:none; }
 .ssl-tabbar { flex:none; height:64px; display:flex; padding:8px 8px 22px; position:relative; z-index:2;
   border-top:1.5px solid var(--i-card-edge-top); background:var(--i-chrome); box-shadow:0 -6px 11px rgba(0,0,0,0.5); }
 .ssl-tab { flex:1; display:flex; flex-direction:column; align-items:center; gap:3px; color:var(--i-muted); padding-top:2px; }
 .ssl-tab[data-on="true"] { color:var(--i-accent); }
 .ssl-tab-icon { display:grid; place-items:center; }
-.ssl-tab-label { font-size:9px; font-weight:500; font-family:var(--i-mono); letter-spacing:0.02em; }
+.ssl-tab-label { font-size: var(--text-2xs); font-weight:500; font-family:var(--i-mono); letter-spacing:0.02em; }
 
 /* ── iPad frame + lane deck (phone-token) ───────────────────────────── */
 .ssl-pad { width:1024px; border-radius:34px; padding:12px; background:#000; border:1px solid #2a2a2a;
@@ -1164,7 +1164,7 @@ const STEERING_CSS = `
 .ssl-pad-top { flex:none; display:flex; align-items:center; gap:12px; padding:12px 16px;
   border-bottom:1px solid var(--i-hairline-strong); }
 .ssl-pad-nav { display:flex; align-items:center; gap:6px; }
-.ssl-pad-navpill { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600;
+.ssl-pad-navpill { display:inline-flex; align-items:center; gap:6px; font-size: var(--text-md); font-weight:600;
   color:var(--i-muted); padding:6px 12px; border-radius:999px; border:1px solid transparent; }
 .ssl-pad-navpill.on { color:var(--i-accent); background:var(--i-accent-soft);
   border-color:color-mix(in oklab, var(--i-accent) 30%, transparent); }
@@ -1178,32 +1178,32 @@ const STEERING_CSS = `
 .ssl-lane-cockpit.needs { background:color-mix(in oklab, var(--i-accent) 7%, transparent);
   box-shadow:inset 0 0 0 1px color-mix(in oklab, var(--i-accent) 26%, transparent); }
 .ssl-lane-stream { flex:1; min-height:0; overflow:hidden; padding:8px 13px 12px; display:flex; flex-direction:column; }
-.ssl-lane-streamcap { font-family:var(--i-mono); font-size:8.5px; font-weight:700; letter-spacing:0.13em;
+.ssl-lane-streamcap { font-family:var(--i-mono); font-size: var(--text-3xs); font-weight:700; letter-spacing:0.13em;
   text-transform:uppercase; color:var(--i-dim); padding:2px 0 6px; }
 .ssl-ev { display:flex; gap:9px; padding:4px 0; align-items:baseline; }
-.ssl-ev-time { font-family:var(--i-mono); font-size:9.5px; color:var(--i-dim); flex:none; }
-.ssl-ev-text { font-family:var(--i-mono); font-size:10.5px; color:var(--i-muted); line-height:1.4;
+.ssl-ev-time { font-family:var(--i-mono); font-size: var(--text-2xs); color:var(--i-dim); flex:none; }
+.ssl-ev-text { font-family:var(--i-mono); font-size: var(--text-xs); color:var(--i-muted); line-height:1.4;
   min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 /* a quiet lane rests on a "last: …" line rather than a void */
 .ssl-lane-rest { display:flex; align-items:baseline; gap:8px; padding:6px 0; margin-top:2px; }
-.ssl-lane-rest-k { font-family:var(--i-mono); font-size:8.5px; font-weight:700; letter-spacing:0.1em;
+.ssl-lane-rest-k { font-family:var(--i-mono); font-size: var(--text-3xs); font-weight:700; letter-spacing:0.1em;
   text-transform:uppercase; color:var(--i-dim); flex:none; }
-.ssl-lane-rest-v { font-family:var(--i-mono); font-size:10.5px; color:var(--i-muted); line-height:1.4; }
+.ssl-lane-rest-v { font-family:var(--i-mono); font-size: var(--text-xs); color:var(--i-muted); line-height:1.4; }
 /* the right-edge overflow rail */
 .ssl-overflow { flex:none; width:56px; display:flex; flex-direction:column; align-items:center; gap:9px;
   padding:12px 0; border-left:1px solid var(--i-hairline-strong);
   background:color-mix(in oklab, var(--i-ink) 3%, var(--i-bg)); }
-.ssl-overflow-count { font-family:var(--i-mono); font-size:12px; font-weight:700; color:var(--i-accent); }
+.ssl-overflow-count { font-family:var(--i-mono); font-size: var(--text-md); font-weight:700; color:var(--i-accent); }
 .ssl-overflow-list { display:flex; flex-direction:column; gap:9px; align-items:center; }
-.ssl-overflow-cap { font-family:var(--i-mono); font-size:8px; font-weight:700; letter-spacing:0.12em;
+.ssl-overflow-cap { font-family:var(--i-mono); font-size: var(--text-3xs); font-weight:700; letter-spacing:0.12em;
   text-transform:uppercase; color:var(--i-dim); writing-mode:vertical-rl; margin-top:2px; }
 
 /* ── activity feed (phone-token) ────────────────────────────────────── */
-.ssl-feedgroup { font-family:var(--i-mono); font-size:8.5px; font-weight:700; letter-spacing:0.13em;
+.ssl-feedgroup { font-family:var(--i-mono); font-size: var(--text-3xs); font-weight:700; letter-spacing:0.13em;
   text-transform:uppercase; color:var(--i-dim); padding:10px 4px 5px; }
 .ssl-feed-rowwrap { position:relative; overflow:hidden; }
 .ssl-feed-steer { position:absolute; right:0; top:0; bottom:0; width:74px; display:grid; place-items:center;
-  background:var(--i-accent); color:#04130d; font-size:11.5px; font-weight:700; font-family:var(--i-font); opacity:0; }
+  background:var(--i-accent); color:#04130d; font-size: var(--text-sm); font-weight:700; font-family:var(--i-font); opacity:0; }
 .ssl-feed-rowwrap.swiped .ssl-feed-steer { opacity:1; }
 .ssl-feed-row { position:relative; z-index:1; display:flex; align-items:flex-start; gap:9px; padding:9px 4px;
   cursor:pointer; transition:transform 0.16s; }
@@ -1211,12 +1211,12 @@ const STEERING_CSS = `
 .ssl-feed-row.needs { padding-left:12px; }
 .ssl-feed-rail { position:absolute; left:1px; top:9px; bottom:9px; width:3px; border-radius:2px; background:var(--i-accent); }
 .ssl-feed-body { flex:1; min-width:0; }
-.ssl-feed-line { font-size:12.5px; line-height:1.4; color:var(--i-ink); }
+.ssl-feed-line { font-size: var(--text-md); line-height:1.4; color:var(--i-ink); }
 .ssl-feed-line b { font-weight:600; }
-.ssl-feed-ask { font-size:11.5px; line-height:1.4; color:var(--i-ink); margin-top:5px;
+.ssl-feed-ask { font-size: var(--text-sm); line-height:1.4; color:var(--i-ink); margin-top:5px;
   padding:6px 9px; border-radius:8px; background:var(--i-accent-soft); }
-.ssl-feed-meta { font-family:var(--i-mono); font-size:9.5px; color:var(--i-dim); margin-top:3px; }
-.ssl-feed-time { font-family:var(--i-mono); font-size:10px; color:var(--i-dim); flex:none; margin-top:2px; }
+.ssl-feed-meta { font-family:var(--i-mono); font-size: var(--text-2xs); color:var(--i-dim); margin-top:3px; }
+.ssl-feed-time { font-family:var(--i-mono); font-size: var(--text-xs); color:var(--i-dim); flex:none; margin-top:2px; }
 .ssl-feed-sep { height:1px; background:var(--i-hairline); margin-left:37px; }
 
 /* ── compose sheet (phone-token) — real bottom sheet, keyboard-up ────── */
@@ -1230,19 +1230,19 @@ const STEERING_CSS = `
   background:var(--i-bg); border:1px solid color-mix(in oklab, var(--i-accent) 45%, var(--i-hairline-strong));
   box-shadow:inset 0 1px 2px rgba(0,0,0,0.3), 0 0 0 3px color-mix(in oklab, var(--i-accent) 12%, transparent); }
 .ssl-well-mic { color:var(--i-muted); flex:none; display:grid; place-items:center; }
-.ssl-well-text { flex:1; font-size:14px; line-height:1.4; color:var(--i-ink); min-width:0; }
+.ssl-well-text { flex:1; font-size: var(--text-xl); line-height:1.4; color:var(--i-ink); min-width:0; }
 .ssl-well-send { width:32px; height:32px; border-radius:50%; display:grid; place-items:center; flex:none;
   background:linear-gradient(180deg, var(--i-accent-2), var(--i-accent)); color:#04130d;
   border:1px solid color-mix(in oklab, var(--i-accent) 60%, #000);
   box-shadow:inset 0 1px 0 color-mix(in oklab, #fff 22%, transparent), 0 2px 9px color-mix(in oklab, var(--i-accent) 32%, transparent); }
 .ssl-well-send.sm { width:26px; height:26px; }
-.ssl-route { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:12px; font-size:12px; color:var(--i-muted); }
+.ssl-route { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:12px; font-size: var(--text-md); color:var(--i-muted); }
 .ssl-route-lead { color:var(--i-dim); font-weight:600; }
 .ssl-route-verb { color:var(--i-ink); font-weight:700; }
 .ssl-route-cont { color:var(--i-muted); }
 .ssl-route-dash { color:var(--i-dim); }
-.ssl-route-path { font-family:var(--i-mono); font-size:11px; color:var(--i-dim); }
-.ssl-rchip { display:inline-flex; align-items:center; gap:4px; font-size:11.5px; color:var(--i-ink);
+.ssl-route-path { font-family:var(--i-mono); font-size: var(--text-sm); color:var(--i-dim); }
+.ssl-rchip { display:inline-flex; align-items:center; gap:4px; font-size: var(--text-sm); color:var(--i-ink);
   padding:3px 7px 3px 9px; border-radius:999px; background:var(--i-surface);
   border:1px solid var(--i-hairline-strong); cursor:pointer; }
 .ssl-rchip.on { border-color:color-mix(in oklab, var(--i-accent) 55%, transparent);
@@ -1254,7 +1254,7 @@ const STEERING_CSS = `
 .ssl-at { display:inline-flex; align-items:center; gap:6px; padding:3px 10px 3px 3px; border-radius:999px;
   background:var(--i-surface); border:1px solid var(--i-hairline-strong); cursor:pointer; flex:none; }
 .ssl-at.on { border-color:color-mix(in oklab, var(--i-accent) 55%, transparent); background:var(--i-accent-soft); }
-.ssl-at-handle { font-family:var(--i-mono); font-size:10.5px; color:var(--i-ink); white-space:nowrap; }
+.ssl-at-handle { font-family:var(--i-mono); font-size: var(--text-xs); color:var(--i-ink); white-space:nowrap; }
 /* keyboard slab — the sheet's primary (keyboard-up) state */
 .ssl-keyboard { margin:14px -14px -18px; padding:8px 4px 12px; background:var(--i-chrome);
   border-top:1px solid var(--i-hairline); display:flex; flex-direction:column; gap:7px; }
@@ -1263,19 +1263,19 @@ const STEERING_CSS = `
 .ssl-key { min-width:26px; height:34px; display:grid; place-items:center; border-radius:5px; flex:none;
   background:linear-gradient(180deg, color-mix(in oklab, #fff 6%, var(--i-surface)), var(--i-surface));
   border:1px solid var(--i-hairline-strong); box-shadow:0 1px 0 rgba(0,0,0,0.4);
-  font-size:13px; color:var(--i-ink); font-family:var(--i-font); }
+  font-size: var(--text-lg); color:var(--i-ink); font-family:var(--i-font); }
 .ssl-key-mod { min-width:32px; background:var(--i-bg); color:var(--i-muted); }
-.ssl-key-wide { min-width:44px; font-size:11px; color:var(--i-muted); }
-.ssl-key-space { flex:1; font-size:11px; color:var(--i-dim); }
+.ssl-key-wide { min-width:44px; font-size: var(--text-sm); color:var(--i-muted); }
+.ssl-key-space { flex:1; font-size: var(--text-sm); color:var(--i-dim); }
 .ssl-key-go { background:var(--i-accent); color:#04130d; border-color:var(--i-accent); }
 
 /* ── corrected-state inset — a chip's menu over the sheet (phone-token) ─ */
 .ssl-inset { width:300px; border-radius:16px; padding:12px 13px 13px; background:var(--i-chrome);
   border:1px solid var(--i-hairline-strong); box-shadow:0 18px 42px -18px rgba(0,0,0,0.85); }
-.ssl-inset-route { display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:12px; color:var(--i-muted); }
+.ssl-inset-route { display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size: var(--text-md); color:var(--i-muted); }
 .ssl-menu { margin-top:11px; border-radius:12px; background:var(--i-surface);
   border:1px solid var(--i-hairline-strong); overflow:hidden; }
-.ssl-menu-cap { font-family:var(--i-mono); font-size:8.5px; font-weight:700; letter-spacing:0.12em;
+.ssl-menu-cap { font-family:var(--i-mono); font-size: var(--text-3xs); font-weight:700; letter-spacing:0.12em;
   text-transform:uppercase; color:var(--i-dim); padding:9px 12px 6px; }
 .ssl-menu-item { display:flex; align-items:center; gap:9px; padding:9px 12px; border-top:1px solid var(--i-hairline); }
 .ssl-menu-item.on { background:var(--i-accent-soft); }
@@ -1283,44 +1283,44 @@ const STEERING_CSS = `
 .ssl-menu-dot.r-ready { background:var(--i-accent); }
 .ssl-menu-dot.r-configured { background:var(--i-dim); }
 .ssl-menu-dot.r-missing { background:transparent; border:1px solid var(--i-dim); }
-.ssl-menu-name { font-size:13px; color:var(--i-ink); font-weight:500; }
-.ssl-menu-path { font-family:var(--i-mono); font-size:10px; color:var(--i-dim); margin-left:auto; }
+.ssl-menu-name { font-size: var(--text-lg); color:var(--i-ink); font-weight:500; }
+.ssl-menu-path { font-family:var(--i-mono); font-size: var(--text-xs); color:var(--i-dim); margin-left:auto; }
 .ssl-menu-check { color:var(--i-accent); flex:none; display:grid; place-items:center; }
 
 /* ── lock-screen strip (phone-token) — three mini-states ────────────── */
 .ssl-lock-strip { display:flex; align-items:center; gap:10px; }
 .ssl-lock { width:176px; flex:none; }
-.ssl-lock-cap { font-family:var(--i-mono); font-size:8.5px; font-weight:700; letter-spacing:0.1em;
+.ssl-lock-cap { font-family:var(--i-mono); font-size: var(--text-3xs); font-weight:700; letter-spacing:0.1em;
   text-transform:uppercase; color:var(--i-dim); margin-bottom:6px; }
 .ssl-lock-face { height:300px; border-radius:26px; overflow:hidden; padding:18px 13px; position:relative;
   border:1px solid #2a2a2a; display:flex; flex-direction:column;
   background:linear-gradient(180deg, #0c0c0d, #050506); }
 .ssl-lock-face.dim { justify-content:flex-end; }
-.ssl-lock-time { font-size:40px; font-weight:600; letter-spacing:-0.02em; color:var(--i-ink); text-align:center; margin-top:8px; }
-.ssl-lock-date { font-size:11px; color:var(--i-muted); text-align:center; margin-top:2px; }
+.ssl-lock-time { font-size: var(--text-6xl); font-weight:600; letter-spacing:-0.02em; color:var(--i-ink); text-align:center; margin-top:8px; }
+.ssl-lock-date { font-size: var(--text-sm); color:var(--i-muted); text-align:center; margin-top:2px; }
 .ssl-lock-notif { margin-top:auto; border-radius:15px; padding:10px 11px;
   background:color-mix(in oklab, #fff 8%, rgba(22,22,24,0.55)); border:1px solid var(--i-hairline-strong); }
 .ssl-lock-notif-top { display:flex; align-items:center; gap:7px; }
-.ssl-lock-notif-name { font-size:11.5px; font-weight:600; color:var(--i-ink); }
-.ssl-lock-notif-age { font-family:var(--i-mono); font-size:9px; color:var(--i-dim); margin-left:auto; }
-.ssl-lock-notif-body { font-size:11px; line-height:1.4; color:var(--i-muted); margin-top:6px; }
+.ssl-lock-notif-name { font-size: var(--text-sm); font-weight:600; color:var(--i-ink); }
+.ssl-lock-notif-age { font-family:var(--i-mono); font-size: var(--text-2xs); color:var(--i-dim); margin-left:auto; }
+.ssl-lock-notif-body { font-size: var(--text-sm); line-height:1.4; color:var(--i-muted); margin-top:6px; }
 .ssl-lock-arrow { color:var(--i-dim); flex:none; display:grid; place-items:center; }
 .ssl-lock-sheet { margin:0 -13px -18px; border-radius:18px 18px 0 0; padding:11px 12px 15px;
   border-top:1px solid var(--i-hairline-strong); box-shadow:0 -12px 30px rgba(0,0,0,0.55);
   background:linear-gradient(180deg, color-mix(in oklab, var(--i-ink) 4%, var(--i-chrome)), var(--i-chrome)); }
 .ssl-lock-sheet-grip { width:30px; height:4px; border-radius:2px; background:var(--i-hairline-strong); margin:0 auto 9px; }
-.ssl-lock-quote { font-size:10.5px; line-height:1.4; color:var(--i-muted); padding:7px 9px; border-radius:9px;
+.ssl-lock-quote { font-size: var(--text-xs); line-height:1.4; color:var(--i-muted); padding:7px 9px; border-radius:9px;
   background:var(--i-accent-soft); }
-.ssl-lock-route { display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin-top:9px; font-size:10.5px; color:var(--i-muted); }
+.ssl-lock-route { display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin-top:9px; font-size: var(--text-xs); color:var(--i-muted); }
 .ssl-lock-route-cont { color:var(--i-muted); }
 .ssl-lock-well { display:flex; align-items:center; gap:7px; margin-top:9px; padding:8px 10px; border-radius:11px;
   background:var(--i-bg); border:1px solid color-mix(in oklab, var(--i-accent) 45%, var(--i-hairline-strong)); }
-.ssl-lock-well-text { flex:1; font-size:11.5px; color:var(--i-ink); }
+.ssl-lock-well-text { flex:1; font-size: var(--text-sm); color:var(--i-ink); }
 .ssl-lock-sent { margin:auto; display:flex; flex-direction:column; align-items:center; gap:8px; text-align:center; }
 .ssl-lock-sent-mark { width:40px; height:40px; border-radius:50%; display:grid; place-items:center;
   color:var(--i-accent); background:var(--i-accent-soft); border:1px solid color-mix(in oklab, var(--i-accent) 40%, transparent); }
-.ssl-lock-sent-title { font-size:13px; font-weight:600; color:var(--i-ink); }
-.ssl-lock-sent-sub { font-size:11px; font-family:var(--i-mono); color:var(--i-muted); }
+.ssl-lock-sent-title { font-size: var(--text-lg); font-weight:600; color:var(--i-ink); }
+.ssl-lock-sent-sub { font-size: var(--text-sm); font-family:var(--i-mono); color:var(--i-muted); }
 `;
 
 /* ════════════════════════════════════════════════════════════════════
@@ -1334,13 +1334,13 @@ export default function ScoutSteeringLoopStudy() {
       <style>{STEERING_CSS}</style>
 
       <header className="mb-10 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · ios · scout-steering-loop
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Scout · Steering Loop
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-muted">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-muted">
           Scout&rsquo;s iOS surfaces are chat-shaped, but the operator&rsquo;s real loop is a cycle: <strong className="text-studio-ink">dispatch</strong> work →
           watch <strong className="text-studio-ink">ambient</strong> work → get pulled in by <strong className="text-studio-ink">attention</strong>. This study rethinks
           the core surfaces around that loop as a current ⇄ proposed showcase — WORK as a lane deck that scales from phone to

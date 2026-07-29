@@ -44,6 +44,131 @@ private struct ScoutAppIconMark: View {
     }
 }
 
+/// Release-compatible full-height chrome for Scout's native window.
+///
+/// Hudson's shared `.floating` titlebar mode has not reached the `main` branch
+/// used by release builds yet. Keep this small composition local until it does:
+/// windowed actions ride in the native traffic-light band, while fullscreen
+/// gets a compact reserved row so the controls never cover column headers.
+private struct ScoutFloatingChromeShell<
+    Leading: View,
+    Trailing: View,
+    Content: View,
+    StatusBar: View
+>: View {
+    let titlebarActions: [HudChromeTitlebarAction]
+    let leading: Leading
+    let trailing: Trailing
+    let content: Content
+    let statusBar: StatusBar
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    init(
+        titlebarActions: [HudChromeTitlebarAction],
+        @ViewBuilder leading: () -> Leading,
+        @ViewBuilder trailing: () -> Trailing,
+        @ViewBuilder content: () -> Content,
+        @ViewBuilder statusBar: () -> StatusBar
+    ) {
+        self.titlebarActions = titlebarActions
+        self.leading = leading()
+        self.trailing = trailing()
+        self.content = content()
+        self.statusBar = statusBar()
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let hasNativeTitlebarBand = proxy.safeAreaInsets.top > 1
+
+            HudAppShell {
+                leading
+            } trailing: {
+                trailing
+            } topDrawer: {
+                if !hasNativeTitlebarBand {
+                    ScoutTitlebarActionRow(actions: titlebarActions, clearsTrafficLights: false)
+                }
+            } bottomDrawer: {
+                EmptyView()
+            } content: {
+                content
+            } statusBar: {
+                statusBar
+            }
+            .overlay(alignment: .top) {
+                if hasNativeTitlebarBand {
+                    ScoutTitlebarActionRow(actions: titlebarActions, clearsTrafficLights: true)
+                        .ignoresSafeArea(.container, edges: .top)
+                }
+            }
+        }
+        .background(HudWindowChrome(colorScheme: colorScheme))
+    }
+}
+
+private struct ScoutTitlebarActionRow: View {
+    let actions: [HudChromeTitlebarAction]
+    let clearsTrafficLights: Bool
+
+    private var leadingActions: [HudChromeTitlebarAction] {
+        actions.filter { $0.placement == .leading }
+    }
+
+    private var trailingActions: [HudChromeTitlebarAction] {
+        actions.filter { $0.placement == .trailing }
+    }
+
+    var body: some View {
+        HStack(spacing: HudSpacing.sm) {
+            ForEach(leadingActions, id: \.id) { action in
+                ScoutTitlebarActionButton(action: action)
+            }
+            Spacer(minLength: 0)
+            ForEach(trailingActions, id: \.id) { action in
+                ScoutTitlebarActionButton(action: action)
+            }
+        }
+        .padding(.leading, clearsTrafficLights ? 84 : HudSpacing.lg)
+        .padding(.trailing, HudSpacing.lg)
+        .frame(maxWidth: .infinity)
+        .frame(height: 28)
+    }
+}
+
+private struct ScoutTitlebarActionButton: View {
+    let action: HudChromeTitlebarAction
+
+    @Environment(\.hudTheme) private var theme
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action.action) {
+            Image(systemName: action.systemImage)
+                .font(HudFont.ui(12, weight: .semibold))
+                .foregroundStyle(isHovering ? theme.palette.ink : theme.palette.muted)
+                .frame(width: HudIconSize.medium, height: HudLayout.textDocumentModeButtonHeight)
+                .background(
+                    RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                        .fill(isHovering ? HudSurface.hover : Color.clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                        .stroke(
+                            isHovering ? theme.hairline.standard : Color.clear,
+                            lineWidth: HudStrokeWidth.thin
+                        )
+                )
+        }
+        .buttonStyle(.plain)
+        .help(action.label)
+        .accessibilityLabel(action.label)
+        .onHover { isHovering = $0 }
+        .animation(.easeOut(duration: 0.10), value: isHovering)
+    }
+}
+
 private struct ScoutAppIconLineMark: View {
     var body: some View {
         Canvas { context, canvasSize in
@@ -270,6 +395,9 @@ struct ScoutRootView: View {
     @State private var realtimeVoiceResizeStartSize: CGSize?
     @State private var realtimeVoicePanelExpanded = false
     @State private var section: ScoutSection = .comms
+    /// Web-embed sections mounted at least once. Kept alive (hidden) across
+    /// nav switches so Projects/Dispatch/Lanes/Code do not cold-load every visit.
+    @State private var visitedWebEmbedSections: Set<ScoutSection> = []
     @State private var codeLinkQueryItems: [URLQueryItem] = []
     @State private var terminalLinkRoutePath: String?
     @State private var terminalLinkRequestID: UUID?
@@ -278,6 +406,12 @@ struct ScoutRootView: View {
     @State private var agentContentMode: ScoutAgentContentMode = .roster
     @State private var agentsFilterQuery = ""
     @State private var agentsLiveOnly = false
+    /// Which implementation draws the Comms transcript — Settings › Appearance ›
+    /// Conversations. `shared` mounts the web `/embed/thread` surface so web,
+    /// macOS and iOS draw the conversation body from one implementation instead
+    /// of three; the native stack below is untouched and still builds.
+    @AppStorage(ScoutCommsSettings.threadRendererKey)
+    private var threadRendererRaw = ScoutThreadRenderer.fallback.rawValue
     /// Settings › Appearance › Conversations. Passed to the embed as the
     /// `treatment` query param, which re-renders the surface on change.
     @AppStorage(ScoutCommsSettings.threadPresentationKey)
@@ -299,6 +433,10 @@ struct ScoutRootView: View {
     @State private var followLatest = true
     /// Pending one-shot jump to the newest message when a conversation opens.
     @State private var pendingInitialJump = true
+    /// The oldest visible turn before an earlier-history fetch. Once older rows
+    /// prepend, scroll back to this stable id so the reader's place does not
+    /// jump under them.
+    @State private var pendingHistoryAnchorMessageId: String?
     @State private var expandedThreadConversationIds: Set<String> = []
     @State private var threadMessages: [String: [ScoutMessage]] = [:]
     @State private var threadDrafts: [String: String] = [:]
@@ -431,38 +569,25 @@ struct ScoutRootView: View {
 
     @ViewBuilder
     private func captureEnabledContent(layout: ScoutShellLayout) -> some View {
-        persistentContent(layout: layout)
-            .dropDestination(for: URL.self) { urls, _ in
-                stageCapturedMedia(ScoutMediaIntake.fromFileURLs(urls))
-            } isTargeted: { captureDropTargeted = $0 }
-            .overlay {
-                if captureDropTargeted {
-                    ScoutWindowCaptureOverlay()
+        if sessionDraft == nil {
+            content(layout: layout)
+                .dropDestination(for: URL.self) { urls, _ in
+                    stageCapturedMedia(ScoutMediaIntake.fromFileURLs(urls))
+                } isTargeted: { captureDropTargeted = $0 }
+                .overlay {
+                    if captureDropTargeted {
+                        ScoutWindowCaptureOverlay()
+                    }
                 }
-            }
-            .animation(.easeOut(duration: 0.12), value: captureDropTargeted)
-    }
-
-    /// Native terminal renderers own AppKit views that cannot be torn down and
-    /// recreated like ordinary SwiftUI content without losing their live
-    /// canvas attachment. Keep the terminal page mounted at window scope and
-    /// only hide it while another section is selected.
-    @ViewBuilder
-    private func persistentContent(layout: ScoutShellLayout) -> some View {
-        #if HUDSON_TERMINAL
-        ZStack {
-            terminalContent
-                .opacity(section == .terminals ? 1 : 0)
-                .allowsHitTesting(section == .terminals)
-                .accessibilityHidden(section != .terminals)
-
-            if section != .terminals {
-                content(layout: layout)
-            }
+                .animation(.easeOut(duration: 0.12), value: captureDropTargeted)
+        } else {
+            // The new-chat sheet owns attachment intake while it is open. If
+            // the window-level destination remains registered underneath the
+            // sheet, AppKit can deliver a Finder drop to this background view;
+            // the attachment then appears in the hidden chat composer instead
+            // of the new session draft.
+            content(layout: layout)
         }
-        #else
-        content(layout: layout)
-        #endif
     }
 
     private func navigationSidebar(layout: ScoutShellLayout) -> some View {
@@ -483,17 +608,13 @@ struct ScoutRootView: View {
             maxLabelWidth: 260,
             collapseLabelWidth: 44,
             railHeader: {
-                // Full-height window: the traffic lights float over this
-                // corner, so the identity mark steps down below them.
                 ScoutAppIconMark(size: 24, cornerRadius: HudRadius.standard)
-                    .padding(.top, 26)
             },
             labelHeader: {
                 Text("Scout")
                     .font(HudFont.ui(HudTextSize.base, weight: .semibold))
                     .foregroundStyle(ScoutPalette.ink)
                     .lineLimit(1)
-                    .padding(.top, 26)
             },
             footer: {
                 ScoutSidebarSettingsButton(
@@ -508,7 +629,7 @@ struct ScoutRootView: View {
     }
 
     private func rootChrome(layout: ScoutShellLayout) -> some View {
-        HudChromeShell(titlebarStyle: .contentBar, titlebarActions: chromeTitlebarActions(layout: layout)) {
+        ScoutFloatingChromeShell(titlebarActions: chromeTitlebarActions(layout: layout)) {
             navigationSidebar(layout: layout)
         } trailing: {
             trailingPanel(layout: layout)
@@ -626,11 +747,15 @@ struct ScoutRootView: View {
             reconcilePendingConversations()
         }
         .onChange(of: section) { _, newSection in
+            if newSection.embedSurfaceId != nil {
+                visitedWebEmbedSections.insert(newSection)
+            }
             if newSection != .tail {
                 tailSessionEvent = nil
             }
             syncScopedStoreLifecycles()
             ScoutAttentionCenter.shared.noteSelection(cId: store.selectedCId, isCommsVisible: newSection == .comms)
+            resignWebEmbedFirstResponderIfNeeded(activeSection: newSection)
         }
             .onChange(of: modalPresented) { _, _ in
                 syncScopedStoreLifecycles()
@@ -751,17 +876,8 @@ struct ScoutRootView: View {
     private func handleAppCommand(_ command: ScoutAppCommand) {
         guard !modalPresented else { return }
         switch command {
-        case .newItem:
-            switch ScoutNewItemDestination.resolve(sectionRawValue: section.rawValue) {
-            case .conversation:
-                startNewConversation()
-            case .terminalShell:
-                #if HUDSON_TERMINAL
-                startNewTerminalShell()
-                #else
-                startNewConversation()
-                #endif
-            }
+        case .newConversation:
+            startNewConversation()
         case .moveDown:
             moveSelection(1)
         case .moveUp:
@@ -1124,22 +1240,6 @@ struct ScoutRootView: View {
             fromConversationId: nil
         )
     }
-
-    #if HUDSON_TERMINAL
-    private func startNewTerminalShell() {
-        let rendererRaw = UserDefaults.standard.string(
-            forKey: ScoutTerminalSettings.rendererKey
-        )
-        let renderer = rendererRaw.flatMap(ScoutTerminalRenderer.init(rawValue:)) ?? .xterm
-        let shells = terminalWorkspaces.selectedWorkspace.shells
-        switch renderer {
-        case .native:
-            shells.native.addLocalShell()
-        case .xterm:
-            shells.web.addTerminalTab(backend: "pty", agent: "shell")
-        }
-    }
-    #endif
 
     private func startConversationInProject(_ group: ScoutAgentsTreeModel.ProjectGroup) {
         repos.refresh()
@@ -1642,26 +1742,77 @@ struct ScoutRootView: View {
 
     @ViewBuilder
     private func content(layout: ScoutShellLayout) -> some View {
-        switch section {
-        case .comms:
-            commsContent(layout: layout)
+        // Embed-backed sections stay mounted after first visit (lazy keep-alive).
+        // Native sections keep exclusive switch behavior so they are not retained.
+        ZStack {
+            ForEach(ScoutSection.webEmbedSections, id: \.self) { embedSection in
+                if visitedWebEmbedSections.contains(embedSection) || section == embedSection {
+                    let isActive = section == embedSection
+                    webEmbedSectionContent(embedSection, layout: layout)
+                        .opacity(isActive ? 1 : 0)
+                        .allowsHitTesting(isActive)
+                        .accessibilityHidden(!isActive)
+                        .zIndex(isActive ? 1 : 0)
+                }
+            }
+
+            if section.embedSurfaceId == nil {
+                nativeSectionContent(layout: layout)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func webEmbedSectionContent(_ embedSection: ScoutSection, layout: ScoutShellLayout) -> some View {
+        switch embedSection {
         case .agents:
             projectsContent
-        case .terminals:
-            terminalContent
-        case .repos:
-            reposContent
-        case .tail:
-            tailContent
         case .dispatch:
             dispatchContent
         case .lanes:
             lanesContent(layout: layout)
         case .code:
             codeContent
+        default:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private func nativeSectionContent(layout: ScoutShellLayout) -> some View {
+        switch section {
+        case .comms:
+            commsContent(layout: layout)
+        case .terminals:
+            terminalContent
+        case .repos:
+            reposContent
+        case .tail:
+            tailContent
         case .settings:
             settingsContent
+        case .agents, .dispatch, .lanes, .code:
+            EmptyView()
         }
+    }
+
+    /// Hidden WKWebViews can keep keyboard focus after a section switch.
+    /// Drop WebKit first-responder ownership when leaving embed surfaces so key
+    /// events reach the visible native chrome (composer, lists, etc.).
+    private func resignWebEmbedFirstResponderIfNeeded(activeSection: ScoutSection) {
+        #if os(macOS)
+        guard activeSection.embedSurfaceId == nil,
+              let window = NSApp.keyWindow else { return }
+        var responder: NSResponder? = window.firstResponder
+        while let current = responder {
+            let typeName = String(describing: type(of: current))
+            if typeName.contains("WK") || typeName.contains("WebView") {
+                window.makeFirstResponder(nil)
+                return
+            }
+            responder = current.nextResponder
+        }
+        #endif
     }
 
     private var settingsContent: some View {
@@ -1734,7 +1885,11 @@ struct ScoutRootView: View {
             if let channel = store.selectedChannel {
                 VStack(spacing: 0) {
                     chatHeader
-                    webConversationDetail(conversationId: channel.cId)
+                    if let ask = channel.ask {
+                        ScoutPinnedAskBand(ask: ask)
+                    }
+                    messageList
+                    composer
                 }
             } else if let pending = selectedPendingConversation {
                 pendingConversationDetail(pending)
@@ -1764,7 +1919,7 @@ struct ScoutRootView: View {
             if store.messages.isEmpty {
                 pendingConversationThread(pending)
             } else {
-                nativeMessageList
+                messageList
             }
             composer
         }
@@ -2431,20 +2586,36 @@ struct ScoutRootView: View {
         )
     }
 
+    private var threadRenderer: ScoutThreadRenderer {
+        ScoutThreadRenderer(rawValue: threadRendererRaw) ?? .fallback
+    }
+
     private var threadPresentation: ScoutThreadPresentation {
         ScoutThreadPresentation(rawValue: threadPresentationRaw) ?? .fallback
     }
 
-    /// The complete conversation body, including its composer, is drawn by the
-    /// same component as the web app. Keeping the transcript and input together
-    /// preserves one presentation, one draft model, and one dictation path.
-    /// Keying on the conversation prevents a web view still showing the prior
-    /// thread's tail from being reused after selection changes.
-    private func webConversationDetail(conversationId: String) -> some View {
+    @ViewBuilder
+    private var messageList: some View {
+        if threadRenderer == .shared, let conversationId = store.selectedCId {
+            webThreadTranscript(conversationId: conversationId)
+        } else {
+            nativeMessageList
+        }
+    }
+
+    /// The conversation, drawn by the same component the web app renders at
+    /// /chat — not an embed-only variant of it. Keyed on the conversation so
+    /// switching threads reloads rather than reusing a web view still scrolled
+    /// to the previous thread's tail.
+    private func webThreadTranscript(conversationId: String) -> some View {
         ScoutWebEmbedContent(
             surface: .thread,
             extraQueryItems: [
                 URLQueryItem(name: "conversationId", value: conversationId),
+                // This window keeps its native composer — for the pasteboard,
+                // drag-drop, dictation and ⌘↩ it can reach and a web view
+                // can't. Without this the embed stacks a second one under it.
+                URLQueryItem(name: "composer", value: "0"),
                 URLQueryItem(name: "treatment", value: threadPresentation.rawValue),
             ],
             showsHeader: false
@@ -2482,6 +2653,34 @@ struct ScoutRootView: View {
                             .transition(.opacity)
                         }
                     } else {
+                        if store.hasEarlierMessages {
+                            HStack {
+                                Spacer(minLength: 0)
+                                Button {
+                                    pendingHistoryAnchorMessageId = store.messages.first?.id
+                                    followLatest = false
+                                    store.loadEarlierMessages()
+                                } label: {
+                                    HStack(spacing: HudSpacing.sm) {
+                                        if store.isLoadingEarlierMessages {
+                                            ProgressView()
+                                                .controlSize(.small)
+                                        }
+                                        Text(
+                                            store.isLoadingEarlierMessages
+                                                ? "Loading earlier messages…"
+                                                : "Load earlier messages"
+                                        )
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .disabled(store.isLoadingEarlierMessages)
+                                .help("Load messages sent before the oldest visible turn")
+                                Spacer(minLength: 0)
+                            }
+                        }
+
                         ForEach(messageRenderItems) { item in
                             switch item {
                             case .inline(let message):
@@ -2560,8 +2759,29 @@ struct ScoutRootView: View {
             .onChange(of: store.selectedCId) { _, _ in
                 // Opening a conversation lands on the newest message unless the
                 // user deliberately scrolls up afterwards.
+                pendingHistoryAnchorMessageId = nil
                 pendingInitialJump = true
                 followLatest = true
+            }
+            .onChange(of: store.messages.first?.id) { _, _ in
+                guard let anchor = pendingHistoryAnchorMessageId,
+                      store.messages.contains(where: { $0.id == anchor }) else {
+                    return
+                }
+                DispatchQueue.main.async {
+                    proxy.scrollTo(anchor, anchor: .top)
+                    pendingHistoryAnchorMessageId = nil
+                }
+            }
+            .onChange(of: store.isLoadingEarlierMessages) { _, isLoading in
+                guard !isLoading,
+                      let anchor = pendingHistoryAnchorMessageId,
+                      store.messages.first?.id == anchor else {
+                    return
+                }
+                // The page was empty or failed, so no prepend occurred and
+                // there is no scroll correction to perform.
+                pendingHistoryAnchorMessageId = nil
             }
             .onChange(of: store.messages.last?.id) { _, _ in
                 guard !store.messages.isEmpty else { return }
@@ -5680,57 +5900,6 @@ private struct ScoutEyebrow: View {
                 .tracking(1.4)
                 .foregroundStyle(ScoutPalette.muted)
         }
-    }
-}
-
-/// Ghost turns shown while a conversation's transcript fetch is in flight —
-/// the header and composer hold steady, so switching threads reads as the new
-/// thread filling in rather than a bounce through an empty state. Neutral
-/// inset washes only, avatar-led like real turns. A gentle whole-group pulse
-/// signals "loading"; reduce-motion holds a steady mid-opacity instead.
-private struct ScoutThreadLoadingSkeleton: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var dimmed = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: HudSpacing.xxxl) {
-            ghostTurn(name: 88, lines: [430, 310])
-            ghostTurn(name: 64, lines: [370, 450, 220])
-            ghostTurn(name: 104, lines: [280])
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .opacity(reduceMotion ? 0.7 : (dimmed ? 0.45 : 0.85))
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
-                dimmed = true
-            }
-        }
-        .accessibilityLabel("Loading conversation")
-    }
-
-    private func ghostTurn(name: CGFloat, lines: [CGFloat]) -> some View {
-        HStack(alignment: .top, spacing: HudSpacing.xl) {
-            RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                .fill(ScoutSurface.inset)
-                .frame(width: 28, height: 28)
-            VStack(alignment: .leading, spacing: HudSpacing.sm) {
-                bar(maxWidth: name, height: 9)
-                VStack(alignment: .leading, spacing: HudSpacing.xs) {
-                    ForEach(Array(lines.enumerated()), id: \.offset) { line in
-                        bar(maxWidth: line.element, height: 10)
-                    }
-                }
-            }
-            Spacer(minLength: 0)
-        }
-    }
-
-    private func bar(maxWidth: CGFloat, height: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: 3, style: .continuous)
-            .fill(ScoutSurface.inset)
-            .frame(height: height)
-            .frame(maxWidth: maxWidth, alignment: .leading)
     }
 }
 

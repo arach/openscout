@@ -19,6 +19,7 @@ export {
 export {
   RuntimePicker,
   RUNTIME_EFFORTS,
+  type RuntimeOption,
   type RuntimePickerProps,
 } from "./RuntimePicker.tsx";
 export { VoiceWaveform } from "./VoiceWaveform.tsx";

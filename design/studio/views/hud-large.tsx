@@ -18,13 +18,13 @@ export default function HudLargePage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-8 max-w-prose">
-        <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · macos · hud-large
         </div>
-        <h1 className="mt-1 font-sans text-[28px] font-semibold leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-sans text-6xl font-semibold leading-none tracking-tight text-studio-ink">
           HUD Large
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           Locked reference at the large size — a ~900px panel where the
           operator has the most horizontal room for the same vocabulary.
           At this tier every tab adopts a two-pane treatment: list on
@@ -46,7 +46,7 @@ export default function HudLargePage() {
 
 function Research() {
   return (
-    <section className="mt-20 w-full max-w-[920px] font-sans text-[13px] leading-relaxed text-studio-ink-muted">
+    <section className="mt-20 w-full max-w-[920px] font-sans text-lg leading-relaxed text-studio-ink-muted">
       <ResearchHeader surface="hud · macos · large" />
 
       <ResearchBlock eyebrow="tier notes">

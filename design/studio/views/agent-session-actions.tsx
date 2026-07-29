@@ -85,13 +85,13 @@ export default function AgentSessionActionsPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-8 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · macos · agent-session-actions
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Agent session actions
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           A session is the unit. Per-session verbs —{" "}
           <strong className="text-studio-ink-muted">Observe · Take over · Fork · Message</strong> —
           disclose progressively: role + metadata at rest, quick actions on
@@ -102,10 +102,10 @@ export default function AgentSessionActionsPage() {
       </header>
 
       {/* ── 1. Disclosure tiers ──────────────────────────────────────── */}
-      <h2 className="mb-1 font-display text-[18px] font-medium tracking-tight text-studio-ink">
+      <h2 className="mb-1 font-display text-3xl font-medium tracking-tight text-studio-ink">
         1 · Disclosure tiers
       </h2>
-      <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+      <p className="mb-5 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
         Same session, three states. Rest carries a metadata line (not role
         alone); hover surfaces Observe/Message + ⋯; engaged is a mini-card with
         every action.
@@ -137,7 +137,7 @@ export default function AgentSessionActionsPage() {
         </Labeled>
       </div>
 
-      <p className="mt-5 mb-3 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+      <p className="mt-5 mb-3 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
         Live — hover a row for quick actions; the ⋯ opens the full 2×2.
       </p>
       <div className="w-[300px]">
@@ -152,10 +152,10 @@ export default function AgentSessionActionsPage() {
       </div>
 
       {/* ── 2. The settled card ──────────────────────────────────────── */}
-      <h2 className="mt-14 mb-1 font-display text-[18px] font-medium tracking-tight text-studio-ink">
+      <h2 className="mt-14 mb-1 font-display text-3xl font-medium tracking-tight text-studio-ink">
         2 · Card — global actions at top
       </h2>
-      <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+      <p className="mb-5 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
         <em>Message</em> + <em>New session</em> as real CTAs directly under the
         identity, then metadata, then the session list.
       </p>
@@ -169,7 +169,7 @@ export default function AgentSessionActionsPage() {
 function Labeled({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="w-[300px]">
-      <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-scout-accent">
+      <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-scout-accent">
         {label}
       </div>
       {children}
@@ -203,11 +203,11 @@ function HoverTile({ row }: { row: SessionRow }) {
     <div className="group/row rounded-[5px] px-1.5 py-1.5 transition-colors hover:bg-[color-mix(in_oklab,var(--studio-ink)_5%,transparent)]">
       <div className="flex items-center gap-2">
         <Dot state={row.state} />
-        <span className="truncate font-sans text-[11px] font-medium text-studio-ink-muted group-hover/row:text-studio-ink">
+        <span className="truncate font-sans text-sm font-medium text-studio-ink-muted group-hover/row:text-studio-ink">
           {row.title}
         </span>
         <RoleBadge role={row.role} />
-        <span className="ml-auto font-mono text-[9px] text-studio-ink-faint group-hover/row:hidden">{row.age}</span>
+        <span className="ml-auto font-mono text-2xs text-studio-ink-faint group-hover/row:hidden">{row.age}</span>
         <div className="hidden items-center gap-0.5 group-hover/row:flex">
           <QuickAction icon={<EyeIcon />} label="Observe" accent />
           <QuickAction icon={<ChatIcon />} label="Message" />
@@ -223,7 +223,7 @@ function RowHead({ row, quick }: { row: SessionRow; quick?: boolean }) {
   return (
     <div className="flex items-center gap-2">
       <Dot state={row.state} />
-      <span className="truncate font-sans text-[11px] font-medium text-studio-ink">{row.title}</span>
+      <span className="truncate font-sans text-sm font-medium text-studio-ink">{row.title}</span>
       <RoleBadge role={row.role} />
       {quick ? (
         <div className="ml-auto flex items-center gap-0.5">
@@ -232,7 +232,7 @@ function RowHead({ row, quick }: { row: SessionRow; quick?: boolean }) {
           <KebabButton />
         </div>
       ) : (
-        <span className="ml-auto font-mono text-[9px] text-studio-ink-faint">{row.age}</span>
+        <span className="ml-auto font-mono text-2xs text-studio-ink-faint">{row.age}</span>
       )}
     </div>
   );
@@ -240,7 +240,7 @@ function RowHead({ row, quick }: { row: SessionRow; quick?: boolean }) {
 
 function MetaLine({ row }: { row: SessionRow }) {
   return (
-    <div className="mt-0.5 truncate pl-4 font-mono text-[9px] text-studio-ink-faint">
+    <div className="mt-0.5 truncate pl-4 font-mono text-2xs text-studio-ink-faint">
       {row.branch} · {row.model} · {row.msgs} msgs
     </div>
   );
@@ -255,11 +255,11 @@ function MiniCard({ row }: { row: SessionRow }) {
     >
       <div className="flex items-center gap-2">
         <Dot state={row.state} />
-        <span className="truncate font-sans text-[11.5px] font-semibold text-studio-ink">{row.title}</span>
+        <span className="truncate font-sans text-sm font-semibold text-studio-ink">{row.title}</span>
         <RoleBadge role={row.role} />
-        <span className="ml-auto font-mono text-[9px] text-studio-ink-faint">{row.age}</span>
+        <span className="ml-auto font-mono text-2xs text-studio-ink-faint">{row.age}</span>
       </div>
-      <div className="mt-2 grid grid-cols-[44px_1fr] gap-x-2 gap-y-1 font-mono text-[9px]">
+      <div className="mt-2 grid grid-cols-[44px_1fr] gap-x-2 gap-y-1 font-mono text-2xs">
         <span className="uppercase tracking-eyebrow text-studio-ink-faint">id</span>
         <span className="truncate text-studio-ink-muted">{row.id}</span>
         <span className="uppercase tracking-eyebrow text-studio-ink-faint">path</span>
@@ -296,7 +296,7 @@ function ActionCell({ icon, label, accent }: { icon: React.ReactNode; label: str
   return (
     <button
       type="button"
-      className={`flex h-7 items-center justify-center gap-1.5 whitespace-nowrap rounded-[5px] border px-2 font-mono text-[9.5px] font-semibold uppercase tracking-eyebrow transition-colors ${
+      className={`flex h-7 items-center justify-center gap-1.5 whitespace-nowrap rounded-[5px] border px-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow transition-colors ${
         accent
           ? "border-[color-mix(in_oklab,var(--status-ok-fg)_45%,transparent)] bg-[color-mix(in_oklab,var(--status-ok-fg)_12%,transparent)] text-[var(--status-ok-fg)] hover:bg-[color-mix(in_oklab,var(--status-ok-fg)_22%,transparent)]"
           : "border-studio-edge-strong text-studio-ink-muted hover:border-[color-mix(in_oklab,var(--scout-accent)_45%,transparent)] hover:text-studio-ink"
@@ -361,14 +361,14 @@ function ActionBar() {
     <div className="flex items-center gap-2">
       <button
         type="button"
-        className="flex items-center gap-1.5 rounded-full px-3 py-1.5 font-mono text-[10px] font-semibold uppercase tracking-eyebrow"
+        className="flex items-center gap-1.5 rounded-full px-3 py-1.5 font-mono text-xs font-semibold uppercase tracking-eyebrow"
         style={{ background: "var(--scout-accent)", color: "var(--studio-canvas)" }}
       >
         <ChatIcon /> Message
       </button>
       <button
         type="button"
-        className="flex items-center gap-1.5 rounded-full border border-studio-edge-strong bg-studio-canvas-alt px-3 py-1.5 font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted transition-colors hover:border-[color-mix(in_oklab,var(--scout-accent)_50%,transparent)] hover:text-studio-ink"
+        className="flex items-center gap-1.5 rounded-full border border-studio-edge-strong bg-studio-canvas-alt px-3 py-1.5 font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-muted transition-colors hover:border-[color-mix(in_oklab,var(--scout-accent)_50%,transparent)] hover:text-studio-ink"
       >
         <PlusIcon /> New session
       </button>
@@ -412,7 +412,7 @@ function Header() {
   return (
     <div className="flex min-w-0 items-start gap-2.5">
       <div
-        className="relative grid h-[30px] w-[30px] shrink-0 place-items-center rounded-full font-mono text-[12px]"
+        className="relative grid h-[30px] w-[30px] shrink-0 place-items-center rounded-full font-mono text-md"
         style={{ background: "oklch(0.42 0.008 80)", color: "var(--studio-canvas)" }}
       >
         G
@@ -422,8 +422,8 @@ function Header() {
         />
       </div>
       <div className="min-w-0 flex-1 pt-0.5">
-        <div className="truncate font-sans text-[15px] font-semibold tracking-tight text-studio-ink">Grok</div>
-        <div className="truncate font-mono text-[9.5px] text-studio-ink-faint">grok.feat-macos.arts-mac-mini-local</div>
+        <div className="truncate font-sans text-2xl font-semibold tracking-tight text-studio-ink">Grok</div>
+        <div className="truncate font-mono text-2xs text-studio-ink-faint">grok.feat-macos.arts-mac-mini-local</div>
       </div>
     </div>
   );
@@ -433,7 +433,7 @@ function Section({ label, rows }: { label: string; rows: [string, string][] }) {
   return (
     <div className="flex flex-col gap-1.5">
       <SectionLabel>{label}</SectionLabel>
-      <div className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-1 font-mono text-[10.5px]">
+      <div className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-1 font-mono text-xs">
         {rows.map(([k, v]) => (
           <Fragment key={k}>
             <span className="uppercase tracking-eyebrow text-studio-ink-faint">{k}</span>
@@ -447,13 +447,13 @@ function Section({ label, rows }: { label: string; rows: [string, string][] }) {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">{children}</div>
+    <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">{children}</div>
   );
 }
 
 function RoleBadge({ role }: { role: string }) {
   return (
-    <span className="shrink-0 rounded-[3px] border border-studio-edge px-1.5 py-px font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-muted">
+    <span className="shrink-0 rounded-[3px] border border-studio-edge px-1.5 py-px font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-muted">
       {role}
     </span>
   );

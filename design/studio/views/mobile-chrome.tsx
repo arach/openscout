@@ -56,7 +56,7 @@ const MC_CSS = `
 /* Masthead */
 .mc-mast{padding:14px 24px 0;position:relative}
 .mc-mast-row{display:flex;align-items:center;gap:10px}
-.mc-wordmark{font-family:var(--ui);font-weight:300;font-size:12.5px;letter-spacing:2.5px;white-space:nowrap;
+.mc-wordmark{font-family:var(--ui);font-weight:300;font-size: var(--text-md);letter-spacing:2.5px;white-space:nowrap;
   color:#49504f;text-shadow:0 .7px 0 rgba(0,0,0,.8),0 -0.5px 0 rgba(150,150,150,.2)}
 .mc-mast-spacer{flex:1;display:flex;align-items:center;gap:6px;min-width:0}
 .mc-gear{width:30px;height:30px;border-radius:50%;background:var(--inset);
@@ -64,7 +64,7 @@ const MC_CSS = `
 .mc-hairline{height:1px;background:var(--hairline);margin-top:10px}
 
 /* Host chip — the shipped plate */
-.mc-chip{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:500;color:var(--muted);
+.mc-chip{display:inline-flex;align-items:center;gap:6px;font-size: var(--text-xs);font-weight:500;color:var(--muted);
   background:var(--inset);border:1px solid var(--hairline);border-radius:5px;padding:3px 9px;white-space:nowrap}
 .mc-chip .mc-dot{width:5px;height:5px;border-radius:50%;background:var(--accent)}
 .mc-chip.on{background:var(--raised);color:var(--ink);border-color:var(--dim)}
@@ -72,14 +72,14 @@ const MC_CSS = `
 
 /* Fake content so chrome has context */
 .mc-content{padding:22px 24px;display:flex;flex-direction:column;gap:14px}
-.mc-eyebrow{font-size:9px;letter-spacing:.16em;color:var(--faint);text-transform:uppercase}
+.mc-eyebrow{font-size: var(--text-2xs);letter-spacing:.16em;color:var(--faint);text-transform:uppercase}
 .mc-fake-card{border-radius:8px;padding:14px;border:1px solid transparent;
   background:linear-gradient(180deg,var(--card-top),var(--card-bottom));
   border-image:linear-gradient(180deg,var(--card-edge),var(--border)) 1;
   box-shadow:0 3px 9px rgba(0,0,0,.33)}
-.mc-fake-card .mc-t{font-size:11px;color:var(--ink);font-weight:500}
-.mc-fake-card .mc-s{font-size:9px;color:var(--faint);margin-top:4px}
-.mc-fake-row{display:flex;align-items:center;gap:8px;padding:10px 2px;border-bottom:1px solid #1a1a1a;font-size:10px;color:var(--muted)}
+.mc-fake-card .mc-t{font-size: var(--text-sm);color:var(--ink);font-weight:500}
+.mc-fake-card .mc-s{font-size: var(--text-2xs);color:var(--faint);margin-top:4px}
+.mc-fake-row{display:flex;align-items:center;gap:8px;padding:10px 2px;border-bottom:1px solid #1a1a1a;font-size: var(--text-xs);color:var(--muted)}
 .mc-fake-row .mc-dot{width:5px;height:5px;border-radius:50%;background:var(--accent);flex:none}
 .mc-fake-row.dim .mc-dot{background:var(--faint)}
 
@@ -88,7 +88,7 @@ const MC_CSS = `
 .mc-tabs{background:var(--bg);border-top:1.5px solid var(--card-edge);
   box-shadow:0 -6px 11px rgba(0,0,0,.6);display:flex;padding:6px 8px 0;position:relative}
 .mc-tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--muted);
-  font-size:9px;font-weight:500;padding:6px 0 4px}
+  font-size: var(--text-2xs);font-weight:500;padding:6px 0 4px}
 .mc-tab.on{color:var(--accent)}
 
 /* KEYSTONE — the active tab is a physical key: raised plate, lit top edge,
@@ -102,7 +102,7 @@ const MC_CSS = `
    label; a short accent datum on the lip marks position (ghost = the
    position it just slid from). */
 .mc-tabs.datum .mc-tab{font-size:0;gap:0;padding:7px 0 6px}
-.mc-tabs.datum .mc-tab.on{font-size:8.5px;gap:3px}
+.mc-tabs.datum .mc-tab.on{font-size: var(--text-3xs);gap:3px}
 .mc-datum{position:absolute;top:-1px;width:24px;height:2px;transform:translateX(-50%);
   background:var(--accent);box-shadow:0 0 6px rgba(16,185,129,.5)}
 .mc-datum.ghost{opacity:.16;box-shadow:none}
@@ -110,7 +110,7 @@ const MC_CSS = `
 /* FLOAT — chrome as objects over full-bleed content. */
 .mc-float-top{position:absolute;top:14px;left:16px;z-index:2;display:flex;align-items:center;gap:8px;
   background:linear-gradient(180deg,var(--card-top),var(--card-bottom));border-radius:9px;
-  padding:6px 11px;font-size:10px;font-weight:500;color:var(--muted);
+  padding:6px 11px;font-size: var(--text-xs);font-weight:500;color:var(--muted);
   box-shadow:inset 0 1px 0 var(--card-edge),0 6px 18px rgba(0,0,0,.5)}
 .mc-float-top .mc-dot{width:5px;height:5px;border-radius:50%;background:var(--accent)}
 .mc-vdiv{width:1px;height:12px;background:var(--hairline)}
@@ -120,11 +120,11 @@ const MC_CSS = `
 .mc-float-tabs{display:flex;gap:1px;border-radius:12px;padding:6px;
   background:linear-gradient(180deg,#26211c,#171310);
   box-shadow:inset 0 1px 0 var(--card-edge),0 12px 28px rgba(0,0,0,.6)}
-.mc-float-tabs .mc-tab{font-size:8px;padding:5px 8px;border-radius:8px;flex:none}
+.mc-float-tabs .mc-tab{font-size: var(--text-3xs);padding:5px 8px;border-radius:8px;flex:none}
 
 /* Status strip — SETTLED. Thin one-liner over the home-indicator zone. */
 .mc-statusbar{background:var(--chrome);border-top:1px solid var(--hairline);
-  display:flex;align-items:center;gap:10px;padding:6px 42px 14px;font-size:9px;font-weight:500;
+  display:flex;align-items:center;gap:10px;padding:6px 42px 14px;font-size: var(--text-2xs);font-weight:500;
   letter-spacing:.4px;color:var(--muted);min-height:30px}
 .mc-statusbar .mc-grow{flex:1}
 .mc-statusbar .mc-sep{color:var(--faint);font-weight:700}
@@ -163,7 +163,7 @@ const MC_CSS = `
 /* Chamfered readout cell (cf. SignalPanelShape, cut=6) — graphite fill, a 1px
    edge faked by a two-layer clip so the cut corners keep a crisp stroke. */
 .mc-cell{position:relative;display:inline-flex;align-items:center;gap:6px;
-  font-size:10px;font-weight:500;color:var(--muted);padding:4px 10px;background:var(--sig-edge);
+  font-size: var(--text-xs);font-weight:500;color:var(--muted);padding:4px 10px;background:var(--sig-edge);
   clip-path:polygon(5px 0,calc(100% - 5px) 0,100% 5px,100% calc(100% - 5px),calc(100% - 5px) 100%,5px 100%,0 calc(100% - 5px),0 5px)}
 .mc-cell::before{content:"";position:absolute;inset:1px;
   background:linear-gradient(180deg,var(--sig-top),var(--sig-bottom));
@@ -186,7 +186,7 @@ const MC_CSS = `
 .mc-inst-dock>.mc-reticle.br{bottom:7px;right:12px}
 .mc-inst-tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:0;color:var(--dim);
   font-size:0;font-weight:500;padding:5px 0 4px}
-.mc-inst-tab.on{color:var(--accent);font-size:8px;gap:3px}
+.mc-inst-tab.on{color:var(--accent);font-size: var(--text-3xs);gap:3px}
 .mc-inst-mark{position:absolute;top:-1px;width:22px;height:2px;transform:translateX(-50%);
   background:var(--accent);box-shadow:0 0 6px rgba(16,185,129,.5)}
 
@@ -199,9 +199,9 @@ const MC_CSS = `
 .mc-vp-top{position:relative;display:flex;align-items:center;gap:10px;padding:14px 20px 10px}
 .mc-vp-id{position:relative;display:flex;align-items:center;gap:7px;padding-left:12px}
 .mc-vp-id>.mc-reticle.tl{top:-1px;left:0}
-.mc-vp-mark{font-family:var(--ui);font-weight:300;font-size:11px;letter-spacing:2px;color:#5b615f;white-space:nowrap}
-.mc-vp-ctx{margin-left:auto;display:flex;align-items:center;gap:10px;font-size:10px;color:var(--muted);white-space:nowrap}
-.mc-vp-ctx .mc-eyebrow{font-size:8.5px}
+.mc-vp-mark{font-family:var(--ui);font-weight:300;font-size: var(--text-sm);letter-spacing:2px;color:#5b615f;white-space:nowrap}
+.mc-vp-ctx{margin-left:auto;display:flex;align-items:center;gap:10px;font-size: var(--text-xs);color:var(--muted);white-space:nowrap}
+.mc-vp-ctx .mc-eyebrow{font-size: var(--text-3xs)}
 .mc-vp-ctx .mc-accent{color:var(--accent)}
 .mc-vp-hair{height:1px;background:var(--sig-rule);margin:0 20px}
 
@@ -218,7 +218,7 @@ const MC_CSS = `
    ──────────────────────────────────────────────────────────────────── */
 .mc-comp-band{position:relative;display:flex;align-items:center;justify-content:space-between;
   padding:14px 20px 12px}
-.mc-comp-band .mc-cell{font-size:9px;letter-spacing:.08em;text-transform:uppercase;gap:5px;padding:4px 9px}
+.mc-comp-band .mc-cell{font-size: var(--text-2xs);letter-spacing:.08em;text-transform:uppercase;gap:5px;padding:4px 9px}
 .mc-dock-crown{position:absolute;left:50%;top:-22px;transform:translateX(-50%);z-index:3;
   width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;
   background:linear-gradient(180deg,var(--card-top),var(--card-bottom));
@@ -611,20 +611,20 @@ function Notes({
   callouts: { mark: string; text: string }[];
 }) {
   return (
-    <div className="max-w-[430px] font-sans text-[12px] leading-relaxed text-studio-ink-muted">
+    <div className="max-w-[430px] font-sans text-md leading-relaxed text-studio-ink-muted">
       <span
-        className="font-mono text-[9px] uppercase tracking-[0.14em]"
+        className="font-mono text-2xs uppercase tracking-[0.14em]"
         style={{ color: rec ? "var(--scout-accent)" : "var(--studio-ink-faint)" }}
       >
         {tag}
       </span>
-      <h2 className="mb-2 mt-1.5 font-display text-[16px] font-medium tracking-tight text-studio-ink">{title}</h2>
+      <h2 className="mb-2 mt-1.5 font-display text-2xl font-medium tracking-tight text-studio-ink">{title}</h2>
       <div className="space-y-3 [&_b]:font-semibold [&_b]:text-studio-ink [&_ul]:list-disc [&_ul]:space-y-1.5 [&_ul]:pl-4">
         {children}
       </div>
       <div className="mt-4 space-y-1.5 border-t border-studio-edge pt-3">
         {callouts.map((c) => (
-          <div key={c.text} className="flex gap-2 text-[10.5px] text-studio-ink-faint">
+          <div key={c.text} className="flex gap-2 text-xs text-studio-ink-faint">
             <span className="w-4 flex-none not-italic" style={{ color: "var(--scout-accent)" }}>
               {c.mark}
             </span>
@@ -675,10 +675,10 @@ export default function MobileChromeStudy() {
 
       <header className="mb-10 max-w-prose">
         <EyebrowLabel size="sm">· studies · ios · chrome</EyebrowLabel>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Scout iOS · Mobile Chrome
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           Third pass. The earlier passes rearranged and subtracted chrome; none of it looked{" "}
           <em>better</em>. This pass keeps the layout settled and instead gives each bar{" "}
           <b className="font-semibold text-studio-ink">one hero detail</b> — a crafted object
@@ -691,10 +691,10 @@ export default function MobileChromeStudy() {
 
       {/* settled */}
       <div
-        className="mb-10 flex max-w-[820px] items-baseline gap-2 border border-studio-edge py-2.5 pl-3.5 pr-3.5 text-[11px] text-studio-ink-faint"
+        className="mb-10 flex max-w-[820px] items-baseline gap-2 border border-studio-edge py-2.5 pl-3.5 pr-3.5 text-sm text-studio-ink-faint"
         style={{ borderLeft: "2px solid var(--scout-accent)" }}
       >
-        <b className="flex-none font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-studio-ink-muted">
+        <b className="flex-none font-mono text-2xs font-semibold uppercase tracking-[0.1em] text-studio-ink-muted">
           Settled
         </b>
         <span>
@@ -705,7 +705,7 @@ export default function MobileChromeStudy() {
       </div>
 
       {/* legend */}
-      <div className="mb-12 flex max-w-[820px] flex-wrap items-center gap-x-5 gap-y-1.5 border-y border-studio-edge py-2.5 font-mono text-[10px] text-studio-ink-faint">
+      <div className="mb-12 flex max-w-[820px] flex-wrap items-center gap-x-5 gap-y-1.5 border-y border-studio-edge py-2.5 font-mono text-xs text-studio-ink-faint">
         {LEGEND.map((l) => (
           <span key={l.label} className="inline-flex items-center">
             <span
@@ -868,11 +868,11 @@ export default function MobileChromeStudy() {
 
       {/* divider — appended proposals */}
       <div className="mb-10 mt-2 flex max-w-[820px] items-baseline gap-2 border-t border-studio-edge pt-6">
-        <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-studio-ink-faint">
+        <span className="font-mono text-2xs uppercase tracking-[0.16em] text-studio-ink-faint">
           Appended · session-mrv2layk-fy5de0
         </span>
       </div>
-      <p className="mb-12 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+      <p className="mb-12 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
         The diagnosis under all three passes: the chrome has never spoken the app&apos;s own craft
         language. Home&apos;s panels are built from a real proprietary grammar —{" "}
         <b className="font-semibold text-studio-ink">SignalPanelShape</b> chamfered corners,{" "}
@@ -973,7 +973,7 @@ export default function MobileChromeStudy() {
 
       {/* ═══════════ CROWN & COMPLICATIONS ═══════════ */}
       <div className="mb-10 mt-2 flex max-w-[820px] items-baseline gap-2 border-t border-studio-edge pt-6">
-        <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-studio-ink-faint">
+        <span className="font-mono text-2xs uppercase tracking-[0.16em] text-studio-ink-faint">
           Operator direction · pass 4
         </span>
       </div>
@@ -1035,7 +1035,7 @@ export default function MobileChromeStudy() {
         }
       />
 
-      <p className="mt-2 border-t border-studio-edge pt-5 font-sans text-[11px] leading-relaxed text-studio-ink-faint">
+      <p className="mt-2 border-t border-studio-edge pt-5 font-sans text-sm leading-relaxed text-studio-ink-faint">
         Static study only — no production code changed. Mock type/glyphs are approximations of
         Glyphs.swift and HudFont; palette values are exact from HudPalette.swift / Theme.swift
         (warm tone). Pass 1 (instrument masthead / mission strip / ticker slab / editorial serif)

@@ -39,7 +39,7 @@
 }
 
 .title {
-  font-size: 17px;
+  font-size: var(--text-3xl);
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--s-ink);
@@ -52,7 +52,7 @@
   padding-left: 16px;
   border-left: 1px solid var(--s-hairline);
   font-family: var(--s-font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--s-dim);
 }
 
@@ -90,7 +90,7 @@
   padding: 4px 11px;
   border-radius: 6px;
   font-family: var(--s-font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--s-dim);
@@ -139,7 +139,7 @@
   width: 220px;
   padding: 6px 11px;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--s-dim);
   background: var(--s-surface);
   border: 1px solid var(--s-border);
@@ -159,7 +159,7 @@
   padding: 4px 11px;
   border-radius: 6px;
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.03em;
   color: var(--s-muted);
@@ -182,7 +182,7 @@
   min-height: 0;
   overflow: hidden;
   font-family: var(--s-font-mono);
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   padding: 2px 0 6px;
 }
 
@@ -214,7 +214,7 @@
 .time {
   color: var(--s-dim);
   font-variant-numeric: tabular-nums;
-  font-size: 10.5px;
+  font-size: var(--text-xs);
 }
 
 /* Identity: brightness carries attribution confidence. Agent = full ink,
@@ -249,7 +249,7 @@
 
 .action code {
   color: var(--s-ink);
-  font-size: 11px;
+  font-size: var(--text-sm);
   padding: 1px 5px;
   border-radius: 4px;
   background: color-mix(in srgb, var(--s-ink) 7%, transparent);
@@ -271,7 +271,7 @@
   gap: 4px;
   padding: 1px 6px 1px 5px;
   border-radius: 4px;
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -319,7 +319,7 @@
 
 .railType {
   font-family: var(--s-font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.12em;
   color: var(--s-dim);
@@ -336,7 +336,7 @@
 
 .groupLabel {
   font-family: var(--s-font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -359,12 +359,12 @@
 
 .nowRow .id {
   font-family: var(--s-font-mono);
-  font-size: 11.5px;
+  font-size: var(--text-sm);
 }
 
 .nowNote {
   font-family: var(--s-font-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   color: var(--s-dim);
 }
 
@@ -397,7 +397,7 @@
 
 .mixNum {
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-muted);
   font-variant-numeric: tabular-nums;
   text-align: right;

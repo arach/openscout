@@ -67,13 +67,13 @@ export default function ArrangementsPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-6 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · choreography · arrangements
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Arrangements
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           The structural companion to{" "}
           <a
             href="/studies/choreography"
@@ -124,10 +124,10 @@ export default function ArrangementsPage() {
       <InFlight />
 
       <section className="mt-16 max-w-prose">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · why this exists
         </div>
-        <p className="font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="font-sans text-lg leading-relaxed text-studio-ink-faint">
           Today an operator who wants to{" "}
           <span className="text-studio-ink">
             &ldquo;have Hudson and Cody both consult on this, then let QB
@@ -139,7 +139,7 @@ export default function ArrangementsPage() {
           set of pads and traces — so the arrangement becomes a first-class
           object you can author, name, save, and re-fire. The mock pads are
           shaped like what a real{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
+          <code className="font-mono text-sm text-studio-ink">
             arrangements_dispatch
           </code>{" "}
           payload would carry.
@@ -153,7 +153,7 @@ export default function ArrangementsPage() {
 
 function Legend() {
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-[10px] text-studio-ink-faint">
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-xs text-studio-ink-faint">
       <LegendItem
         sample={
           <svg width={22} height={12} aria-hidden>
@@ -261,11 +261,11 @@ function SectionTitle({
 }) {
   return (
     <div className={`flex items-baseline gap-3 ${className}`}>
-      <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · {children}
       </div>
       {hint ? (
-        <div className="font-mono text-[10px] text-studio-ink-faint">{hint}</div>
+        <div className="font-mono text-xs text-studio-ink-faint">{hint}</div>
       ) : null}
       <div className="ml-3 h-px flex-1 bg-studio-edge" />
     </div>
@@ -355,7 +355,7 @@ function AgentPad({
       <text
         x={-width / 2 + 10}
         y={3.5}
-        fontSize={10.5}
+        fontSize={10}
         fontFamily="JetBrains Mono, ui-monospace"
         fill={ink}
         letterSpacing="0.02em"
@@ -368,7 +368,7 @@ function AgentPad({
           <text
             x={0}
             y={0}
-            fontSize={7.5}
+            fontSize={8}
             fontFamily="JetBrains Mono, ui-monospace"
             fill={
               state === "active"
@@ -519,10 +519,10 @@ function DiagramFrame({
   return (
     <div className="flex flex-col rounded-md border border-studio-edge bg-studio-canvas-alt">
       <div className="flex items-baseline justify-between border-b border-studio-edge px-3 py-2">
-        <div className="font-mono text-[10.5px] uppercase tracking-eyebrow text-studio-ink">
+        <div className="font-mono text-xs uppercase tracking-eyebrow text-studio-ink">
           {name}
         </div>
-        <div className="font-mono text-[9.5px] text-studio-ink-faint">
+        <div className="font-mono text-2xs text-studio-ink-faint">
           {caption}
         </div>
       </div>
@@ -684,7 +684,7 @@ function FanOutDiagram() {
       <text
         x={BUS_X + 8}
         y={WORKER_YS[0] - 14}
-        fontSize={8.5}
+        fontSize={8}
         fontFamily="JetBrains Mono, ui-monospace"
         fill={INK_FAINT}
         letterSpacing="0.14em"
@@ -831,7 +831,7 @@ function Anatomy() {
       <text
         x={cx}
         y={cy + 3}
-        fontSize={9.5}
+        fontSize={9}
         fontFamily="JetBrains Mono, ui-monospace"
         fill={WARM}
         textAnchor="middle"
@@ -903,7 +903,7 @@ function Anatomy() {
           {callout("F", OUT_X + (SLOT_W + 12) / 2 + 68, T_Y)}
         </svg>
       </div>
-      <dl className="m-0 space-y-3 font-mono text-[10.5px]">
+      <dl className="m-0 space-y-3 font-mono text-xs">
         <AnatomyItem letter="A" label="Trigger">
           The one warm pad. Where the arrangement starts. Always
           scout-accent — exactly one per arrangement.
@@ -949,7 +949,7 @@ function AnatomyItem({
     <div className="flex items-baseline gap-3">
       <span
         aria-hidden
-        className="grid h-5 w-5 shrink-0 place-items-center rounded-full border font-mono text-[9px] font-semibold"
+        className="grid h-5 w-5 shrink-0 place-items-center rounded-full border font-mono text-2xs font-semibold"
         style={{
           borderColor: WARM,
           color: WARM,
@@ -959,7 +959,7 @@ function AnatomyItem({
       </span>
       <div className="flex flex-col gap-0.5">
         <dt className="uppercase tracking-eyebrow text-studio-ink">{label}</dt>
-        <dd className="font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+        <dd className="font-sans text-md leading-relaxed text-studio-ink-faint">
           {children}
         </dd>
       </div>
@@ -1019,16 +1019,16 @@ function ComposeStage({
       <div className="flex items-baseline justify-between border-b border-studio-edge px-3 py-2">
         <div className="flex items-baseline gap-2">
           <span
-            className="grid h-4 w-4 place-items-center rounded-full border font-mono text-[8.5px] font-semibold"
+            className="grid h-4 w-4 place-items-center rounded-full border font-mono text-3xs font-semibold"
             style={{ borderColor: WARM, color: WARM }}
           >
             {n}
           </span>
-          <div className="font-mono text-[10.5px] uppercase tracking-eyebrow text-studio-ink">
+          <div className="font-mono text-xs uppercase tracking-eyebrow text-studio-ink">
             {title}
           </div>
         </div>
-        <div className="font-mono text-[9.5px] text-studio-ink-faint">
+        <div className="font-mono text-2xs text-studio-ink-faint">
           {sub}
         </div>
       </div>
@@ -1397,11 +1397,11 @@ function InFlight() {
                   className="inline-block h-2 w-2 rounded-full"
                   style={{ background: agentColor(agents[i], 1) }}
                 />
-                <span className="font-mono text-[10.5px] uppercase tracking-eyebrow text-studio-ink">
+                <span className="font-mono text-xs uppercase tracking-eyebrow text-studio-ink">
                   {cap(agents[i])}
                 </span>
                 <span
-                  className="ml-auto font-mono text-[8.5px] uppercase tracking-eyebrow"
+                  className="ml-auto font-mono text-3xs uppercase tracking-eyebrow"
                   style={{
                     color:
                       state === "active"
@@ -1414,10 +1414,10 @@ function InFlight() {
                   {state}
                 </span>
               </div>
-              <div className="font-mono text-[10.5px] text-studio-ink-muted">
+              <div className="font-mono text-xs text-studio-ink-muted">
                 {labels[i]}
               </div>
-              <div className="mt-0.5 font-mono text-[9px] text-studio-ink-faint">
+              <div className="mt-0.5 font-mono text-2xs text-studio-ink-faint">
                 {times[i] === "—" ? "—" : `· ${times[i]}`}
               </div>
             </div>
@@ -1426,7 +1426,7 @@ function InFlight() {
       </div>
 
       {/* Inline caption — explains what the operator is seeing */}
-      <div className="px-1 font-mono text-[10px] text-studio-ink-faint">
+      <div className="px-1 font-mono text-xs text-studio-ink-faint">
         Arrangement-aware. Not a firehose — the readout knows which slot
         owns the moment.
       </div>

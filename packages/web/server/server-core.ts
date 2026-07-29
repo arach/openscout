@@ -4,6 +4,8 @@ import { getConnInfo, serveStatic } from "hono/bun";
 export type ScoutWebAssetMode = "vite-proxy" | "static";
 
 const LOOPBACK_IPV4_HOST_PATTERN = /^127(?:\.\d{1,3}){3}$/;
+const FINGERPRINTED_ASSET_PATH_PATTERN = /^\/assets\/[^/]+-[A-Za-z0-9_-]{8,}(?:\.[^/]+)+$/u;
+const IMMUTABLE_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
 export type ScoutApiTrustOptions = {
   trustedHosts?: string[];
@@ -307,7 +309,16 @@ export async function registerScoutWebAssets(
     return;
   }
 
-  app.use("/*", serveStatic({ root: options.staticRoot }));
+  app.use("/*", serveStatic({
+    root: options.staticRoot,
+    onFound: (path, c) => {
+      if (FINGERPRINTED_ASSET_PATH_PATTERN.test(c.req.path)) {
+        c.header("cache-control", IMMUTABLE_ASSET_CACHE_CONTROL);
+      } else if (path.endsWith(".html")) {
+        c.header("cache-control", "no-store");
+      }
+    },
+  }));
   app.get("/assets/*", (c) => c.notFound());
   app.get("/*", serveStatic({
     root: options.staticRoot,

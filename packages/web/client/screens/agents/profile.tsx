@@ -387,7 +387,7 @@ export function AgentProfileSessionsCenter({
   conversationId,
   navigate,
   route,
-  homeView = "agents",
+  homeView = "agents-v2",
 }: {
   agent: Agent;
   name: string;
@@ -1192,7 +1192,7 @@ export function AgentDetailWithRail({
         <AgentDefinitionsWorkspace
           agent={agent}
           navigate={navigate}
-          homeView={route.view === "agents-v2" ? "agents-v2" : "agents"}
+          homeView="agents-v2"
         />
       )}
 

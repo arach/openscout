@@ -40,7 +40,7 @@ export function SymbolOutline({
 
   if (symbols.length === 0) {
     return (
-      <div className="rounded-md border border-studio-edge bg-studio-surface px-3 py-2 font-mono text-[10px] italic text-studio-ink-faint">
+      <div className="rounded-md border border-studio-edge bg-studio-surface px-3 py-2 font-mono text-xs italic text-studio-ink-faint">
         No symbols detected.
       </div>
     );
@@ -55,16 +55,16 @@ export function SymbolOutline({
       >
         <span
           aria-hidden
-          className={`w-3 shrink-0 text-[10px] text-studio-ink-faint transition-transform ${
+          className={`w-3 shrink-0 text-xs text-studio-ink-faint transition-transform ${
             open ? "translate-y-px" : ""
           }`}
         >
           {open ? "▾" : "▸"}
         </span>
-        <span className="flex-1 font-mono text-[9.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="flex-1 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           Outline
         </span>
-        <span className="font-mono text-[9.5px] tabular-nums text-studio-ink-faint">
+        <span className="font-mono text-2xs tabular-nums text-studio-ink-faint">
           {symbols.length}
         </span>
       </button>
@@ -81,15 +81,15 @@ export function SymbolOutline({
               >
                 <span
                   aria-hidden
-                  className="font-mono text-[8.5px] uppercase tracking-[0.18em] text-studio-ink-faint group-hover:text-studio-ink-faint"
+                  className="font-mono text-3xs uppercase tracking-[0.18em] text-studio-ink-faint group-hover:text-studio-ink-faint"
                   style={{ minWidth: "3.5ch" }}
                 >
                   {SHORT_KIND[sym.kind] ?? sym.kind.slice(0, 3)}
                 </span>
-                <span className="flex-1 truncate font-mono text-[11px] text-studio-ink-muted group-hover:text-studio-ink">
+                <span className="flex-1 truncate font-mono text-sm text-studio-ink-muted group-hover:text-studio-ink">
                   {sym.name}
                 </span>
-                <span className="font-mono text-[9.5px] tabular-nums text-studio-ink-faint">
+                <span className="font-mono text-2xs tabular-nums text-studio-ink-faint">
                   {sym.line}
                 </span>
               </button>

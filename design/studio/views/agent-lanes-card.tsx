@@ -566,10 +566,10 @@ export default function AgentLanesCardPage() {
 const CSS = `
 .lanes-study{min-height:100vh;background:${C.bg};color:${C.ink};font-family:Inter,system-ui,sans-serif;padding:40px}
 .study-head{margin-bottom:24px}
-.eyebrow{font-family:ui-monospace,monospace;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:${C.dim}}
-.lanes-study h1{font-size:28px;font-weight:600;margin:4px 0}
-.sub{font-family:ui-monospace,monospace;font-size:12px;color:${C.dim};margin:0}
-.sec{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:${C.muted};margin:36px 0 14px}
+.eyebrow{font-family:ui-monospace,monospace;font-size: var(--text-2xs);text-transform:uppercase;letter-spacing:.08em;color:${C.dim}}
+.lanes-study h1{font-size: var(--text-6xl);font-weight:600;margin:4px 0}
+.sub{font-family:ui-monospace,monospace;font-size: var(--text-md);color:${C.dim};margin:0}
+.sec{font-size: var(--text-md);font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:${C.muted};margin:36px 0 14px}
 .sec-note{font-weight:400;text-transform:none;letter-spacing:0;color:${C.dim}}
 
 .lane-row{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
@@ -608,25 +608,25 @@ const CSS = `
 /* top-aligned: the avatar anchors the header, name + session-id align to its top */
 .head{position:relative;display:flex;align-items:flex-start;gap:10px;padding:9px 13px 6px}
 .title{display:flex;flex-direction:column;gap:1px;flex:0 1 auto;min-width:0;max-width:calc(100% - 132px)}
-.name{font-size:16px;font-weight:600;letter-spacing:-.02em;color:${C.ink};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.subid{display:inline-flex;align-items:center;gap:5px;font-family:ui-monospace,monospace;font-size:9.5px;color:${C.dim};min-width:0}
+.name{font-size: var(--text-2xl);font-weight:600;letter-spacing:-.02em;color:${C.ink};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.subid{display:inline-flex;align-items:center;gap:5px;font-family:ui-monospace,monospace;font-size: var(--text-2xs);color:${C.dim};min-width:0}
 .subid .gmark{color:${C.dim};flex:none}
-.subid .gchar{color:${C.dim};flex:none;font-size:10px;line-height:1}
+.subid .gchar{color:${C.dim};flex:none;font-size: var(--text-xs);line-height:1}
 .subid .val{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .anchor--hm{align-self:flex-start;margin-top:1px}
 .hmark{color:${C.muted};display:inline-flex}
 .card--working .hmark{color:${C.ink}}
 .corner{position:absolute;top:11px;right:14px;display:flex;align-items:center;gap:7px}
-.time{font-family:ui-monospace,monospace;font-size:10.5px;color:${C.dim}}
+.time{font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.dim}}
 .caret{flex:none;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;
   border:0;background:transparent;color:${C.dim};border-radius:6px;cursor:pointer}
 
 /* fact lines — glyph-led, one cluster per concern, ready to grow (session/parent) */
 .details{display:flex;flex-direction:column;gap:3px;padding:0 13px 9px}
-.drow{display:flex;align-items:center;gap:13px;flex-wrap:wrap;font-family:ui-monospace,monospace;font-size:11px;min-width:0}
+.drow{display:flex;align-items:center;gap:13px;flex-wrap:wrap;font-family:ui-monospace,monospace;font-size: var(--text-sm);min-width:0}
 .d{display:inline-flex;align-items:center;gap:5px;min-width:0;color:${C.muted}}
 .d .gmark{color:${C.dim};flex:none}
-.d .gchar{color:${C.dim};flex:none;font-size:11px;line-height:1}
+.d .gchar{color:${C.dim};flex:none;font-size: var(--text-sm);line-height:1}
 .d .val{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .d--strong{color:${C.ink}}
 .d--dim{color:${C.dim}}
@@ -634,7 +634,7 @@ const CSS = `
 
 /* alignment guides — super-thin dashed (striped) crosshairs centered on the
    avatar + harness logo. Reveal on card hover or via the toggle. */
-.toggle{display:inline-flex;align-items:center;gap:7px;margin-top:14px;font-family:ui-monospace,monospace;font-size:11px;color:${C.muted};cursor:pointer}
+.toggle{display:inline-flex;align-items:center;gap:7px;margin-top:14px;font-family:ui-monospace,monospace;font-size: var(--text-sm);color:${C.muted};cursor:pointer}
 .toggle input{accent-color:${C.green}}
 .card{position:relative}
 /* per-icon bounding guides — top/bottom/left/right edges of each logo/avatar,
@@ -657,7 +657,7 @@ const CSS = `
 .summary{margin:4px 13px 9px;padding:9px 10px;border:1px solid rgba(255,255,255,.06);border-radius:7px;
   background:rgba(0,0,0,.2);display:flex;flex-direction:column;gap:7px}
 .card--working .summary{border-color:color-mix(in srgb,${C.green} 14%,transparent);background:color-mix(in srgb,${C.green} 4%,rgba(0,0,0,.22))}
-.current{display:flex;gap:6px;font-size:12px;line-height:1.35;color:${C.ink}}
+.current{display:flex;gap:6px;font-size: var(--text-md);line-height:1.35;color:${C.ink}}
 .head-text{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 /* direction reads from the arrow shape (←/→), not colour — uniform with all marks */
 .dir{font-family:ui-monospace,monospace;flex:none;font-weight:600;color:${C.dim}}
@@ -665,26 +665,26 @@ const CSS = `
    a faint ink-wash bg, muted mono, small. grounded but quiet, not a heavy bar. */
 .stats{display:flex;flex-wrap:wrap;gap:5px}
 .stat{display:inline-flex;align-items:center;padding:2px 7px;border-radius:4px;
-  font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.01em;color:${C.muted};
+  font-family:ui-monospace,monospace;font-size: var(--text-xs);letter-spacing:.01em;color:${C.muted};
   background:color-mix(in srgb,${C.ink} 4%,transparent)}
 .files{display:flex;flex-direction:column;gap:2px}
-.file{display:flex;gap:8px;align-items:baseline;font-family:ui-monospace,monospace;font-size:11px}
-.fstate{color:${C.dim};text-transform:uppercase;font-size:9px;letter-spacing:.04em;width:24px;flex:none}
+.file{display:flex;gap:8px;align-items:baseline;font-family:ui-monospace,monospace;font-size: var(--text-sm)}
+.fstate{color:${C.dim};text-transform:uppercase;font-size: var(--text-2xs);letter-spacing:.04em;width:24px;flex:none}
 .fstate--mod,.fstate--new{color:${C.muted}}
 .fpath{color:${C.ink};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.fmore{font-family:ui-monospace,monospace;font-size:10.5px;color:${C.dim};padding-left:32px}
+.fmore{font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.dim};padding-left:32px}
 
 /* trace — the BOTTOM section: a recessed log panel split from the identity/summary
    above by a full-width divider + darker inset background. */
 .trace{padding:9px 13px 12px;border-top:1px solid rgba(255,255,255,.07);background:rgba(0,0,0,.22)}
 .trace-head{display:flex;align-items:baseline;justify-content:space-between;padding:0 0 7px}
-.trace-label{font-family:ui-monospace,monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:${C.muted}}
-.trace-span{font-family:ui-monospace,monospace;font-size:10px;color:${C.dim}}
+.trace-label{font-family:ui-monospace,monospace;font-size: var(--text-2xs);letter-spacing:.14em;text-transform:uppercase;color:${C.muted}}
+.trace-span{font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.dim}}
 /* three columns: time (left) · spine line · content. the glyph is the FIRST
    CHARACTER of the content; the spine is a clean, consistent vertical rule. */
 .trow{display:grid;grid-template-columns:22px 14px 1fr;column-gap:6px;align-items:start}
 .trow--compact{grid-template-columns:14px 1fr}
-.ttime{font-family:ui-monospace,monospace;font-size:10px;line-height:16px;color:${C.dim};text-align:left}
+.ttime{font-family:ui-monospace,monospace;font-size: var(--text-xs);line-height:16px;color:${C.dim};text-align:left}
 .tgut{position:relative;align-self:stretch}
 /* card timeline — ONE continuous spine, very thin, slight accent gradient that
    fades at top + bottom (drawn from the real lanes activity line). */
@@ -699,7 +699,7 @@ const CSS = `
 .catalog .cat-item:first-child .tgut::before{top:8px}
 .catalog .cat-item:last-child .tgut::before{bottom:auto;height:8px}
 /* content line — glyph leads; shape = kind, colour = status (green axis / red error) */
-.tprimary{display:flex;align-items:baseline;gap:6px;font-family:ui-monospace,monospace;font-size:11px;line-height:16px;color:${C.muted};min-width:0}
+.tprimary{display:flex;align-items:baseline;gap:6px;font-family:ui-monospace,monospace;font-size: var(--text-sm);line-height:16px;color:${C.muted};min-width:0}
 .tg{flex:none;width:11px;text-align:center;color:${C.dim}}
 .tg--in{color:${C.green}}
 .tg--err{color:${C.red}}
@@ -739,7 +739,7 @@ const CSS = `
   padding:1px 5px 1px 7px;
   border:1px solid color-mix(in srgb,${C.ink} 17%,transparent);
   border-right:0;border-radius:3px 0 0 3px;
-  font-size:10.5px;letter-spacing:.01em;
+  font-size: var(--text-xs);letter-spacing:.01em;
 }
 /* powerline tip — a rotated square so the outer border wraps around to the point */
 .tbash-sep{
@@ -771,16 +771,16 @@ const CSS = `
 .tnote{color:${C.dim};font-style:italic}
 /* detail lines hang under the primary text (11px glyph + 6px gap) */
 .tsub{padding-left:17px;margin-top:3px;min-width:0}
-.tsub--think{font-size:12px;line-height:1.45;color:${C.dim};font-style:italic;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.tsub--text{font-size:12px;line-height:1.45;color:${C.muted};display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.tsub--think{font-size: var(--text-md);line-height:1.45;color:${C.dim};font-style:italic;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.tsub--text{font-size: var(--text-md);line-height:1.45;color:${C.muted};display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 /* tool diff + result — neutral, no categorical colour */
-.tdiff{display:inline-flex;gap:5px;flex:none;font-size:10px}
+.tdiff{display:inline-flex;gap:5px;flex:none;font-size: var(--text-xs)}
 .tadd{color:${C.muted}}
 .tdel{color:${C.dim}}
 .tresult{flex:none;color:${C.dim};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 /* todo checklist (TodoWrite) */
 .ttodos{display:flex;flex-direction:column;gap:2px;padding-left:20px;margin-top:4px}
-.ttodo{display:flex;align-items:baseline;gap:6px;font-family:ui-monospace,monospace;font-size:10.5px;color:${C.muted}}
+.ttodo{display:flex;align-items:baseline;gap:6px;font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.muted}}
 .ttodo-box{flex:none;width:9px;text-align:center;color:${C.dim}}
 .ttodo--done .ttodo-text{color:${C.dim};text-decoration:line-through}
 .ttodo--doing .ttodo-text{color:${C.ink}}
@@ -788,12 +788,12 @@ const CSS = `
 /* catalog — left label + one styled row per kind / tool */
 .catalog{max-width:560px;border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:14px 16px 8px;background:rgba(255,255,255,.012)}
 .cat-item{display:grid;grid-template-columns:104px 1fr;column-gap:12px;align-items:start}
-.cat-tag{font-family:ui-monospace,monospace;font-size:10px;color:${C.dim};text-align:right;padding-top:1px;white-space:nowrap}
+.cat-tag{font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.dim};text-align:right;padding-top:1px;white-space:nowrap}
 
 /* big marks */
 .bigmarks{display:flex;flex-wrap:wrap;gap:26px;padding:22px;border:1px solid rgba(255,255,255,.07);border-radius:12px;
   background:rgba(255,255,255,.012);align-items:flex-end;max-width:1000px}
 .bm{display:flex;flex-direction:column;align-items:center;gap:8px}
 .bm-ink{color:${C.ink};display:inline-flex}
-.bm small{font-family:ui-monospace,monospace;font-size:10px;color:${C.muted}}
+.bm small{font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.muted}}
 `;

@@ -31,17 +31,17 @@ export function AgentAskAlertCard({
     >
       <div className="mb-1 flex items-baseline justify-between gap-3">
         <span
-          className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow"
+          className="font-mono text-2xs font-semibold uppercase tracking-eyebrow"
           style={{ color: "var(--status-warn-fg)" }}
         >
           awaiting
         </span>
-        <span className="font-mono text-[9px] tabular-nums text-studio-ink-faint">
+        <span className="font-mono text-2xs tabular-nums text-studio-ink-faint">
           {updatedAgo}
         </span>
       </div>
       <div
-        className="font-sans text-[12px] leading-relaxed text-studio-ink"
+        className="font-sans text-md leading-relaxed text-studio-ink"
         style={{
           display: "-webkit-box",
           WebkitLineClamp: 3,
@@ -51,7 +51,7 @@ export function AgentAskAlertCard({
       >
         {task}
       </div>
-      <div className="mt-1.5 font-mono text-[9.5px] text-studio-ink-faint">
+      <div className="mt-1.5 font-mono text-2xs text-studio-ink-faint">
         {from.harness} <span className="opacity-60">&rarr;</span> {from.agent}
       </div>
     </div>

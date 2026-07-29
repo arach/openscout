@@ -42,27 +42,31 @@
   --radius-pill: 999px;
 
   /* ── Font size ─────────────────────────────────────────────────────────────
-   * Whole pixels only — the fractional 9.5/10.5/11.5/12.5 sizes are retired. */
+   * Whole pixels only — fractional 9.5/10.5/11.5/12.5 sizes are retired.
+   * Body rungs (2xs–xl) stay dense-ops friendly; display rungs are one step
+   * smaller than the original ladder so titles read quieter. Studio mirrors
+   * this set via --text-* in design/studio/app/theme-aliases.css. */
+  --text-3xs: 8px; /* dense instrument chrome */
   --text-2xs: 9px;
   --text-xs: 10px;
   --text-sm: 11px;
   --text-md: 12px;
   --text-lg: 13px; /* matches --hud-text-base */
   --text-xl: 14px;
-  --text-2xl: 16px;
-  --text-3xl: 18px;
-  --text-4xl: 20px;
-  --text-5xl: 24px;
-  --text-6xl: 28px;
-  --text-7xl: 34px;
-  --text-8xl: 44px;
-  --text-9xl: 52px;
+  --text-2xl: 15px;
+  --text-3xl: 17px;
+  --text-4xl: 19px;
+  --text-5xl: 22px;
+  --text-6xl: 26px;
+  --text-7xl: 30px;
+  --text-8xl: 40px;
+  --text-9xl: 48px;
 
   /* Fluid display type. Endpoints stay on the whole-pixel scale; the middle
    * term lets large headings breathe across desktop/mobile widths. */
-  --display-xs: clamp(var(--text-5xl), calc(20px + 1vw), var(--text-6xl));
-  --display-sm: clamp(var(--text-6xl), calc(24px + 1vw), var(--text-7xl));
-  --display-md: clamp(var(--text-7xl), calc(28px + 2vw), var(--text-9xl));
+  --display-xs: clamp(var(--text-5xl), calc(18px + 1vw), var(--text-6xl));
+  --display-sm: clamp(var(--text-6xl), calc(22px + 1vw), var(--text-7xl));
+  --display-md: clamp(var(--text-7xl), calc(26px + 2vw), var(--text-9xl));
 
   /* ── Tracking (letter-spacing) ─────────────────────────────────────────────
    * Collapses 10+ ad-hoc values. xl (0.18em) is the signature wide eyebrow. */

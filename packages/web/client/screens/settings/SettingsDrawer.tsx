@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useOptionalFlag } from "hudsonkit/flags";
+import { useOptionalTheme } from "hudsonkit/theme";
+import { Check, Monitor, Moon, Sun } from "lucide-react";
 import { api } from "../../lib/api.ts";
 import {
   deleteOpenAIApiKey,
@@ -34,12 +36,20 @@ import {
   type ScoutVoiceSettings,
 } from "../../lib/scout-voice.ts";
 import { useFocusTrap } from "../../lib/keyboard-nav.ts";
+import { routePath } from "../../lib/router.ts";
+import {
+  normalizeScoutThemeTemplate,
+  type ScoutThemeAccent,
+  type ScoutThemeContrast,
+  type ScoutThemePalette,
+  type ScoutThemeTemplate,
+} from "../../lib/theme.ts";
 import { SCOUT_REALTIME_VOICE_FLAG } from "../../../shared/realtime-voice.ts";
 import { VoiceHostStatusBanner, VoicePermissionsPanel } from "./VoicePermissionsPanel.tsx";
 import "./settings-drawer.css";
 import "./voice-permissions-panel.css";
 
-export type DrawerSettingsSection = "operator" | "comms" | "credentials" | "voice" | "devices";
+export type DrawerSettingsSection = "appearance" | "operator" | "comms" | "credentials" | "voice" | "devices";
 type Section = DrawerSettingsSection;
 
 const HUE_PRESETS = [195, 125, 300, 45, 355, 210];
@@ -132,6 +142,353 @@ function OptionRow<T extends string>({
           <span className="s-settings-option-sub">{o.sub}</span>
         </button>
       ))}
+    </div>
+  );
+}
+
+// ── Appearance section ────────────────────────────────────────────────
+
+const THEME_MODES = [
+  { id: "system", label: "System", sub: "Follow this device", icon: Monitor },
+  { id: "light", label: "Light", sub: "Bright workspace", icon: Sun },
+  { id: "dark", label: "Dark", sub: "Low-light workspace", icon: Moon },
+] as const;
+
+const THEME_PALETTES = [
+  { id: "scout", label: "Scout", sub: "Near-neutral control room", spec: "SLATE · LIME" },
+  { id: "graphite", label: "Graphite", sub: "Monochrome technical chassis", spec: "BLACK · SLATE" },
+  { id: "polar", label: "Polar", sub: "Nord-inspired arctic slate", spec: "POLAR · FROST" },
+  { id: "solar", label: "Solar", sub: "Solarized-inspired measured contrast", spec: "TEAL · PAPER" },
+] as const satisfies readonly {
+  id: ScoutThemePalette;
+  label: string;
+  sub: string;
+  spec: string;
+}[];
+
+const INTERFACE_STYLES = [
+  { id: "hudson", label: "Rounded", sub: "Soft corners and luminous chrome", spec: "8PX" },
+  { id: "editorial", label: "Compact", sub: "Tighter corners and flatter hierarchy", spec: "4PX" },
+  { id: "drafting", label: "Square", sub: "Zero-radius technical grid", spec: "0PX" },
+] as const satisfies readonly {
+  id: ScoutThemeTemplate;
+  label: string;
+  sub: string;
+  spec: string;
+}[];
+
+const CONTRAST_LEVELS = [
+  { id: "soft", label: "Soft", sub: "Quiet separators" },
+  { id: "balanced", label: "Defined", sub: "Clear structure" },
+  { id: "strong", label: "Strong", sub: "High separation" },
+] as const satisfies readonly {
+  id: ScoutThemeContrast;
+  label: string;
+  sub: string;
+}[];
+
+const ACCENT_OPTIONS = [
+  { id: "theme", label: "Theme" },
+  { id: "lime", label: "Lime" },
+  { id: "cyan", label: "Cyan" },
+  { id: "violet", label: "Violet" },
+  { id: "amber", label: "Amber" },
+] as const satisfies readonly { id: ScoutThemeAccent; label: string }[];
+
+function AppearanceFrame({
+  className,
+  theme,
+  template,
+  palette,
+  contrast,
+  accent,
+  children,
+}: {
+  className: string;
+  theme: "light" | "dark";
+  template: ScoutThemeTemplate;
+  palette: ScoutThemePalette;
+  contrast: ScoutThemeContrast;
+  accent: ScoutThemeAccent;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={className}
+      data-scout-theme={theme}
+      data-scout-theme-mode={theme}
+      data-scout-palette={palette}
+      data-scout-contrast={contrast}
+      data-scout-accent={accent}
+      data-hudson-theme={theme}
+      data-hudson-template={template}
+    >
+      {children}
+    </div>
+  );
+}
+
+function PaletteSample({
+  palette,
+  theme,
+  template,
+}: {
+  palette: ScoutThemePalette;
+  theme: "light" | "dark";
+  template: ScoutThemeTemplate;
+}) {
+  return (
+    <AppearanceFrame
+      className="s-settings-palette-sample"
+      theme={theme}
+      template={template}
+      palette={palette}
+      contrast="balanced"
+      accent="theme"
+    >
+      <span className="s-settings-palette-rail"><i /><i data-active /><i /><i /></span>
+      <span className="s-settings-palette-list"><i /><i data-selected /><i /></span>
+      <span className="s-settings-palette-detail"><i data-title /><i /><i /><i data-action /></span>
+    </AppearanceFrame>
+  );
+}
+
+function LiveAppearancePreview({
+  theme,
+  template,
+  palette,
+  contrast,
+  accent,
+}: {
+  theme: "light" | "dark";
+  template: ScoutThemeTemplate;
+  palette: ScoutThemePalette;
+  contrast: ScoutThemeContrast;
+  accent: ScoutThemeAccent;
+}) {
+  return (
+    <AppearanceFrame
+      className="s-settings-live-preview"
+      theme={theme}
+      template={template}
+      palette={palette}
+      contrast={contrast}
+      accent={accent}
+    >
+      <div className="s-settings-live-preview-bar">
+        <span><i /> SCOUT</span>
+        <span className="s-settings-live-preview-state"><i /> WORKING</span>
+      </div>
+      <div className="s-settings-live-preview-shell">
+        <div className="s-settings-live-preview-rail" aria-hidden="true">
+          <i data-active /><i /><i /><i /><i />
+        </div>
+        <div className="s-settings-live-preview-list">
+          <span className="s-settings-live-preview-kicker">CONVERSATIONS</span>
+          <span className="s-settings-live-preview-row" data-selected>
+            <i /><b>Openscout</b><small>now</small>
+          </span>
+          <span className="s-settings-live-preview-row"><i /><b>Hudson</b><small>8m</small></span>
+          <span className="s-settings-live-preview-row"><i /><b>Scout</b><small>1h</small></span>
+        </div>
+        <div className="s-settings-live-preview-detail">
+          <span className="s-settings-live-preview-kicker">ACTIVE FLIGHT</span>
+          <strong>Theme system review</strong>
+          <p>Separating palette, interface shape, and contrast keeps every choice honest.</p>
+          <div className="s-settings-live-preview-event"><i /> Agent is working · updated now</div>
+          <button type="button" tabIndex={-1}>Open trace</button>
+        </div>
+      </div>
+    </AppearanceFrame>
+  );
+}
+
+function AppearanceSection() {
+  const appearance = useOptionalTheme();
+  const { appearanceDetails, updateAppearanceDetails } = useScout();
+  if (!appearance) {
+    return <div className="s-settings-inline-note">Theme controls are unavailable in this embedded surface.</div>;
+  }
+
+  const resolvedTheme = appearance.resolvedTheme ?? "dark";
+  const activeTemplate = normalizeScoutThemeTemplate(appearance.template) ?? "hudson";
+  const paletteLabel = THEME_PALETTES.find((option) => option.id === appearanceDetails.palette)?.label ?? "Scout";
+  const styleLabel = INTERFACE_STYLES.find((option) => option.id === activeTemplate)?.label ?? "Rounded";
+  const contrastLabel = CONTRAST_LEVELS.find((option) => option.id === appearanceDetails.contrast)?.label ?? "Defined";
+  const accentLabel = ACCENT_OPTIONS.find((option) => option.id === appearanceDetails.accent)?.label ?? "Theme";
+
+  return (
+    <div className="s-settings-col-gap">
+      <SectionRule label="Color mode" right={`currently ${resolvedTheme}`} />
+      <div className="s-settings-theme-mode-grid" role="group" aria-label="Color mode">
+        {THEME_MODES.map((option) => {
+          const Icon = option.icon;
+          const active = appearance.theme === option.id;
+          const sub = option.id === "system"
+            ? `Follow this device · resolves to ${appearance.resolvedTheme ?? "…"}`
+            : option.sub;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              className="s-settings-theme-mode"
+              data-active={active || undefined}
+              aria-pressed={active}
+              onClick={() => appearance.setTheme(option.id)}
+            >
+              <Icon size={18} strokeWidth={1.7} aria-hidden />
+              <span>
+                <strong>{option.label}</strong>
+                <small>{sub}</small>
+              </span>
+              {active ? <Check className="s-settings-theme-check" size={15} aria-hidden /> : null}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="s-settings-appearance-workbench">
+        <div className="s-settings-appearance-controls">
+          <SectionRule label="Color theme" right={`currently ${paletteLabel.toLowerCase()}`} />
+          <div className="s-settings-palette-grid" role="group" aria-label="Color theme">
+            {THEME_PALETTES.map((option) => {
+              const active = appearanceDetails.palette === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  className="s-settings-palette-choice"
+                  data-active={active || undefined}
+                  aria-pressed={active}
+                  onClick={() => updateAppearanceDetails({ palette: option.id })}
+                >
+                  <PaletteSample palette={option.id} theme={resolvedTheme} template={activeTemplate} />
+                  <span className="s-settings-choice-copy">
+                    <span className="s-settings-choice-title">
+                      <strong>{option.label}</strong>
+                      {active ? <Check className="s-settings-theme-check" size={15} aria-hidden /> : null}
+                    </span>
+                    <small>{option.sub}</small>
+                    <span>{option.spec}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <SectionRule label="Interface shape" right={`currently ${styleLabel.toLowerCase()}`} />
+          <div className="s-settings-interface-grid" role="group" aria-label="Interface shape">
+            {INTERFACE_STYLES.map((option) => {
+              const active = activeTemplate === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  className="s-settings-interface-choice"
+                  data-active={active || undefined}
+                  aria-pressed={active}
+                  onClick={() => appearance.setTemplate(option.id)}
+                >
+                  <AppearanceFrame
+                    className="s-settings-shape-sample"
+                    theme={resolvedTheme}
+                    template={option.id}
+                    palette={appearanceDetails.palette}
+                    contrast={appearanceDetails.contrast}
+                    accent={appearanceDetails.accent}
+                  >
+                    <i><i /></i>
+                  </AppearanceFrame>
+                  <span className="s-settings-choice-copy">
+                    <span className="s-settings-choice-title">
+                      <strong>{option.label}</strong>
+                      {active ? <Check className="s-settings-theme-check" size={14} aria-hidden /> : null}
+                    </span>
+                    <small>{option.sub}</small>
+                    <span>{option.spec}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <SectionRule label="Separation" right={`currently ${contrastLabel.toLowerCase()}`} />
+          <div className="s-settings-contrast-grid" role="group" aria-label="Interface contrast">
+            {CONTRAST_LEVELS.map((option) => {
+              const active = appearanceDetails.contrast === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  className="s-settings-contrast-choice"
+                  data-active={active || undefined}
+                  aria-pressed={active}
+                  onClick={() => updateAppearanceDetails({ contrast: option.id })}
+                >
+                  <span className="s-settings-contrast-lines" data-level={option.id} aria-hidden><i /><i /><i /></span>
+                  <strong>{option.label}</strong>
+                  <small>{option.sub}</small>
+                </button>
+              );
+            })}
+          </div>
+
+          <SectionRule label="Signal accent" right={`currently ${accentLabel.toLowerCase()}`} />
+          <div className="s-settings-accent-row" role="group" aria-label="Signal accent">
+            {ACCENT_OPTIONS.map((option) => {
+              const active = appearanceDetails.accent === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  className="s-settings-accent-choice"
+                  data-accent-option={option.id}
+                  data-active={active || undefined}
+                  aria-pressed={active}
+                  aria-label={`${option.label} accent`}
+                  onClick={() => updateAppearanceDetails({ accent: option.id })}
+                >
+                  <AppearanceFrame
+                    className="s-settings-accent-dot"
+                    theme={resolvedTheme}
+                    template={activeTemplate}
+                    palette={appearanceDetails.palette}
+                    contrast={appearanceDetails.contrast}
+                    accent={option.id}
+                  >
+                    <i />
+                  </AppearanceFrame>
+                  <span>{option.label}</span>
+                  {active ? <Check size={13} aria-hidden /> : null}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="s-settings-appearance-note">
+            <strong>Saved on this device</strong>
+            <span>Mode, palette, shape, separation, and accent stay in sync across tabs. URL overrides remain available for embeds and visual QA.</span>
+          </div>
+        </div>
+
+        <aside className="s-settings-preview-column" aria-label="Live appearance preview">
+          <SectionRule label="Live specimen" right={resolvedTheme} />
+          <LiveAppearancePreview
+            theme={resolvedTheme}
+            template={activeTemplate}
+            palette={appearanceDetails.palette}
+            contrast={appearanceDetails.contrast}
+            accent={appearanceDetails.accent}
+          />
+          <dl className="s-settings-theme-readout">
+            <div><dt>Palette</dt><dd>{paletteLabel}</dd></div>
+            <div><dt>Shape</dt><dd>{styleLabel}</dd></div>
+            <div><dt>Separation</dt><dd>{contrastLabel}</dd></div>
+            <div><dt>Accent</dt><dd>{accentLabel}</dd></div>
+          </dl>
+          <p className="s-settings-preview-note">Each control changes one visual axis. Success, warning, and failure colors keep their meaning.</p>
+        </aside>
+      </div>
     </div>
   );
 }
@@ -769,6 +1126,7 @@ function DevicesSection({ pairing }: { pairing: PairingState | null }) {
 // ── Main drawer ───────────────────────────────────────────────────────
 
 const SECTIONS: { id: Section; label: string; sub: string }[] = [
+  { id: "appearance", label: "Appearance", sub: "mode · workspace style" },
   { id: "operator", label: "Operator", sub: "identity · bio · hours" },
   { id: "comms", label: "Communication", sub: "how agents reach you" },
   { id: "voice", label: "Voice", sub: "realtime · permissions · dictation" },
@@ -777,11 +1135,21 @@ const SECTIONS: { id: Section; label: string; sub: string }[] = [
 ];
 
 const SECTION_TITLES: Record<Section, string> = {
+  appearance: "Appearance",
   operator: "Operator identity",
   comms: "Communication",
   voice: "Voice",
   credentials: "Credentials",
   devices: "Paired devices",
+};
+
+const SECTION_DESCRIPTIONS: Record<Section, string> = {
+  appearance: "Choose how Scout looks on this device. Changes apply immediately across the workspace.",
+  operator: "Your identity, availability, and the context agents receive when they work with you.",
+  comms: "Set interruption rules, delivery channels, response style, and quiet hours.",
+  voice: "Configure dictation, realtime voice, permissions, and input devices.",
+  credentials: "Manage model-provider credentials stored by this Scout installation.",
+  devices: "Review the relay and devices currently connected to this Scout workspace.",
 };
 
 const DEFAULT_PROFILE: OperatorProfile = {
@@ -805,21 +1173,23 @@ const DEFAULT_PROFILE: OperatorProfile = {
   provisionalAgentNamesSource: "default",
 };
 
-export function SettingsDrawer({
+function SettingsExperience({
   open,
   onClose,
   section: controlledSection,
   onSectionChange,
+  presentation,
 }: {
   open: boolean;
   onClose: () => void;
   /** When set, the rail is controlled by the URL (SCO-082 Phase B). */
   section?: Section;
   onSectionChange?: (section: Section) => void;
+  presentation: "drawer" | "page";
 }) {
   const { refreshOnboarding } = useScout();
-  const { ref: drawerRef, onKeyDown: onDrawerKeyDown } = useFocusTrap<HTMLDivElement>(open);
-  const [uncontrolledSection, setUncontrolledSection] = useState<Section>("operator");
+  const { ref: drawerRef, onKeyDown: onDrawerKeyDown } = useFocusTrap<HTMLDivElement>(open && presentation === "drawer");
+  const [uncontrolledSection, setUncontrolledSection] = useState<Section>("appearance");
   const section = controlledSection ?? uncontrolledSection;
   const setSection = useCallback((next: Section) => {
     if (onSectionChange) onSectionChange(next);
@@ -830,7 +1200,13 @@ export function SettingsDrawer({
   const [clientCredentials, setClientCredentials] = useState<ClientCredentialState | null>(null);
   const [serverCredentials, setServerCredentials] = useState<ServerCredentialState | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => () => {
+    mountedRef.current = false;
+  }, []);
 
   const loadCredentials = useCallback(async () => {
     const [client, server] = await Promise.allSettled([
@@ -874,7 +1250,7 @@ export function SettingsDrawer({
 
   const handleDrawerKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
     onDrawerKeyDown(event);
-    if (event.key === "Escape") {
+    if (presentation === "drawer" && event.key === "Escape") {
       event.preventDefault();
       onClose();
       return;
@@ -889,18 +1265,22 @@ export function SettingsDrawer({
       event.preventDefault();
       cycleSection(-1);
     }
-  }, [cycleSection, onClose, onDrawerKeyDown]);
+  }, [cycleSection, onClose, onDrawerKeyDown, presentation]);
 
   const save = useCallback((next: OperatorProfile) => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
+    setSaveState("saving");
     saveTimer.current = setTimeout(() => {
       void api<OperatorProfile>("/api/user", {
         method: "POST",
         body: JSON.stringify(next),
       })
         .then(() => refreshOnboarding())
+        .then(() => {
+          if (mountedRef.current) setSaveState("saved");
+        })
         .catch(() => {
-          /* keep local draft state; next successful load will reconcile */
+          if (mountedRef.current) setSaveState("error");
         });
     }, 400);
   }, [refreshOnboarding]);
@@ -912,6 +1292,105 @@ export function SettingsDrawer({
       return next;
     });
   }, [save]);
+
+  const sectionNav = (
+    <nav className="s-settings-rail" aria-label="Settings pages">
+      {SECTIONS.map((s) => {
+        const content = (
+          <>
+            <span className="s-settings-rail-label">{s.label}</span>
+            <span className="s-settings-rail-sub">{s.sub}</span>
+          </>
+        );
+        const className = `s-settings-rail-btn${section === s.id ? " s-settings-rail-btn--active" : ""}`;
+        if (presentation === "page") {
+          return (
+            <a
+              key={s.id}
+              href={routePath({ view: "settings", section: s.id })}
+              aria-current={section === s.id ? "page" : undefined}
+              className={className}
+              onClick={(event) => {
+                if (
+                  event.button !== 0
+                  || event.metaKey
+                  || event.ctrlKey
+                  || event.shiftKey
+                  || event.altKey
+                ) return;
+                event.preventDefault();
+                setSection(s.id);
+              }}
+            >
+              {content}
+            </a>
+          );
+        }
+        return (
+          <button key={s.id} onClick={() => setSection(s.id)}
+            aria-current={section === s.id ? "page" : undefined}
+            className={className}>
+            {content}
+          </button>
+        );
+      })}
+    </nav>
+  );
+
+  const sectionContent = (
+    <main
+      className="s-settings-content"
+      id={`settings-${section}`}
+      data-settings-section={section}
+      tabIndex={-1}
+    >
+      {section === "appearance" ? (
+        <AppearanceSection />
+      ) : !loaded ? (
+        <div className="s-settings-loading">Loading settings…</div>
+      ) : (
+        <>
+          {section === "operator" && <OperatorSection profile={profile} update={update} />}
+          {section === "comms" && <CommsSection profile={profile} update={update} />}
+          {section === "credentials" && (
+            <CredentialsSection
+              clientCredentials={clientCredentials}
+              serverCredentials={serverCredentials}
+              reloadCredentials={loadCredentials}
+            />
+          )}
+          {section === "voice" && <VoiceSection />}
+          {section === "devices" && <DevicesSection pairing={pairing} />}
+        </>
+      )}
+    </main>
+  );
+
+  if (presentation === "page") {
+    return (
+      <section className="s-settings-page" aria-labelledby="settings-page-title">
+        <header className="s-settings-page-header">
+          <div>
+            <div className="s-settings-page-kicker">Settings</div>
+            <h1 id="settings-page-title">{SECTION_TITLES[section]}</h1>
+            <p>{SECTION_DESCRIPTIONS[section]}</p>
+          </div>
+          <div className="s-settings-page-save-state" data-state={saveState} role="status" aria-live="polite">
+            <span aria-hidden="true" />
+            {saveState === "saving"
+              ? "Saving changes…"
+              : saveState === "error"
+                ? "Couldn’t save changes"
+                : "Saved automatically"}
+          </div>
+        </header>
+        <div className="s-settings-page-layout">
+          {sectionNav}
+          {sectionContent}
+        </div>
+      </section>
+    );
+  }
 
   return (
     <>
@@ -937,37 +1416,8 @@ export function SettingsDrawer({
           <button className="s-settings-close" onClick={onClose}>{"×"}</button>
         </div>
 
-        {/* Rail */}
-        <nav className="s-settings-rail">
-          {SECTIONS.map((s) => (
-            <button key={s.id} onClick={() => setSection(s.id)}
-              className={`s-settings-rail-btn${section === s.id ? " s-settings-rail-btn--active" : ""}`}>
-              <span className="s-settings-rail-label">{s.label}</span>
-              <span className="s-settings-rail-sub">{s.sub}</span>
-            </button>
-          ))}
-        </nav>
-
-        {/* Content */}
-        <main className="s-settings-content">
-          {!loaded ? (
-            <div style={{ color: "var(--dim)", fontFamily: "var(--font-mono)", fontSize: 12 }}>Loading...</div>
-          ) : (
-            <>
-              {section === "operator" && <OperatorSection profile={profile} update={update} />}
-              {section === "comms" && <CommsSection profile={profile} update={update} />}
-              {section === "credentials" && (
-                <CredentialsSection
-                  clientCredentials={clientCredentials}
-                  serverCredentials={serverCredentials}
-                  reloadCredentials={loadCredentials}
-                />
-              )}
-              {section === "voice" && <VoiceSection />}
-              {section === "devices" && <DevicesSection pairing={pairing} />}
-            </>
-          )}
-        </main>
+        {sectionNav}
+        {sectionContent}
 
         {/* Footer */}
         <div className="s-settings-footer">
@@ -979,5 +1429,32 @@ export function SettingsDrawer({
         </div>
       </div>
     </>
+  );
+}
+
+export function SettingsDrawer(props: {
+  open: boolean;
+  onClose: () => void;
+  section?: Section;
+  onSectionChange?: (section: Section) => void;
+}) {
+  return <SettingsExperience {...props} presentation="drawer" />;
+}
+
+export function SettingsPage({
+  section = "appearance",
+  onSectionChange,
+}: {
+  section?: Section;
+  onSectionChange: (section: Section) => void;
+}) {
+  return (
+    <SettingsExperience
+      open
+      onClose={() => {}}
+      section={section}
+      onSectionChange={onSectionChange}
+      presentation="page"
+    />
   );
 }

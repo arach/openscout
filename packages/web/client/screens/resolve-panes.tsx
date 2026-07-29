@@ -33,7 +33,6 @@ export function resolveLeftPane(route: Route, navigate: Navigate): ReactNode {
     case "agent-info":
       return <AgentsLeft />;
     case "messages":
-    case "channels":
     case "conversation":
       return <ChatLeft />;
     case "mesh":
@@ -55,7 +54,6 @@ export function resolveContentPane(
   switch (route.view) {
     case "conversation":
     case "messages":
-    case "channels":
       return <ChatContent route={route} navigate={navigate} />;
     case "agents-v2":
       return <ProjectsScreen route={route} navigate={navigate} />;

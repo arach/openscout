@@ -310,6 +310,76 @@ export class BrokerDeliveryAcceptanceService {
       operatorActorId: this.options.operatorActorId,
       nodeId: this.options.nodeId,
     });
+    const initialSnapshot = this.options.runtimeSnapshot();
+    const clientMessageId = this.options.metadataStringValue(
+      payload.messageMetadata,
+      "clientMessageId",
+    );
+    const existingMessage = clientMessageId
+      ? Object.values(initialSnapshot.messages).find((message) => (
+          message.actorId === requesterId
+          && this.options.metadataStringValue(message.metadata, "clientMessageId") === clientMessageId
+        ))
+      : undefined;
+
+    // A bridge acknowledgement can be lost after the broker commits the
+    // message and flight. Stable client/request ids make the retry a read of the
+    // original transaction instead of a second delivery.
+    if (
+      existingMessage
+      && this.options.metadataStringValue(existingMessage.metadata, "deliveryRequestId") === requestId
+    ) {
+      const conversation = initialSnapshot.conversations[existingMessage.conversationId];
+      if (conversation) {
+        const invocation = Object.values(initialSnapshot.invocations)
+          .find((candidate) => candidate.messageId === existingMessage.id);
+        const flight = invocation
+          ? Object.values(initialSnapshot.flights)
+              .find((candidate) => candidate.invocationId === invocation.id)
+          : undefined;
+        const targetAgentId = invocation?.targetAgentId
+          ?? this.options.metadataStringValue(existingMessage.metadata, "relayTarget")
+          ?? existingMessage.mentions?.[0]?.actorId;
+        const targetSessionId = this.options.metadataStringValue(
+          existingMessage.metadata,
+          "targetSessionId",
+        ) ?? undefined;
+        const routeKind = this.options.brokerRouteKind(conversation);
+        const targetLabel = targetAgentId
+          ? this.options.brokerActorDisplayName(initialSnapshot, targetAgentId)
+          : "target";
+        const bindingRef = flight?.id.slice(-8);
+        const sessionAlias = targetAgentId
+          ? sessionActorAlias(initialSnapshot, targetAgentId) ?? undefined
+          : undefined;
+        return {
+          kind: "delivery",
+          accepted: true,
+          routeKind,
+          receipt: buildDeliveryReceipt({
+            requestId,
+            routeKind,
+            requesterId,
+            requesterNodeId,
+            targetAgentId,
+            targetSessionId,
+            targetLabel,
+            sessionAlias,
+            bindingRef,
+            conversationId: conversation.id,
+            messageId: existingMessage.id,
+            flightId: flight?.id,
+          }),
+          conversation,
+          message: existingMessage,
+          ...(targetAgentId ? { targetAgentId } : {}),
+          ...(targetSessionId ? { targetSessionId } : {}),
+          ...(sessionAlias ? { sessionAlias } : {}),
+          ...(bindingRef ? { bindingRef } : {}),
+          ...(flight ? { flight } : {}),
+        };
+      }
+    }
     const operatorSignal = payload.operatorSignal
       ? brokerOperatorSignalSchema.parse(payload.operatorSignal)
       : undefined;
@@ -879,10 +949,17 @@ export class BrokerDeliveryAcceptanceService {
     const workRecord = workResolution.record;
     const collaborationRecordId = workResolution.collaborationRecordId;
     const snapshot = this.options.runtimeSnapshot();
-    const messageId = this.options.createId("msg");
+    // A routing-recoverable mobile message is already durable in this direct
+    // conversation. Once its target becomes available, reuse that record and
+    // attach the invocation instead of posting a duplicate bubble.
+    const reusableMessage = existingMessage?.conversationId === conversation.id
+      ? existingMessage
+      : undefined;
+    const messageId = reusableMessage?.id ?? this.options.createId("msg");
     const targetLabel = target.label;
     const routeKind = this.options.brokerRouteKind(conversation);
     const message: MessageRecord = {
+      ...(reusableMessage ?? {}),
       id: messageId,
       conversationId: conversation.id,
       actorId: requesterId,
@@ -899,9 +976,11 @@ export class BrokerDeliveryAcceptanceService {
       },
       visibility: this.options.messageVisibilityForConversation(conversation),
       policy: "durable",
-      createdAt,
+      createdAt: reusableMessage?.createdAt ?? createdAt,
       metadata: {
+        ...(reusableMessage?.metadata ?? {}),
         ...(payload.messageMetadata ?? {}),
+        deliveryRequestId: requestId,
         ...(labels.length ? { labels } : {}),
         ...(receiptSessionId ? { targetSessionId: receiptSessionId } : {}),
         ...(aliasResolution ? { aliasResolution } : {}),

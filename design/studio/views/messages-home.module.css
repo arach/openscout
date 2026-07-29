@@ -1,0 +1,211 @@
+/* Messages home — full-width triage treatments.
+   Palette = the shared Hudson tokens (iOS HudPalette / macOS HudsonKit /
+   web --hud-*); green rationed to attention pixels only (needs-you dots,
+   hot borders, the need-a-reply stat). */
+
+.frame {
+  --font-sans: "Inter Tight", "Inter", -apple-system, "SF Pro Text", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --mh-bg: #0a0a0a;
+  --mh-panel: #171717;
+  --mh-ink: #e5e5e5;
+  --mh-muted: #a3a3a3;
+  --mh-dim: #737373;
+  --mh-faint: #525252;
+  --mh-hairline: #181818;
+  --mh-hairline-strong: #272727;
+  --mh-accent: #10b981;
+  background: var(--mh-bg);
+  border: 1px solid var(--mh-hairline-strong);
+  border-radius: 10px;
+  overflow: hidden;
+  font-family: var(--font-sans, ui-sans-serif);
+  color: var(--mh-ink);
+}
+
+.frameWide { width: 100%; max-width: 1460px; }
+
+/* ── command bar ─────────────────────────────────────────────── */
+.bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--mh-hairline);
+}
+/* On a triage surface the accent belongs to attention, not creation: the
+   primary CTA is ink + weight, and the bar's only accent is the stat. */
+.ctaPrimary {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: none; color: var(--mh-ink);
+  border: 1px solid var(--mh-hairline-strong); border-radius: 6px; cursor: pointer;
+  padding: 6px 14px; font-size: var(--text-md); font-weight: 600;
+}
+.ctaPrimary:hover { border-color: var(--mh-faint); }
+.ctaPrimary span { font-size: var(--text-xl); line-height: 1; }
+.ctaQuiet {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: none; color: var(--mh-muted);
+  border: 1px solid var(--mh-hairline-strong); border-radius: 6px;
+  padding: 6px 12px; font-size: var(--text-md); cursor: pointer;
+}
+.ctaQuiet:hover { color: var(--mh-ink); border-color: var(--mh-faint); }
+.ctaKbd {
+  font-family: var(--font-mono, ui-monospace); font-size: var(--text-sm);
+  color: var(--mh-dim); border: 1px solid var(--mh-hairline-strong);
+  border-radius: 4px; padding: 1px 5px;
+}
+.barStat {
+  margin-left: auto; font-family: var(--font-mono, ui-monospace);
+  font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--mh-dim);
+}
+.barStat b { color: var(--mh-accent); font-weight: 600; }
+
+/* ── T1 board ────────────────────────────────────────────────── */
+.board {
+  display: grid; grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 0; min-height: 560px;
+}
+.boardMain { padding: 18px 22px; border-right: 1px solid var(--mh-hairline); }
+.boardSide { padding: 18px 20px; display: flex; flex-direction: column; gap: 22px; }
+
+.eyebrow {
+  display: flex; align-items: baseline; gap: 8px;
+  font-family: var(--font-mono, ui-monospace); font-size: var(--text-xs);
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--mh-dim);
+  margin: 0 0 10px;
+}
+.eyebrow b { color: var(--mh-muted); font-weight: 600; }
+.eyebrowCount { margin-left: auto; color: var(--mh-faint); }
+
+/* needs-you card rows */
+.ask {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px; align-items: start;
+  padding: 13px 14px; margin: 0 0 8px;
+  background: var(--mh-panel);
+  border: 1px solid var(--mh-hairline-strong); border-radius: 8px;
+}
+/* Hot = full-perimeter accent-tinted hairline (house rule: no left bars on
+   rounded elements; 1px everywhere so content never shifts). */
+.ask[data-hot] { border-color: rgba(16, 185, 129, 0.4); }
+.askDot {
+  width: 7px; height: 7px; border-radius: 999px;
+  background: var(--mh-accent); margin-top: 6px;
+}
+.askBody { min-width: 0; }
+.askHead {
+  display: flex; align-items: baseline; gap: 8px; margin-bottom: 3px;
+}
+.askFrom { font-size: var(--text-lg); font-weight: 600; color: var(--mh-ink); }
+.askKind {
+  font-family: var(--font-mono, ui-monospace); font-size: var(--text-xs);
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--mh-dim);
+}
+.askAge {
+  font-family: var(--font-mono, ui-monospace); font-size: var(--text-xs);
+  color: var(--mh-faint);
+}
+.askPreview {
+  font-size: var(--text-md); line-height: 1.55; color: var(--mh-muted);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; margin: 0;
+}
+.askActs { display: flex; gap: 6px; align-self: center; }
+.act {
+  background: none; border: 1px solid var(--mh-hairline-strong);
+  border-radius: 5px; color: var(--mh-muted); cursor: pointer;
+  padding: 4px 10px; font-size: var(--text-sm);
+}
+.act:hover { color: var(--mh-ink); border-color: var(--mh-faint); }
+.actPrimary { border-color: var(--mh-faint); color: var(--mh-ink); font-weight: 600; }
+
+/* coalesced notices */
+.fold {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; margin: 2px 0 8px;
+  border: 1px solid var(--mh-hairline); border-radius: 8px;
+  color: var(--mh-dim); font-size: var(--text-md); cursor: pointer;
+}
+.fold:hover { color: var(--mh-muted); }
+.foldCount {
+  font-family: var(--font-mono, ui-monospace); font-size: var(--text-xs);
+  color: var(--mh-muted);
+  border: 1px solid var(--mh-hairline-strong); border-radius: 999px;
+  padding: 1px 8px;
+}
+.foldChevron { margin-left: auto; font-size: var(--text-xs); color: var(--mh-faint); }
+
+/* side column */
+.sideRow {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 7px 0; border-bottom: 1px solid var(--mh-hairline);
+  font-size: var(--text-md); color: var(--mh-muted); cursor: pointer;
+}
+.sideRow:last-child { border-bottom: none; }
+.sideRow:hover { color: var(--mh-ink); }
+.sideName { font-weight: 600; color: var(--mh-ink); white-space: nowrap; }
+.sidePreview {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--mh-dim); font-size: var(--text-md);
+}
+.sideAge {
+  margin-left: auto; font-family: var(--font-mono, ui-monospace);
+  font-size: var(--text-xs); color: var(--mh-faint);
+}
+.seed {
+  border: 1px solid var(--mh-hairline-strong); border-radius: 8px;
+  background: var(--mh-panel); padding: 12px 14px;
+  font-size: var(--text-md); color: var(--mh-dim); cursor: text;
+}
+.seed b { color: var(--mh-muted); font-weight: 500; }
+
+/* ── T2 split ────────────────────────────────────────────────── */
+.split { display: grid; grid-template-columns: 420px minmax(0, 1fr); min-height: 560px; }
+.splitList { border-right: 1px solid var(--mh-hairline); padding: 12px 0; overflow: hidden; }
+.splitRow {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px;
+  align-items: baseline; padding: 9px 16px; cursor: pointer;
+}
+.splitRow[data-on] { background: rgba(255, 255, 255, 0.05); }
+.splitRow[data-on] .splitFrom { color: var(--mh-ink); }
+.splitRow:hover { background: rgba(255, 255, 255, 0.02); }
+.splitDot { width: 6px; height: 6px; border-radius: 999px; background: var(--mh-accent); align-self: center; }
+/* Idle slot stays for column alignment but paints nothing — the dot exists
+   only as the needs-you/addressed accent (no categorical off-state). */
+.splitDotIdle { background: transparent; }
+.splitFrom { font-size: var(--text-md); font-weight: 600; color: var(--mh-muted); white-space: nowrap; }
+.splitPreview {
+  grid-column: 2 / 4; font-size: var(--text-md); color: var(--mh-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.splitSection {
+  padding: 12px 16px 6px; font-family: var(--font-mono, ui-monospace);
+  font-size: var(--text-xs); letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--mh-faint);
+}
+.reader { display: flex; flex-direction: column; min-width: 0; }
+.readerHead {
+  display: flex; align-items: center; gap: 10px;
+  padding: 13px 20px; border-bottom: 1px solid var(--mh-hairline);
+}
+.readerTitle { font-size: var(--text-lg); font-weight: 600; }
+.readerMeta {
+  font-family: var(--font-mono, ui-monospace); font-size: var(--text-xs);
+  color: var(--mh-dim);
+}
+.readerBody { flex: 1; padding: 20px 22px; font-size: var(--text-lg); line-height: 1.65; color: var(--mh-muted); }
+.readerBody code {
+  font-family: var(--font-mono, ui-monospace); font-size: var(--text-sm);
+  color: var(--mh-ink); background: var(--mh-panel);
+  border: 1px solid var(--mh-hairline); border-radius: 4px; padding: 1px 5px;
+}
+.composer {
+  margin: 0 20px 18px; border: 1px solid var(--mh-hairline-strong);
+  border-radius: 8px; background: var(--mh-panel); padding: 12px 14px;
+  display: flex; align-items: center; gap: 10px;
+}
+.composerHint { flex: 1; font-size: var(--text-md); color: var(--mh-faint); }
+.composerSend {
+  background: none; border: 1px solid var(--mh-hairline-strong); border-radius: 6px;
+  color: var(--mh-ink); font-size: var(--text-md); font-weight: 600; padding: 6px 14px;
+}

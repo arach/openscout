@@ -8,6 +8,7 @@ import {
 } from "./capture-attachments.ts";
 
 export type OutgoingAttachment = {
+  id: string;
   mediaType: string;
   fileName?: string;
   url: string;
@@ -113,6 +114,7 @@ export async function uploadMediaFiles(files: File[]): Promise<OutgoingAttachmen
   }
   const uploaded = await Promise.all(routable.map((file) => uploadMediaFile(file)));
   return uploaded.map((blob, index) => ({
+    id: blob.id,
     mediaType: blob.mediaType,
     fileName: blob.fileName ?? routable[index]?.name,
     url: blob.url,

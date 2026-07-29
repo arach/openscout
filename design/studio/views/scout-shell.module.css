@@ -37,7 +37,7 @@
 }
 .kicker {
   font-family: var(--s-font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -71,13 +71,13 @@
 }
 .swatchName {
   font-family: var(--s-font-mono);
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   font-weight: 600;
   color: var(--s-ink);
 }
 .swatchRole {
   margin-top: 1px;
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
 }
 
@@ -102,7 +102,7 @@
   height: 28px;
   border-bottom: 1px solid var(--s-hairline-strong);
   background: var(--s-chrome);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -112,7 +112,7 @@
 .repoRow {
   height: 32px;
   border-bottom: 1px solid var(--s-hairline);
-  font-size: 11.5px;
+  font-size: var(--text-sm);
 }
 .repoRow:last-child {
   border-bottom: none;
@@ -151,7 +151,7 @@
 }
 .repoName {
   font-family: var(--s-font-sans);
-  font-size: 12.5px;
+  font-size: var(--text-md);
   font-weight: 600;
   color: var(--s-ink);
 }
@@ -162,7 +162,7 @@
   color: var(--s-dim);
 }
 .path {
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
   white-space: nowrap;
   overflow: hidden;
@@ -255,7 +255,7 @@
   align-items: center;
   justify-content: center;
   gap: 4px;
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
 .driftAheadN {
@@ -270,7 +270,7 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   color: var(--s-muted);
   min-width: 0;
 }
@@ -284,13 +284,13 @@
   color: var(--s-accent);
 }
 .touched {
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
 }
 
 .tag {
   font-family: var(--s-font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.04em;
   padding: 1px 4px;
@@ -317,13 +317,13 @@
 }
 .convTitleBar {
   font-family: var(--s-font-sans);
-  font-size: 14px;
+  font-size: var(--text-xl);
   font-weight: 600;
   color: var(--s-ink);
 }
 .convCount {
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
 }
 .convSearch {
@@ -337,7 +337,7 @@
   background: var(--s-surface);
   color: var(--s-dim);
   font-family: var(--s-font-sans);
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 
 /* Labeled filter segment (improvement #3) */
@@ -356,7 +356,7 @@
   padding: 4px 0;
   border-radius: 5px;
   font-family: var(--s-font-sans);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--s-dim);
 }
@@ -374,7 +374,7 @@
   padding: 9px 14px 4px;
   background: var(--s-chrome);
   font-family: var(--s-font-mono);
-  font-size: 8.5px;
+  font-size: var(--text-3xs);
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -407,7 +407,7 @@
   background: var(--s-surface);
   border: 1px solid var(--s-hairline-strong);
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 700;
   color: var(--s-muted);
 }
@@ -424,7 +424,7 @@
 }
 .convName {
   font-family: var(--s-font-sans);
-  font-size: 12.5px;
+  font-size: var(--text-md);
   font-weight: 500;
   color: var(--s-muted);
   white-space: nowrap;
@@ -446,7 +446,7 @@
 .miniAsk {
   flex: none;
   font-family: var(--s-font-mono);
-  font-size: 8px;
+  font-size: var(--text-3xs);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -464,14 +464,14 @@
 .convTime {
   margin-left: auto;
   font-family: var(--s-font-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   color: var(--s-dim);
   flex: none;
 }
 .convPreview {
   margin-top: 2px;
   font-family: var(--s-font-sans);
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   line-height: 1.4;
   color: var(--s-muted);
   display: -webkit-box;
@@ -485,7 +485,7 @@
 .convCid {
   margin-top: 3px;
   font-family: var(--s-font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.02em;
   color: var(--s-dim);
 }
@@ -495,7 +495,7 @@
   min-width: 17px;
   text-align: center;
   font-family: var(--s-font-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   color: var(--s-dim);
 }
 .convMsgUnread {
@@ -525,7 +525,7 @@
 }
 .btnPrimary {
   font-family: var(--s-font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 700;
   letter-spacing: 0.03em;
   padding: 6px 12px;
@@ -536,7 +536,7 @@
 }
 .btnGhost {
   font-family: var(--s-font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 700;
   letter-spacing: 0.03em;
   padding: 6px 12px;
@@ -550,7 +550,7 @@
   align-items: center;
   gap: 5px;
   font-family: var(--s-font-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -619,7 +619,7 @@
 }
 .winTitle {
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   letter-spacing: 0.04em;
   color: var(--s-dim);
 }
@@ -669,11 +669,11 @@
   align-items: center;
   justify-content: center;
   font-family: var(--s-font-mono);
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-weight: 700;
 }
 .brandName {
-  font-size: 14px;
+  font-size: var(--text-xl);
   font-weight: 600;
   color: var(--s-ink);
 }
@@ -689,7 +689,7 @@
   padding: 7px 9px;
   border-radius: 7px;
   color: var(--s-muted);
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-weight: 500;
 }
 .navItem.active {
@@ -712,7 +712,7 @@
   padding: 7px 9px;
   border-radius: 7px;
   color: var(--s-dim);
-  font-size: 13px;
+  font-size: var(--text-lg);
 }
 .navSettings.active {
   background: var(--s-accent-soft);
@@ -737,7 +737,7 @@
   border-bottom: 1px solid var(--s-hairline);
 }
 .pageTitle {
-  font-size: 17px;
+  font-size: var(--text-3xl);
   font-weight: 600;
   color: var(--s-ink);
 }
@@ -749,7 +749,7 @@
 }
 .pageCount {
   font-family: var(--s-font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -767,7 +767,7 @@
   background: var(--s-chrome);
   border-top: 1px solid var(--s-hairline);
   font-family: var(--s-font-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.03em;
   color: var(--s-dim);
 }
@@ -827,7 +827,7 @@
   background: var(--s-surface);
   border: 1px solid var(--s-hairline-strong);
   font-family: var(--s-font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 700;
   color: var(--s-muted);
 }
@@ -835,13 +835,13 @@
   min-width: 0;
 }
 .threadName {
-  font-size: 14px;
+  font-size: var(--text-xl);
   font-weight: 600;
   color: var(--s-ink);
 }
 .threadSub {
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
   margin-top: 1px;
 }
@@ -867,19 +867,19 @@
 }
 .pinLabel {
   font-family: var(--s-font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 .pinId {
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
 }
 .askState {
   font-family: var(--s-font-mono);
-  font-size: 8.5px;
+  font-size: var(--text-3xs);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -897,12 +897,12 @@
 .pinFrom {
   margin-left: auto;
   font-family: var(--s-font-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   color: var(--s-dim);
 }
 .pinnedAskText {
   margin-top: 6px;
-  font-size: 12.5px;
+  font-size: var(--text-md);
   line-height: 1.5;
   color: var(--s-ink);
 }
@@ -929,7 +929,7 @@
   align-items: center;
   justify-content: center;
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 700;
   flex: none;
 }
@@ -951,18 +951,18 @@
   gap: 8px;
 }
 .turnAuthor {
-  font-size: 12.5px;
+  font-size: var(--text-md);
   font-weight: 600;
   color: var(--s-ink);
 }
 .turnTime {
   font-family: var(--s-font-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   color: var(--s-dim);
 }
 .askChip {
   font-family: var(--s-font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.03em;
   padding: 1px 5px;
@@ -976,13 +976,13 @@
   /* Constrained reading measure (improvement #1) — long prose wraps at a
      comfortable line length instead of running the full pane width. */
   max-width: 64ch;
-  font-size: 13px;
+  font-size: var(--text-lg);
   line-height: 1.55;
   color: var(--s-muted);
 }
 .turnText code {
   font-family: var(--s-font-mono);
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   padding: 1px 4px;
   border-radius: 4px;
   background: color-mix(in oklch, var(--s-muted) 12%, transparent);
@@ -1011,7 +1011,7 @@
 }
 .turnText ol li::marker {
   font-family: var(--s-font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 700;
   color: var(--s-accent);
 }
@@ -1044,7 +1044,7 @@
   background: var(--s-surface);
   color: var(--s-accent);
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.02em;
   cursor: pointer;
@@ -1066,12 +1066,12 @@
   padding: 7px 10px;
   border-bottom: 1px solid var(--s-hairline);
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
 }
 .turnCardBody {
   padding: 9px 11px;
-  font-size: 12px;
+  font-size: var(--text-md);
   line-height: 1.5;
   color: var(--s-muted);
 }
@@ -1088,7 +1088,7 @@
   padding: 10px 12px;
 }
 .composerField {
-  font-size: 13px;
+  font-size: var(--text-lg);
   color: var(--s-dim);
 }
 .composerBar {
@@ -1099,7 +1099,7 @@
 }
 .composerMeta {
   font-family: var(--s-font-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   color: var(--s-dim);
 }
 .composerSend {
@@ -1136,7 +1136,7 @@
   border-radius: 8px;
   background: var(--s-surface);
   color: var(--s-dim);
-  font-size: 12.5px;
+  font-size: var(--text-md);
 }
 .seg {
   display: inline-flex;
@@ -1146,7 +1146,7 @@
 }
 .segBtn {
   padding: 6px 11px;
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--s-muted);
   background: var(--s-surface);
@@ -1164,7 +1164,7 @@
   border-radius: 7px;
   background: var(--s-surface);
   color: var(--s-muted);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
 }
 
@@ -1180,7 +1180,7 @@
   padding: 6px 16px;
   border-top: 1px solid var(--s-hairline);
   border-bottom: 1px solid var(--s-hairline);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -1197,17 +1197,17 @@
 }
 .projName {
   font-family: var(--s-font-sans);
-  font-size: 12.5px;
+  font-size: var(--text-md);
   font-weight: 700;
   color: var(--s-ink);
 }
 .projPath {
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
 }
 .projCount {
   margin-left: auto;
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
 }
 .agentRow {
@@ -1241,26 +1241,26 @@
 }
 .agentName {
   font-family: var(--s-font-sans);
-  font-size: 12.5px;
+  font-size: var(--text-md);
   font-weight: 600;
   color: var(--s-ink);
   white-space: nowrap;
 }
 .agentMeta {
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .stateCol {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.06em;
   color: var(--s-muted);
 }
 .updatedCol {
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
   text-align: right;
 }
@@ -1292,7 +1292,7 @@
   background: var(--s-accent-soft);
   color: var(--s-accent);
   font-family: var(--s-font-mono);
-  font-size: 14px;
+  font-size: var(--text-xl);
   font-weight: 700;
 }
 .inspIdent {
@@ -1300,13 +1300,13 @@
   flex: 1;
 }
 .inspName {
-  font-size: 15px;
+  font-size: var(--text-2xl);
   font-weight: 600;
   color: var(--s-ink);
 }
 .inspHandle {
   font-family: var(--s-font-mono);
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
   margin-top: 1px;
 }
@@ -1324,7 +1324,7 @@
 }
 .inspGroupLabel {
   font-family: var(--s-font-mono);
-  font-size: 8.5px;
+  font-size: var(--text-3xs);
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1342,7 +1342,7 @@
   border: 1px solid var(--s-border);
   border-radius: 5px;
   color: var(--s-muted);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.04em;
 }
 .inspKV {
@@ -1354,7 +1354,7 @@
 }
 .inspKey {
   font-family: var(--s-font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -1363,7 +1363,7 @@
 }
 .inspVal {
   font-family: var(--s-font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--s-ink);
   text-align: right;
   overflow: hidden;
@@ -1381,7 +1381,7 @@
 .inspSessionMeta {
   margin: 2px 0 0 14px;
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
 }
 
@@ -1390,12 +1390,12 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--s-ink);
 }
 .inspNowAction code {
   font-family: var(--s-font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   padding: 1px 4px;
   margin: 0 2px;
   border-radius: 4px;
@@ -1425,7 +1425,7 @@
   align-items: center;
   gap: 7px;
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -1435,7 +1435,7 @@
   flex: none;
   padding: 0 4px;
   border-radius: 3px;
-  font-size: 8.5px;
+  font-size: var(--text-3xs);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1486,18 +1486,18 @@
   padding: 14px 16px 10px;
 }
 .diffTitle {
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-weight: 600;
   color: var(--s-ink);
 }
 .diffTitle code {
   font-family: var(--s-font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--s-accent);
 }
 .diffSub {
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--s-dim);
   margin-top: 3px;
 }
@@ -1515,13 +1515,13 @@
   padding: 5px 8px;
   border-radius: 6px;
   font-family: var(--s-font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 .diffFile.active {
   background: var(--s-accent-soft);
 }
 .diffGlyph {
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 700;
   text-align: center;
 }
@@ -1543,14 +1543,14 @@
   overflow: hidden;
   background: var(--s-surface);
   font-family: var(--s-font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 .hunkHead {
   padding: 5px 11px;
   background: var(--s-chrome);
   border-bottom: 1px solid var(--s-hairline);
   color: var(--s-dim);
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 .codeLine {
   display: grid;
@@ -1602,7 +1602,7 @@
   align-items: center;
   gap: 6px;
   font-family: var(--s-font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1625,7 +1625,7 @@
   border-radius: 999px;
   border: 1px solid var(--s-border);
   font-family: var(--s-font-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   letter-spacing: 0.03em;
   color: var(--s-muted);
@@ -1639,7 +1639,7 @@
   flex: 1;
   overflow: hidden;
   font-family: var(--s-font-mono);
-  font-size: 11.5px;
+  font-size: var(--text-sm);
 }
 .ev {
   display: grid;
@@ -1660,7 +1660,7 @@
   text-overflow: ellipsis;
 }
 .evKind {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -1720,7 +1720,7 @@
   gap: 9px;
   padding: 7px 10px;
   border-radius: 7px;
-  font-size: 12.5px;
+  font-size: var(--text-md);
   color: var(--s-muted);
 }
 .setNavItem.active {
@@ -1736,12 +1736,12 @@
   margin-bottom: 22px;
 }
 .setSectionTitle {
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-weight: 700;
   color: var(--s-ink);
 }
 .setSectionHint {
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   color: var(--s-dim);
   margin-top: 2px;
   margin-bottom: 12px;
@@ -1780,13 +1780,13 @@
   border-top: 1px solid var(--s-hairline);
 }
 .presetName {
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--s-ink);
 }
 .presetTone {
   font-family: var(--s-font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--s-dim);
   margin-top: 1px;
 }
@@ -1799,12 +1799,12 @@
   border-top: 1px solid var(--s-hairline);
 }
 .setRowLabel {
-  font-size: 12.5px;
+  font-size: var(--text-md);
   font-weight: 500;
   color: var(--s-ink);
 }
 .setRowHint {
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--s-dim);
   margin-top: 1px;
 }
@@ -1816,7 +1816,7 @@
 }
 .modeSegBtn {
   padding: 6px 13px;
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--s-muted);
   background: var(--s-surface);

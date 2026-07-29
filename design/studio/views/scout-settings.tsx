@@ -51,7 +51,7 @@ export default function ScoutSettingsStudy() {
       blurb={
         <>
           The Appearance page as it should ship. Deltas from today&apos;s{" "}
-          <code className="font-mono text-[11px] text-studio-ink">ScoutSettingsView</code>:
+          <code className="font-mono text-sm text-studio-ink">ScoutSettingsView</code>:
           accent becomes an inline dot row (not big tiles), the sections reorder to
           Theme → Mode → Accent → Window material, and a Preview-accents-on-hover
           toggle is added. The opacity slider stays.

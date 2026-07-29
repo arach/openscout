@@ -1,4 +1,4 @@
-import { mkdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, statSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 
@@ -22,6 +22,16 @@ import type {
 } from "./types.js";
 
 type SQLiteBinding = string | number | bigint | boolean | null | Uint8Array;
+
+/**
+ * Deterministic FTS rowid for a chunk id. FTS5 only supports efficient
+ * rowid-based deletes; deleting by an UNINDEXED text column is a full index
+ * scan (measured ~3s per row on a 30k-chunk index), which made reindexing
+ * effectively never terminate.
+ */
+function ftsRowidForChunk(chunkId: string): bigint {
+  return createHash("sha256").update(chunkId).digest().readBigInt64BE(0);
+}
 
 type SQLiteTransactionalDatabase = Database & {
   transaction<TArgs extends unknown[], TResult>(
@@ -138,6 +148,8 @@ CREATE TABLE IF NOT EXISTS facets (
 
 CREATE INDEX IF NOT EXISTS idx_facets_key_value ON facets(key, value);
 CREATE INDEX IF NOT EXISTS idx_facets_collection_key ON facets(collection_id, key);
+-- Per-chunk deletes in upsertChunk otherwise full-scan these tables once per chunk.
+CREATE INDEX IF NOT EXISTS idx_facets_chunk ON facets(chunk_id);
 
 CREATE TABLE IF NOT EXISTS source_refs (
   id TEXT PRIMARY KEY,
@@ -149,6 +161,7 @@ CREATE TABLE IF NOT EXISTS source_refs (
 
 CREATE INDEX IF NOT EXISTS idx_source_refs_kind ON source_refs(kind);
 CREATE INDEX IF NOT EXISTS idx_source_refs_collection ON source_refs(collection_id);
+CREATE INDEX IF NOT EXISTS idx_source_refs_chunk ON source_refs(chunk_id);
 
 CREATE TABLE IF NOT EXISTS index_jobs (
   id TEXT PRIMARY KEY,
@@ -182,6 +195,10 @@ function parseJson<T>(value: string | null | undefined, fallback: T): T {
 function nowMs(): number {
   return Date.now();
 }
+
+// Active index jobs heartbeat via updated_at on every progress write; a job
+// untouched for this long means its indexer process is gone.
+const STALE_INDEX_JOB_MS = 10 * 60 * 1000;
 
 function normalizedLimit(value: number | undefined, fallback = 20, max = 100): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
@@ -348,14 +365,48 @@ function insertSourceRefs(db: Database, collectionId: string, chunkId: string | 
   });
 }
 
+/**
+ * Open a read-only connection for search/status endpoints: no schema exec,
+ * no migrations, no journal-mode changes — WAL gives snapshot reads that
+ * never block or get blocked by the index writer. A missing or
+ * never-initialized database is served from an empty in-memory schema
+ * instead of falling back to a writable connection running DDL on a GET.
+ */
+function openReadonlyKnowledgeDatabase(sqlitePath: string): Database {
+  if (existsSync(sqlitePath)) {
+    const candidate = new Database(sqlitePath, { readonly: true, create: false } as {
+      create?: boolean;
+      strict?: boolean;
+    });
+    const initialized = candidate
+      .query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'collections'")
+      .get() !== null;
+    if (initialized) {
+      candidate.exec("PRAGMA busy_timeout = 1000;");
+      candidate.exec("PRAGMA query_only = ON;");
+      return candidate;
+    }
+    candidate.close();
+  }
+  const memory = new Database(":memory:");
+  memory.exec(KNOWLEDGE_SQLITE_SCHEMA);
+  memory.exec("PRAGMA busy_timeout = 1000;");
+  memory.exec("PRAGMA query_only = ON;");
+  return memory;
+}
+
 export class SQLiteKnowledgeStore {
   private readonly db: Database;
   private readonly paths: OpenScoutKnowledgePaths;
 
-  constructor(dbPath?: string, paths?: OpenScoutKnowledgePaths) {
+  constructor(dbPath?: string, paths?: OpenScoutKnowledgePaths, options?: { readonly?: boolean }) {
     const resolvedPaths = paths ?? resolveOpenScoutKnowledgePaths();
     const sqlitePath = dbPath ?? resolvedPaths.sqlitePath;
     this.paths = { ...resolvedPaths, sqlitePath };
+    if (options?.readonly) {
+      this.db = openReadonlyKnowledgeDatabase(sqlitePath);
+      return;
+    }
     mkdirSync(dirname(sqlitePath), { recursive: true });
     mkdirSync(this.paths.qmdRoot, { recursive: true });
     this.db = new Database(sqlitePath, { create: true });
@@ -363,6 +414,47 @@ export class SQLiteKnowledgeStore {
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec("PRAGMA synchronous = NORMAL;");
     this.db.exec(KNOWLEDGE_SQLITE_SCHEMA);
+    this.migrateFtsRowids();
+  }
+
+  /**
+   * One-time rebuild of chunks_fts with deterministic rowids (user_version 2).
+   * Legacy rows carry auto-assigned rowids that rowid-based deletes cannot
+   * address; they are replaced wholesale by rows keyed by ftsRowidForChunk.
+   */
+  private migrateFtsRowids(): void {
+    const row = this.db.query("PRAGMA user_version").get() as { user_version: number } | null;
+    if ((row?.user_version ?? 0) >= 2) return;
+    (this.db as SQLiteTransactionalDatabase).transaction(() => {
+      this.db.exec("DELETE FROM chunks_fts");
+      const chunks = this.db.query(
+        `SELECT c.id, c.collection_id, c.document_id, c.document_path, c.text,
+                co.title AS collection_title
+         FROM chunks c JOIN collections co ON co.id = c.collection_id`,
+      ).all() as Array<{
+        id: string;
+        collection_id: string;
+        document_id: string;
+        document_path: string;
+        text: string;
+        collection_title: string;
+      }>;
+      const insert = this.db.query(
+        `INSERT INTO chunks_fts (rowid, chunk_id, collection_id, document_id, title, body)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+      );
+      for (const chunk of chunks) {
+        insert.run(
+          ftsRowidForChunk(chunk.id),
+          chunk.id,
+          chunk.collection_id,
+          chunk.document_id,
+          `${chunk.collection_title} / ${chunk.document_path}`,
+          chunk.text,
+        );
+      }
+      this.db.exec("PRAGMA user_version = 2");
+    })();
   }
 
   close(): void {
@@ -417,9 +509,9 @@ export class SQLiteKnowledgeStore {
       const chunkRows = this.db.query(
         "SELECT id FROM chunks WHERE collection_id = ?1",
       ).all(id) as Array<{ id: string }>;
-      const deleteFts = this.db.query("DELETE FROM chunks_fts WHERE chunk_id = ?1");
+      const deleteFts = this.db.query("DELETE FROM chunks_fts WHERE rowid = ?1");
       for (const row of chunkRows) {
-        deleteFts.run(row.id);
+        deleteFts.run(ftsRowidForChunk(row.id));
       }
       this.db.query("DELETE FROM collections WHERE id = ?1").run(id);
     })();
@@ -448,52 +540,63 @@ export class SQLiteKnowledgeStore {
   }
 
   upsertChunk(chunk: KnowledgeChunk, title = chunk.documentPath): void {
+    this.upsertChunks([{ chunk, title }]);
+  }
+
+  upsertChunks(entries: Array<{ chunk: KnowledgeChunk; title?: string }>): void {
+    if (entries.length === 0) return;
     const now = nowMs();
     (this.db as SQLiteTransactionalDatabase).transaction(() => {
-      this.db.query(
-        `INSERT INTO chunks (
-          id, collection_id, document_id, document_path, ordinal, text, text_hash,
-          origin, ownership, source_refs_json, facets_json, created_at, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
-        ON CONFLICT(id) DO UPDATE SET
-          collection_id = excluded.collection_id,
-          document_id = excluded.document_id,
-          document_path = excluded.document_path,
-          ordinal = excluded.ordinal,
-          text = excluded.text,
-          text_hash = excluded.text_hash,
-          origin = excluded.origin,
-          ownership = excluded.ownership,
-          source_refs_json = excluded.source_refs_json,
-          facets_json = excluded.facets_json,
-          updated_at = excluded.updated_at`,
-      ).run(
-        chunk.id,
-        chunk.collectionId,
-        chunk.documentId,
-        chunk.documentPath,
-        chunk.ordinal,
-        chunk.text,
-        chunk.textHash,
-        chunk.origin,
-        chunk.ownership,
-        stringify(chunk.sourceRefs),
-        stringify(chunk.facets),
-        now,
-        now,
-      );
-
-      this.db.query("DELETE FROM chunks_fts WHERE chunk_id = ?1").run(chunk.id);
-      this.db.query(
-        `INSERT INTO chunks_fts (chunk_id, collection_id, document_id, title, body)
-         VALUES (?1, ?2, ?3, ?4, ?5)`,
-      ).run(chunk.id, chunk.collectionId, chunk.documentId, title, chunk.text);
-
-      this.db.query("DELETE FROM facets WHERE chunk_id = ?1").run(chunk.id);
-      this.db.query("DELETE FROM source_refs WHERE chunk_id = ?1").run(chunk.id);
-      insertFacetRows(this.db, chunk.collectionId, chunk.id, chunk.facets);
-      insertSourceRefs(this.db, chunk.collectionId, chunk.id, chunk.sourceRefs);
+      for (const entry of entries) {
+        this.upsertChunkRow(entry.chunk, entry.title ?? entry.chunk.documentPath, now);
+      }
     })();
+  }
+
+  private upsertChunkRow(chunk: KnowledgeChunk, title: string, now: number): void {
+    this.db.query(
+      `INSERT INTO chunks (
+        id, collection_id, document_id, document_path, ordinal, text, text_hash,
+        origin, ownership, source_refs_json, facets_json, created_at, updated_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+      ON CONFLICT(id) DO UPDATE SET
+        collection_id = excluded.collection_id,
+        document_id = excluded.document_id,
+        document_path = excluded.document_path,
+        ordinal = excluded.ordinal,
+        text = excluded.text,
+        text_hash = excluded.text_hash,
+        origin = excluded.origin,
+        ownership = excluded.ownership,
+        source_refs_json = excluded.source_refs_json,
+        facets_json = excluded.facets_json,
+        updated_at = excluded.updated_at`,
+    ).run(
+      chunk.id,
+      chunk.collectionId,
+      chunk.documentId,
+      chunk.documentPath,
+      chunk.ordinal,
+      chunk.text,
+      chunk.textHash,
+      chunk.origin,
+      chunk.ownership,
+      stringify(chunk.sourceRefs),
+      stringify(chunk.facets),
+      now,
+      now,
+    );
+
+    this.db.query("DELETE FROM chunks_fts WHERE rowid = ?1").run(ftsRowidForChunk(chunk.id));
+    this.db.query(
+      `INSERT INTO chunks_fts (rowid, chunk_id, collection_id, document_id, title, body)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+    ).run(ftsRowidForChunk(chunk.id), chunk.id, chunk.collectionId, chunk.documentId, title, chunk.text);
+
+    this.db.query("DELETE FROM facets WHERE chunk_id = ?1").run(chunk.id);
+    this.db.query("DELETE FROM source_refs WHERE chunk_id = ?1").run(chunk.id);
+    insertFacetRows(this.db, chunk.collectionId, chunk.id, chunk.facets);
+    insertSourceRefs(this.db, chunk.collectionId, chunk.id, chunk.sourceRefs);
   }
 
   searchLexical(query: KnowledgeSearchQuery): KnowledgeSearchHit[] {
@@ -610,6 +713,14 @@ export class SQLiteKnowledgeStore {
 
   createIndexJob(request: KnowledgeIndexRequest, id = `knowledge-job-${randomUUID()}`): KnowledgeIndexJob {
     const now = nowMs();
+    // A job whose indexer died (SIGKILL/OOM/timeout) never leaves the active
+    // states on its own; fail stale ones for this source so they neither
+    // block nor clutter status forever.
+    this.db.query(
+      `UPDATE index_jobs
+       SET state = 'failed', error = ?2, completed_at = ?3, updated_at = ?3
+       WHERE source = ?1 AND state IN ('queued', 'running', 'waiting') AND updated_at < ?4`,
+    ).run(request.source, "indexer exited before completion", now, now - STALE_INDEX_JOB_MS);
     const job: KnowledgeIndexJob = {
       id,
       source: request.source,
@@ -679,9 +790,10 @@ export class SQLiteKnowledgeStore {
     const rows = this.db.query(
       `SELECT * FROM index_jobs
        WHERE state IN ('queued', 'running', 'waiting')
+         AND updated_at >= ?1
        ORDER BY updated_at DESC
        LIMIT 50`,
-    ).all() as JobRow[];
+    ).all(nowMs() - STALE_INDEX_JOB_MS) as JobRow[];
     return rows.map(jobFromRow);
   }
 

@@ -102,10 +102,9 @@ const DEFAULT_LOOKBACK_MS = LOOKBACK_WINDOWS[2].value;
 const LOOKBACK_STORAGE_KEY = "openscout.home.lookbackMs.v1";
 const MOVING_WINDOW_STORAGE_KEY = "openscout.home.movingWindow.v1";
 const MOVING_SORT_STORAGE_KEY = "openscout.home.movingSort.v1";
-// Service-budget data (claude/codex/kimi/github usage) is expensive to compute
-// and doesn't change minute-to-minute. Refresh once an hour; the server
-// caches the same window. Easy to tune later if we want fresher numbers.
-const SERVICE_BUDGETS_REFRESH_MS = 60 * 60_000;
+// The server owns provider-specific freshness and request coalescing, so the
+// homepage can poll cheaply without holding an hour-old client snapshot.
+const SERVICE_BUDGETS_REFRESH_MS = 60_000;
 const LOCAL_TAIL_REFRESH_MS = 30_000;
 const HEARTRATE_COMBINED_EVENT_THRESHOLD = 3;
 
@@ -308,7 +307,9 @@ export function HomeContent({
 
   const fetchServiceGauges = useCallback(async (forceRefresh = false): Promise<ServiceGauge[]> => {
     const suffix = forceRefresh ? "?refresh=1" : "";
-    const result = await api<{ gauges: ServiceGauge[] }>(`/api/service-budgets${suffix}`);
+    const result = await api<{ gauges: ServiceGauge[] }>(`/api/service-budgets${suffix}`, {
+      cache: "no-store",
+    });
     return result.gauges ?? [];
   }, []);
 
@@ -426,9 +427,18 @@ export function HomeContent({
     const id = setInterval(() => {
       if (isScoutSurfaceActive()) void fetchBudgets();
     }, SERVICE_BUDGETS_REFRESH_MS);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible" && isScoutSurfaceActive()) {
+        void fetchBudgets();
+      }
+    };
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
       cancelled = true;
       clearInterval(id);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, [fetchServiceGauges]);
 

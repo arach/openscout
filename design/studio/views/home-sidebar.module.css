@@ -32,7 +32,7 @@
   align-items: center;
   gap: 8px;
   font-weight: 600;
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--studio-ink);
 }
 
@@ -56,7 +56,7 @@
 .navTabs {
   display: flex;
   gap: 19px;
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.15em;
   text-transform: uppercase;
@@ -113,7 +113,7 @@
 .modeBtn {
   flex: 1;
   height: 26px;
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -147,7 +147,7 @@
   align-items: baseline;
   justify-content: space-between;
   padding: 0 3px 6px;
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -155,7 +155,7 @@
 }
 
 .sectionMeta {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.04em;
   text-transform: none;
   color: var(--studio-ink-faint);
@@ -165,7 +165,7 @@
   border: 0;
   padding: 0;
   background: none;
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -179,7 +179,7 @@
 
 .empty {
   padding: 6px 3px;
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   color: var(--studio-ink-faint);
   font-style: italic;
 }
@@ -234,7 +234,7 @@
 .rowName {
   flex: 1;
   min-width: 0;
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 500;
   color: var(--studio-ink-muted);
   white-space: nowrap;
@@ -249,12 +249,12 @@
 
 .rowTime {
   flex: none;
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--studio-ink-faint);
 }
 
 .rowSub {
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   line-height: 1.35;
   color: var(--studio-ink-faint);
   white-space: nowrap;
@@ -278,7 +278,7 @@
   justify-content: space-between;
   padding: 7px 8px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 500;
   color: var(--studio-ink-muted);
   cursor: pointer;
@@ -304,7 +304,7 @@
 }
 
 .lensCount {
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   color: var(--studio-ink-faint);
 }
 
@@ -330,7 +330,7 @@
   padding: 7px 8px;
   border: 1px solid var(--studio-edge);
   border-radius: 4px;
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 500;
   color: var(--studio-ink-muted);
   cursor: pointer;
@@ -341,14 +341,14 @@
 }
 
 .jumpCap {
-  font-size: 8.5px;
+  font-size: var(--text-3xs);
   line-height: 1.35;
   color: var(--studio-ink-faint);
   font-weight: 400;
 }
 
 .footNote {
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   line-height: 1.45;
   color: var(--studio-ink-faint);
   padding: 0 2px;
@@ -372,7 +372,7 @@
 }
 
 .heroGreet {
-  font-size: 22px;
+  font-size: var(--text-5xl);
   font-weight: 600;
   color: var(--studio-ink);
   letter-spacing: -0.02em;
@@ -380,7 +380,7 @@
 
 .heroSub {
   margin-top: 4px;
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--studio-ink-faint);
 }
 
@@ -392,7 +392,7 @@
 }
 
 .blockLabel {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -418,7 +418,7 @@
 
 .mainNote {
   margin-top: auto;
-  font-size: 10px;
+  font-size: var(--text-xs);
   line-height: 1.5;
   color: var(--studio-ink-faint);
 }
@@ -426,7 +426,7 @@
 /* ── principles ─────────────────────────────────────────────────────────── */
 
 .noteHead {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -453,13 +453,13 @@
 }
 
 .noteTitle {
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--studio-ink);
 }
 
 .noteBody {
-  font-size: 11px;
+  font-size: var(--text-sm);
   line-height: 1.55;
   color: var(--studio-ink-faint);
 }

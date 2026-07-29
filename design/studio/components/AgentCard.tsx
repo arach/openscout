@@ -60,7 +60,7 @@ export function AgentCard({ agent, selected = false }: AgentCardProps) {
     >
       <header className="flex items-start gap-3">
         <div
-          className="relative grid h-9 w-9 shrink-0 place-items-center rounded-full font-mono text-[13px]"
+          className="relative grid h-9 w-9 shrink-0 place-items-center rounded-full font-mono text-lg"
           style={{
             background: avatarColor(agent.name),
             color: "var(--studio-canvas)",
@@ -80,15 +80,15 @@ export function AgentCard({ agent, selected = false }: AgentCardProps) {
 
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
-            <span className="font-sans text-[15px] font-semibold tracking-tight text-studio-ink">
+            <span className="font-sans text-2xl font-semibold tracking-tight text-studio-ink">
               {agent.name}
             </span>
-            <span className="font-mono text-[10.5px] text-studio-ink-faint">
+            <span className="font-mono text-xs text-studio-ink-faint">
               {agent.handle}
             </span>
           </div>
           <div
-            className="mt-0.5 font-mono text-[9.5px] font-semibold uppercase tracking-eyebrow"
+            className="mt-0.5 font-mono text-2xs font-semibold uppercase tracking-eyebrow"
             style={{ color: stateColor }}
           >
             {STATE_LABEL[agent.state]}
@@ -100,7 +100,7 @@ export function AgentCard({ agent, selected = false }: AgentCardProps) {
 
         {agent.unread ? (
           <span
-            className="rounded-[3px] px-1.5 py-0.5 font-mono text-[9px] font-semibold tabular-nums"
+            className="rounded-[3px] px-1.5 py-0.5 font-mono text-2xs font-semibold tabular-nums"
             style={{
               color: "var(--status-error-fg)",
               background: "var(--status-error-bg)",
@@ -113,8 +113,8 @@ export function AgentCard({ agent, selected = false }: AgentCardProps) {
 
       {agent.task ? (
         <div className="rounded-[4px] bg-studio-canvas-alt px-2.5 py-2">
-          <div className="flex items-baseline gap-2 font-sans text-[12.5px] text-studio-ink">
-            <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="flex items-baseline gap-2 font-sans text-md text-studio-ink">
+            <span className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
               task
             </span>
             <span className="min-w-0 flex-1 truncate">{agent.task}</span>
@@ -133,7 +133,7 @@ export function AgentCard({ agent, selected = false }: AgentCardProps) {
         </div>
       ) : null}
 
-      <div className="grid grid-cols-[60px_1fr] gap-x-2 gap-y-1 font-mono text-[10.5px]">
+      <div className="grid grid-cols-[60px_1fr] gap-x-2 gap-y-1 font-mono text-xs">
         <span className="uppercase tracking-eyebrow text-studio-ink-faint">
           Branch
         </span>
@@ -154,7 +154,7 @@ export function AgentCard({ agent, selected = false }: AgentCardProps) {
         ) : null}
       </div>
 
-      <footer className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-t border-studio-edge pt-2 font-mono text-[9.5px]">
+      <footer className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-t border-studio-edge pt-2 font-mono text-2xs">
         <span className="uppercase tracking-eyebrow text-studio-ink-faint">
           {agent.harness}
         </span>
@@ -165,7 +165,7 @@ export function AgentCard({ agent, selected = false }: AgentCardProps) {
           {agent.tools.map((t) => (
             <code
               key={t}
-              className="rounded-[2px] bg-studio-canvas-alt px-1 py-px text-[9px] text-studio-ink-muted"
+              className="rounded-[2px] bg-studio-canvas-alt px-1 py-px text-2xs text-studio-ink-muted"
             >
               {t}
             </code>

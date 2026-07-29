@@ -181,15 +181,15 @@ function ActivityRow({
       >
         {/* Time gutter */}
         {compact ? (
-          <span className="self-start pt-[1px] text-right font-mono text-[10px] font-medium tabular-nums text-studio-ink-faint">
+          <span className="self-start pt-[1px] text-right font-mono text-xs font-medium tabular-nums text-studio-ink-faint">
             {event.ago}
           </span>
         ) : (
           <span className="flex flex-col items-end self-start pt-[1px]">
-            <span className="font-mono text-[11px] font-medium tabular-nums text-studio-ink-muted">
+            <span className="font-mono text-sm font-medium tabular-nums text-studio-ink-muted">
               {event.ago}
             </span>
-            <span className="font-mono text-[10px] tabular-nums text-studio-ink-faint">
+            <span className="font-mono text-xs tabular-nums text-studio-ink-faint">
               {event.at}
             </span>
           </span>
@@ -221,16 +221,16 @@ function ActivityRow({
           {/* Category · kind eyebrow row */}
           <div className="flex items-baseline gap-1.5">
             <span
-              className="font-mono text-[10px] font-bold uppercase tracking-eyebrow"
+              className="font-mono text-xs font-bold uppercase tracking-eyebrow"
               style={{ color: categoryColor(event.category) }}
             >
               {ACTIVITY_CATEGORY_LABEL[event.category]}
             </span>
-            <span className="font-mono text-[10px] text-studio-ink-faint">
+            <span className="font-mono text-xs text-studio-ink-faint">
               ·
             </span>
             <span
-              className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow"
+              className="font-mono text-xs font-semibold uppercase tracking-eyebrow"
               style={{
                 color: event.emphasized
                   ? "var(--scout-accent)"
@@ -252,8 +252,8 @@ function ActivityRow({
           <div
             className={
               compact
-                ? "mt-[3px] font-sans text-[12px] font-semibold leading-snug text-studio-ink"
-                : "mt-1 font-sans text-[13px] font-semibold leading-snug text-studio-ink"
+                ? "mt-[3px] font-sans text-md font-semibold leading-snug text-studio-ink"
+                : "mt-1 font-sans text-lg font-semibold leading-snug text-studio-ink"
             }
           >
             {event.title}
@@ -262,16 +262,16 @@ function ActivityRow({
           <div
             className={
               compact
-                ? "mt-[2px] font-sans text-[11px] leading-snug text-studio-ink-muted"
-                : "mt-[3px] font-sans text-[12px] leading-snug text-studio-ink-muted"
+                ? "mt-[2px] font-sans text-sm leading-snug text-studio-ink-muted"
+                : "mt-[3px] font-sans text-md leading-snug text-studio-ink-muted"
             }
           >
             {event.summary}
           </div>
           {/* Byline strip */}
-          <div className="mt-1.5 flex items-baseline gap-1.5 font-mono text-[10px] text-studio-ink-faint">
+          <div className="mt-1.5 flex items-baseline gap-1.5 font-mono text-xs text-studio-ink-faint">
             <ByLineAvatar name={event.agent} />
-            <span className="font-sans text-[11px] text-studio-ink-muted">
+            <span className="font-sans text-sm text-studio-ink-muted">
               {event.agent}
             </span>
             <span className="text-studio-ink-faint">{event.handle}</span>
@@ -299,7 +299,7 @@ function ByLineAvatar({ name }: { name: string }) {
   return (
     <span
       aria-hidden
-      className="inline-flex h-[13px] w-[13px] translate-y-[2px] items-center justify-center rounded-full border border-studio-edge bg-studio-canvas font-mono text-[10px] font-semibold text-studio-ink-muted"
+      className="inline-flex h-[13px] w-[13px] translate-y-[2px] items-center justify-center rounded-full border border-studio-edge bg-studio-canvas font-mono text-xs font-semibold text-studio-ink-muted"
     >
       {initial}
     </span>
@@ -320,18 +320,18 @@ function ActivityDetail({
     <div
       className={`border-t border-studio-edge bg-studio-canvas-alt ${padX} py-2.5`}
     >
-      <div className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · event detail
       </div>
-      <div className="mt-1.5 font-sans text-[12px] font-semibold leading-tight text-studio-ink">
+      <div className="mt-1.5 font-sans text-md font-semibold leading-tight text-studio-ink">
         {event.title}
       </div>
       {event.detail ? (
-        <div className="mt-1 font-sans text-[11px] leading-snug text-studio-ink-muted">
+        <div className="mt-1 font-sans text-sm leading-snug text-studio-ink-muted">
           {event.detail}
         </div>
       ) : null}
-      <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-[3px] font-mono text-[10px] leading-snug">
+      <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-[3px] font-mono text-xs leading-snug">
         <dt className="uppercase tracking-eyebrow text-studio-ink-faint">
           category
         </dt>
@@ -386,14 +386,14 @@ function ActivityDetailLarge({ event }: { event: ActivityEvent }) {
       {/* Category eyebrow */}
       <div className="flex items-baseline gap-1.5">
         <span
-          className="font-mono text-[10px] font-bold uppercase tracking-eyebrow"
+          className="font-mono text-xs font-bold uppercase tracking-eyebrow"
           style={{ color: categoryColor(event.category) }}
         >
           · {ACTIVITY_CATEGORY_LABEL[event.category]}
         </span>
-        <span className="font-mono text-[10px] text-studio-ink-faint">·</span>
+        <span className="font-mono text-xs text-studio-ink-faint">·</span>
         <span
-          className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow"
+          className="font-mono text-xs font-semibold uppercase tracking-eyebrow"
           style={{
             color: event.emphasized
               ? "var(--scout-accent)"
@@ -402,24 +402,24 @@ function ActivityDetailLarge({ event }: { event: ActivityEvent }) {
         >
           {ACTIVITY_KIND_LABEL[event.kind]}
         </span>
-        <span className="ml-auto font-mono text-[10px] tabular-nums text-studio-ink-faint">
+        <span className="ml-auto font-mono text-xs tabular-nums text-studio-ink-faint">
           {event.at} · {event.ago} ago
         </span>
       </div>
 
       {/* Title */}
-      <h3 className="font-sans text-[15px] font-semibold leading-tight tracking-tight text-studio-ink">
+      <h3 className="font-sans text-2xl font-semibold leading-tight tracking-tight text-studio-ink">
         {event.title}
       </h3>
 
       {/* Summary */}
-      <p className="font-sans text-[13px] leading-snug text-studio-ink-muted">
+      <p className="font-sans text-lg leading-snug text-studio-ink-muted">
         {event.summary}
       </p>
 
       {/* Detail (full body) */}
       {event.detail ? (
-        <p className="font-sans text-[12px] leading-relaxed text-studio-ink">
+        <p className="font-sans text-md leading-relaxed text-studio-ink">
           {event.detail}
         </p>
       ) : null}
@@ -427,14 +427,14 @@ function ActivityDetailLarge({ event }: { event: ActivityEvent }) {
       {/* Byline strip */}
       <div className="flex items-baseline gap-2 border-t border-studio-edge pt-2.5">
         <ByLineAvatar name={event.agent} />
-        <span className="font-sans text-[12px] text-studio-ink">
+        <span className="font-sans text-md text-studio-ink">
           {event.agent}
         </span>
-        <span className="font-mono text-[11px] text-studio-ink-faint">
+        <span className="font-mono text-sm text-studio-ink-faint">
           {event.handle}
         </span>
         {event.flightId ? (
-          <span className="ml-auto rounded-[2px] border border-studio-edge bg-studio-canvas px-1.5 py-px font-mono text-[10px] tabular-nums text-studio-ink-muted">
+          <span className="ml-auto rounded-[2px] border border-studio-edge bg-studio-canvas px-1.5 py-px font-mono text-xs tabular-nums text-studio-ink-muted">
             flight {event.flightId}
           </span>
         ) : null}
@@ -456,10 +456,10 @@ function DrillLink({ label }: { label: string }) {
       type="button"
       className="flex items-center gap-2 rounded-[2px] px-1.5 py-1 text-left transition-colors hover:bg-studio-canvas-alt"
     >
-      <span aria-hidden className="font-mono text-[11px] text-studio-ink-faint">
+      <span aria-hidden className="font-mono text-sm text-studio-ink-faint">
         →
       </span>
-      <span className="flex-1 font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-muted">
+      <span className="flex-1 font-mono text-xs uppercase tracking-eyebrow text-studio-ink-muted">
         {label}
       </span>
     </button>

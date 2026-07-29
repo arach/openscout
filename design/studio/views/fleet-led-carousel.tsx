@@ -50,14 +50,14 @@ const FL_CSS = `
 .flled{font-family:var(--mono);-webkit-font-smoothing:antialiased;color:var(--ink);
   background:var(--bg);min-height:100vh;padding:34px 28px 80px;min-width:1320px}
 .flled *{box-sizing:border-box}
-.fl-h{font-size:10px;letter-spacing:.18em;color:var(--dim);text-transform:uppercase;margin:0 0 6px}
-.fl-sub{font-size:11px;color:var(--muted);margin:0 0 8px;max-width:680px;line-height:1.6}
-.fl-variant{margin:44px 0 8px;font-size:12px;letter-spacing:.1em;color:var(--ink)}
+.fl-h{font-size: var(--text-xs);letter-spacing:.18em;color:var(--dim);text-transform:uppercase;margin:0 0 6px}
+.fl-sub{font-size: var(--text-sm);color:var(--muted);margin:0 0 8px;max-width:680px;line-height:1.6}
+.fl-variant{margin:44px 0 8px;font-size: var(--text-md);letter-spacing:.1em;color:var(--ink)}
 .fl-variant b{color:var(--accent);font-weight:600;margin-right:10px}
-.fl-note{font-size:10.5px;color:var(--dim);margin:6px 0 18px;max-width:640px;line-height:1.6}
+.fl-note{font-size: var(--text-xs);color:var(--dim);margin:6px 0 18px;max-width:640px;line-height:1.6}
 .fl-row{display:flex;gap:44px;flex-wrap:wrap;align-items:flex-start}
-.fl-colcap{font-size:9px;letter-spacing:.14em;color:var(--dim);text-transform:uppercase;margin:0 0 10px}
-.fl-summonall{font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--accent);
+.fl-colcap{font-size: var(--text-2xs);letter-spacing:.14em;color:var(--dim);text-transform:uppercase;margin:0 0 10px}
+.fl-summonall{font-family:var(--mono);font-size: var(--text-xs);letter-spacing:.14em;color:var(--accent);
   background:none;border:1px solid var(--sig-edge);border-radius:6px;padding:7px 14px;cursor:pointer}
 .fl-summonall:hover{border-color:var(--accent)}
 
@@ -127,14 +127,14 @@ const FL_CSS = `
 .fl-screen-ipad .fl-tcorner--l{left:28px;transform:translateX(140px) scale(.4)}
 .fl-screen-ipad .fl-tcorner--r{right:28px;transform:translateX(-140px) scale(.4)}
 .fl-screen-ipad .fl-tcorner svg{position:static;margin:0}
-.fl-screen-ipad .fl-tcorner small{position:static;transform:none;font-size:8px;
+.fl-screen-ipad .fl-tcorner small{position:static;transform:none;font-size: var(--text-3xs);
   letter-spacing:.1em;color:var(--muted)}
 .summon .fl-tcorner{opacity:1;transform:translateX(0) scale(1);pointer-events:auto}
 .summon .fl-tcorner--l{transition-delay:.02s}
 .summon .fl-tcorner--r{transition-delay:.06s}
 .fl-tcorner svg{position:absolute;inset:0;margin:auto;opacity:.62}
 .fl-tcorner small{position:absolute;top:54px;left:50%;transform:translateX(-50%);
-  font-size:7px;letter-spacing:.06em;color:var(--dim);white-space:nowrap}
+  font-size: var(--text-3xs);letter-spacing:.06em;color:var(--dim);white-space:nowrap}
 .fl-display{flex:none;transition:transform .42s cubic-bezier(.2,.9,.25,1.12)}
 
 /* ── bottom summon cluster: resting hex → bar + corners + seats. Hugs the
@@ -184,7 +184,7 @@ const FL_CSS = `
 /* Bottom corner labels — they hang BELOW the circles, inside the indicator
    band, so the status line below has to coexist with them. */
 .fl-bcorner small{position:absolute;top:58px;left:50%;transform:translateX(-50%);
-  font-size:7px;letter-spacing:.06em;color:var(--dim);white-space:nowrap}
+  font-size: var(--text-3xs);letter-spacing:.06em;color:var(--dim);white-space:nowrap}
 
 /* ── status line (summon-only): the tabs-mode readout strip riding the
       home-indicator band — flush to the true bottom edge, READ-ONLY, center
@@ -194,7 +194,7 @@ const FL_CSS = `
       strip can use the rail's own 28pt inset. ── */
 .fl-status{position:absolute;left:0;right:0;bottom:0;z-index:3;pointer-events:none;
   display:flex;align-items:center;justify-content:space-between;
-  padding:4px 72px 12px;font-size:8px;letter-spacing:.05em;color:var(--dim);
+  padding:4px 72px 12px;font-size: var(--text-3xs);letter-spacing:.05em;color:var(--dim);
   background:linear-gradient(180deg,#0E1011,#0A0C0B);
   border-top:1px solid rgba(58,62,63,.5);
   opacity:0;transform:translateY(100%);
@@ -217,13 +217,13 @@ const FL_CSS = `
   box-shadow:0 0 2px rgba(166,239,135,.7)}
 .fl-dot--off{background:#566058;box-shadow:none}
 .fl-div{width:1px;height:12px;background:rgba(86,96,88,.32)}
-.fl-k{font-size:10px;font-weight:600;letter-spacing:.05em;color:var(--ink)}
+.fl-k{font-size: var(--text-xs);font-weight:600;letter-spacing:.05em;color:var(--ink)}
 .fl-k--dim{color:var(--muted)}
-.fl-age{font-size:9px;font-weight:500;color:rgba(119,126,117,.7)}
+.fl-age{font-size: var(--text-2xs);font-weight:500;color:rgba(119,126,117,.7)}
 .fl-pips{display:inline-flex;gap:3px}
 .fl-pip{width:5px;height:5px;border-radius:50%;background:#141D18}
 .fl-pip--on{background:var(--accent);box-shadow:0 0 2px rgba(166,239,135,.7)}
-.fl-active{font-size:11px;font-weight:700;letter-spacing:.07em;color:#3FF0B0;
+.fl-active{font-size: var(--text-sm);font-weight:700;letter-spacing:.07em;color:#3FF0B0;
   text-shadow:0 0 3px rgba(166,239,135,.5)}
 
 /* B — carousel */
@@ -233,16 +233,16 @@ const FL_CSS = `
 .fl-car-view{padding:10px 4px 8px 14px;min-width:196px}
 .fl-car-page{animation:flPageIn .34s cubic-bezier(.2,.7,.2,1)}
 @keyframes flPageIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
-.fl-car-eyebrow{font-size:7.5px;letter-spacing:.16em;color:var(--dim);margin-bottom:3px}
-.fl-car-main{font-size:11px;font-weight:700;letter-spacing:.05em;color:var(--ink);white-space:nowrap}
+.fl-car-eyebrow{font-size: var(--text-3xs);letter-spacing:.16em;color:var(--dim);margin-bottom:3px}
+.fl-car-main{font-size: var(--text-sm);font-weight:700;letter-spacing:.05em;color:var(--ink);white-space:nowrap}
 .fl-car-main .fl-hl{color:#3FF0B0}
-.fl-car-detail{font-size:8.5px;color:var(--muted);margin-top:2px;white-space:nowrap}
+.fl-car-detail{font-size: var(--text-3xs);color:var(--muted);margin-top:2px;white-space:nowrap}
 .fl-car-dots{display:flex;gap:3px;margin-top:6px}
 .fl-car-dot{width:8px;height:2px;border-radius:1px;background:#23292380;transition:background .2s}
 .fl-car-dot--on{background:var(--accent)}
 .fl-car-side{display:flex;flex-direction:column;justify-content:space-between;align-items:flex-end;
   padding:9px 12px 9px 10px;border-left:1px solid rgba(86,96,88,.18)}
-.fl-car-paused{font-size:7px;letter-spacing:.12em;color:var(--dim)}
+.fl-car-paused{font-size: var(--text-3xs);letter-spacing:.12em;color:var(--dim)}
 
 /* quota micro bar */
 .fl-q{display:inline-flex;align-items:center;gap:5px}
@@ -257,7 +257,7 @@ const FL_CSS = `
 .fl-two-top{display:flex;align-items:center;gap:9px}
 .fl-two-rule{height:1px;background:rgba(86,96,88,.22);margin:7px 0}
 .fl-two-bot{display:flex;align-items:center;gap:9px;justify-content:space-between}
-.fl-worker{display:inline-flex;align-items:center;gap:4px;font-size:8.5px;color:var(--muted)}
+.fl-worker{display:inline-flex;align-items:center;gap:4px;font-size: var(--text-3xs);color:var(--muted)}
 .fl-worker b{color:var(--ink);font-weight:600}
 
 /* iPad goes WIDER — the canvas can carry it, and the strip's docks stay
@@ -282,7 +282,7 @@ const FL_CSS = `
 .fl-screen-iphone .fl-two{min-width:0}
 .fl-screen-iphone .fl-two-bot{gap:6px}
 .fl-screen-iphone .fl-qbar{display:none}
-.fl-screen-iphone .fl-worker{font-size:8px}
+.fl-screen-iphone .fl-worker{font-size: var(--text-3xs)}
 .fl-screen-iphone .fl-proj{display:none}
 
 /* ── MorphLED (iPad C): ONE well, two sizes. The shared core (hosts · pips ·

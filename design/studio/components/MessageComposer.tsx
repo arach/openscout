@@ -480,11 +480,11 @@ export function MessageComposer({
             onKeyDown={onKeyDown}
             className={cx(
               "block max-h-40 w-full min-w-0 resize-none",
-              "border-0 bg-transparent font-sans text-[15px] leading-normal",
+              "border-0 bg-transparent font-sans text-2xl leading-normal",
               "text-studio-ink outline-none placeholder:text-studio-ink-faint",
               "disabled:cursor-not-allowed disabled:opacity-55",
               pill ? "min-h-[24px]" : "min-h-[44px]",
-              density === "compact" && "min-h-[32px] text-[13px]",
+              density === "compact" && "min-h-[32px] text-lg",
             )}
           />
 
@@ -503,12 +503,12 @@ export function MessageComposer({
               )}
               <div
                 className={cx(
-                  "flex items-baseline gap-2 font-sans text-[11px] leading-snug",
+                  "flex items-baseline gap-2 font-sans text-sm leading-snug",
                   phase === "recording" && "text-emerald-400",
                   phase === "processing" && "text-studio-ink-faint",
                 )}
               >
-                <span className="shrink-0 font-mono text-[9px] font-semibold uppercase tracking-[0.1em]">
+                <span className="shrink-0 font-mono text-2xs font-semibold uppercase tracking-[0.1em]">
                   {phase === "processing" ? "Transcribing" : "Listening"}
                 </span>
                 <span className="min-w-0 truncate text-studio-ink-faint">
@@ -601,7 +601,7 @@ export function MessageComposerSelect({
       <span
         className={cx(
           "min-w-0 truncate font-mono font-medium tracking-[0.01em] text-studio-ink-faint",
-          size === "sm" ? "text-[10px]" : "text-[11px]",
+          size === "sm" ? "text-xs" : "text-sm",
         )}
       >
         {display}

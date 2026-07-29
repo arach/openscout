@@ -1,14 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 
-import { api } from "../../lib/api.ts";
-import {
-  RECENT_CHAT_PRELOAD_LIMIT,
-  preloadRecentConversationTails,
-} from "../../lib/chat-cache.ts";
 import {
   conversationDisplayTitle,
-  isGroupConversation,
+  isObservedDirect,
 } from "../../lib/conversations.ts";
 import {
   filterSessionsByMachineScope,
@@ -21,16 +16,12 @@ import {
   saveLastViewed,
   type LastViewedMap,
 } from "../../lib/sessionRead.ts";
-import { useBrokerEvents } from "../../lib/sse.ts";
-import { timeAgo } from "../../lib/time.ts";
 import type { Route, SessionEntry } from "../../lib/types.ts";
+import { useConversationList } from "../../lib/use-conversation-list.ts";
+import { useFleetActiveAsks } from "../../lib/use-fleet-active-asks.ts";
 import { useScout } from "../../scout/Provider.tsx";
-import { useContentOwnsSecondaryNav } from "../../scout/sidebar/useContentSecondaryNav.ts";
-import { ChatSubnav } from "./ChatSubnav.tsx";
 import { ConversationScreen } from "./ConversationScreen.tsx";
 import "./conversation-screen.css";
-
-const RECENT_LIMIT = RECENT_CHAT_PRELOAD_LIMIT;
 
 export function MessagesScreen({
   conversationId,
@@ -39,181 +30,71 @@ export function MessagesScreen({
   conversationId?: string;
   navigate: (route: Route) => void;
 }) {
-  const { route } = useScout();
-  const contentOwnsSecondaryNav = useContentOwnsSecondaryNav();
-  const content = !conversationId ? (
-    <MessagesEmptyState navigate={navigate} />
-  ) : (
+  // One conversation route (D6): ConversationScreen renders every kind —
+  // channels included. The old channels route wrapped the same component,
+  // and the Chat secondary strip died with the DM/Channels split.
+  if (!conversationId) {
+    return <MessagesLander />;
+  }
+  return (
     <ConversationScreen
       conversationId={conversationId}
       navigate={navigate}
       showBackNav={false}
     />
   );
-
-  if (!contentOwnsSecondaryNav) {
-    return content;
-  }
-
-  return (
-    <div className="s-secondary-nav-shell">
-      <div className="s-secondary-nav-bar">
-        <ChatSubnav activeRoute={route} navigate={navigate} />
-      </div>
-      <div className="s-secondary-nav-body">{content}</div>
-    </div>
-  );
 }
 
-function MessagesEmptyState({
-  navigate,
-}: {
-  navigate: (route: Route) => void;
-}) {
-  const { onlineCount, apiConnection, reload, route, agents, openContextCapture } = useScout();
-  const [conversations, setConversations] = useState<SessionEntry[]>([]);
-  const [lastViewed, setLastViewed] = useState<LastViewedMap>(() => loadLastViewedMap());
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+/**
+ * There is no landing page (D2): the rail + open conversation IS the triage
+ * surface. Bare /messages resolves to a conversation by precedence —
+ * unseen needs-you → last-active participant conversation → zero-state.
+ * Landing marks the conversation seen; Observed threads are never a landing
+ * target. `replace` keeps Back from bouncing through the redirect.
+ */
+function MessagesLander() {
+  const { onlineCount, apiConnection, reload, route, agents, openContextCapture, navigate } =
+    useScout();
+  const { sessions, loading, loadError } = useConversationList();
+  const [lastViewed] = useState<LastViewedMap>(() => loadLastViewedMap());
+  const asksByAgent = useFleetActiveAsks();
   const apiOffline = apiConnection.status === "offline";
   const machineId = routeMachineId(route);
-  const scopedAgentIds = useMemo(
-    () => machineScopedAgentIds(agents, machineId),
-    [agents, machineId],
-  );
-
-  const load = useCallback(async () => {
-    try {
-      const search = new URLSearchParams({
-        limit: String(RECENT_CHAT_PRELOAD_LIMIT),
-      });
-      if (machineId) search.set("machineId", machineId);
-      const data = await api<SessionEntry[]>(`/api/conversations?${search}`);
-      setConversations(data);
-      void preloadRecentConversationTails(data);
-      setError(null);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setLoading(false);
-    }
-  }, [machineId]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  useBrokerEvents((event) => {
-    if (
-      event.kind === "message.posted"
-      || event.kind === "conversation.upserted"
-      || event.kind === "agent.endpoint.upserted"
-    ) {
-      void load();
-    }
-  });
+  const landedRef = useRef(false);
 
   const scopedConversations = useMemo(() => {
-    return [...filterSessionsByMachineScope(conversations, scopedAgentIds, machineId)]
+    const scopedAgentIds = machineScopedAgentIds(agents, machineId);
+    return [...filterSessionsByMachineScope(sessions, scopedAgentIds, machineId)]
       .sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
-  }, [conversations, scopedAgentIds, machineId]);
+  }, [sessions, agents, machineId]);
 
-  const { unreadConversations, recentConversations } = useMemo(() => {
-    const unread = scopedConversations.filter((s) =>
-      isUnread(s.lastMessageAt, s.id, lastViewed),
-    );
-    const unreadIds = new Set(unread.map((s) => s.id));
-    const recent = scopedConversations
-      .filter((s) => !unreadIds.has(s.id))
-      .slice(0, RECENT_LIMIT);
-    return { unreadConversations: unread, recentConversations: recent };
-  }, [scopedConversations, lastViewed]);
-
-  const openConversation = (conversation: SessionEntry) => {
-    setLastViewed(saveLastViewed(conversation.id));
-    if (isGroupConversation(conversation)) {
-      navigate({ view: "channels", channelId: conversation.id });
-      return;
-    }
-    navigate({
-      view: "messages",
-      conversationId: conversation.id,
-      ...(route.view === "messages" && route.filter ? { filter: route.filter } : {}),
-      ...(route.view === "messages" && route.sort ? { sort: route.sort } : {}),
+  const landingTarget = useMemo(() => {
+    const participant = scopedConversations.filter((s) => !isObservedDirect(s));
+    const unseenNeedsYou = participant.find((s) => {
+      if (!s.agentId) return false;
+      const ask = asksByAgent.get(s.agentId);
+      return ask?.status === "needs_attention" && isUnread(s.lastMessageAt, s.id, lastViewed);
     });
-  };
+    return unseenNeedsYou ?? participant[0];
+  }, [scopedConversations, asksByAgent, lastViewed]);
 
-  const focusRailFilter = () => {
-    const input = document.querySelector<HTMLInputElement>(".ctx-panel-search-input");
-    if (!input) return;
-    input.focus();
-    input.select();
-  };
-
-  if (!apiOffline && !error && scopedConversations.length > 0) {
-    return (
-      <div className="s-conv-board">
-        <div className="s-conv-board-shortcuts">
-          <button
-            type="button"
-            className="s-conv-board-shortcut"
-            onClick={() => openContextCapture()}
-          >
-            ＋ new chat
-          </button>
-          <button
-            type="button"
-            className="s-conv-board-shortcut"
-            onClick={focusRailFilter}
-          >
-            ⌕ search conversations
-          </button>
-          <button
-            type="button"
-            className="s-conv-board-shortcut"
-            onClick={() => navigate({ view: "channels" })}
-          >
-            ＃ browse channels
-          </button>
-        </div>
-
-        {unreadConversations.length > 0 && (
-          <section className="s-conv-board-section" aria-label="Unread">
-            <div className="s-conv-board-section-head">
-              <span>Unread</span>
-              <span className="s-conv-board-count">{unreadConversations.length}</span>
-            </div>
-            {unreadConversations.map((conversation) => (
-              <EditorialRow
-                key={conversation.id}
-                conversation={conversation}
-                unread
-                onOpen={() => openConversation(conversation)}
-              />
-            ))}
-          </section>
-        )}
-
-        <section className="s-conv-board-section" aria-label="Recent">
-          <div className="s-conv-board-section-head">
-            <span>Recent</span>
-            <span className="s-conv-board-count">{recentConversations.length}</span>
-          </div>
-          {recentConversations.map((conversation) => (
-            <EditorialRow
-              key={conversation.id}
-              conversation={conversation}
-              onOpen={() => openConversation(conversation)}
-            />
-          ))}
-        </section>
-
-        <p className="s-conv-board-note">
-          the rail owns the full list — filters and grouping live there
-        </p>
-      </div>
+  useEffect(() => {
+    if (landedRef.current) return;
+    if (loading || loadError || apiOffline) return;
+    if (!landingTarget) return;
+    landedRef.current = true;
+    saveLastViewed(landingTarget.id);
+    navigate(
+      {
+        view: "messages",
+        conversationId: landingTarget.id,
+        ...(machineId ? { machineId } : {}),
+      },
+      { replace: true },
     );
-  }
+  }, [landingTarget, loading, loadError, apiOffline, machineId, navigate]);
+
+  const landingPending = !apiOffline && !loadError && (loading || Boolean(landingTarget));
 
   return (
     <div className={`s-conv-empty${apiOffline ? " s-conv-empty--offline" : ""}`}>
@@ -225,37 +106,33 @@ function MessagesEmptyState({
         <p className="s-conv-empty-title">
           {apiOffline
             ? "Scout server offline"
-            : loading
-              ? "Loading chats"
-              : error
+            : landingPending
+              ? "Opening your latest conversation"
+              : loadError
                 ? "Chats unavailable"
                 : "Nothing open yet"}
         </p>
         <p className="s-conv-empty-detail">
           {apiOffline
             ? "Start or restart Scout services. Chats and context will appear when the server responds."
-            : loading
-              ? "Fetching your recent conversations."
-              : error
-                ? error
+            : landingPending
+              ? conversationLandingDetail(landingTarget)
+              : loadError
+                ? loadError
                 : "Start a chat by choosing an agent and sending the first message."}
         </p>
 
-        {apiOffline || error ? (
+        {apiOffline || loadError ? (
           <button
             type="button"
             className="s-conv-empty-action"
             onClick={() => {
-              if (apiOffline) void reload();
-              else {
-                setLoading(true);
-                void load();
-              }
+              void reload();
             }}
           >
             Retry connection
           </button>
-        ) : (
+        ) : !landingPending ? (
           <button
             type="button"
             className="s-conv-empty-new"
@@ -264,7 +141,7 @@ function MessagesEmptyState({
             <Plus size={16} aria-hidden="true" />
             New chat
           </button>
-        )}
+        ) : null}
 
         <div className="s-conv-empty-ambient">
           <span className="s-conv-empty-ambient-dot" aria-hidden="true" />
@@ -277,32 +154,9 @@ function MessagesEmptyState({
   );
 }
 
-function EditorialRow({
-  conversation,
-  unread,
-  onOpen,
-}: {
-  conversation: SessionEntry;
-  unread?: boolean;
-  onOpen: () => void;
-}) {
-  const title = conversationDisplayTitle(conversation);
-  const preview = conversation.preview?.trim() || "";
-  const ago = conversation.lastMessageAt ? timeAgo(conversation.lastMessageAt) : "";
-
-  return (
-    <button type="button" className="s-conv-board-row" onClick={onOpen}>
-      <span className="s-conv-board-row-main">
-        <span className="s-conv-board-row-title">{title}</span>
-        {preview ? <span className="s-conv-board-preview">{preview}</span> : null}
-      </span>
-      <span className="s-conv-board-meta">
-        {unread ? <em className="s-conv-board-new">new</em> : null}
-        {ago ? <time>{ago}</time> : null}
-        {!unread ? <span className="s-conv-board-arrow" aria-hidden="true">↗</span> : null}
-      </span>
-    </button>
-  );
+function conversationLandingDetail(target: SessionEntry | undefined): string {
+  if (!target) return "Finding where you left off.";
+  return conversationDisplayTitle(target);
 }
 
 /** Quiet constellation echo of the brand mesh motif — six nodes, thin links,

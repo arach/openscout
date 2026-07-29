@@ -98,7 +98,8 @@ struct ScoutSessionComposer: View {
     @State private var agentHighlight: Int = 0
     @State private var agentFieldHovering = false
     @State private var messageBoxHovering = false
-    @State private var isProjectPanelPresented = false
+    @State private var pendingAttachments: [ScoutComposerImage] = []
+    @State private var attachmentDropTargeted = false
     @FocusState private var instructionsFocused: Bool
     @FocusState private var agentFieldFocused: Bool
     @ObservedObject private var voice = ScoutRemoteVoiceService.shared
@@ -134,8 +135,11 @@ struct ScoutSessionComposer: View {
     var body: some View {
         ZStack {
             Rectangle()
-                .fill(.thinMaterial)
-                .overlay(Color.black.opacity(0.36))
+                // Keep the app legible behind this lightweight composer. The
+                // prior thin material plus a 36% scrim made starting a chat
+                // feel like leaving the current workspace entirely.
+                .fill(.ultraThinMaterial)
+                .overlay(Color.black.opacity(0.16))
                 .ignoresSafeArea()
                 .contentShape(Rectangle())
                 .onTapGesture { if !isSubmitting { onClose() } }
@@ -153,9 +157,7 @@ struct ScoutSessionComposer: View {
             clearModelIfNeeded()
         }
         .background(
-            ScoutSessionSubmitShortcutMonitor(
-                isActive: openDropdown == nil && !isSubmitting && !isProjectPanelPresented
-            ) {
+            ScoutSessionSubmitShortcutMonitor(isActive: true) {
                 submit()
             }
             .frame(width: 0, height: 0)
@@ -164,20 +166,32 @@ struct ScoutSessionComposer: View {
         .onChange(of: draft.harness) { _, _ in persistLastRuntimeChoices() }
         .onChange(of: draft.model) { _, _ in persistLastRuntimeChoices() }
         .onChange(of: draft.reasoningEffort) { _, _ in persistLastRuntimeChoices() }
+        .background {
+            ScoutAttachmentDropCatcher(
+                onTargeted: { attachmentDropTargeted = $0 },
+                onStageAttachments: stageAttachments
+            )
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            stageAttachments(ScoutMediaIntake.fromFileURLs(urls))
+        } isTargeted: { attachmentDropTargeted = $0 }
+        .overlay {
+            if attachmentDropTargeted {
+                ScoutWindowCaptureOverlay()
+            }
+        }
+        .background(
+            ImagePasteCatcher(
+                isActive: { !isSubmitting },
+                onPasteImages: stageAttachments
+            )
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+        )
+        .animation(.easeOut(duration: 0.12), value: attachmentDropTargeted)
     }
 
     private var isDictating: Bool { voice.state.isCaptureActive }
-
-    private var editorHasMarkedText: Bool {
-#if os(macOS)
-        guard let textView = NSApp.keyWindow?.firstResponder as? NSTextView else {
-            return false
-        }
-        return textView.hasMarkedText()
-#else
-        return false
-#endif
-    }
 
     private var voiceUnavailableReason: String? {
         if case .unavailable(let reason) = voice.state { return reason }
@@ -846,8 +860,27 @@ struct ScoutSessionComposer: View {
             if draft.fromMessageId?.nilIfEmpty != nil {
                 seedChip
             }
+            if !pendingAttachments.isEmpty {
+                attachmentStrip
+            }
             consolidatedMessageBox
         }
+    }
+
+    private var attachmentStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: HudSpacing.sm) {
+                ForEach(pendingAttachments) { attachment in
+                    ScoutCaptureAttachmentChip(attachment: attachment) {
+                        pendingAttachments.removeAll { $0.id == attachment.id }
+                    }
+                    .help(attachment.fileName)
+                }
+            }
+            .padding(.horizontal, HudSpacing.xs)
+            .padding(.vertical, HudSpacing.xxs)
+        }
+        .accessibilityLabel("Attachments for new chat")
     }
 
     private var seedChip: some View {
@@ -921,8 +954,7 @@ struct ScoutSessionComposer: View {
 
     // A vertical TextField (not a TextEditor) so the placeholder is native and
     // the caret sits on the text baseline — mirrors the conversation composer's
-    // `composerFieldRow`. Grows to ~10 lines; Return submits and Shift-Return
-    // or Option-Return inserts a line break.
+    // `composerFieldRow`. Grows to ~10 lines; ⌘↵ submits via the send button.
     private var messageInputZone: some View {
         ZStack(alignment: .topLeading) {
             TextField(showDictationPreview ? "" : messagePlaceholder, text: $draft.instructions, axis: .vertical)
@@ -933,16 +965,8 @@ struct ScoutSessionComposer: View {
                 .lineLimit(1...10)
                 .focused($instructionsFocused)
                 .onKeyPress(phases: .down) { press in
-                    guard openDropdown == nil, !isSubmitting else { return .ignored }
-                    guard !editorHasMarkedText else { return .ignored }
-                    guard ScoutSessionSubmitPolicy.shouldSubmit(
-                        isReturn: press.key == .return,
-                        shift: press.modifiers.contains(.shift),
-                        option: press.modifiers.contains(.option),
-                        composerOwnsReturn: openDropdown == nil
-                            && !isSubmitting
-                            && !isProjectPanelPresented
-                    ) else { return .ignored }
+                    guard press.key == .return else { return .ignored }
+                    guard press.modifiers.contains(.command) || press.modifiers.contains(.control) else { return .ignored }
                     submit()
                     return .handled
                 }
@@ -960,7 +984,7 @@ struct ScoutSessionComposer: View {
 
     // The internal toolbar plane sits a step below the field — the canvas bg, so
     // the bar reads as a recessed footer (studio `.boxBar`): Cancel left, the
-    // Return guide + mic + send clustered right, under a hairline.
+    // ⌘↵ guide + mic + send clustered right, under a hairline.
     private var messageToolbarBar: some View {
         HStack(spacing: HudSpacing.sm) {
             Button { if !isSubmitting { onClose() } } label: {
@@ -975,9 +999,20 @@ struct ScoutSessionComposer: View {
             .disabled(isSubmitting)
             .help("Cancel")
 
+            Button(action: presentAttachmentPicker) {
+                Image(systemName: "paperclip")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(ScoutPalette.muted)
+                    .frame(width: 30, height: 30)
+                    .contentShape(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous))
+            }
+            .buttonStyle(.plain).scoutPointerCursor()
+            .disabled(isSubmitting)
+            .help("Attach markdown, code, image, or video")
+
             Spacer(minLength: HudSpacing.sm)
 
-            Text("↵ send · ⇧↵ newline")
+            Text("⌘↵")
                 .font(HudFont.mono(HudTextSize.xs, weight: .medium))
                 .foregroundColor(ScoutPalette.muted)
                 .lineLimit(1)
@@ -1012,12 +1047,41 @@ struct ScoutSessionComposer: View {
         instructionsFocused
             || messageBoxHovering
             || !draft.instructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !pendingAttachments.isEmpty
             || voice.state.isCaptureActive
             || voice.state.isProcessing
     }
 
+    @discardableResult
+    private func stageAttachments(_ incoming: [ScoutComposerImage]) -> Bool {
+        guard !isSubmitting, !incoming.isEmpty else { return false }
+        let existing = Set(
+            pendingAttachments.map { "\($0.fileName):\($0.data.count):\($0.mediaType)" }
+        )
+        let additions = incoming.filter {
+            !existing.contains("\($0.fileName):\($0.data.count):\($0.mediaType)")
+        }
+        guard !additions.isEmpty else { return true }
+        pendingAttachments.append(contentsOf: additions)
+        errorText = nil
+        instructionsFocused = true
+        return true
+    }
+
+    private func presentAttachmentPicker() {
+        #if os(macOS)
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = ScoutMediaIntake.pickerContentTypes
+        guard panel.runModal() == .OK else { return }
+        _ = stageAttachments(ScoutMediaIntake.fromFileURLs(panel.urls))
+        #endif
+    }
+
     // Send glyph — accent square + ↑ (studio `.barSend`), mirroring the
-    // conversation composer's ScoutSendButton. Drives `submit()` + Return.
+    // conversation composer's ScoutSendButton. Drives `submit()` + ⌘↵.
     private var messageSendButton: some View {
         let ready = canSubmit && !isSubmitting
         return Button { submit() } label: {
@@ -1336,9 +1400,6 @@ struct ScoutSessionComposer: View {
 
     private func chooseProjectDirectory() {
         #if os(macOS)
-        isProjectPanelPresented = true
-        defer { isProjectPanelPresented = false }
-
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -1387,13 +1448,19 @@ struct ScoutSessionComposer: View {
         isSubmitting = true
         errorText = nil
         persistLastRuntimeChoices()
-        let submittedDraft = draft
-        let spec = submittedDraft.spec()
-        if let projectPath = submittedDraft.projectPath.nilIfEmpty {
+        let draftSnapshot = draft
+        let attachmentsToUpload = pendingAttachments
+        if let projectPath = draftSnapshot.projectPath.nilIfEmpty {
             lastProjectPath = projectPath
         }
         Task {
             do {
+                var submittedDraft = draftSnapshot
+                if !attachmentsToUpload.isEmpty {
+                    let uploaded = try await ScoutAttachmentUploadService.uploadAll(attachmentsToUpload)
+                    submittedDraft.attachments.append(contentsOf: uploaded)
+                }
+                let spec = submittedDraft.spec()
                 let result = try await SessionInitiationService.start(spec)
                 isSubmitting = false
                 onComplete(result, submittedDraft)
@@ -1417,13 +1484,11 @@ private struct ScoutSessionSubmitShortcutMonitor: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
-        context.coordinator.hostView = view
         context.coordinator.install()
         return view
     }
 
     func updateNSView(_ view: NSView, context: Context) {
-        context.coordinator.hostView = view
         context.coordinator.isActive = isActive
         context.coordinator.onSubmit = onSubmit
         context.coordinator.install()
@@ -1433,11 +1498,9 @@ private struct ScoutSessionSubmitShortcutMonitor: NSViewRepresentable {
         coordinator.uninstall()
     }
 
-    @MainActor
     final class Coordinator {
         var isActive: Bool
         var onSubmit: () -> Void
-        weak var hostView: NSView?
         private var monitor: Any?
 
         init(isActive: Bool, onSubmit: @escaping () -> Void) {
@@ -1445,12 +1508,14 @@ private struct ScoutSessionSubmitShortcutMonitor: NSViewRepresentable {
             self.onSubmit = onSubmit
         }
 
+        deinit {
+            uninstall()
+        }
+
         func install() {
             guard monitor == nil else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self, self.isActive else { return event }
-                guard self.hostView?.window === event.window else { return event }
-                guard !Self.isComposingText else { return event }
                 guard Self.isSubmitShortcut(event) else { return event }
                 self.onSubmit()
                 return nil
@@ -1466,19 +1531,9 @@ private struct ScoutSessionSubmitShortcutMonitor: NSViewRepresentable {
 
         private static func isSubmitShortcut(_ event: NSEvent) -> Bool {
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            return ScoutSessionSubmitPolicy.shouldSubmit(
-                isReturn: event.keyCode == 36 || event.keyCode == 76,
-                shift: flags.contains(.shift),
-                option: flags.contains(.option)
-            )
-        }
-
-        @MainActor
-        private static var isComposingText: Bool {
-            guard let textView = NSApp.keyWindow?.firstResponder as? NSTextView else {
-                return false
-            }
-            return textView.hasMarkedText()
+            guard flags.contains(.command) || flags.contains(.control) else { return false }
+            guard !flags.contains(.option) else { return false }
+            return event.keyCode == 36 || event.keyCode == 76
         }
     }
 }

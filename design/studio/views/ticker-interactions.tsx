@@ -82,19 +82,19 @@ export default function TickerInteractionsPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-8 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · ticker · interactions
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Ticker · interactions
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           A static frame-by-frame of the ticker slot under the steer
           behavior — at rest, hovered, chip-focused, dock open, sending,
           flashed. Everything is rendered from the production primitives
-          (<code className="font-mono text-[11px] text-studio-ink">TickerSlotCard</code>,{" "}
-          <code className="font-mono text-[11px] text-studio-ink">ActionCluster</code>,{" "}
-          <code className="font-mono text-[11px] text-studio-ink">InputDock</code>) at
+          (<code className="font-mono text-sm text-studio-ink">TickerSlotCard</code>,{" "}
+          <code className="font-mono text-sm text-studio-ink">ActionCluster</code>,{" "}
+          <code className="font-mono text-sm text-studio-ink">InputDock</code>) at
           controlled state, so what you see here is exactly what the live
           ticker would show if you could pause the world.
         </p>
@@ -124,14 +124,14 @@ export default function TickerInteractionsPage() {
       <Anatomy />
 
       <section className="mt-14 max-w-prose">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · how to read this study
         </div>
-        <p className="font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="font-sans text-lg leading-relaxed text-studio-ink-faint">
           Each cell is a single ticker slot rendered statically with the
           interaction state forced via props. Hovering THIS page does
           not trigger anything — to feel the live behavior, go back to{" "}
-          <code className="font-mono text-[11px] text-studio-ink">/studies/ticker</code>.
+          <code className="font-mono text-sm text-studio-ink">/studies/ticker</code>.
           This page exists so the design can be inspected as a system
           rather than experienced as a flow.
         </p>
@@ -226,11 +226,11 @@ function Station({
         </div>
       </div>
       <div className="max-w-[200px]">
-        <div className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink">
+        <div className="font-mono text-xs uppercase tracking-eyebrow text-studio-ink">
           {caption}
         </div>
         {sub ? (
-          <div className="mt-0.5 font-mono text-[9px] text-studio-ink-faint">
+          <div className="mt-0.5 font-mono text-2xs text-studio-ink-faint">
             {sub}
           </div>
         ) : null}
@@ -257,7 +257,7 @@ function KindCell({ kind }: { kind: SteerKind }) {
   const actions = DEFAULT_STEER_ACTIONS[kind];
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-baseline justify-between font-mono text-[9.5px] uppercase tracking-eyebrow">
+      <div className="flex items-baseline justify-between font-mono text-2xs uppercase tracking-eyebrow">
         <span className="text-studio-ink">{kind}</span>
         <span className="text-studio-ink-faint">{actions.length} verbs</span>
       </div>
@@ -268,7 +268,7 @@ function KindCell({ kind }: { kind: SteerKind }) {
       </div>
       <ul className="m-0 list-none space-y-1 p-0">
         {actions.map((a) => (
-          <li key={a.id} className="flex items-baseline gap-2 font-mono text-[10px]">
+          <li key={a.id} className="flex items-baseline gap-2 font-mono text-xs">
             <span
               className="uppercase tracking-eyebrow"
               style={{
@@ -283,9 +283,9 @@ function KindCell({ kind }: { kind: SteerKind }) {
               {a.label.toLowerCase()}
             </span>
             {a.needsInput ? (
-              <span className="text-[8.5px] text-studio-ink-faint">⋯ input</span>
+              <span className="text-3xs text-studio-ink-faint">⋯ input</span>
             ) : (
-              <span className="text-[8.5px] text-studio-ink-faint">instant</span>
+              <span className="text-3xs text-studio-ink-faint">instant</span>
             )}
           </li>
         ))}
@@ -354,11 +354,11 @@ function DockCell({
   return (
     <div className="flex flex-col gap-3">
       <div>
-        <div className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink">
+        <div className="font-mono text-xs uppercase tracking-eyebrow text-studio-ink">
           {caption}
         </div>
         {sub ? (
-          <div className="mt-0.5 font-mono text-[9px] text-studio-ink-faint">
+          <div className="mt-0.5 font-mono text-2xs text-studio-ink-faint">
             {sub}
           </div>
         ) : null}
@@ -394,7 +394,7 @@ function Anatomy() {
           </div>
         </div>
       </div>
-      <dl className="m-0 space-y-3 font-mono text-[10.5px]">
+      <dl className="m-0 space-y-3 font-mono text-xs">
         <AnatomyItem letter="A" label="Slot card">
           Glyph (morse-coded by kind) + label + time/@agent. Tab-stop unit.
         </AnatomyItem>
@@ -430,7 +430,7 @@ function AnatomyItem({
     <div className="flex items-baseline gap-3">
       <span
         aria-hidden
-        className="grid h-5 w-5 shrink-0 place-items-center rounded-full border font-mono text-[9px] font-semibold"
+        className="grid h-5 w-5 shrink-0 place-items-center rounded-full border font-mono text-2xs font-semibold"
         style={{
           borderColor: "var(--scout-accent)",
           color: "var(--scout-accent)",
@@ -440,7 +440,7 @@ function AnatomyItem({
       </span>
       <div className="flex flex-col gap-0.5">
         <dt className="uppercase tracking-eyebrow text-studio-ink">{label}</dt>
-        <dd className="font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+        <dd className="font-sans text-md leading-relaxed text-studio-ink-faint">
           {children}
         </dd>
       </div>
@@ -568,11 +568,11 @@ function SectionTitle({
 }) {
   return (
     <div className={`flex items-baseline gap-3 ${className}`}>
-      <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · {children}
       </div>
       {hint ? (
-        <div className="font-mono text-[10px] text-studio-ink-faint">{hint}</div>
+        <div className="font-mono text-xs text-studio-ink-faint">{hint}</div>
       ) : null}
       <div className="ml-3 h-px flex-1 bg-studio-edge" />
     </div>

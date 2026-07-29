@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { SCOUTBOT_SUBMIT_EVENT } from "../../lib/scoutbot.ts";
-import type { BrokerRouteAttempt } from "../../lib/types.ts";
+import type { Agent, BrokerRouteAttempt } from "../../lib/types.ts";
 import {
   brokerAttemptContextJson,
   brokerAttemptContextText,
@@ -10,11 +10,50 @@ import {
   brokerAttemptIsFailure,
   brokerMessageFeedRows,
   brokerAttemptRootCauseFingerprint,
+  brokerAttemptTargetAgent,
   brokerDispatchReviewRequest,
   brokerScoutbotTriageRequest,
   brokerMetadataPayload,
   brokerMetadataSummary,
 } from "./broker-display.ts";
+
+function agent(overrides: Partial<Agent> & Pick<Agent, "id" | "name">): Agent {
+  return {
+    definitionId: overrides.id,
+    handle: null,
+    agentClass: "agent",
+    harness: "claude",
+    state: "online",
+    projectRoot: "/Users/art/dev/openscout",
+    cwd: "/Users/art/dev/openscout",
+    updatedAt: 1,
+    createdAt: 1,
+    transport: "tmux",
+    selector: null,
+    defaultSelector: null,
+    nodeQualifier: null,
+    workspaceQualifier: null,
+    wakePolicy: null,
+    capabilities: [],
+    project: "openscout",
+    branch: "main",
+    role: null,
+    model: "opus",
+    harnessSessionId: null,
+    terminalSurface: null,
+    harnessLogPath: null,
+    conversationId: null,
+    homeNodeId: null,
+    homeNodeName: null,
+    ownerId: null,
+    ownerName: null,
+    ownerHandle: null,
+    staleLocalRegistration: false,
+    retiredFromFleet: false,
+    replacedByAgentId: null,
+    ...overrides,
+  };
+}
 
 function attempt(overrides: Partial<BrokerRouteAttempt> = {}): BrokerRouteAttempt {
   return {
@@ -39,6 +78,44 @@ describe("broker dispatch display", () => {
     expect(brokerAttemptIsFailure(attempt({ kind: "failed_delivery", status: "failed" }))).toBe(true);
     expect(brokerAttemptIsFailure(attempt())).toBe(false);
     expect(brokerAttemptContextText(attempt())).toContain("OpenScout dispatch context");
+  });
+
+  test("resolves retry destination from the attempted session and relay metadata", () => {
+    const intended = agent({
+      id: "openscout-plato-5",
+      name: "openscout-plato-5",
+      harnessSessionId: "session-ms5b6u68-xwdwqx",
+    });
+    const unrelated = agent({ id: "scoutbot", name: "Scout" });
+    const dispatched = attempt({
+      target: "session-ms5b6u68-xwdwqx",
+      metadata: {
+        raw: {
+          targetSessionId: "session-ms5b6u68-xwdwqx",
+          targetDisplayName: "openscout-plato-5",
+          relayTarget: "session-ms5b6u68-xwdwqx",
+        },
+      },
+    });
+
+    expect(brokerAttemptTargetAgent(dispatched, [unrelated, intended])).toBe(intended);
+  });
+
+  test("uses the attempted destination's display name when its session id is no longer attached", () => {
+    const intended = agent({ id: "agent-plato", name: "openscout-plato-5" });
+    const unrelated = agent({ id: "scoutbot", name: "Scout" });
+    const dispatched = attempt({
+      target: "session-ms5b6u68-xwdwqx",
+      metadata: {
+        raw: {
+          targetSessionId: "session-ms5b6u68-xwdwqx",
+          targetDisplayName: "openscout-plato-5",
+        },
+      },
+    });
+
+    expect(brokerAttemptTargetAgent(dispatched, [unrelated, intended])).toBe(intended);
+    expect(brokerAttemptTargetAgent(dispatched, [unrelated])).toBeNull();
   });
 
   test("presents one message row with its linked delivery failure folded in", () => {

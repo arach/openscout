@@ -71,10 +71,12 @@ export type AgentRuntimePolicy = {
 };
 
 export type TerminalSurfaceDescriptor = {
-  backend: "tmux" | "zellij";
+  backend: "tmux" | "zellij" | "herdr";
   sessionName: string;
   paneId: string | null;
   socketDir: string | null;
+  /** Optional registry attach argv; preferred when rendering attach commands. */
+  attachCommand?: string[] | null;
 };
 
 export type ObservedHarnessTopology = {
@@ -615,6 +617,7 @@ export type RunsResponse =
 export type Flight = {
   id: string;
   invocationId: string;
+  messageId?: string | null;
   agentId: string;
   agentName: string | null;
   conversationId: string | null;
@@ -1279,7 +1282,6 @@ export type PlanDocumentsResponse = {
   };
 };
 
-export type MessagesFilter = "all" | "dm" | "channel";
 export type DispatchFilter = "all" | "delivered" | "failed";
 export type MessagesSort = "recent" | "name" | "unread";
 export type SearchMode = "knowledge" | "indexer";
@@ -1318,8 +1320,6 @@ export type Route =
   | ({
       view: "messages";
       conversationId?: string;
-      filter?: MessagesFilter;
-      sort?: MessagesSort;
     } & MachineScopedRoute)
   | ({
       view: "sessions";
@@ -1346,7 +1346,6 @@ export type Route =
       include?: "changed" | "all";
     }
   | { view: "search"; mode?: SearchMode; hitId?: string }
-  | ({ view: "channels"; channelId?: string } & MachineScopedRoute)
   | ({ view: "mesh" } & MachineScopedRoute)
   | { view: "broker"; attemptId?: string; filter?: DispatchFilter }
   | {
@@ -1396,7 +1395,7 @@ export type Route =
 	      mode?: "observe" | "takeover";
 	      terminalSessionId?: string;
 	      terminalSurfaceKey?: string;
-	      terminalBackend?: "pty" | "tmux" | "zellij";
+	      terminalBackend?: "pty" | "tmux" | "zellij" | "herdr";
 	      terminalAgent?: "shell" | "claude" | "pi";
 	      terminalSessionName?: string;
 	      terminalTabId?: string;
@@ -1410,6 +1409,7 @@ export type FollowPreferredView = "tail" | "session" | "chat" | "work";
 export type SettingsSection =
   | "pairing"
   | "agents"
+  | "appearance"
   | "operator"
   | "comms"
   | "credentials"

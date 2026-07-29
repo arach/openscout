@@ -67,7 +67,6 @@ export function topNavKeyForRoute(route: Route): TopNavKey {
       return "sessions";
     case "conversation":
     case "messages":
-    case "channels":
       return "chat";
     case "ops":
     case "broker":
@@ -108,7 +107,6 @@ export function topNavBreadcrumbForRoute(route: Route): string | null {
     case "agent-info":
     case "repos":
     case "harnesses":
-    case "channels":
     case "mesh":
     case "broker":
     case "work":

@@ -80,7 +80,7 @@ export default function AlmanacPage() {
     <main className="mx-auto max-w-[940px] px-7 py-10 font-sans text-studio-ink">
       <Masthead />
 
-      <p className="mt-6 max-w-prose font-sans text-[14.5px] italic leading-[1.6] text-studio-ink">
+      <p className="mt-6 max-w-prose font-sans text-xl italic leading-[1.6] text-studio-ink">
         {BRIEF.lede}
       </p>
 
@@ -88,13 +88,13 @@ export default function AlmanacPage() {
 
       <div className="mt-10 grid grid-cols-1 gap-x-7 gap-y-10 lg:grid-cols-3 lg:[&>*+*]:border-l lg:[&>*+*]:border-studio-edge lg:[&>*+*]:pl-7">
         <Column title="Artifacts landed" kicker="Five files touched the tree.">
-          <ul className="m-0 space-y-3 p-0 font-sans text-[13px] leading-snug text-studio-ink">
+          <ul className="m-0 space-y-3 p-0 font-sans text-lg leading-snug text-studio-ink">
             {ARTIFACTS.map((a, i) => (
               <li key={i} className="list-none">
-                <div className="font-mono text-[12px] tracking-tight text-studio-ink">
+                <div className="font-mono text-md tracking-tight text-studio-ink">
                   {a.what}
                 </div>
-                <div className="mt-0.5 font-mono text-[10px] text-studio-ink-faint">
+                <div className="mt-0.5 font-mono text-xs text-studio-ink-faint">
                   {a.diff ? (
                     <>
                       <span style={{ color: "var(--status-ok-fg)" }}>
@@ -118,11 +118,11 @@ export default function AlmanacPage() {
 
         <Column title="Decisions" kicker="Three on the desk; three already taken.">
           <SubsectionTitle>Pending</SubsectionTitle>
-          <ol className="m-0 list-decimal space-y-2 pl-5 marker:font-mono marker:text-[10px] marker:text-studio-ink-faint">
+          <ol className="m-0 list-decimal space-y-2 pl-5 marker:font-mono marker:text-xs marker:text-studio-ink-faint">
             {DECISIONS_PENDING.map((d, i) => (
-              <li key={i} className="font-sans text-[13px] leading-relaxed text-studio-ink">
+              <li key={i} className="font-sans text-lg leading-relaxed text-studio-ink">
                 {d.body}
-                <span className="ml-1 font-mono text-[10px] text-studio-ink-faint">
+                <span className="ml-1 font-mono text-xs text-studio-ink-faint">
                   {d.by}
                 </span>
               </li>
@@ -132,9 +132,9 @@ export default function AlmanacPage() {
           <SubsectionTitle className="mt-5">Landed</SubsectionTitle>
           <ul className="m-0 space-y-2 p-0">
             {DECISIONS_LANDED.map((d, i) => (
-              <li key={i} className="list-none font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+              <li key={i} className="list-none font-sans text-md leading-relaxed text-studio-ink-faint">
                 <span className="text-studio-ink">{d.body}</span>
-                <span className="ml-1 font-mono text-[10px]">
+                <span className="ml-1 font-mono text-xs">
                   {d.by}
                   {d.ago ? (
                     <>
@@ -152,13 +152,13 @@ export default function AlmanacPage() {
           <ul className="m-0 space-y-3 p-0">
             {QUIET.map((q, i) => (
               <li key={i} className="list-none">
-                <div className="flex items-baseline gap-2 font-mono text-[12px]">
+                <div className="flex items-baseline gap-2 font-mono text-md">
                   <span className="text-studio-ink">{q.agent}</span>
-                  <span className="text-[10px] text-studio-ink-faint">
+                  <span className="text-xs text-studio-ink-faint">
                     silent {q.silenceFor}
                   </span>
                 </div>
-                <div className="mt-0.5 font-sans text-[12.5px] leading-snug text-studio-ink-faint">
+                <div className="mt-0.5 font-sans text-md leading-snug text-studio-ink-faint">
                   {q.why}.
                   {q.suggested ? (
                     <span className="ml-1 text-studio-ink">— {q.suggested}</span>
@@ -181,17 +181,17 @@ export default function AlmanacPage() {
 function Masthead() {
   return (
     <header className="border-b border-studio-edge pb-4">
-      <div className="flex items-baseline justify-between gap-4 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="flex items-baseline justify-between gap-4 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         <span>· studies · web · almanac</span>
         <span>
           vol. {BRIEF.vol} · no. {BRIEF.no}
         </span>
       </div>
       <div className="mt-1.5 flex items-baseline justify-between gap-4">
-        <h1 className="m-0 font-display text-[64px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="m-0 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Almanac
         </h1>
-        <div className="text-right font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-right font-mono text-xs uppercase tracking-eyebrow text-studio-ink-faint">
           <div>fleet brief</div>
           <div className="mt-0.5 text-studio-ink">
             {BRIEF.date} · {BRIEF.filed}
@@ -214,7 +214,7 @@ const SWATCH_BG: Record<SwatchKind, string> = {
 
 function Weather() {
   return (
-    <div className="mt-5 flex items-baseline gap-3 border-y border-studio-edge py-2.5 font-mono text-[10px] uppercase tracking-eyebrow">
+    <div className="mt-5 flex items-baseline gap-3 border-y border-studio-edge py-2.5 font-mono text-xs uppercase tracking-eyebrow">
       <span className="text-studio-ink-faint">weather</span>
       <div className="flex items-center gap-px">
         {BRIEF.weather.swatch.map((k, i) => (
@@ -226,7 +226,7 @@ function Weather() {
           />
         ))}
       </div>
-      <span className="font-sans text-[11.5px] italic normal-case tracking-normal text-studio-ink-faint">
+      <span className="font-sans text-sm italic normal-case tracking-normal text-studio-ink-faint">
         {BRIEF.weather.label}
       </span>
     </div>
@@ -245,10 +245,10 @@ function Column({
 }) {
   return (
     <section>
-      <h2 className="m-0 font-display text-[20px] font-medium tracking-tight text-studio-ink">
+      <h2 className="m-0 font-display text-4xl font-medium tracking-tight text-studio-ink">
         {title}
       </h2>
-      <div className="mt-1 font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="mt-1 font-mono text-xs uppercase tracking-eyebrow text-studio-ink-faint">
         {kicker}
       </div>
       <div className="mt-3.5">{children}</div>
@@ -265,7 +265,7 @@ function SubsectionTitle({
 }) {
   return (
     <h3
-      className={`mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint ${className}`}
+      className={`mb-1.5 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint ${className}`}
     >
       · {children}
     </h3>
@@ -276,10 +276,10 @@ function SubsectionTitle({
 function Quote({ q }: { q: typeof BRIEF.quote }) {
   return (
     <figure className="mt-12 border-l-2 border-studio-edge-strong pl-5">
-      <blockquote className="m-0 font-display text-[24px] italic leading-[1.4] tracking-tight text-studio-ink">
+      <blockquote className="m-0 font-display text-5xl italic leading-[1.4] tracking-tight text-studio-ink">
         “{q.body}”
       </blockquote>
-      <figcaption className="mt-2 font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <figcaption className="mt-2 font-mono text-xs uppercase tracking-eyebrow text-studio-ink-faint">
         — <span className="text-studio-ink">{q.by}</span>{" "}
         <span className="normal-case tracking-normal">{q.where}</span>
       </figcaption>
@@ -290,7 +290,7 @@ function Quote({ q }: { q: typeof BRIEF.quote }) {
 // ── Footer ───────────────────────────────────────────────────────────
 function Footer() {
   return (
-    <footer className="mt-14 border-t border-studio-edge pt-3 font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+    <footer className="mt-14 border-t border-studio-edge pt-3 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
       <span>filed by </span>
       <Link
         href="/eng"
@@ -301,7 +301,7 @@ function Footer() {
       <Sep />
       <span className="normal-case tracking-normal">
         inquiry:{" "}
-        <code className="font-mono text-[10px] text-studio-ink">
+        <code className="font-mono text-xs text-studio-ink">
           @scout brief --since yesterday
         </code>
       </span>

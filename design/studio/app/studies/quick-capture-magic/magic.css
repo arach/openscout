@@ -63,7 +63,7 @@
   backdrop-filter: blur(6px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 500;
   color: var(--hud-ink-muted);
   z-index: 5;
@@ -140,7 +140,7 @@
 
 .qcm-recv-label {
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   letter-spacing: 0.09em;
 }
@@ -276,7 +276,7 @@
 .qcm-shot-name {
   display: block;
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 8px;
+  font-size: var(--text-3xs);
   font-weight: 500;
   color: var(--hud-ink-muted);
   padding: 4px 7px 5px;
@@ -419,14 +419,14 @@
 
 .qcm-eyebrow {
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 7.5px;
+  font-size: var(--text-3xs);
   font-weight: 600;
   letter-spacing: 0.17em;
   color: var(--hud-ink-faint);
 }
 
 .qcm-title {
-  font-size: 14px;
+  font-size: var(--text-xl);
   font-weight: 600;
   color: var(--hud-ink);
   margin-top: 1px;
@@ -440,7 +440,7 @@
   align-items: center;
   gap: 4px;
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 7.5px;
+  font-size: var(--text-3xs);
   font-weight: 600;
   letter-spacing: 0.12em;
   padding: 3px 6px;
@@ -481,7 +481,7 @@
 
 .qcm-route-k {
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 7px;
+  font-size: var(--text-3xs);
   font-weight: 600;
   letter-spacing: 0.15em;
   color: var(--hud-ink-faint);
@@ -489,7 +489,7 @@
 }
 
 .qcm-route-v {
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   font-weight: 500;
   color: var(--hud-ink);
   white-space: nowrap;
@@ -505,19 +505,19 @@
   gap: 7px;
   padding: 11px 16px 0;
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   font-weight: 500;
   color: var(--hud-ink-faint);
 }
 
 .qcm-route-line .arrow-glyph { color: var(--hud-accent); }
 .qcm-route-line .val { color: var(--hud-ink-muted); }
-.qcm-route-line .hint { margin-left: auto; font-size: 8px; letter-spacing: 0.06em; }
+.qcm-route-line .hint { margin-left: auto; font-size: var(--text-3xs); letter-spacing: 0.06em; }
 
 .qcm-msg-label {
   padding: 12px 16px 6px;
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 7.5px;
+  font-size: var(--text-3xs);
   font-weight: 600;
   letter-spacing: 0.17em;
   color: var(--hud-ink-faint);
@@ -542,7 +542,7 @@
   resize: none;
   padding: 11px 12px 4px;
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--text-md);
   line-height: 1.45;
   color: var(--hud-ink);
   min-height: 58px;
@@ -593,7 +593,7 @@
 .qcm-chip-meta { min-width: 0; }
 
 .qcm-chip-name {
-  font-size: 8.5px;
+  font-size: var(--text-3xs);
   font-weight: 600;
   color: var(--hud-ink-muted);
   white-space: nowrap;
@@ -603,14 +603,14 @@
 
 .qcm-chip-size {
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 7.5px;
+  font-size: var(--text-3xs);
   color: var(--hud-ink-faint);
 }
 
 .qcm-chip-x {
   margin-left: auto;
   color: var(--hud-ink-faint);
-  font-size: 10px;
+  font-size: var(--text-xs);
   line-height: 1;
 }
 
@@ -641,7 +641,7 @@
   padding: 0 10px;
   border: 1px solid var(--hud-border-soft);
   border-radius: 9px;
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   font-weight: 500;
   color: var(--hud-ink-muted);
   white-space: nowrap;
@@ -708,7 +708,7 @@
   background: var(--hud-accent-soft);
   color: var(--hud-accent);
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   letter-spacing: 0.05em;
   animation: qcm-boing calc(var(--spd) * 340ms) var(--ease-boing) backwards;
@@ -720,7 +720,7 @@
   justify-content: flex-end;
   gap: 12px;
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 8px;
+  font-size: var(--text-3xs);
   font-weight: 500;
   letter-spacing: 0.06em;
   color: var(--hud-ink-faint);
@@ -742,7 +742,7 @@
   border: 1px solid var(--hud-border);
   color: var(--hud-accent);
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   letter-spacing: 0.05em;
   animation:
@@ -772,7 +772,7 @@
   left: 50%;
   transform: translateX(-50%);
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 500;
   letter-spacing: 0.05em;
   color: rgba(231, 227, 220, 0.32);
@@ -796,7 +796,7 @@
 
 .qcm-pop-label {
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 6.5px;
+  font-size: var(--text-3xs);
   font-weight: 600;
   letter-spacing: 0.16em;
   color: var(--hud-ink-faint);
@@ -812,7 +812,7 @@
   padding: 6px 8px;
   border-radius: 7px;
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   color: var(--hud-ink-muted);
   cursor: pointer;
@@ -832,7 +832,7 @@
 
 .qcm-pop-item .path {
   color: var(--hud-ink-faint);
-  font-size: 8px;
+  font-size: var(--text-3xs);
   font-weight: 400;
 }
 
@@ -879,7 +879,7 @@
   left: 10px;
   z-index: 20;
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 8px;
+  font-size: var(--text-3xs);
   font-weight: 600;
   letter-spacing: 0.16em;
   color: var(--hud-ink-faint);
@@ -943,14 +943,14 @@
 
 .qcm-mini-eyebrow {
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 6.5px;
+  font-size: var(--text-3xs);
   font-weight: 600;
   letter-spacing: 0.16em;
   color: var(--hud-ink-faint);
 }
 
 .qcm-mini-title {
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 600;
   color: var(--hud-ink);
 }
@@ -961,7 +961,7 @@
   border-radius: 8px;
   background: rgba(22, 20, 17, 0.52);
   padding: 7px 9px;
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   line-height: 1.4;
   color: var(--hud-ink-muted);
   min-height: 34px;
@@ -982,7 +982,7 @@
   border: 1px solid var(--hud-border-soft);
   border-radius: 6px;
   background: rgba(12, 10, 9, 0.6);
-  font-size: 7.5px;
+  font-size: var(--text-3xs);
   font-weight: 600;
   color: var(--hud-ink-muted);
 }
@@ -1036,7 +1036,7 @@
   background: var(--hud-accent-soft);
   color: var(--hud-accent);
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 8px;
+  font-size: var(--text-3xs);
   font-weight: 600;
   letter-spacing: 0.05em;
   animation: qcm-boing calc(var(--spd) * 340ms) var(--ease-boing) backwards;
@@ -1056,7 +1056,7 @@
   border: 1px solid var(--hud-border);
   color: var(--hud-accent);
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 8px;
+  font-size: var(--text-3xs);
   font-weight: 600;
   animation: qcm-toast-in calc(var(--spd) * 260ms) var(--ease-settle) backwards;
 }

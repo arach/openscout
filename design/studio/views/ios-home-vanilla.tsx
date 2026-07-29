@@ -75,9 +75,9 @@ const VN_CSS = `
 /* Large-title header */
 .vn-header{padding:56px 4px 0;display:flex;align-items:flex-end;
   justify-content:space-between}
-.vn-header .vn-date{font-size:12px;font-weight:600;letter-spacing:.06em;
+.vn-header .vn-date{font-size: var(--text-md);font-weight:600;letter-spacing:.06em;
   text-transform:uppercase;color:var(--vn-sub)}
-.vn-header h1{margin:2px 0 0;font-size:30px;font-weight:700;
+.vn-header h1{margin:2px 0 0;font-size: var(--text-6xl);font-weight:700;
   letter-spacing:-.02em;color:var(--vn-ink);line-height:1.1}
 .vn-header .vn-bell{position:relative;width:34px;height:34px;border-radius:50%;
   background:var(--vn-card);display:flex;align-items:center;justify-content:center;
@@ -88,17 +88,17 @@ const VN_CSS = `
 /* Calm status pills — the everyday answer to complications */
 .vn-pills{display:flex;gap:6px;padding:10px 4px 0;flex-wrap:wrap}
 .vn-pill{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 10px;
-  border-radius:13px;background:var(--vn-card);font-size:11.5px;font-weight:500;
+  border-radius:13px;background:var(--vn-card);font-size: var(--text-sm);font-weight:500;
   color:var(--vn-sub);box-shadow:0 1px 2px rgba(0,0,0,.04)}
 .vn-pill b{font-weight:600;color:var(--vn-ink)}
 .vn-pill .vn-pdot{width:6px;height:6px;border-radius:50%;background:var(--vn-green)}
 .vn-pill.dim .vn-pdot{background:var(--vn-faint)}
 
 /* Section label (grouped-list idiom) */
-.vn-sect{font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+.vn-sect{font-size: var(--text-md);font-weight:600;letter-spacing:.05em;text-transform:uppercase;
   color:var(--vn-sub);padding:15px 8px 6px;display:flex;align-items:baseline;
   justify-content:space-between}
-.vn-sect .vn-seemore{font-size:12px;font-weight:500;letter-spacing:0;
+.vn-sect .vn-seemore{font-size: var(--text-md);font-weight:500;letter-spacing:0;
   text-transform:none;color:var(--vn-accent)}
 
 /* Card */
@@ -108,10 +108,10 @@ const VN_CSS = `
 
 /* Fleet summary card */
 .vn-fleet{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.vn-fleet .vn-cap{font-size:12px;font-weight:500;color:var(--vn-sub)}
-.vn-fleet .vn-big{margin-top:3px;font-size:20px;font-weight:700;
+.vn-fleet .vn-cap{font-size: var(--text-md);font-weight:500;color:var(--vn-sub)}
+.vn-fleet .vn-big{margin-top:3px;font-size: var(--text-4xl);font-weight:700;
   letter-spacing:-.01em;color:var(--vn-ink)}
-.vn-fleet .vn-sub2{margin-top:3px;font-size:12px;color:var(--vn-sub)}
+.vn-fleet .vn-sub2{margin-top:3px;font-size: var(--text-md);color:var(--vn-sub)}
 .vn-fleet .vn-sub2 em{font-style:normal;color:var(--vn-accent);font-weight:600}
 .vn-spark{flex:none;opacity:.85}
 
@@ -120,12 +120,12 @@ const VN_CSS = `
   border-bottom:.5px solid var(--vn-hair)}
 .vn-wrow:last-child{border-bottom:none}
 .vn-hdot{width:8px;height:8px;border-radius:50%;flex:none}
-.vn-wname{font-size:13.5px;font-weight:600;color:var(--vn-ink);flex:none}
-.vn-wharness{font-size:11px;font-weight:500;color:var(--vn-sub);flex:none}
-.vn-wpath{flex:1;min-width:0;font-family:var(--vn-mono);font-size:10px;
+.vn-wname{font-size: var(--text-lg);font-weight:600;color:var(--vn-ink);flex:none}
+.vn-wharness{font-size: var(--text-sm);font-weight:500;color:var(--vn-sub);flex:none}
+.vn-wpath{flex:1;min-width:0;font-family:var(--vn-mono);font-size: var(--text-xs);
   color:var(--vn-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .vn-wright{display:flex;align-items:center;gap:3px;flex:none}
-.vn-wage{font-size:11.5px;color:var(--vn-faint);font-variant-numeric:tabular-nums}
+.vn-wage{font-size: var(--text-sm);color:var(--vn-faint);font-variant-numeric:tabular-nums}
 .vn-wage.live{color:var(--vn-accent);font-weight:600}
 .vn-wage.live::before{content:"";display:inline-block;width:5px;height:5px;
   border-radius:50%;background:var(--vn-green);margin-right:4px;vertical-align:1.5px}
@@ -138,15 +138,15 @@ const VN_CSS = `
   display:flex;align-items:center;justify-content:center;
   background:var(--vn-accent-soft);color:var(--vn-accent);margin-top:1px}
 .vn-amain{flex:1;min-width:0}
-.vn-atext{font-size:13px;line-height:1.35;color:var(--vn-ink)}
+.vn-atext{font-size: var(--text-lg);line-height:1.35;color:var(--vn-ink)}
 .vn-atext b{font-weight:600}
-.vn-ameta{margin-top:2px;font-size:11px;color:var(--vn-faint)}
+.vn-ameta{margin-top:2px;font-size: var(--text-sm);color:var(--vn-faint)}
 
 /* Ask the fleet composer */
 .vn-composer{margin:16px 0 0;display:flex;align-items:center;gap:8px;
   background:var(--vn-card);border-radius:24px;padding:6px 6px 6px 16px;
   box-shadow:0 1px 3px rgba(0,0,0,.06)}
-.vn-composer .vn-ph{flex:1;font-size:14.5px;color:var(--vn-faint)}
+.vn-composer .vn-ph{flex:1;font-size: var(--text-xl);color:var(--vn-faint)}
 .vn-composer .vn-send{width:32px;height:32px;border-radius:50%;flex:none;
   background:var(--vn-accent);color:#fff;display:flex;align-items:center;
   justify-content:center}
@@ -158,21 +158,21 @@ const VN_CSS = `
 .vn-tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;
   color:var(--vn-faint);padding-top:2px}
 .vn-tab.on{color:var(--vn-accent)}
-.vn-tab .vn-tlabel{font-size:10px;font-weight:500}
+.vn-tab .vn-tlabel{font-size: var(--text-xs);font-weight:500}
 
 /* Agents frame bits */
 .vn-navheader{padding:62px 4px 0;display:flex;align-items:center;
   justify-content:space-between}
-.vn-navheader h1{margin:0;font-size:17px;font-weight:600;color:var(--vn-ink)}
+.vn-navheader h1{margin:0;font-size: var(--text-3xl);font-weight:600;color:var(--vn-ink)}
 .vn-navheader .vn-add{width:30px;height:30px;border-radius:50%;
   background:var(--vn-accent-soft);color:var(--vn-accent);display:flex;
-  align-items:center;justify-content:center;font-size:18px;font-weight:500}
+  align-items:center;justify-content:center;font-size: var(--text-3xl);font-weight:500}
 .vn-search{margin:12px 4px 0;display:flex;align-items:center;gap:6px;
   height:34px;border-radius:10px;background:var(--vn-fill);padding:0 10px;
-  color:var(--vn-sub);font-size:14px}
+  color:var(--vn-sub);font-size: var(--text-xl)}
 .vn-seg{margin:12px 4px 0;display:flex;background:var(--vn-fill);
   border-radius:9px;padding:2px}
-.vn-seg span{flex:1;text-align:center;font-size:12px;font-weight:500;
+.vn-seg span{flex:1;text-align:center;font-size: var(--text-md);font-weight:500;
   color:var(--vn-sub);padding:5px 0;border-radius:7px}
 .vn-seg span.on{background:var(--vn-card);color:var(--vn-ink);
   box-shadow:0 1px 3px rgba(0,0,0,.10)}
@@ -180,15 +180,15 @@ const VN_CSS = `
   border-bottom:.5px solid var(--vn-hair)}
 .vn-agrow:last-child{border-bottom:none}
 .vn-avatar{width:34px;height:34px;border-radius:50%;flex:none;position:relative;
-  display:flex;align-items:center;justify-content:center;font-size:12px;
+  display:flex;align-items:center;justify-content:center;font-size: var(--text-md);
   font-weight:600;color:#fff}
 .vn-avatar i{position:absolute;right:-1px;bottom:-1px;width:11px;height:11px;
   border-radius:50%;border:2px solid var(--vn-card)}
 .vn-agmain{flex:1;min-width:0}
-.vn-agname{font-size:14px;font-weight:600;color:var(--vn-ink)}
-.vn-agpath{font-family:var(--vn-mono);font-size:10px;color:var(--vn-faint);
+.vn-agname{font-size: var(--text-xl);font-weight:600;color:var(--vn-ink)}
+.vn-agpath{font-family:var(--vn-mono);font-size: var(--text-xs);color:var(--vn-faint);
   margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.vn-agpill{flex:none;font-size:10.5px;font-weight:600;padding:3px 8px;
+.vn-agpill{flex:none;font-size: var(--text-xs);font-weight:600;padding:3px 8px;
   border-radius:9px}
 .vn-agpill.working{color:var(--vn-accent);background:var(--vn-accent-soft)}
 .vn-agpill.idle{color:var(--vn-sub);background:var(--vn-fill)}
@@ -202,7 +202,7 @@ const VN_CSS = `
   align-items:center;justify-content:space-between;padding:60px 18px 0}
 .vn-lavatar{position:relative;width:34px;height:34px;border-radius:50%;cursor:pointer;
   background:var(--vn-accent-soft);color:var(--vn-accent);display:flex;
-  align-items:center;justify-content:center;font-size:13px;font-weight:700;
+  align-items:center;justify-content:center;font-size: var(--text-lg);font-weight:700;
   box-shadow:0 1px 2px rgba(0,0,0,.05)}
 .vn-lavatar i{position:absolute;right:-1px;bottom:-1px;width:10px;height:10px;
   border-radius:50%;background:var(--vn-green);border:2px solid var(--vn-bg)}
@@ -212,43 +212,43 @@ const VN_CSS = `
 .vn-lbell i{position:absolute;top:7px;right:8px;width:8px;height:8px;
   border-radius:50%;background:var(--vn-amber);border:1.5px solid var(--vn-bg)}
 .vn-launch{position:absolute;inset:0;padding:116px 20px 0;display:flex;flex-direction:column}
-.vn-lhost{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;
+.vn-lhost{display:flex;align-items:center;gap:6px;font-size: var(--text-md);font-weight:600;
   letter-spacing:.07em;text-transform:uppercase;color:var(--vn-sub)}
 .vn-lhost .vn-pdot{width:6px;height:6px;border-radius:50%;background:var(--vn-green)}
-.vn-launch h1{margin:10px 0 0;font-size:30px;font-weight:700;letter-spacing:-.02em;
+.vn-launch h1{margin:10px 0 0;font-size: var(--text-6xl);font-weight:700;letter-spacing:-.02em;
   color:var(--vn-ink)}
-.vn-lfleet{margin-top:7px;font-size:13px;color:var(--vn-sub)}
+.vn-lfleet{margin-top:7px;font-size: var(--text-lg);color:var(--vn-sub)}
 .vn-lfleet b{font-weight:600;color:var(--vn-accent)}
 .vn-lpre{margin-top:32px;border-top:.5px solid var(--vn-hair)}
 .vn-lprow{display:flex;align-items:center;gap:10px;padding:12px 2px;
   border-bottom:.5px solid var(--vn-hair)}
 .vn-lpmain{flex:1;min-width:0}
-.vn-lplabel{font-size:11px;font-weight:500;color:var(--vn-sub)}
-.vn-lpname{margin-top:1px;font-size:15px;font-weight:600;color:var(--vn-ink)}
-.vn-lppath{margin-top:2px;font-family:var(--vn-mono);font-size:10px;color:var(--vn-faint)}
+.vn-lplabel{font-size: var(--text-sm);font-weight:500;color:var(--vn-sub)}
+.vn-lpname{margin-top:1px;font-size: var(--text-2xl);font-weight:600;color:var(--vn-ink)}
+.vn-lppath{margin-top:2px;font-family:var(--vn-mono);font-size: var(--text-xs);color:var(--vn-faint)}
 .vn-lchips{display:flex;gap:6px;padding:12px 2px;border-bottom:.5px solid var(--vn-hair);
   flex-wrap:wrap}
 .vn-lchip{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 11px;
   border-radius:14px;border:1px solid var(--vn-hair);background:var(--vn-card);
-  font-size:12px;font-weight:500;color:var(--vn-ink);cursor:pointer}
+  font-size: var(--text-md);font-weight:500;color:var(--vn-ink);cursor:pointer}
 .vn-lchip .vn-cdot{width:6px;height:6px;border-radius:50%}
 .vn-lchip svg{color:var(--vn-faint)}
-.vn-lhint{margin-top:14px;font-size:11.5px;line-height:1.45;color:var(--vn-faint)}
+.vn-lhint{margin-top:14px;font-size: var(--text-sm);line-height:1.45;color:var(--vn-faint)}
 
 /* Composer — bottom-pinned, one-line at rest, expands on tap */
 .vn-lcomposer{position:absolute;left:16px;right:16px;bottom:30px;z-index:21;cursor:pointer}
 .vn-lc-idle{display:flex;align-items:center;gap:8px;background:var(--vn-card);
   border-radius:24px;padding:6px 6px 6px 16px;box-shadow:0 1px 3px rgba(0,0,0,.07)}
-.vn-lc-idle .vn-ph{flex:1;font-size:14.5px;color:var(--vn-faint)}
+.vn-lc-idle .vn-ph{flex:1;font-size: var(--text-xl);color:var(--vn-faint)}
 .vn-lc-idle .vn-send,.vn-lc-send{width:32px;height:32px;border-radius:50%;flex:none;
   background:var(--vn-accent);color:#fff;display:flex;align-items:center;justify-content:center}
 .vn-lc-open{background:var(--vn-card);border-radius:20px;padding:12px 14px 10px;
   box-shadow:0 2px 12px rgba(0,0,0,.09);cursor:default}
-.vn-lc-line{font-size:14.5px;color:var(--vn-faint);padding:2px 2px 11px}
+.vn-lc-line{font-size: var(--text-xl);color:var(--vn-faint);padding:2px 2px 11px}
 .vn-lc-rule{height:.5px;background:var(--vn-hair)}
 .vn-lc-row{display:flex;align-items:center;gap:6px;padding-top:10px}
 .vn-lc-chip{display:inline-flex;align-items:center;gap:4px;height:25px;padding:0 9px;
-  border-radius:12.5px;border:1px solid var(--vn-hair);font-size:11px;font-weight:500;
+  border-radius:12.5px;border:1px solid var(--vn-hair);font-size: var(--text-sm);font-weight:500;
   color:var(--vn-ink);white-space:nowrap}
 .vn-lc-chip .vn-cdot{width:5px;height:5px;border-radius:50%}
 .vn-lc-chip svg{color:var(--vn-faint)}
@@ -275,7 +275,7 @@ const VN_CSS = `
   box-shadow:inset 0 1px 0 #433A30,0 6px 16px rgba(0,0,0,.55),0 0 0 1px rgba(16,185,129,.35);
   display:flex;align-items:center;justify-content:center}
 .vn-op-tag{position:absolute;top:14px;left:14px;font-family:var(--vn-mono);
-  font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:#6b6b6b}
+  font-size: var(--text-2xs);letter-spacing:.16em;text-transform:uppercase;color:#6b6b6b}
 `;
 
 /* ────────────────────────────────────────────────────────────────────
@@ -578,14 +578,14 @@ function LaunchFrame({ open, onToggle }: { open: boolean; onToggle: () => void }
 function NavAnnotation() {
   return (
     <div className="hidden w-[108px] flex-none flex-col items-center gap-2 pt-[40px] lg:flex">
-      <span className="text-center font-mono text-[8.5px] uppercase tracking-[0.14em] text-studio-ink-faint">
+      <span className="text-center font-mono text-3xs uppercase tracking-[0.14em] text-studio-ink-faint">
         top-left anchor
       </span>
       <svg width="96" height="22" viewBox="0 0 96 22" aria-hidden>
         <line x1="2" y1="11" x2="82" y2="11" stroke="var(--studio-edge-strong)" strokeWidth="1" />
         <polygon points="82,5 94,11 82,17" fill="var(--studio-edge-strong)" />
       </svg>
-      <span className="text-center font-mono text-[8.5px] uppercase leading-relaxed tracking-[0.14em] text-studio-ink-faint">
+      <span className="text-center font-mono text-3xs uppercase leading-relaxed tracking-[0.14em] text-studio-ink-faint">
         opens Overview
         <br />
         (supervision)
@@ -597,7 +597,7 @@ function NavAnnotation() {
 /** Caption under a phone frame — name, role, and the landing-default badge. */
 function FrameCaption({ name, role, isDefault }: { name: string; role: string; isDefault?: boolean }) {
   return (
-    <div className="mt-4 flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.14em] text-studio-ink-faint">
+    <div className="mt-4 flex items-center gap-2 font-mono text-2xs uppercase tracking-[0.14em] text-studio-ink-faint">
       <span className="text-studio-ink-muted">{name}</span>
       <span>·</span>
       <span>{role}</span>
@@ -667,20 +667,20 @@ function Notes({
   callouts: { mark: string; text: string }[];
 }) {
   return (
-    <div className="max-w-[440px] font-sans text-[12px] leading-relaxed text-studio-ink-muted">
+    <div className="max-w-[440px] font-sans text-md leading-relaxed text-studio-ink-muted">
       <span
-        className="font-mono text-[9px] uppercase tracking-[0.14em]"
+        className="font-mono text-2xs uppercase tracking-[0.14em]"
         style={{ color: rec ? "var(--scout-accent)" : "var(--studio-ink-faint)" }}
       >
         {tag}
       </span>
-      <h2 className="mb-2 mt-1.5 font-display text-[16px] font-medium tracking-tight text-studio-ink">{title}</h2>
+      <h2 className="mb-2 mt-1.5 font-display text-2xl font-medium tracking-tight text-studio-ink">{title}</h2>
       <div className="space-y-3 [&_b]:font-semibold [&_b]:text-studio-ink [&_ul]:list-disc [&_ul]:space-y-1.5 [&_ul]:pl-4">
         {children}
       </div>
       <div className="mt-4 space-y-1.5 border-t border-studio-edge pt-3">
         {callouts.map((c) => (
-          <div key={c.text} className="flex gap-2 text-[10.5px] text-studio-ink-faint">
+          <div key={c.text} className="flex gap-2 text-xs text-studio-ink-faint">
             <span className="w-4 flex-none not-italic" style={{ color: "var(--scout-accent)" }}>
               {c.mark}
             </span>
@@ -720,10 +720,10 @@ export default function IosHomeVanillaStudy() {
 
       <header className="mb-7 max-w-prose">
         <EyebrowLabel size="sm">· studies · ios · persona lanes</EyebrowLabel>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Everyday Home
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           One product, two personalities. The <b className="font-semibold text-studio-ink">Operator lane</b>{" "}
           keeps the crown — hex identity, corner complications, machined console. The{" "}
           <b className="font-semibold text-studio-ink">Everyday lane</b> is the same fleet, the same
@@ -737,7 +737,7 @@ export default function IosHomeVanillaStudy() {
       </header>
 
       {/* Lane switcher + landing preference */}
-      <div className="mb-9 flex max-w-[840px] flex-wrap items-center gap-x-6 gap-y-2 border-y border-studio-edge py-2.5 font-mono text-[10px] text-studio-ink-faint">
+      <div className="mb-9 flex max-w-[840px] flex-wrap items-center gap-x-6 gap-y-2 border-y border-studio-edge py-2.5 font-mono text-xs text-studio-ink-faint">
         <span className="text-studio-ink-muted">Persona lane:</span>
         <div className="flex overflow-hidden rounded-[4px] border border-studio-edge">
           {(["everyday", "operator"] as Lane[]).map((l) => (
@@ -874,8 +874,8 @@ export default function IosHomeVanillaStudy() {
             </Notes>
           </section>
 
-          <div className="mt-2 mb-4 max-w-[820px] border-l-2 border-studio-edge pl-3.5 font-sans text-[11px] leading-relaxed text-studio-ink-faint">
-            <b className="font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-studio-ink-muted">
+          <div className="mt-2 mb-4 max-w-[820px] border-l-2 border-studio-edge pl-3.5 font-sans text-sm leading-relaxed text-studio-ink-faint">
+            <b className="font-mono text-2xs font-semibold uppercase tracking-[0.1em] text-studio-ink-muted">
               Lane rule
             </b>
             <p className="mt-1.5">
@@ -910,7 +910,7 @@ export default function IosHomeVanillaStudy() {
         </section>
       )}
 
-      <p className="mt-2 border-t border-studio-edge pt-5 font-sans text-[11px] leading-relaxed text-studio-ink-faint">
+      <p className="mt-2 border-t border-studio-edge pt-5 font-sans text-sm leading-relaxed text-studio-ink-faint">
         Content mirrors the shipped home (<code className="font-mono text-studio-ink-muted">apps/ios/Scout/HomeSurface.swift</code>:
         vitals · working · activity · ask) and the shipped surface list (
         <code className="font-mono text-studio-ink-muted">RootView.swift</code>). The Launch frame

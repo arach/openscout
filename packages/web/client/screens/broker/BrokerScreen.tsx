@@ -1,5 +1,6 @@
-import { ArrowDown, ArrowRight, AtSign, Bot, Check, ChevronDown, Copy, ExternalLink, Hash, LoaderCircle, MessageSquare, Paperclip, Plus, Radio, RefreshCw, SendHorizontal, Sparkles, X } from "lucide-react";
+import { ArrowDown, ArrowRight, AtSign, Bot, Check, ChevronDown, Copy, ExternalLink, Hash, LoaderCircle, Maximize2, MessageSquare, Minimize2, Paperclip, Plus, Radio, RefreshCw, SendHorizontal, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { DictationMic } from "../../components/DictationMic.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { RuntimePicker } from "../../components/MessageComposer/index.ts";
@@ -23,6 +24,7 @@ import {
   brokerAttemptDetailLimit,
   brokerAttemptErrorSummary,
   brokerAttemptIsFailure,
+  brokerAttemptTargetAgent,
   brokerAttemptContextText,
   brokerDispatchReviewRequest,
   brokerMessageFeedRows,
@@ -32,6 +34,7 @@ import {
 import { BrokerMetadataPanel } from "./BrokerMetadataPanel.tsx";
 import { brokerDiagnosticsUrl } from "./broker-query.ts";
 import { useBrokerLedgerKeyboard } from "./useBrokerLedgerKeyboard.ts";
+import { ShikiPane } from "../code/ShikiPane.tsx";
 import { defineSurface } from "../../surfaces/types.ts";
 import "../system-surfaces-redesign.css";
 
@@ -444,7 +447,11 @@ export function BrokerScreen({
 
   const feedRows = useMemo(() => {
     if (!broker) return [];
-    return brokerMessageFeedRows(broker.attempts);
+    const messageBodies = new Map(broker.dialogue.map((message) => [message.id, message.body]));
+    return brokerMessageFeedRows(broker.attempts).map((attempt) => {
+      const body = attempt.messageId ? messageBodies.get(attempt.messageId) : null;
+      return body && body !== attempt.detail ? { ...attempt, detail: body } : attempt;
+    });
   }, [broker]);
 
   const activeRows = useMemo(() => {
@@ -843,6 +850,107 @@ type DispatchAskResponse = {
 
 type DispatchActionStatus = "idle" | "sending" | "sent" | "failed";
 
+function dispatchPayloadSource(payload: string): {
+  code: string;
+  path: "payload.json" | "payload.md";
+  language: "JSON" | "Text · Markdown";
+} {
+  const trimmed = payload.trim();
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      return {
+        code: JSON.stringify(JSON.parse(trimmed), null, 2),
+        path: "payload.json",
+        language: "JSON",
+      };
+    } catch {
+      // A prose payload can legitimately begin with a bracket. Preserve it.
+    }
+  }
+  return { code: payload, path: "payload.md", language: "Text · Markdown" };
+}
+
+function DispatchPayloadViewer({ payload }: { payload: string }) {
+  const source = useMemo(() => dispatchPayloadSource(payload), [payload]);
+  const [expanded, setExpanded] = useState(false);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const lineCount = source.code.split("\n").length;
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog || !expanded || dialog.open) return;
+    dialog.showModal();
+  }, [expanded]);
+
+  useEffect(() => {
+    setExpanded(false);
+  }, [payload]);
+
+  const code = (
+    <div
+      className="sys-broker-payload-code"
+      data-language={source.path === "payload.json" ? "json" : "markdown"}
+      role="region"
+      aria-label={`Dispatch payload, ${source.language}`}
+      tabIndex={0}
+    >
+      <ShikiPane code={source.code} path={source.path} />
+    </div>
+  );
+
+  return (
+    <>
+      <div className="sys-broker-payload-head">
+        <span className="sys-detail-label">Payload</span>
+        <span className="sys-broker-payload-meta">{source.language} · {lineCount} {lineCount === 1 ? "line" : "lines"}</span>
+        <CopyIconButton value={payload} subject="payload" />
+        <button
+          type="button"
+          className="sys-copy-btn sys-broker-payload-expand"
+          onClick={() => setExpanded(true)}
+          title="Expand payload"
+          aria-label="Expand payload"
+        >
+          <Maximize2 size={14} aria-hidden="true" />
+        </button>
+      </div>
+      <div className="sys-broker-payload-resizer">{code}</div>
+
+      {expanded && createPortal(
+        <dialog
+          ref={dialogRef}
+          className="sys-broker-payload-dialog"
+          aria-label="Expanded dispatch payload"
+          onCancel={(event) => {
+            event.preventDefault();
+            setExpanded(false);
+          }}
+          onClose={() => setExpanded(false)}
+        >
+          <header className="sys-broker-payload-dialog-head">
+            <div>
+              <span className="sys-detail-label">Dispatch payload</span>
+              <span className="sys-broker-payload-meta">{source.language} · {lineCount} {lineCount === 1 ? "line" : "lines"}</span>
+            </div>
+            <CopyIconButton value={payload} subject="payload" />
+            <button
+              type="button"
+              className="sys-copy-btn"
+              onClick={() => setExpanded(false)}
+              title="Return payload to inspector"
+              aria-label="Return payload to inspector"
+            >
+              <Minimize2 size={14} aria-hidden="true" />
+            </button>
+          </header>
+          <div className="sys-broker-payload-dialog-body">{code}</div>
+        </dialog>,
+        document.body,
+      )}
+    </>
+  );
+}
+
 export function BrokerAttemptInspector({
   attempt,
   navigate,
@@ -897,8 +1005,8 @@ export function BrokerAttemptInspector({
     [agents, scoutbotAgentId],
   );
   const originalTargetAgentId = useMemo(
-    () => dispatchEndpointAgent(routableAgents, attempt.target)?.id ?? "",
-    [attempt.target, routableAgents],
+    () => brokerAttemptTargetAgent(attempt, routableAgents)?.id ?? "",
+    [attempt, routableAgents],
   );
   const defaultForwardAgentId = routableAgents.some((agent) => agent.id === scoutbotAgentId)
     ? scoutbotAgentId
@@ -1242,8 +1350,7 @@ export function BrokerAttemptInspector({
         </dl>
 
         <section className="sys-broker-payload">
-          <span className="sys-detail-label">Payload</span>
-          <p>{attempt.detail}</p>
+          <DispatchPayloadViewer payload={attempt.detail} />
           {isFailure && errorSummary && (
             <div className="sys-broker-inspector-error" role="status">
               <span className="sys-broker-inspector-error-label">Error</span>
@@ -1306,12 +1413,17 @@ export function BrokerAttemptInspector({
               >
                 {routableAgents.length === 0 ? (
                   <option value="">No agents available</option>
-                ) : routableAgents.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.id === scoutbotAgentId ? "Scout" : agent.name}
-                    {agent.project ? ` · ${agent.project}` : ""}
-                  </option>
-                ))}
+                ) : (
+                  <>
+                    {!redispatchAgentId && <option value="">Original destination unavailable</option>}
+                    {routableAgents.map((agent) => (
+                      <option key={agent.id} value={agent.id}>
+                        {agent.id === scoutbotAgentId ? "Scout" : agent.name}
+                        {agent.project ? ` · ${agent.project}` : ""}
+                      </option>
+                    ))}
+                  </>
+                )}
               </select>
             </label>
             <button

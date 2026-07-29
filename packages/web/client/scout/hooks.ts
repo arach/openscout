@@ -70,10 +70,7 @@ export function useScoutCommands(): CommandOption[] {
       {
         id: "nav:settings",
         label: "Open Settings",
-        action: () => navigate(
-          { view: "settings", section: "operator" },
-          { state: { settingsEntry: true } },
-        ),
+        action: () => navigate({ view: "settings", section: "appearance" }),
         shortcut: "Cmd+,",
       },
       ...(scoutbotEnabled ? [{
@@ -92,7 +89,7 @@ export function useScoutCommands(): CommandOption[] {
       {
         id: "nav:pair",
         label: "Pair Device",
-        action: () => openSettings(),
+        action: () => navigate({ view: "settings", section: "devices" }),
       },
       {
         id: "scout:reload",

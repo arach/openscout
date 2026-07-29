@@ -15,7 +15,7 @@ export function SourceLinks({ paths }: { paths: string[] }) {
 
   return (
     <>
-      <ul className="flex flex-col gap-1 font-mono text-[11px] leading-relaxed text-studio-ink-faint">
+      <ul className="flex flex-col gap-1 font-mono text-sm leading-relaxed text-studio-ink-faint">
         {paths.map((p) => (
           <li key={p}>
             <button

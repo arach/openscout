@@ -58,7 +58,7 @@ export function TerminalInspector() {
 
   if (!agent) {
     return (
-      <div className="flex h-full flex-col gap-4 overflow-y-auto p-4 text-[11px] frame-scrollbar">
+      <div className="flex h-full flex-col gap-4 overflow-y-auto p-4 text-sm frame-scrollbar">
         <Section label="Terminal">
           <Row label="Mode" value={modeLabel(mode)} />
           {route.agentId && <Row label="Agent" value={route.agentId} />}
@@ -71,7 +71,7 @@ export function TerminalInspector() {
   }
 
   return (
-    <div className="flex h-full flex-col gap-4 overflow-y-auto p-4 text-[11px] frame-scrollbar">
+    <div className="flex h-full flex-col gap-4 overflow-y-auto p-4 text-sm frame-scrollbar">
       <AgentHeader agent={agent} />
 
       <Section label="Terminal">
@@ -169,11 +169,11 @@ function AgentHeader({ agent }: { agent: Agent }) {
       <div className="flex items-center gap-2.5">
         <AgentAvatar agent={agent} placement="row" size={32} presence={false} />
         <div className="min-w-0">
-          <div className="truncate text-[13px] leading-snug text-[var(--scout-chrome-ink-strong)]">
+          <div className="truncate text-lg leading-snug text-[var(--scout-chrome-ink-strong)]">
             {agent.name}
           </div>
           {agent.handle && (
-            <div className="truncate font-mono text-[10px] text-cyan-400/70">
+            <div className="truncate font-mono text-xs text-cyan-400/70">
               @{agent.handle}
             </div>
           )}
@@ -196,7 +196,7 @@ function ModeButton({
     <button
       type="button"
       onClick={onClick}
-      className={`h-7 rounded border px-2 font-mono text-[9px] uppercase tracking-[0.1em] transition-colors ${
+      className={`h-7 rounded border px-2 font-mono text-2xs uppercase tracking-[0.1em] transition-colors ${
         active
           ? "border-cyan-400/35 bg-cyan-400/[0.12] text-cyan-200"
           : "border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] text-[var(--scout-chrome-ink-soft)] hover:bg-[var(--scout-chrome-active)] hover:text-[var(--scout-chrome-ink)]"
@@ -219,13 +219,13 @@ function CommandDisclosure({ label, command }: { label: string; command: string 
   const [copied, setCopied] = useState(false);
   return (
     <details className="rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] p-2">
-      <summary className="cursor-pointer select-none font-mono text-[9px] uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
+      <summary className="cursor-pointer select-none font-mono text-2xs uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
         {label}
       </summary>
       <div className="mb-1.5 mt-2 flex items-center justify-end gap-2">
         <button
           type="button"
-          className="rounded border border-cyan-400/20 bg-cyan-400/[0.08] px-2 py-1 font-mono text-[9px] uppercase tracking-[0.1em] text-cyan-100/80 hover:bg-cyan-400/[0.14]"
+          className="rounded border border-cyan-400/20 bg-cyan-400/[0.08] px-2 py-1 font-mono text-2xs uppercase tracking-[0.1em] text-cyan-100/80 hover:bg-cyan-400/[0.14]"
           onClick={() => {
             void copyTextToClipboard(command).then((ok) => {
               if (!ok) return;
@@ -237,7 +237,7 @@ function CommandDisclosure({ label, command }: { label: string; command: string 
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
-      <code className="block select-text break-all rounded bg-black/25 p-2 font-mono text-[10px] leading-relaxed text-[var(--scout-chrome-ink)]">
+      <code className="block select-text break-all rounded bg-black/25 p-2 font-mono text-xs leading-relaxed text-[var(--scout-chrome-ink)]">
         {command}
       </code>
     </details>
@@ -253,7 +253,7 @@ function Section({
 }) {
   return (
     <div className="flex flex-col">
-      <div className="mb-1.5 text-[9px] font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
+      <div className="mb-1.5 text-2xs font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
         {label}
       </div>
       {children}
@@ -264,10 +264,10 @@ function Section({
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline justify-between gap-2 py-0.5">
-      <span className="shrink-0 text-[10px] font-mono uppercase tracking-wider text-[var(--scout-chrome-ink-faint)]">
+      <span className="shrink-0 text-xs font-mono uppercase tracking-wider text-[var(--scout-chrome-ink-faint)]">
         {label}
       </span>
-      <span className="truncate text-right text-[11px] font-mono text-[var(--scout-chrome-ink)]">
+      <span className="truncate text-right text-sm font-mono text-[var(--scout-chrome-ink)]">
         {value}
       </span>
     </div>

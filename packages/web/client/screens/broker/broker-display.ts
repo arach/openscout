@@ -1,6 +1,6 @@
 import { brokerAttemptTone } from "../../lib/status-tone.ts";
 import { SCOUTBOT_SUBMIT_EVENT } from "../../lib/scoutbot.ts";
-import type { BrokerRouteAttempt } from "../../lib/types.ts";
+import type { Agent, BrokerRouteAttempt } from "../../lib/types.ts";
 
 const FAILURE_DETAIL_CHARS = 220;
 const SUCCESS_DETAIL_CHARS = 92;
@@ -19,6 +19,69 @@ function readRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+function normalizedAgentAddress(value: string): string {
+  return value.trim().replace(/^@/, "").toLowerCase();
+}
+
+function agentMatchesAddress(agent: Agent, address: string): boolean {
+  const needle = normalizedAgentAddress(address);
+  return [
+    agent.id,
+    agent.name,
+    agent.handle,
+    agent.selector,
+    agent.defaultSelector,
+    agent.conversationId,
+    agent.harnessSessionId,
+  ].some((candidate) => candidate && normalizedAgentAddress(candidate) === needle);
+}
+
+function appendAddressCandidate(candidates: string[], value: unknown): void {
+  if (typeof value === "string" && value.trim()) {
+    candidates.push(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) appendAddressCandidate(candidates, item);
+  }
+}
+
+/**
+ * Resolve the concrete agent a Dispatch row actually addressed. Broker rows can
+ * use a session id as their visible target while keeping the stable agent name
+ * only in relay metadata, so checking `attempt.target` alone is insufficient.
+ * Candidate ordering intentionally keeps the visible/canonical destination
+ * ahead of labels copied into ancillary metadata.
+ */
+export function brokerAttemptTargetAgent(
+  attempt: BrokerRouteAttempt,
+  agents: Agent[],
+): Agent | null {
+  const metadata = attempt.metadata ?? {};
+  const raw = readRecord(metadata.raw);
+  const candidates: string[] = [];
+
+  appendAddressCandidate(candidates, attempt.target);
+  for (const key of ["targetAgentId", "targetId", "targetSessionId", "relayTarget", "relayTargetIds"] as const) {
+    appendAddressCandidate(candidates, metadata[key]);
+  }
+  if (raw) {
+    for (const key of ["targetAgentId", "targetSessionId", "relayTarget", "relayTargetIds", "targetId"] as const) {
+      appendAddressCandidate(candidates, raw[key]);
+    }
+  }
+  for (const key of ["targetDisplayName", "targetLabel"] as const) {
+    appendAddressCandidate(candidates, metadata[key]);
+    if (raw) appendAddressCandidate(candidates, raw[key]);
+  }
+
+  for (const candidate of new Set(candidates.map(normalizedAgentAddress))) {
+    const agent = agents.find((entry) => agentMatchesAddress(entry, candidate));
+    if (agent) return agent;
+  }
+  return null;
 }
 
 function normalizeFingerprintPart(value: string): string {

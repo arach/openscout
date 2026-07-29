@@ -753,7 +753,7 @@ describe("local agent lifecycle", () => {
     ]);
   });
 
-  test("forks an OpenScout codex agent outside the Ranger manifest identity", async () => {
+  test("forks a manually named codex agent outside the Ranger manifest identity", async () => {
     const home = useIsolatedOpenScoutHome();
     const workspaceRoot = join(home, "dev");
     const projectRoot = join(workspaceRoot, "openscout");
@@ -792,28 +792,28 @@ describe("local agent lifecycle", () => {
       },
     });
 
-    const openscout = await startLocalAgent({
+    const fieldAgent = await startLocalAgent({
       projectPath: projectRoot,
-      agentName: "openscout",
-      displayName: "OpenScout",
+      agentName: "field-agent",
+      displayName: "Field Agent",
       harness: "codex",
       model: "gpt-5.4",
       ensureOnline: false,
     });
 
     const overrides = await readRelayAgentOverrides();
-    expect(openscout.definitionId).toBe("openscout");
-    expect(overrides[openscout.agentId]).toMatchObject({
-      definitionId: "openscout",
-      displayName: "OpenScout",
+    expect(fieldAgent.definitionId).toBe("field-agent");
+    expect(overrides[fieldAgent.agentId]).toMatchObject({
+      definitionId: "field-agent",
+      displayName: "Field Agent",
       projectRoot,
       projectConfigPath: null,
       source: "manual",
       defaultHarness: "codex",
     });
-    expect(overrides[openscout.agentId]?.runtime?.sessionId).toContain("openscout");
-    expect(overrides[openscout.agentId]?.runtime?.sessionId).not.toBe("relay-ranger-codex");
-    expect(overrides[openscout.agentId]?.systemPrompt).toBeUndefined();
+    expect(overrides[fieldAgent.agentId]?.runtime?.sessionId).toContain("field-agent");
+    expect(overrides[fieldAgent.agentId]?.runtime?.sessionId).not.toBe("relay-ranger-codex");
+    expect(overrides[fieldAgent.agentId]?.systemPrompt).toBeUndefined();
     expect(overrides["ranger.test-node"]).toMatchObject({
       definitionId: "ranger",
       projectConfigPath: manifestPath,

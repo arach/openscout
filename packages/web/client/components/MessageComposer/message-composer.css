@@ -45,6 +45,12 @@
   padding: 0;
 }
 
+.s-msg-compose-frame {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
 .s-msg-compose-shell {
   position: relative;
   box-sizing: border-box;
@@ -313,7 +319,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 500;
   letter-spacing: 0.01em;
   color: var(--muted);
@@ -349,7 +355,7 @@
   cursor: inherit;
   border: none;
   background: transparent;
-  font-size: 16px; /* avoid iOS zoom on open */
+  font-size: var(--text-2xl); /* avoid iOS zoom on open */
   appearance: none;
 }
 
@@ -508,7 +514,7 @@
   border-radius: 50%;
   background: color-mix(in srgb, var(--surface-0) 78%, transparent);
   color: var(--text-1);
-  font-size: 12px;
+  font-size: var(--text-md);
   line-height: 1;
   cursor: pointer;
 }
@@ -568,4 +574,235 @@
   font-size: var(--text-xs);
   color: var(--text-3);
   padding-top: var(--space-2xs);
+}
+
+/* Above-the-box slot: same width as the shell, its own object -------------- */
+
+.s-msg-compose-above {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  margin-bottom: var(--space-2xs);
+}
+
+/*
+ * Attached mode: the slot is fused to the top of the shell so the pair reads as
+ * one object. The slot drops its bottom edge and the shell's own top border
+ * becomes the divider between them — one hairline, never two.
+ */
+.s-msg-compose-frame[data-above-attached="true"] .s-msg-compose-above {
+  margin-bottom: 0;
+}
+
+.s-msg-compose-frame[data-above-attached="true"] .s-msg-compose-shell {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/* Queue stack (the shelf fused to the top of the composer box) ------------- */
+
+.s-msg-compose-queue {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-2xs) var(--space-sm) var(--space-xs);
+  border: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+  border-radius: var(--radius-xl) var(--radius-xl) var(--radius-sm) var(--radius-sm);
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+}
+
+/*
+ * Fused to the box: match the shell's border, square off the joined edge, and
+ * drop the bottom border so the shell's top border is the only seam. The tint
+ * is the same recessed mix the in-shell header uses, so the shelf reads as part
+ * of the composer rather than a card resting on it.
+ */
+.s-msg-compose-frame[data-above-attached="true"] .s-msg-compose-queue {
+  padding-bottom: var(--space-2xs);
+  border-color: color-mix(in srgb, var(--border) 60%, var(--surface));
+  border-bottom: none;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  background: color-mix(in srgb, var(--bg) 40%, var(--surface));
+}
+
+.s-msg-compose-frame[data-above-attached="true"]:focus-within
+  .s-msg-compose-queue {
+  border-color: color-mix(in srgb, var(--border) 100%, transparent);
+}
+
+.s-msg-compose-queue-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+  padding-bottom: 2px;
+}
+
+.s-msg-compose-queue-kicker {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.s-msg-compose-queue-hint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  color: var(--text-3);
+}
+
+.s-msg-compose-queue-head .s-msg-compose-steer {
+  margin-left: auto;
+  height: 24px;
+}
+
+.s-msg-compose-queue-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+  min-height: 24px;
+  padding: 2px var(--space-2xs) 2px 0;
+  border-left: 2px solid color-mix(in srgb, var(--scout-accent) 55%, transparent);
+  padding-left: var(--space-xs);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+}
+
+.s-msg-compose-queue-index {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--dim);
+}
+
+.s-msg-compose-queue-body {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  color: var(--text-2);
+}
+
+.s-msg-compose-queue-clip {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--dim);
+}
+
+.s-msg-compose-queue-edit,
+.s-msg-compose-queue-now,
+.s-msg-compose-queue-drop {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+
+.s-msg-compose-queue-drop {
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+}
+
+.s-msg-compose-queue-row:hover .s-msg-compose-queue-edit,
+.s-msg-compose-queue-row:hover .s-msg-compose-queue-now,
+.s-msg-compose-queue-row:hover .s-msg-compose-queue-drop,
+.s-msg-compose-queue-edit:focus-visible,
+.s-msg-compose-queue-now:focus-visible,
+.s-msg-compose-queue-drop:focus-visible {
+  opacity: 1;
+}
+
+.s-msg-compose-queue-edit:hover,
+.s-msg-compose-queue-now:hover,
+.s-msg-compose-queue-drop:hover {
+  color: var(--text-1);
+}
+
+.s-msg-compose-queue-edit:disabled,
+.s-msg-compose-queue-now:disabled,
+.s-msg-compose-queue-drop:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The row currently pulled back into the input box for editing. */
+.s-msg-compose-queue-row[data-editing="true"] {
+  border-left-color: var(--scout-accent);
+  background: color-mix(in srgb, var(--scout-accent) 10%, transparent);
+}
+
+/* Files carried into the box by a queue rewrite (already uploaded). */
+.s-msg-compose-carried {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  padding-bottom: var(--space-2xs);
+}
+
+/* Queue/Steer modifier: what the next Send press does ---------------------- */
+
+.s-msg-compose-mode {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  padding: 1px;
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg) 45%, transparent);
+}
+
+.s-msg-compose-mode-btn {
+  height: 20px;
+  padding: 0 var(--space-2xs);
+  border: none;
+  border-radius: calc(var(--radius-sm) - 1px);
+  background: transparent;
+  color: var(--text-3);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.s-msg-compose-mode-btn:hover:not(:disabled) {
+  color: var(--text-1);
+}
+
+.s-msg-compose-mode-btn[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--text-1);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 12%, transparent);
+}
+
+/* Steer is the interrupting read of the two — say so once it is armed. */
+.s-msg-compose-mode-btn[aria-pressed="true"][data-mode="steer"] {
+  color: var(--scout-accent);
+}
+
+.s-msg-compose-mode-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }

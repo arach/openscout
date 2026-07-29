@@ -109,6 +109,7 @@ function createHarness(input: {
   agents?: Record<string, AgentDefinition>;
   nodes?: Record<string, NodeDefinition>;
   flights?: Record<string, FlightRecord>;
+  invocations?: Record<string, InvocationRequest>;
   resolution?: InvocationResolution;
   describeRemoteAuthorityIssue?: BrokerInvocationDispatchServiceDeps["describeRemoteAuthorityIssue"];
   describeUnavailableInvocationTarget?: BrokerInvocationDispatchServiceDeps["describeUnavailableInvocationTarget"];
@@ -119,6 +120,7 @@ function createHarness(input: {
   );
   const nodes = input.nodes ?? {};
   const flights = input.flights ?? {};
+  const invocations = input.invocations ?? {};
   const recordInvocationCalls: Array<{
     invocation: InvocationRequest;
     options?: {
@@ -153,7 +155,7 @@ function createHarness(input: {
         bindings: {},
         messages: {},
         readCursors: {},
-        invocations: {},
+        invocations,
         flights,
         collaborationRecords: {},
       }),
@@ -182,6 +184,7 @@ function createHarness(input: {
     },
     async recordInvocation(nextInvocation, options) {
       recordInvocationCalls.push({ invocation: nextInvocation, options });
+      invocations[nextInvocation.id] = nextInvocation;
       const nextFlight = flight({
         invocationId: nextInvocation.id,
         requesterId: nextInvocation.requesterId,
@@ -255,6 +258,47 @@ function createHarness(input: {
 }
 
 describe("BrokerInvocationDispatchService", () => {
+  test("replays a stable invocation id without launching the worker twice", async () => {
+    const harness = createHarness();
+    const request = invocation({ id: "inv-client-stable" });
+
+    const first = await harness.service.handleInvocationRequest(request);
+    const retry = await harness.service.handleInvocationRequest({
+      ...request,
+      createdAt: request.createdAt + 5_000,
+    });
+    await Bun.sleep(0);
+
+    expect(retry).toEqual(first);
+    expect(harness.recordInvocationCalls).toHaveLength(1);
+    expect(harness.launched).toHaveLength(1);
+  });
+
+  test("rejects reuse of an invocation id for a different task", async () => {
+    const harness = createHarness();
+    const request = invocation({ id: "inv-client-stable" });
+    await harness.service.handleInvocationRequest(request);
+
+    await expect(harness.service.handleInvocationRequest({
+      ...request,
+      task: "different work",
+    })).rejects.toThrow("already assigned to a different record");
+  });
+
+  test("rejects reuse of an invocation id with different execution", async () => {
+    const harness = createHarness();
+    const request = invocation({
+      id: "inv-client-stable",
+      execution: { model: "gpt-5.6-sol" },
+    });
+    await harness.service.handleInvocationRequest(request);
+
+    await expect(harness.service.handleInvocationRequest({
+      ...request,
+      execution: { model: "grok-4.20-beta" },
+    })).rejects.toThrow("already assigned to a different record");
+  });
+
   test("resolves invocation requests, records flights, applies projections, and launches locally", async () => {
     const resolvedAgent = agent({ id: "agent-resolved", displayName: "Resolved Agent" });
     const harness = createHarness({

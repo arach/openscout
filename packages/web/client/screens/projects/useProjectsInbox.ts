@@ -222,13 +222,47 @@ function useFetchSnapshot(): FetchSnapshot {
    Every pane feeds computeModel the SAME references (agents from the shared
    Scout context, sessions/fleet/discovery from this loop's snapshot), so a
    single-entry identity cache means the ~149-agent projection runs once and the
-   other two panes read the result. */
+   other two panes read the result.
+
+   The 30s clock tick is intentional (relative timestamps). On rebuild we
+   structurally share unchanged thread/session/project objects so React.memo
+   row components can skip re-render when only the clock advanced and their
+   inputs are identical. */
 
 let modelKey: unknown[] | null = null;
 let modelValue: ProjectsInboxModel | null = null;
 
 function sameKey(a: unknown[] | null, b: unknown[]): boolean {
   return Boolean(a) && a!.length === b.length && a!.every((value, index) => value === b[index]);
+}
+
+function shareByKey<T>(
+  previous: T[] | undefined,
+  next: T[],
+  keyOf: (item: T) => string,
+): T[] {
+  if (!previous?.length) return next;
+  const priorByKey = new Map(previous.map((item) => [keyOf(item), item]));
+  let allShared = previous.length === next.length;
+  const shared = next.map((item, index) => {
+    const prior = priorByKey.get(keyOf(item));
+    const kept = prior ? keepPreviousIfJsonEqual(prior, item) : item;
+    if (kept !== previous[index]) allShared = false;
+    return kept;
+  });
+  return allShared ? previous : shared;
+}
+
+/** Reuse previous item identities when projection inputs did not change. */
+function shareModelItems(previous: ProjectsInboxModel | null, next: ProjectsInboxModel): ProjectsInboxModel {
+  if (!previous) return next;
+  const projects = shareByKey(previous.projects, next.projects, (project) => project.slug);
+  const threads = shareByKey(previous.threads, next.threads, (thread) => thread.id);
+  const sessions = shareByKey(previous.sessions, next.sessions, (session) => session.id);
+  if (projects === previous.projects && threads === previous.threads && sessions === previous.sessions) {
+    return previous;
+  }
+  return { projects, threads, sessions };
 }
 
 function computeModel(input: BuildInboxInput): ProjectsInboxModel {
@@ -242,7 +276,8 @@ function computeModel(input: BuildInboxInput): ProjectsInboxModel {
     input.showEphemeral,
   ];
   if (sameKey(modelKey, key) && modelValue) return modelValue;
-  const value = buildProjectsInboxModel(input);
+  const built = buildProjectsInboxModel(input);
+  const value = shareModelItems(modelValue, built);
   modelKey = key;
   modelValue = value;
   return value;

@@ -89,12 +89,12 @@ export function SessionsInspector() {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
+    <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-sm">
       <div className="border-b border-[var(--scout-chrome-border-soft)] pb-3">
-        <div className="text-[13px] leading-snug text-[var(--scout-chrome-ink-strong)]">
+        <div className="text-lg leading-snug text-[var(--scout-chrome-ink-strong)]">
           {selected.title}
         </div>
-        <div className="text-[10px] font-mono uppercase tracking-wider text-cyan-400/70 mt-1">
+        <div className="text-xs font-mono uppercase tracking-wider text-cyan-400/70 mt-1">
           {selected.kind}
         </div>
       </div>
@@ -129,7 +129,7 @@ export function SessionsInspector() {
 
       {selected.preview && (
         <Section label="Preview">
-          <div className="text-[11px] italic leading-relaxed text-[var(--scout-chrome-ink-soft)]">
+          <div className="text-sm italic leading-relaxed text-[var(--scout-chrome-ink-soft)]">
             "{selected.preview}"
           </div>
         </Section>
@@ -184,9 +184,9 @@ function SessionsDirectoryContextPanel({
   const surfaceLabel = liveProcesses > 0 ? "Live harness activity" : "Quiet session surface";
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
+    <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-sm">
       <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] p-2.5">
-        <div className="text-[9px] font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
+        <div className="text-2xs font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
           Sessions context
         </div>
         <div className="mt-2 grid grid-cols-3 gap-1">
@@ -194,7 +194,7 @@ function SessionsDirectoryContextPanel({
           <MiniStat label="Raw" value={`${totalRaw}`} />
           <MiniStat label="Live" value={`${liveProcesses}`} />
         </div>
-        <div className="mt-2 flex items-center justify-between gap-2 border-t border-[var(--scout-chrome-border-soft)] pt-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
+        <div className="mt-2 flex items-center justify-between gap-2 border-t border-[var(--scout-chrome-border-soft)] pt-2 font-mono text-2xs uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
           <span>{surfaceLabel}</span>
           <span>{sourceMix.length} sources</span>
         </div>
@@ -227,17 +227,17 @@ function SessionsDirectoryContextPanel({
                   disabled={!refId}
                 >
                   <div className="flex items-center gap-2">
-                    <span className="shrink-0 rounded-sm bg-[var(--scout-chrome-bg)] px-1 py-0.5 font-mono text-[8px] uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-faint)]">
+                    <span className="shrink-0 rounded-sm bg-[var(--scout-chrome-bg)] px-1 py-0.5 font-mono text-3xs uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-faint)]">
                       {transcript.source || "raw"}
                     </span>
-                    <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--scout-chrome-ink)]">
+                    <span className="min-w-0 flex-1 truncate text-sm text-[var(--scout-chrome-ink)]">
                       {transcriptProjectLabel(transcript)}
                     </span>
-                    <span className="shrink-0 font-mono text-[9px] text-[var(--scout-chrome-ink-faint)]">
+                    <span className="shrink-0 font-mono text-2xs text-[var(--scout-chrome-ink-faint)]">
                       {timeAgo(transcript.mtimeMs)}
                     </span>
                   </div>
-                  <div className="mt-0.5 truncate font-mono text-[9px] text-[var(--scout-chrome-ink-ghost)]">
+                  <div className="mt-0.5 truncate font-mono text-2xs text-[var(--scout-chrome-ink-ghost)]">
                     {refId ?? pathLeaf(transcript.transcriptPath)}
                   </div>
                 </button>
@@ -259,10 +259,10 @@ function SessionsDirectoryContextPanel({
                 className="flex items-center gap-2 bg-transparent px-0 py-0.5 text-left"
                 onClick={() => openContent(navigate, { view: "sessions", sessionId: session.id }, { returnTo: route })}
               >
-                <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--scout-chrome-ink-soft)]">
+                <span className="min-w-0 flex-1 truncate text-sm text-[var(--scout-chrome-ink-soft)]">
                   {session.title}
                 </span>
-                <span className="shrink-0 font-mono text-[9px] text-[var(--scout-chrome-ink-faint)]">
+                <span className="shrink-0 font-mono text-2xs text-[var(--scout-chrome-ink-faint)]">
                   {session.lastMessageAt ? timeAgo(session.lastMessageAt) : "-"}
                 </span>
               </button>
@@ -277,10 +277,10 @@ function SessionsDirectoryContextPanel({
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0 rounded-sm border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-bg)] px-1.5 py-1">
-      <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--scout-chrome-ink-faint)]">
+      <div className="font-mono text-2xs uppercase tracking-[0.1em] text-[var(--scout-chrome-ink-faint)]">
         {label}
       </div>
-      <div className="mt-0.5 truncate font-mono text-[13px] text-[var(--scout-chrome-ink-strong)]">
+      <div className="mt-0.5 truncate font-mono text-lg text-[var(--scout-chrome-ink-strong)]">
         {value}
       </div>
     </div>
@@ -300,7 +300,7 @@ function PillList({
       {items.map((item) => (
         <span
           key={item.label}
-          className="rounded-sm border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--scout-chrome-ink-soft)]"
+          className="rounded-sm border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] px-1.5 py-0.5 font-mono text-xs text-[var(--scout-chrome-ink-soft)]"
           title={`${item.count} ${item.label}`}
         >
           {item.label} {item.count}
@@ -312,7 +312,7 @@ function PillList({
 
 function EmptyLine({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
+    <div className="text-xs font-mono uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
       {children}
     </div>
   );
@@ -327,7 +327,7 @@ function Section({
 }) {
   return (
     <div className="flex flex-col">
-      <div className="mb-1.5 text-[9px] font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
+      <div className="mb-1.5 text-2xs font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
         {label}
       </div>
       {children}
@@ -338,10 +338,10 @@ function Section({
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline justify-between py-0.5 gap-2">
-      <span className="shrink-0 text-[10px] font-mono uppercase tracking-wider text-[var(--scout-chrome-ink-faint)]">
+      <span className="shrink-0 text-xs font-mono uppercase tracking-wider text-[var(--scout-chrome-ink-faint)]">
         {label}
       </span>
-      <span className="truncate text-[11px] font-mono text-[var(--scout-chrome-ink)]">
+      <span className="truncate text-sm font-mono text-[var(--scout-chrome-ink)]">
         {value}
       </span>
     </div>

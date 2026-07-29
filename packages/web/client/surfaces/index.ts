@@ -6,10 +6,8 @@ export type {
   ScoutSurfaceEmbed,
 } from "./types.ts";
 export {
-  embeddableSurfaces,
   listEmbeddableSurfaceSummaries,
   resolveEmbeddableSurface,
-  scoutSurfaces,
 } from "./discover.ts";
 export { shouldBootstrapDiscoveredEmbed } from "./embed-path.ts";
 export { DiscoveredEmbedHost } from "./EmbedHost.tsx";

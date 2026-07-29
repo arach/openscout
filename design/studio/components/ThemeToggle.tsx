@@ -1,41 +1,39 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { useTheme, type HudsonTheme } from "hudsonkit/theme";
 
-export type Theme = "dark" | "light";
-
-const STORAGE_KEY = "openscout-studio:theme";
-
-/** Read the current theme from the html element. Browser-only. */
-function readTheme(): Theme {
-  if (typeof document === "undefined") return "dark";
-  return document.documentElement.dataset.theme === "light" ? "light" : "dark";
-}
-
-/** Persistent dark/light toggle. Writes to localStorage and flips the
- *  `data-theme` attribute on <html>. Mirrors what the inline bootstrap
- *  script (in app/layout.tsx) does at first paint. */
+/**
+ * Dark / light toggle backed by Hudsonkit's ThemeProvider.
+ *
+ * Also mirrors the resolved theme onto `data-theme` so older studio CSS
+ * (eng-doc highlight, CodeViewer, foundation swatches) that still keys
+ * off that attribute keeps working while we migrate fully to
+ * `data-hudson-theme`.
+ */
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>("dark");
+  const { theme, resolvedTheme, setTheme } = useTheme();
+  const active: "dark" | "light" =
+    resolvedTheme === "light" || theme === "light" ? "light" : "dark";
 
   useEffect(() => {
-    setTheme(readTheme());
-  }, []);
+    if (!resolvedTheme) return;
+    document.documentElement.dataset.theme = resolvedTheme;
+  }, [resolvedTheme]);
 
-  const apply = (next: Theme) => {
+  const apply = (next: Exclude<HudsonTheme, "system">) => {
     setTheme(next);
     document.documentElement.dataset.theme = next;
-    try {
-      localStorage.setItem(STORAGE_KEY, next);
-    } catch {
-      /* localStorage may be unavailable — no-op */
-    }
   };
 
   return (
-    <div className="flex items-center gap-px rounded-[3px] border border-studio-edge p-px">
-      <Pill active={theme === "dark"} onClick={() => apply("dark")} label="Dark" />
-      <Pill active={theme === "light"} onClick={() => apply("light")} label="Light" />
+    <div
+      role="group"
+      aria-label="Theme"
+      className="flex w-full items-center gap-0.5 rounded-[5px] border border-studio-edge p-0.5"
+    >
+      <Pill active={active === "dark"} onClick={() => apply("dark")} label="Dark" />
+      <Pill active={active === "light"} onClick={() => apply("light")} label="Light" />
     </div>
   );
 }
@@ -54,9 +52,9 @@ function Pill({
       type="button"
       onClick={onClick}
       className={[
-        "focus-ring flex-1 rounded-[2px] px-2 py-1 font-mono text-2xs font-semibold uppercase tracking-ch transition-colors",
+        "focus-ring flex-1 rounded-[3px] px-2 py-1 font-mono text-2xs font-semibold uppercase tracking-ch transition-colors",
         active
-          ? "bg-studio-canvas-alt text-studio-ink"
+          ? "bg-studio-canvas text-studio-ink shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--studio-ink)_10%,transparent)]"
           : "text-studio-ink-faint hover:text-studio-ink",
       ].join(" ")}
       aria-pressed={active}
@@ -65,8 +63,3 @@ function Pill({
     </button>
   );
 }
-
-/** Inline script body — run before paint to honor the saved theme.
- *  Embedded via dangerouslySetInnerHTML in app/layout.tsx so it
- *  executes synchronously in <head>. */
-export const THEME_BOOTSTRAP_SCRIPT = `(function(){try{var s=localStorage.getItem(${JSON.stringify(STORAGE_KEY)});var t=(s==='light'||s==='dark')?s:'dark';document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();`;

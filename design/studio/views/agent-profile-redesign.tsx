@@ -36,13 +36,13 @@ export default function AgentProfileRedesignPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-6 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · agent-profile-redesign
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Agent Profile · redesign directions
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           Three serious takes on the Agents → profile surface, switchable in place. All kill the
           ballooning grid + dead canvas and split the panes cleanly (center owns the facts, the rail
           is a live Instrument — no duplication). Flip between them; no page-hopping.
@@ -58,7 +58,7 @@ export default function AgentProfileRedesignPage() {
               key={t.id}
               type="button"
               onClick={() => setTab(t.id)}
-              className={`rounded-[5px] px-3 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.1em] transition-colors ${
+              className={`rounded-[5px] px-3 py-1.5 font-mono text-sm font-semibold uppercase tracking-[0.1em] transition-colors ${
                 on
                   ? "bg-studio-surface text-studio-ink"
                   : "text-studio-ink-faint hover:text-studio-ink"
@@ -71,7 +71,7 @@ export default function AgentProfileRedesignPage() {
         })}
         <a
           href={tab === "before" ? undefined : `/studies/agent-profile-${tab}`}
-          className={`ml-auto font-mono text-[9px] uppercase tracking-[0.12em] ${
+          className={`ml-auto font-mono text-2xs uppercase tracking-[0.12em] ${
             tab === "before" ? "pointer-events-none opacity-30" : "text-studio-ink-faint hover:text-studio-ink"
           }`}
         >
@@ -79,7 +79,7 @@ export default function AgentProfileRedesignPage() {
         </a>
       </div>
 
-      <p className="mb-4 max-w-prose font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+      <p className="mb-4 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
         {active.note}
       </p>
 
@@ -103,10 +103,10 @@ export default function AgentProfileRedesignPage() {
       </div>
 
       <section className="mt-9 max-w-prose">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">
           Recommendation
         </div>
-        <p className="font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+        <p className="font-sans text-md leading-relaxed text-studio-ink-faint">
           Build on <span style={{ color: "var(--studio-ink)" }}>Cockpit</span> — a profile for a live
           agent should answer &ldquo;what&apos;s happening&rdquo; before &ldquo;who is this,&rdquo; and
           it&apos;s the most aligned with Scout&apos;s steering / calm-ambient philosophy. Graft

@@ -1,24 +1,51 @@
-import { buildSurfaceRegistry, type SurfaceModule } from "./discover-build.ts";
+import {
+  buildLazySurfaceRegistry,
+  type LazySurfaceModule,
+  type SurfaceModule,
+} from "./discover-build.ts";
 import type { RegisteredSurface } from "./types.ts";
 
-const screenModules = import.meta.glob<SurfaceModule>("../screens/**/*.tsx", {
-  eager: true,
-});
+const screenModules = import.meta.glob<SurfaceModule>("../screens/**/*.tsx");
 
-const { surfaces, embedByPath } = buildSurfaceRegistry(screenModules);
+// The definitions remain beside their screens. This small routing index lets an
+// embed select one lazy module without evaluating every screen just to inspect
+// its scoutSurface export. The lazy registry verifies both copies agree.
+const lazySurfaceModules = [
+  {
+    modulePath: "../screens/broker/BrokerScreen.tsx",
+    embedPaths: ["/embed/dispatch"],
+  },
+  {
+    modulePath: "../screens/chat/ConversationScreen.tsx",
+    embedPaths: ["/embed/thread"],
+  },
+  {
+    modulePath: "../screens/code/CodeScreen.tsx",
+    embedPaths: ["/embed/code"],
+  },
+  {
+    modulePath: "../screens/ops/AgentLanesView.tsx",
+    embedPaths: ["/embed/agent-lanes", "/ops/lanes/embed", "/embed/lanes", "/embed/traces"],
+  },
+  {
+    modulePath: "../screens/projects/ProjectsScreen.tsx",
+    embedPaths: ["/embed/projects"],
+  },
+  {
+    modulePath: "../screens/voice/RealtimeVoiceScreen.tsx",
+    embedPaths: ["/embed/voice"],
+  },
+] as const satisfies readonly LazySurfaceModule[];
 
-/** Every screen that exported `scoutSurface` with an `embed` block. */
-export const scoutSurfaces: readonly RegisteredSurface[] = surfaces;
+const lazyRegistry = buildLazySurfaceRegistry(screenModules, lazySurfaceModules);
 
-/** Screens that can render in a chrome-free embed host. */
-export const embeddableSurfaces: readonly RegisteredSurface[] = surfaces;
-
-export function resolveEmbeddableSurface(pathname: string): RegisteredSurface | null {
-  return embedByPath.get(pathname) ?? null;
+export function resolveEmbeddableSurface(pathname: string): Promise<RegisteredSurface | null> {
+  return lazyRegistry.resolve(pathname);
 }
 
-export function listEmbeddableSurfaceSummaries() {
-  return embeddableSurfaces.map((surface) => ({
+export async function listEmbeddableSurfaceSummaries() {
+  const surfaces = await lazyRegistry.loadAll();
+  return surfaces.map((surface) => ({
     id: surface.id,
     label: surface.label,
     webPath: surface.webPath,

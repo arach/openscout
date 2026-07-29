@@ -324,7 +324,6 @@ CREATE TABLE IF NOT EXISTS invocations (
   message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
   context_json TEXT,
   execution_json TEXT,
-  execution_resolution_json TEXT,
   ensure_awake INTEGER NOT NULL DEFAULT 1,
   stream INTEGER NOT NULL DEFAULT 1,
   timeout_ms INTEGER,
@@ -338,7 +337,8 @@ CREATE TABLE IF NOT EXISTS invocations (
   error TEXT,
   started_at INTEGER,
   completed_at INTEGER,
-  flight_metadata_json TEXT
+  flight_metadata_json TEXT,
+  execution_resolution_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS flights (

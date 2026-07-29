@@ -15,6 +15,11 @@ import {
   useScoutTakeover,
 } from "./hooks.ts";
 import type { ScoutTheme } from "../lib/theme.ts";
+import {
+  SCOUT_THEME_STORAGE_KEY,
+  resolveScoutStartupTemplate,
+} from "../lib/theme.ts";
+import { ThemeProvider } from "hudsonkit/theme";
 
 const intents: AppIntent[] = [
   {
@@ -39,7 +44,18 @@ const intents: AppIntent[] = [
     description:
       "Navigate to the unified chat surface backed by the normalized conversations service",
     category: "navigation",
-    keywords: ["conversations", "comms", "chat", "threads"],
+    // Channel keywords fold in here: route unification retired the separate
+    // Channels destination, so palette search for "channel" lands on Chat.
+    keywords: [
+      "conversations",
+      "comms",
+      "chat",
+      "threads",
+      "channels",
+      "channel",
+      "group",
+      "broadcast",
+    ],
     shortcut: "Cmd+3",
   },
   {
@@ -58,13 +74,6 @@ const intents: AppIntent[] = [
     category: "navigation",
     keywords: ["search", "knowledge", "qmd", "history"],
     shortcut: "Cmd+4",
-  },
-  {
-    commandId: "nav:messages-channels",
-    title: "Go to Chat - Channels",
-    description: "Navigate to the shared-channel chat browser",
-    category: "navigation",
-    keywords: ["channels", "channel", "group", "broadcast"],
   },
   {
     commandId: "nav:activity",
@@ -181,6 +190,7 @@ const intents: AppIntent[] = [
 
 export function createScoutApp(options: { initialTheme?: ScoutTheme } = {}): HudsonApp {
   const { initialTheme = "dark" } = options;
+  const initialTemplate = resolveScoutStartupTemplate();
 
   return {
     id: "openscout",
@@ -212,7 +222,15 @@ export function createScoutApp(options: { initialTheme?: ScoutTheme } = {}): Hud
     ),
 
     Provider: ({ children }: { children: ReactNode }) =>
-      createElement(ScoutProvider, { initialTheme, children }),
+      createElement(
+        ThemeProvider,
+        {
+          defaultTheme: initialTheme,
+          defaultTemplate: initialTemplate,
+          storageKey: SCOUT_THEME_STORAGE_KEY,
+          children: createElement(ScoutProvider, { initialTheme, children }),
+        },
+      ),
 
     leftPanel: {
       title: "Navigation",

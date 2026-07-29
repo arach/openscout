@@ -49,7 +49,7 @@ export function ScoutActivityLogOverlay({
     >
       <div className="flex min-h-0 w-full flex-col">
         <div className="flex h-10 shrink-0 items-center justify-between border border-border border-b-0 bg-card/95 px-3 shadow-[var(--hud-shadow-nav)]">
-          <div className="min-w-0 font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground">
+          <div className="min-w-0 font-mono text-sm font-semibold uppercase tracking-[0.18em] text-foreground">
             Activity Log
           </div>
           <button

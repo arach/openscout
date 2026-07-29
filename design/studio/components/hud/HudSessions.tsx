@@ -162,20 +162,20 @@ function SessionRow({
         {/* Identity row: status dot · agent · @handle · STATUS · ago */}
         <div className="flex items-baseline gap-2">
           <StatusDot status={session.status} />
-          <span className="font-sans text-[13px] font-semibold leading-none tracking-tight text-studio-ink">
+          <span className="font-sans text-lg font-semibold leading-none tracking-tight text-studio-ink">
             {session.agentName}
           </span>
-          <span className="font-mono text-[10px] text-studio-ink-faint">
+          <span className="font-mono text-xs text-studio-ink-faint">
             {session.agentHandle}
           </span>
           <span
-            className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow"
+            className="font-mono text-xs font-semibold uppercase tracking-eyebrow"
             style={{ color: statusColor(session.status) }}
           >
             {session.statusLabel}
           </span>
           <span className="ml-auto inline-flex items-baseline gap-2">
-            <span className="font-mono text-[10px] tabular-nums text-studio-ink-faint">
+            <span className="font-mono text-xs tabular-nums text-studio-ink-faint">
               {session.ago}
             </span>
             <HudScoutLink
@@ -194,21 +194,21 @@ function SessionRow({
         >
           <HarnessChip harness={session.harness} />
           <MetaDot />
-          <span className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-muted">
+          <span className="font-mono text-xs uppercase tracking-eyebrow text-studio-ink-muted">
             {session.project}
           </span>
           <MetaDot />
-          <span className="truncate font-mono text-[10px] text-studio-ink-faint">
+          <span className="truncate font-mono text-xs text-studio-ink-faint">
             {session.branch}
           </span>
           {compact ? null : (
             <>
               <MetaDot />
-              <span className="font-mono text-[10px] tabular-nums text-studio-ink-faint">
+              <span className="font-mono text-xs tabular-nums text-studio-ink-faint">
                 {session.duration}
               </span>
               <MetaDot />
-              <span className="font-mono text-[10px] tabular-nums text-studio-ink-faint">
+              <span className="font-mono text-xs tabular-nums text-studio-ink-faint">
                 {session.messages} msg
               </span>
             </>
@@ -219,12 +219,12 @@ function SessionRow({
         <div
           className={
             compact
-              ? "mt-1.5 truncate font-sans text-[11px] leading-snug text-studio-ink-muted"
-              : "mt-2 font-sans text-[12px] leading-snug text-studio-ink-muted"
+              ? "mt-1.5 truncate font-sans text-sm leading-snug text-studio-ink-muted"
+              : "mt-2 font-sans text-md leading-snug text-studio-ink-muted"
           }
           style={{ paddingLeft: 14 }}
         >
-          <span className="font-mono text-[10px] text-studio-ink-faint">↪</span>{" "}
+          <span className="font-mono text-xs text-studio-ink-faint">↪</span>{" "}
           {session.lastTurn}
         </div>
       </button>
@@ -250,14 +250,14 @@ function SessionDetail({
     <div
       className={`border-t border-studio-edge bg-studio-canvas-alt ${padX} py-2.5`}
     >
-      <div className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · last turn
       </div>
-      <div className="mt-1 font-sans text-[12px] leading-snug text-studio-ink">
+      <div className="mt-1 font-sans text-md leading-snug text-studio-ink">
         {session.lastTurn}
       </div>
 
-      <dl className="mt-2.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-[3px] font-mono text-[10px] leading-snug">
+      <dl className="mt-2.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-[3px] font-mono text-xs leading-snug">
         <dt className="uppercase tracking-eyebrow text-studio-ink-faint">
           ref
         </dt>
@@ -309,14 +309,14 @@ function SessionDetailLarge({ session }: { session: AgentSession }) {
       {/* Header */}
       <header className="flex items-baseline gap-2">
         <StatusDot status={session.status} />
-        <span className="font-sans text-[15px] font-semibold leading-none tracking-tight text-studio-ink">
+        <span className="font-sans text-2xl font-semibold leading-none tracking-tight text-studio-ink">
           {session.agentName}
         </span>
-        <span className="font-mono text-[11px] text-studio-ink-faint">
+        <span className="font-mono text-sm text-studio-ink-faint">
           {session.agentHandle}
         </span>
         <span
-          className="ml-auto font-mono text-[10px] font-semibold uppercase tracking-eyebrow"
+          className="ml-auto font-mono text-xs font-semibold uppercase tracking-eyebrow"
           style={{ color: statusColor(session.status) }}
         >
           {session.statusLabel}
@@ -326,33 +326,33 @@ function SessionDetailLarge({ session }: { session: AgentSession }) {
       {/* Meta strip */}
       <div className="flex flex-wrap items-baseline gap-2">
         <HarnessChip harness={session.harness} />
-        <span className="rounded-[2px] border border-studio-edge bg-studio-canvas px-1.5 py-px font-mono text-[10px] tabular-nums text-studio-ink-muted">
+        <span className="rounded-[2px] border border-studio-edge bg-studio-canvas px-1.5 py-px font-mono text-xs tabular-nums text-studio-ink-muted">
           {session.refId}
         </span>
-        <span className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-muted">
+        <span className="font-mono text-xs uppercase tracking-eyebrow text-studio-ink-muted">
           {session.project}
         </span>
-        <span className="font-mono text-[10px] text-studio-ink-faint">
+        <span className="font-mono text-xs text-studio-ink-faint">
           {session.branch}
         </span>
       </div>
 
       {/* Last turn */}
       <section>
-        <div className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · last turn
         </div>
-        <p className="mt-1.5 font-sans text-[12px] leading-relaxed text-studio-ink">
+        <p className="mt-1.5 font-sans text-md leading-relaxed text-studio-ink">
           {session.lastTurn}
         </p>
       </section>
 
       {/* Lifecycle grid */}
       <section>
-        <div className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · lifecycle
         </div>
-        <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-[3px] font-mono text-[11px] leading-snug">
+        <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-[3px] font-mono text-sm leading-snug">
           <dt className="uppercase tracking-eyebrow text-studio-ink-faint">
             started
           </dt>
@@ -442,7 +442,7 @@ function StatusDot({ status }: { status: SessionStatus }) {
 
 function HarnessChip({ harness }: { harness: SessionHarness }) {
   return (
-    <span className="rounded-[2px] border border-studio-edge bg-studio-canvas px-1.5 py-px font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
+    <span className="rounded-[2px] border border-studio-edge bg-studio-canvas px-1.5 py-px font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
       {harness}
     </span>
   );
@@ -464,10 +464,10 @@ function DrillLink({ label }: { label: string }) {
       type="button"
       className="flex items-center gap-2 rounded-[2px] px-1.5 py-1 text-left transition-colors hover:bg-studio-canvas-alt"
     >
-      <span aria-hidden className="font-mono text-[11px] text-studio-ink-faint">
+      <span aria-hidden className="font-mono text-sm text-studio-ink-faint">
         →
       </span>
-      <span className="flex-1 font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-muted">
+      <span className="flex-1 font-mono text-xs uppercase tracking-eyebrow text-studio-ink-muted">
         {label}
       </span>
     </button>

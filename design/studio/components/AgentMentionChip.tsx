@@ -23,7 +23,7 @@ export function AgentMentionChip({ agent, size = "md" }: AgentMentionChipProps) 
       type="button"
       className={[
         "inline-flex items-baseline gap-1.5 rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-1.5 align-baseline font-sans transition-colors hover:border-studio-edge-strong hover:bg-studio-canvas-alt",
-        isSm ? "py-[1px] text-[11px]" : "py-[2px] text-[12.5px]",
+        isSm ? "py-[1px] text-sm" : "py-[2px] text-md",
       ].join(" ")}
     >
       <span

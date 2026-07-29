@@ -84,7 +84,7 @@ export function ChatHistory({
   }, [lastMessageId, lastMessageBody, pendingAsk, sending, chatExpanded, state.session.id]);
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 font-mono text-[10px] text-[var(--scout-chrome-ink-faint)]">
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 font-mono text-xs text-[var(--scout-chrome-ink-faint)]">
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--scout-chrome-border-soft)] px-2.5 py-1.5">
         <div className="flex min-w-0 items-center gap-1.5">
           <span className="min-w-0 truncate text-[var(--scout-chrome-ink)]" title={state.session.id}>
@@ -104,7 +104,7 @@ export function ChatHistory({
             aria-label="Start new chat"
             onClick={onStartNewChat}
             disabled={chatActionsBusy}
-            className="flex items-center gap-1 rounded border border-lime-300/30 bg-lime-300/[0.06] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.1em] text-lime-100 transition-colors hover:border-lime-300/50 hover:bg-lime-300/10 disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex items-center gap-1 rounded border border-lime-300/30 bg-lime-300/[0.06] px-1.5 py-0.5 text-2xs uppercase tracking-[0.1em] text-lime-100 transition-colors hover:border-lime-300/50 hover:bg-lime-300/10 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {startingNewChat ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
             <span>{startingNewChat ? "Starting" : "New chat"}</span>
@@ -114,7 +114,7 @@ export function ChatHistory({
             title={`Switch chat (${sessionsCount} total)`}
             aria-label="Switch chat"
             onClick={onToggleSessionPicker}
-            className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] uppercase tracking-[0.1em] transition-colors ${
+            className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-2xs uppercase tracking-[0.1em] transition-colors ${
               sessionPickerOpen
                 ? "border-lime-300/40 bg-lime-300/10 text-lime-100"
                 : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
@@ -131,7 +131,7 @@ export function ChatHistory({
               title={chatExpanded ? "Collapse chat" : "View full session"}
               aria-label={chatExpanded ? "Collapse chat" : "View full session"}
               onClick={onToggleExpanded}
-              className="flex items-center gap-1 rounded border border-[var(--scout-chrome-border-soft)] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.1em] text-[var(--scout-chrome-ink-faint)] transition-colors hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
+              className="flex items-center gap-1 rounded border border-[var(--scout-chrome-border-soft)] px-1.5 py-0.5 text-2xs uppercase tracking-[0.1em] text-[var(--scout-chrome-ink-faint)] transition-colors hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
             >
               <span>{chatExpanded ? "Collapse" : "Full"}</span>
               {chatExpanded ? <ChevronUp size={9} /> : <ChevronDown size={9} />}
@@ -142,7 +142,7 @@ export function ChatHistory({
 
       {sessionPickerOpen && (
         <div className="shrink-0 border-b border-[var(--scout-chrome-border-soft)] px-2 py-1.5">
-          <div className="mb-1 flex items-center justify-between gap-2 px-0.5 text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
+          <div className="mb-1 flex items-center justify-between gap-2 px-0.5 text-2xs uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
             <span>Recent chats</span>
             {retention && retention.archivedCount > 0 && (
               <span>{retention.archivedCount} archived</span>
@@ -176,11 +176,11 @@ export function ChatHistory({
                     className="flex min-w-0 flex-1 items-center gap-2 text-left disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${isActive ? "bg-lime-300" : "bg-[var(--scout-chrome-ink-ghost)]"}`} />
-                    <span className="min-w-0 flex-1 truncate text-[10px] text-[var(--scout-chrome-ink)]">{display}</span>
-                    <span className="shrink-0 text-[9px] text-[var(--scout-chrome-ink-ghost)]">
+                    <span className="min-w-0 flex-1 truncate text-xs text-[var(--scout-chrome-ink)]">{display}</span>
+                    <span className="shrink-0 text-2xs text-[var(--scout-chrome-ink-ghost)]">
                       {entry.messageCount} msg
                     </span>
-                    <span className="shrink-0 text-[9px] text-[var(--scout-chrome-ink-ghost)]">{ts}</span>
+                    <span className="shrink-0 text-2xs text-[var(--scout-chrome-ink-ghost)]">{ts}</span>
                     {isBusy && <Loader2 size={10} className="shrink-0 animate-spin text-lime-200" />}
                   </button>
                   <button
@@ -205,7 +205,7 @@ export function ChatHistory({
           <button
             type="button"
             onClick={onToggleExpanded}
-            className="self-start text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)] hover:text-[var(--scout-chrome-ink)]"
+            className="self-start text-2xs uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)] hover:text-[var(--scout-chrome-ink)]"
           >
             ↑ {hiddenCount} earlier message{hiddenCount === 1 ? "" : "s"}
           </button>
@@ -223,7 +223,7 @@ export function ChatHistory({
             <div key={message.id} className="flex flex-col gap-1">
               {showTimestamp && (
                 <div
-                  className="self-center rounded-full bg-white/[0.06] px-2.5 py-0.5 font-mono text-[9px] font-medium text-[var(--scout-chrome-ink-ghost)]"
+                  className="self-center rounded-full bg-white/[0.06] px-2.5 py-0.5 font-mono text-2xs font-medium text-[var(--scout-chrome-ink-ghost)]"
                   title={formatAbsoluteTimestamp(message.createdAt)}
                   aria-label={timestamp}
                 >
@@ -249,10 +249,10 @@ export function ChatHistory({
           <p className="text-[var(--scout-chrome-ink-ghost)]">Reading the control plane…</p>
         )}
         {briefing && (
-          <div className="flex items-center gap-2 rounded border border-lime-300/30 bg-lime-300/[0.06] px-2.5 py-2 font-mono text-[10px] leading-relaxed text-lime-100">
+          <div className="flex items-center gap-2 rounded border border-lime-300/30 bg-lime-300/[0.06] px-2.5 py-2 font-mono text-xs leading-relaxed text-lime-100">
             <Loader2 size={12} className="shrink-0 animate-spin text-lime-300" aria-hidden="true" />
             <div className="min-w-0 flex flex-col gap-0.5">
-              <span className="text-[10px] uppercase tracking-[0.14em] text-lime-300">Briefing</span>
+              <span className="text-xs uppercase tracking-[0.14em] text-lime-300">Briefing</span>
               <span className="text-[var(--scout-chrome-ink)]">
                 Codex is reviewing the control-plane snapshot. Voice will pick up when it lands.
               </span>
@@ -281,7 +281,7 @@ function ScoutbotZeroState({
               key={prompt}
               type="button"
               onClick={() => onSelectPrompt?.(prompt)}
-              className="min-h-7 truncate rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 px-2.5 text-left font-mono text-[10px] leading-snug text-[var(--scout-chrome-ink-faint)] transition-colors hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
+              className="min-h-7 truncate rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 px-2.5 text-left font-mono text-xs leading-snug text-[var(--scout-chrome-ink-faint)] transition-colors hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
             >
               {prompt}
             </button>
@@ -289,10 +289,10 @@ function ScoutbotZeroState({
         </div>
       ) : null}
       <div className="max-w-[30rem]">
-        <div className="font-sans text-[13px] font-semibold leading-tight text-[var(--scout-chrome-ink)]">
+        <div className="font-sans text-lg font-semibold leading-tight text-[var(--scout-chrome-ink)]">
           Start with a question.
         </div>
-        <p className="mt-0.5 font-sans text-[10px] leading-snug text-[var(--scout-chrome-ink-faint)]">
+        <p className="mt-0.5 font-sans text-xs leading-snug text-[var(--scout-chrome-ink-faint)]">
           Paste a failed result or ask about what you are seeing. Scout replies when you ask.
         </p>
       </div>
@@ -357,9 +357,9 @@ export function ChatInput({
   if (voiceBusy || voiceHeld) micTitle = voiceLabel;
   const showVoiceLabel = voiceBusy || recording || voiceHeld;
   const textareaClassName = [
-    "w-full resize-none rounded border font-mono text-[11px] leading-relaxed text-[var(--scout-chrome-ink)] placeholder:text-[var(--scout-chrome-ink-ghost)]",
+    "w-full resize-none rounded border font-mono text-sm leading-relaxed text-[var(--scout-chrome-ink)] placeholder:text-[var(--scout-chrome-ink-ghost)]",
     prominent
-      ? "min-h-[88px] max-h-[170px] border-lime-300/30 bg-black/25 px-3 py-2 text-[12px]"
+      ? "min-h-[88px] max-h-[170px] border-lime-300/30 bg-black/25 px-3 py-2 text-md"
       : "min-h-[44px] max-h-[124px] border-[var(--scout-chrome-border-soft)] bg-black/20 px-2 py-1.5",
   ].join(" ");
   return (
@@ -404,7 +404,7 @@ export function ChatInput({
               : voiceHeld
                 ? "border-lime-300/25 bg-lime-300/[0.05] text-lime-100/70"
                 : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
-          } ${showVoiceLabel ? "gap-1.5 px-3 font-mono text-[10px] uppercase tracking-[0.12em]" : "w-9"}`}
+          } ${showVoiceLabel ? "gap-1.5 px-3 font-mono text-xs uppercase tracking-[0.12em]" : "w-9"}`}
         >
           {voiceBusy ? (
             <Loader2 size={13} className="animate-spin" />
@@ -452,7 +452,7 @@ function ChatBubble({
   return (
     <div className="group flex flex-col gap-0.5" onContextMenu={onContextMenu}>
       <div className="flex items-center justify-between gap-2">
-        <span className={`text-[9px] uppercase tracking-[0.12em] ${isUser ? "text-[var(--scout-chrome-ink-ghost)]" : "text-lime-300"}`}>
+        <span className={`text-2xs uppercase tracking-[0.12em] ${isUser ? "text-[var(--scout-chrome-ink-ghost)]" : "text-lime-300"}`}>
           {isUser ? "You" : "Reply"}
           {pending && " · sending"}
         </span>
@@ -468,7 +468,7 @@ function ChatBubble({
         </button>
       </div>
       {isUser ? (
-        <p className={`whitespace-pre-wrap break-words text-[11px] leading-relaxed text-[var(--scout-chrome-ink)] ${pending ? "opacity-60" : ""}`}>
+        <p className={`whitespace-pre-wrap break-words text-sm leading-relaxed text-[var(--scout-chrome-ink)] ${pending ? "opacity-60" : ""}`}>
           {text}
         </p>
       ) : (

@@ -138,7 +138,7 @@ export const SCOUT_IOS_CSS = `
 
 /* status bar + notch */
 .iStatus { height: 54px; flex: none; display: flex; align-items: center;
-  justify-content: space-between; padding: 0 30px; font-size: 15px; font-weight: 600;
+  justify-content: space-between; padding: 0 30px; font-size: var(--text-2xl); font-weight: 600;
   letter-spacing: 0.02em; position: relative; z-index: 2; }
 /* Dynamic Island — 125×37pt, ~11pt from top */
 .iNotch { position: absolute; top: 11px; left: 50%; transform: translateX(-50%);
@@ -155,7 +155,7 @@ export const SCOUT_IOS_CSS = `
 /* masthead — "Scout" wordmark + gear over a hairline (RootView titleBar) */
 .iHead { flex: none; padding: 7px 16px 6px; }
 .iMast { display: flex; align-items: center; gap: 10px; }
-.iWordmark { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; color: var(--i-ink);
+.iWordmark { font-size: var(--text-4xl); font-weight: 600; letter-spacing: -0.01em; color: var(--i-ink);
   flex: 1; }
 .iGear { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
   background: var(--i-surface); color: var(--i-muted);
@@ -172,9 +172,9 @@ export const SCOUT_IOS_CSS = `
 
 /* section header (HudSectionLabel) — caps mono micro, optional pulsing dot + All */
 .iSec { display: flex; align-items: center; gap: 7px; padding: 10px 4px 6px; }
-.iSecLabel { font-size: 9.5px; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase;
+.iSecLabel { font-size: var(--text-2xs); font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase;
   color: var(--i-muted); font-family: var(--i-mono); }
-.iSecAll { font-size: 9.5px; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase;
+.iSecAll { font-size: var(--text-2xs); font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase;
   color: var(--i-accent); font-family: var(--i-mono); margin-left: auto; }
 .iPulse { width: 6px; height: 6px; border-radius: 50%; background: var(--i-accent); flex: none;
   box-shadow: 0 0 0 0 var(--i-accent); animation: iPulse 1.6s ease-out infinite; }
@@ -197,21 +197,21 @@ export const SCOUT_IOS_CSS = `
 
 /* ── Machine rail ──────────────────────────────────────────────────────── */
 .iRail { display: flex; align-items: center; gap: 9px; padding: 4px 4px 0; }
-.iRailCap { font-size: 9px; font-weight: 600; letter-spacing: 0.08em; color: var(--i-muted);
+.iRailCap { font-size: var(--text-2xs); font-weight: 600; letter-spacing: 0.08em; color: var(--i-muted);
   font-family: var(--i-mono); flex: none; }
 .iRailScroll { display: flex; gap: 7px; overflow: hidden; }
 .iChip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 999px;
   background: var(--i-surface); border: 1px solid var(--i-hairline-strong); white-space: nowrap; }
 .iChip.on { border-color: color-mix(in oklab, var(--i-accent) 40%, transparent);
   box-shadow: 0 0 7px color-mix(in oklab, var(--i-accent) 12%, transparent); }
-.iChipName { font-size: 11px; font-weight: 500; color: var(--i-ink); }
+.iChipName { font-size: var(--text-sm); font-weight: 500; color: var(--i-ink); }
 .iChip.off .iChipName { color: var(--i-muted); }
 .iChipAdd .iChipName { color: var(--i-muted); }
 
 /* ── Search field (HudField) ───────────────────────────────────────────── */
 .iField { display: flex; align-items: center; gap: 8px; margin: 7px 0 2px; padding: 8px 12px;
   border-radius: 11px; background: var(--i-surface); border: 1px solid var(--i-hairline-strong); }
-.iField span { font-size: 13px; color: var(--i-dim); }
+.iField span { font-size: var(--text-lg); color: var(--i-dim); }
 .iField svg { color: var(--i-dim); flex: none; }
 
 /* ── Currently working strip ───────────────────────────────────────────── */
@@ -220,11 +220,11 @@ export const SCOUT_IOS_CSS = `
   border-radius: 14px; background: var(--i-surface);
   border: 1px solid color-mix(in oklab, var(--i-accent) 20%, var(--i-hairline-strong)); }
 .iWorkTop { display: flex; align-items: center; gap: 6px; }
-.iWorkName { font-size: 13px; font-weight: 600; color: var(--i-ink); white-space: nowrap;
+.iWorkName { font-size: var(--text-lg); font-weight: 600; color: var(--i-ink); white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
-.iWorkAction { font-size: 11px; color: var(--i-muted); font-family: var(--i-mono); margin-top: 5px;
+.iWorkAction { font-size: var(--text-sm); color: var(--i-muted); font-family: var(--i-mono); margin-top: 5px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
-.iWorkMeta { font-size: 10px; color: var(--i-dim); font-family: var(--i-mono); margin-top: 4px;
+.iWorkMeta { font-size: var(--text-xs); color: var(--i-dim); font-family: var(--i-mono); margin-top: 4px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .iCorner { position: absolute; width: 9px; height: 9px; opacity: 0.55; }
 .iCorner::before, .iCorner::after { content: ""; position: absolute; background: var(--i-accent); }
@@ -239,17 +239,17 @@ export const SCOUT_IOS_CSS = `
 .iRowSep { height: 1px; background: var(--i-hairline); margin-left: 22px; }
 .iRowSep.inset { margin-left: 40px; }
 .iFolder { color: var(--i-muted); flex: none; width: 16px; display: grid; place-items: center; }
-.iProjName { font-size: 14px; font-weight: 500; color: var(--i-ink); white-space: nowrap;
+.iProjName { font-size: var(--text-xl); font-weight: 500; color: var(--i-ink); white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
-.iSlash { font-size: 12px; color: var(--i-dim); font-family: var(--i-mono); flex: none; }
-.iLeaf { font-size: 13px; color: var(--i-muted); white-space: nowrap; overflow: hidden;
+.iSlash { font-size: var(--text-md); color: var(--i-dim); font-family: var(--i-mono); flex: none; }
+.iLeaf { font-size: var(--text-lg); color: var(--i-muted); white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; display: inline-flex; align-items: center; gap: 4px; }
 .iLeaf .glyf { color: var(--i-dim); flex: none; }
-.iPill { font-size: 9.5px; font-family: var(--i-mono); color: var(--i-dim); padding: 1px 5px;
+.iPill { font-size: var(--text-2xs); font-family: var(--i-mono); color: var(--i-dim); padding: 1px 5px;
   border-radius: 999px; background: var(--i-surface); border: 1px solid var(--i-hairline);
   flex: none; }
 .iSpacer { flex: 1; min-width: 8px; }
-.iAge { font-size: 11px; color: var(--i-muted); font-family: var(--i-mono); flex: none;
+.iAge { font-size: var(--text-sm); color: var(--i-muted); font-family: var(--i-mono); flex: none;
   text-align: right; }
 .iAge.live { color: var(--i-accent); }
 .iChev { color: var(--i-dim); flex: none; }
@@ -257,34 +257,34 @@ export const SCOUT_IOS_CSS = `
 .iLeafRow { display: flex; align-items: center; gap: 8px; padding: 7px 13px;
   background: color-mix(in oklab, var(--i-surface) 50%, transparent); }
 .iTree { width: 18px; flex: none; align-self: stretch; color: var(--i-dim); }
-.iAgentName { font-size: 12.5px; color: var(--i-ink); white-space: nowrap; overflow: hidden;
+.iAgentName { font-size: var(--text-md); color: var(--i-ink); white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; }
 .iAgentName.dim { color: var(--i-muted); }
-.iAgentTok { font-size: 9.5px; color: var(--i-dim); font-family: var(--i-mono); flex: none; }
-.iHarness { font-size: 10px; font-family: var(--i-mono); color: var(--i-muted); flex: none; }
+.iAgentTok { font-size: var(--text-2xs); color: var(--i-dim); font-family: var(--i-mono); flex: none; }
+.iHarness { font-size: var(--text-xs); font-family: var(--i-mono); color: var(--i-muted); flex: none; }
 
 /* ── Activity rows (inside scoutCard) ──────────────────────────────────── */
 .iActRow { display: flex; align-items: flex-start; gap: 9px; padding: 7px 13px; }
 .iActDot { margin-top: 5px; }
 .iActBody { flex: 1; min-width: 0; }
-.iActSummary { font-size: 13px; color: var(--i-ink); white-space: nowrap; overflow: hidden;
+.iActSummary { font-size: var(--text-lg); color: var(--i-ink); white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; }
-.iActMeta { font-size: 10px; color: var(--i-muted); font-family: var(--i-mono); margin-top: 2px; }
+.iActMeta { font-size: var(--text-xs); color: var(--i-muted); font-family: var(--i-mono); margin-top: 2px; }
 
 /* ── Agents surface ────────────────────────────────────────────────────── */
 .iSummary { display: flex; align-items: center; padding: 4px 4px 8px; }
 .iSort { display: flex; gap: 2px; margin-left: auto; }
-.iSortBtn { font-size: 9.5px; font-family: var(--i-mono); letter-spacing: 0.06em; padding: 3px 8px;
+.iSortBtn { font-size: var(--text-2xs); font-family: var(--i-mono); letter-spacing: 0.06em; padding: 3px 8px;
   border-radius: 999px; color: var(--i-muted); cursor: pointer; }
 .iSortBtn.on { color: var(--i-accent); font-weight: 700;
   background: color-mix(in oklab, var(--i-accent) 12%, transparent); }
 .iProjHead { display: flex; align-items: center; gap: 9px; padding: 9px 13px 4px; }
 .iProjGlyph { display: grid; grid-template-columns: 3px 3px; gap: 3px; flex: none; }
 .iProjGlyph i { width: 3px; height: 3px; border-radius: 50%; background: var(--i-muted); }
-.iProjHeadName { font-size: 14px; font-weight: 600; color: var(--i-ink); }
-.iCount { font-size: 11px; color: var(--i-muted); font-family: var(--i-mono); flex: none; }
+.iProjHeadName { font-size: var(--text-xl); font-weight: 600; color: var(--i-ink); }
+.iCount { font-size: var(--text-sm); color: var(--i-muted); font-family: var(--i-mono); flex: none; }
 .iAgentMain { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
-.iSessionLine { font-size: 10px; color: var(--i-muted); font-family: var(--i-mono);
+.iSessionLine { font-size: var(--text-xs); color: var(--i-muted); font-family: var(--i-mono);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .iADivider { height: 1px; background: color-mix(in oklab, var(--i-ink) 6%, transparent);
   margin-left: 14px; }
@@ -295,49 +295,49 @@ export const SCOUT_IOS_CSS = `
 .iCommsRail { position: absolute; left: 1px; top: 9px; bottom: 9px; width: 3px; border-radius: 2px;
   background: var(--i-accent); }
 .iCommsType { width: 15px; flex: none; color: var(--i-muted); display: grid; place-items: center; }
-.iCommsName { font-size: 14px; color: var(--i-ink); width: 116px; flex: none; white-space: nowrap;
+.iCommsName { font-size: var(--text-xl); color: var(--i-ink); width: 116px; flex: none; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
 .iCommsName.unread { font-weight: 600; }
 .iCommsStatus { width: 16px; flex: none; display: grid; place-items: center; font-family: var(--i-mono);
-  font-size: 13px; font-weight: 700; }
-.iCommsPreview { font-size: 12.5px; color: var(--i-muted); flex: 1; white-space: nowrap;
+  font-size: var(--text-lg); font-weight: 700; }
+.iCommsPreview { font-size: var(--text-md); color: var(--i-muted); flex: 1; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
-.iCommsAge { font-size: 11px; color: var(--i-muted); font-family: var(--i-mono); flex: none; }
-.iUnread { font-size: 9px; font-weight: 700; font-family: var(--i-mono); color: var(--i-bg);
+.iCommsAge { font-size: var(--text-sm); color: var(--i-muted); font-family: var(--i-mono); flex: none; }
+.iUnread { font-size: var(--text-2xs); font-weight: 700; font-family: var(--i-mono); color: var(--i-bg);
   background: var(--i-accent); border-radius: 999px; padding: 1px 5px; flex: none; }
 .iCommsSep { height: 1px; background: color-mix(in oklab, var(--i-ink) 6%, transparent);
   margin-left: 30px; }
 .iGroupDots { display: flex; gap: 2px; }
 .iGroupDots i { width: 3.5px; height: 3.5px; border-radius: 50%; background: currentColor; }
-.iBraille { font-family: var(--i-mono); color: var(--i-accent); font-size: 13px; }
+.iBraille { font-family: var(--i-mono); color: var(--i-accent); font-size: var(--text-lg); }
 
 /* ── Tail surface ──────────────────────────────────────────────────────── */
 .iTailHead { display: flex; align-items: center; padding: 4px 4px 10px; }
 .iLiveInd { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; padding: 3px 9px;
   border-radius: 999px; background: var(--i-surface); border: 1px solid var(--i-hairline-strong); }
-.iLiveInd span { font-size: 9px; font-weight: 700; letter-spacing: 0.1em; font-family: var(--i-mono);
+.iLiveInd span { font-size: var(--text-2xs); font-weight: 700; letter-spacing: 0.1em; font-family: var(--i-mono);
   color: var(--i-accent); text-transform: uppercase; }
 .iEv { padding: 10px 11px; border-radius: 11px; background: var(--i-surface);
   border: 1px solid var(--i-hairline); margin-bottom: 7px; }
 .iEvTop { display: flex; align-items: center; gap: 7px; }
-.iBadge { display: inline-flex; align-items: center; gap: 4px; font-size: 9px; font-weight: 700;
+.iBadge { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-2xs); font-weight: 700;
   letter-spacing: 0.04em; font-family: var(--i-mono); }
 .iBadge i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
-.iEvSource { font-size: 10px; font-weight: 600; color: var(--i-dim); font-family: var(--i-mono); }
-.iEvKind { font-size: 10px; color: var(--i-muted); font-family: var(--i-mono); }
-.iEvTime { font-size: 10px; color: var(--i-dim); font-family: var(--i-mono); margin-left: auto; }
-.iEvText { font-size: 11.5px; color: var(--i-ink); font-family: var(--i-mono); margin-top: 6px;
+.iEvSource { font-size: var(--text-xs); font-weight: 600; color: var(--i-dim); font-family: var(--i-mono); }
+.iEvKind { font-size: var(--text-xs); color: var(--i-muted); font-family: var(--i-mono); }
+.iEvTime { font-size: var(--text-xs); color: var(--i-dim); font-family: var(--i-mono); margin-left: auto; }
+.iEvText { font-size: var(--text-sm); color: var(--i-ink); font-family: var(--i-mono); margin-top: 6px;
   line-height: 1.45; }
 
 /* ── Inbox surface ─────────────────────────────────────────────────────── */
 /* "Needs you" header — warmer than the muted section caps; ink label + a count
    capsule, so the queue size reads at a glance. */
 .iNeedHead { display: flex; align-items: center; gap: 7px; padding: 9px 4px 7px; }
-.iNeedHeadLabel { font-size: 9.5px; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase;
+.iNeedHeadLabel { font-size: var(--text-2xs); font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase;
   font-family: var(--i-mono); color: var(--i-ink); }
-.iNeedCount { font-size: 9px; font-weight: 700; font-family: var(--i-mono); color: var(--i-bg);
+.iNeedCount { font-size: var(--text-2xs); font-weight: 700; font-family: var(--i-mono); color: var(--i-bg);
   background: var(--i-accent); border-radius: 999px; padding: 1px 6px; }
-.iNeedClear { font-size: 9.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+.iNeedClear { font-size: var(--text-2xs); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
   font-family: var(--i-mono); color: var(--i-muted); margin-left: auto; }
 /* One inbox item — tone dot · agent·project · KIND · age, then the demand and
    any inline decision (approve/deny, option chips, the awaiting command). */
@@ -345,25 +345,25 @@ export const SCOUT_IOS_CSS = `
 .iNeedDot { width: 7px; height: 7px; border-radius: 50%; flex: none; margin-top: 5px; }
 .iNeedBody { flex: 1; min-width: 0; }
 .iNeedTop { display: flex; align-items: center; gap: 7px; }
-.iNeedAgent { font-size: 13px; font-weight: 600; color: var(--i-ink); white-space: nowrap;
+.iNeedAgent { font-size: var(--text-lg); font-weight: 600; color: var(--i-ink); white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
-.iNeedProj { font-size: 10.5px; font-family: var(--i-mono); color: var(--i-dim); flex: none; }
-.iNeedKind { font-size: 8.5px; font-weight: 700; letter-spacing: 0.07em; font-family: var(--i-mono);
+.iNeedProj { font-size: var(--text-xs); font-family: var(--i-mono); color: var(--i-dim); flex: none; }
+.iNeedKind { font-size: var(--text-3xs); font-weight: 700; letter-spacing: 0.07em; font-family: var(--i-mono);
   color: var(--i-dim); flex: none; margin-left: auto; }
-.iNeedAge { font-size: 10.5px; font-family: var(--i-mono); color: var(--i-muted); flex: none; }
-.iNeedSummary { font-size: 12.5px; line-height: 1.45; color: var(--i-muted); margin-top: 3px; }
+.iNeedAge { font-size: var(--text-xs); font-family: var(--i-mono); color: var(--i-muted); flex: none; }
+.iNeedSummary { font-size: var(--text-md); line-height: 1.45; color: var(--i-muted); margin-top: 3px; }
 .iNeedCmd { display: flex; align-items: center; gap: 8px; margin-top: 7px; padding: 5px 9px;
   border-radius: 8px; background: var(--i-bg); border: 1px solid var(--i-hairline);
-  font-size: 11px; font-family: var(--i-mono); color: var(--i-ink); }
+  font-size: var(--text-sm); font-family: var(--i-mono); color: var(--i-ink); }
 .iNeedCmdText { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.iNeedRisk { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+.iNeedRisk { font-size: var(--text-2xs); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
   font-family: var(--i-mono); flex: none; }
 .iNeedActions { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
-.iNeedBtn { font-size: 11.5px; font-weight: 600; padding: 5px 13px; border-radius: 8px;
+.iNeedBtn { font-size: var(--text-sm); font-weight: 600; padding: 5px 13px; border-radius: 8px;
   border: 1px solid transparent; cursor: pointer; font-family: var(--i-font); }
 .iNeedBtn.deny { background: transparent; color: var(--i-muted); border-color: var(--i-hairline-strong); }
 .iNeedBtn.approve { background: var(--i-accent); color: #04130d; }
-.iNeedOpt { font-size: 11.5px; font-weight: 600; padding: 5px 13px; border-radius: 8px; cursor: pointer;
+.iNeedOpt { font-size: var(--text-sm); font-weight: 600; padding: 5px 13px; border-radius: 8px; cursor: pointer;
   font-family: var(--i-font); background: var(--i-surface); color: var(--i-ink);
   border: 1px solid var(--i-hairline-strong); }
 /* All-clear beat — the empty inbox, the moment the app should feel calm. */
@@ -372,8 +372,8 @@ export const SCOUT_IOS_CSS = `
 .iAllClearMark { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
   color: var(--i-accent); background: var(--i-accent-soft);
   border: 1px solid color-mix(in oklab, var(--i-accent) 40%, transparent); }
-.iAllClearTitle { font-size: 14px; font-weight: 600; color: var(--i-ink); }
-.iAllClearSub { font-size: 11.5px; font-family: var(--i-mono); color: var(--i-muted); }
+.iAllClearTitle { font-size: var(--text-xl); font-weight: 600; color: var(--i-ink); }
+.iAllClearSub { font-size: var(--text-sm); font-family: var(--i-mono); color: var(--i-muted); }
 
 /* ── Tab bar ─────────────────────────────────────────────────────────── */
 .iTabs { flex: none; height: 52px; display: flex; padding: 7px 8px 0;
@@ -385,9 +385,9 @@ export const SCOUT_IOS_CSS = `
 .iTabIcon { position: relative; display: grid; place-items: center; }
 .iTabBadge { position: absolute; top: -5px; right: -10px; min-width: 14px; height: 14px; padding: 0 4px;
   box-sizing: border-box; border-radius: 999px; background: var(--i-accent); color: var(--i-bg);
-  font-size: 9px; font-weight: 700; font-family: var(--i-mono); display: grid; place-items: center;
+  font-size: var(--text-2xs); font-weight: 700; font-family: var(--i-mono); display: grid; place-items: center;
   box-shadow: 0 0 0 2px var(--i-chrome); }
-.iTabLabel { font-size: 9px; font-weight: 500; font-family: var(--i-mono); letter-spacing: 0.02em; }
+.iTabLabel { font-size: var(--text-2xs); font-weight: 500; font-family: var(--i-mono); letter-spacing: 0.02em; }
 
 /* ── Bottom cockpit status bar (ScoutStatusBar) ──────────────────────── */
 .iStatusBar { flex: none; display: flex; align-items: center; justify-content: space-between;
@@ -396,9 +396,9 @@ export const SCOUT_IOS_CSS = `
 .iSbRun { display: flex; align-items: center; gap: 6px; }
 .iSbCell { display: inline-flex; align-items: center; gap: 4px; color: var(--i-muted); }
 .iSbCell svg { color: var(--i-accent); }
-.iSbLabel { font-size: 9px; font-weight: 500; letter-spacing: 0.04em; font-family: var(--i-mono);
+.iSbLabel { font-size: var(--text-2xs); font-weight: 500; letter-spacing: 0.04em; font-family: var(--i-mono);
   color: var(--i-muted); white-space: nowrap; }
-.iSbDot { font-size: 9px; color: var(--i-dim); font-family: var(--i-mono); }
+.iSbDot { font-size: var(--text-2xs); color: var(--i-dim); font-family: var(--i-mono); }
 .iHomeBar { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
   width: 139px; height: 5px; border-radius: 3px; background: var(--i-muted); opacity: 0.5; z-index: 4; }
 
@@ -413,10 +413,10 @@ export const SCOUT_IOS_CSS = `
 /* stat band — phone: one inline run + mini sparkline */
 .iFleetStats { display: flex; align-items: center; gap: 10px; padding: 8px 4px 4px; }
 .iFleetStat { display: inline-flex; align-items: baseline; gap: 5px; flex: none; }
-.iFleetNum { font-size: 15px; font-weight: 700; font-family: var(--i-mono); color: var(--i-ink);
+.iFleetNum { font-size: var(--text-2xl); font-weight: 700; font-family: var(--i-mono); color: var(--i-ink);
   letter-spacing: -0.02em; }
 .iFleetStat.hot .iFleetNum { color: var(--i-accent); }
-.iFleetStatCap { font-size: 8.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+.iFleetStatCap { font-size: var(--text-3xs); font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
   font-family: var(--i-mono); color: var(--i-dim); white-space: nowrap; }
 .iFleetSpark { flex: 1; min-width: 40px; height: 20px; }
 /* Stat separators — inert by default; crisp language turns them on for the
@@ -425,23 +425,23 @@ export const SCOUT_IOS_CSS = `
 
 /* lane headers */
 .iFleetLaneHead { display: flex; align-items: center; gap: 7px; padding: 9px 4px 5px; }
-.iFleetLaneLabel { font-size: 9.5px; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase;
+.iFleetLaneLabel { font-size: var(--text-2xs); font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase;
   font-family: var(--i-mono); color: var(--i-muted); }
-.iFleetLaneCount { font-size: 9px; font-weight: 700; font-family: var(--i-mono); color: var(--i-dim); }
+.iFleetLaneCount { font-size: var(--text-2xs); font-weight: 700; font-family: var(--i-mono); color: var(--i-dim); }
 .iFleetCard.hot { border-color: color-mix(in oklab, var(--i-accent) 26%, var(--i-card-edge-bottom)); }
 
 /* one row = one line, always */
 .iFleetRow { display: flex; align-items: center; gap: 8px; padding: 8px 12px; min-width: 0; }
-.iFleetName { font-size: 12.5px; font-weight: 600; color: var(--i-ink); flex: none; max-width: 104px;
+.iFleetName { font-size: var(--text-md); font-weight: 600; color: var(--i-ink); flex: none; max-width: 104px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .iFleetName.dim { color: var(--i-muted); font-weight: 500; }
-.iFleetDetail { flex: 1; min-width: 0; font-size: 11.5px; color: var(--i-muted);
+.iFleetDetail { flex: 1; min-width: 0; font-size: var(--text-sm); color: var(--i-muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.iFleetDetail.mono { font-size: 10.5px; font-family: var(--i-mono); }
+.iFleetDetail.mono { font-size: var(--text-xs); font-family: var(--i-mono); }
 .iFleetRow.dim .iFleetDetail { color: var(--i-dim); }
-.iFleetTok { display: none; font-size: 8.5px; font-weight: 700; letter-spacing: 0.07em;
+.iFleetTok { display: none; font-size: var(--text-3xs); font-weight: 700; letter-spacing: 0.07em;
   font-family: var(--i-mono); color: var(--i-dim); flex: none; }
-.iFleetAge { font-size: 10.5px; font-family: var(--i-mono); color: var(--i-dim); flex: none; }
+.iFleetAge { font-size: var(--text-xs); font-family: var(--i-mono); color: var(--i-dim); flex: none; }
 .iFleetAge.live { color: var(--i-accent); }
 
 /* ask-the-fleet — phone: folded to a one-line docked strip */
@@ -449,7 +449,7 @@ export const SCOUT_IOS_CSS = `
 .iFleetAskHead, .iFleetAskPickers, .iFleetAskWell { display: none; }
 .iFleetAskRow { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: 13px;
   background: var(--i-surface); border: 1px solid var(--i-hairline-strong); }
-.iFleetAskHint { flex: 1; font-size: 12.5px; color: var(--i-dim); white-space: nowrap;
+.iFleetAskHint { flex: 1; font-size: var(--text-md); color: var(--i-dim); white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
 .iFleetLog { display: none; }
 
@@ -457,24 +457,24 @@ export const SCOUT_IOS_CSS = `
 @container (min-width: 600px) {
   .iFleetStats { gap: 26px; padding: 12px 6px 8px; }
   .iFleetStat { flex-direction: column; align-items: flex-start; gap: 3px; }
-  .iFleetNum { font-size: 30px; line-height: 1; }
+  .iFleetNum { font-size: var(--text-6xl); line-height: 1; }
   .iFleetSpark { height: 40px; max-width: 260px; flex: 1; margin-left: auto; align-self: flex-end; }
   .iFleetGrid { display: grid; grid-template-columns: 1fr 250px; gap: 16px; align-items: start; }
   .iFleetTok { display: inline; }
-  .iFleetName { max-width: 150px; font-size: 13px; }
-  .iFleetDetail { font-size: 12px; }
+  .iFleetName { max-width: 150px; font-size: var(--text-lg); }
+  .iFleetDetail { font-size: var(--text-md); }
   .iFleetRow { padding: 9px 13px; }
   .iFleetAsk { margin-top: 9px; padding: 12px; border-radius: 14px; background: var(--i-surface);
     border: 1px solid var(--i-hairline-strong); }
   .iFleetAskHead { display: flex; padding: 0 0 8px; }
   .iFleetAskPickers { display: flex; gap: 6px; padding-bottom: 8px; }
-  .iFleetPicker { font-size: 10px; font-weight: 700; font-family: var(--i-mono); letter-spacing: 0.05em;
+  .iFleetPicker { font-size: var(--text-xs); font-weight: 700; font-family: var(--i-mono); letter-spacing: 0.05em;
     color: var(--i-muted); padding: 4px 9px; border-radius: 7px; border: 1px solid var(--i-hairline-strong);
     display: inline-flex; align-items: center; gap: 5px; }
-  .iFleetPicker i { font-style: normal; font-size: 8px; color: var(--i-dim); }
+  .iFleetPicker i { font-style: normal; font-size: var(--text-3xs); color: var(--i-dim); }
   .iFleetPicker.on { color: var(--i-accent); background: var(--i-accent-soft);
     border-color: color-mix(in oklab, var(--i-accent) 40%, transparent); }
-  .iFleetAskWell { display: block; font-size: 12px; color: var(--i-dim); line-height: 1.45;
+  .iFleetAskWell { display: block; font-size: var(--text-md); color: var(--i-dim); line-height: 1.45;
     min-height: 62px; padding: 9px 11px; border-radius: 10px; background: var(--i-bg);
     border: 1px solid var(--i-hairline); box-shadow: inset 0 1px 2px rgba(0,0,0,0.3); margin-bottom: 9px; }
   .iFleetAskRow { padding: 0; border: none; background: transparent; border-radius: 0; }
@@ -482,9 +482,9 @@ export const SCOUT_IOS_CSS = `
   .iFleetAskRow .iMic { margin-right: auto; }
   .iFleetLog { display: block; margin-top: 14px; }
   .iFleetLogRow { display: flex; align-items: baseline; gap: 7px; padding: 4px 2px; font-family: var(--i-mono); }
-  .iFleetLogTime { font-size: 9px; color: var(--i-dim); flex: none; }
-  .iFleetLogSrc { font-size: 9px; font-weight: 700; color: var(--i-muted); flex: none; }
-  .iFleetLogText { font-size: 10px; color: var(--i-muted); white-space: nowrap; overflow: hidden;
+  .iFleetLogTime { font-size: var(--text-2xs); color: var(--i-dim); flex: none; }
+  .iFleetLogSrc { font-size: var(--text-2xs); font-weight: 700; color: var(--i-muted); flex: none; }
+  .iFleetLogText { font-size: var(--text-xs); color: var(--i-muted); white-space: nowrap; overflow: hidden;
     text-overflow: ellipsis; }
 }
 
@@ -509,9 +509,9 @@ export const SCOUT_IOS_CSS = `
 .iStripSeg:first-child { padding-left: 2px; border-left: none; }
 .iStripSeg--chart { flex: 0.85; }
 .iStripHead { display: flex; align-items: baseline; gap: 5px; margin-bottom: 7px; min-width: 0; }
-.iStripLabel { font-size: 9px; font-weight: 700; letter-spacing: 0.11em; text-transform: uppercase;
+.iStripLabel { font-size: var(--text-2xs); font-weight: 700; letter-spacing: 0.11em; text-transform: uppercase;
   font-family: var(--i-mono); color: var(--i-muted); flex: none; }
-.iStripPlan { font-size: 7.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+.iStripPlan { font-size: var(--text-3xs); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
   font-family: var(--i-mono); color: var(--i-dim); white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; }
 
@@ -522,16 +522,16 @@ export const SCOUT_IOS_CSS = `
    amber once a window is nearly spent (≥80%). Reset hidden on the tight phone. */
 .iWins { display: flex; flex-direction: column; gap: 6px; }
 .iWin { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.iWinLabel { font-size: 8.5px; font-weight: 700; font-family: var(--i-mono); color: var(--i-dim);
+.iWinLabel { font-size: var(--text-3xs); font-weight: 700; font-family: var(--i-mono); color: var(--i-dim);
   flex: none; width: 14px; }
 .iWinTrack { flex: 1; min-width: 12px; height: 3px; border-radius: 999px;
   background: var(--i-hairline-strong); overflow: hidden; }
 .iWinFill { height: 100%; border-radius: 999px; background: var(--i-accent); }
 .iWinFill[data-hot] { background: var(--i-warn); }
-.iWinPct { font-size: 9px; font-weight: 700; font-family: var(--i-mono); color: var(--i-accent);
+.iWinPct { font-size: var(--text-2xs); font-weight: 700; font-family: var(--i-mono); color: var(--i-accent);
   flex: none; min-width: 24px; text-align: right; }
 .iWinPct[data-hot] { color: var(--i-warn); }
-.iWinReset { display: none; font-size: 8.5px; font-family: var(--i-mono); color: var(--i-dim);
+.iWinReset { display: none; font-size: var(--text-3xs); font-family: var(--i-mono); color: var(--i-dim);
   flex: none; min-width: 22px; text-align: right; }
 
 /* ── Home shelves — recent notifications (top) + terminals (bottom) ─────── */
@@ -542,9 +542,9 @@ export const SCOUT_IOS_CSS = `
 .iShelf--notifs { padding: 9px 0 4px; border-bottom: 1px solid var(--i-hairline); }
 .iShelf--terms { padding: 7px 0 2px; border-top: 1px solid var(--i-hairline); }
 .iShelfHead { display: flex; align-items: center; gap: 6px; padding: 0 2px 6px; color: var(--i-dim); }
-.iShelfLabel { font-size: 9px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+.iShelfLabel { font-size: var(--text-2xs); font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
   font-family: var(--i-mono); color: var(--i-muted); }
-.iShelfCount { font-size: 9px; font-weight: 700; font-family: var(--i-mono); color: var(--i-dim); }
+.iShelfCount { font-size: var(--text-2xs); font-weight: 700; font-family: var(--i-mono); color: var(--i-dim); }
 .iShelfRow { display: flex; gap: 8px; overflow-x: auto; padding: 1px 2px 4px;
   scrollbar-width: none; -webkit-overflow-scrolling: touch; }
 .iShelfRow::-webkit-scrollbar { display: none; }
@@ -556,15 +556,15 @@ export const SCOUT_IOS_CSS = `
   border-radius: 999px; background: transparent; }
 .iNotif[data-fresh]::before { background: var(--i-accent); }
 .iNotifTop { display: flex; align-items: baseline; gap: 7px; margin-bottom: 3px; }
-.iNotifAgent { flex: 1; min-width: 0; font-size: 11.5px; font-weight: 600; color: var(--i-ink);
+.iNotifAgent { flex: 1; min-width: 0; font-size: var(--text-sm); font-weight: 600; color: var(--i-ink);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.iNotifAge { font-size: 9.5px; font-family: var(--i-mono); color: var(--i-dim); flex: none; }
+.iNotifAge { font-size: var(--text-2xs); font-family: var(--i-mono); color: var(--i-dim); flex: none; }
 .iNotifAge.live { color: var(--i-accent); }
 .iNotifBody { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
-.iNotifKind { font-size: 8px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+.iNotifKind { font-size: var(--text-3xs); font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
   font-family: var(--i-mono); color: var(--i-dim); flex: none; }
 .iNotifKind[data-hot] { color: var(--i-warn); }
-.iNotifText { flex: 1; min-width: 0; font-size: 10.5px; color: var(--i-muted);
+.iNotifText { flex: 1; min-width: 0; font-size: var(--text-xs); color: var(--i-muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* terminal tile — mono, a darker well; a running session reads live */
@@ -572,15 +572,15 @@ export const SCOUT_IOS_CSS = `
   background: var(--i-bg); border: 1px solid var(--i-hairline-strong); }
 .iTerm[data-run] { border-color: color-mix(in oklab, var(--i-accent) 26%, var(--i-hairline-strong)); }
 .iTermTop { display: flex; align-items: baseline; gap: 7px; margin-bottom: 4px; }
-.iTermCwd { flex: 1; min-width: 0; font-size: 8px; font-weight: 700; letter-spacing: 0.08em;
+.iTermCwd { flex: 1; min-width: 0; font-size: var(--text-3xs); font-weight: 700; letter-spacing: 0.08em;
   text-transform: uppercase; font-family: var(--i-mono); color: var(--i-dim);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.iTermAge { font-size: 9px; font-family: var(--i-mono); color: var(--i-dim); flex: none; }
+.iTermAge { font-size: var(--text-2xs); font-family: var(--i-mono); color: var(--i-dim); flex: none; }
 .iTermAge.live { color: var(--i-accent); }
-.iTermCmd { font-size: 11px; font-family: var(--i-mono); color: var(--i-ink); margin-bottom: 2px;
+.iTermCmd { font-size: var(--text-sm); font-family: var(--i-mono); color: var(--i-ink); margin-bottom: 2px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .iTermCaret { color: var(--i-accent); margin-right: 5px; }
-.iTermLast { font-size: 10px; font-family: var(--i-mono); color: var(--i-dim);
+.iTermLast { font-size: var(--text-xs); font-family: var(--i-mono); color: var(--i-dim);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* flat activity log — no cards, no lane dividers; one continuous stream */
@@ -593,12 +593,12 @@ export const SCOUT_IOS_CSS = `
 .iLogRow::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px;
   border-radius: 999px; background: transparent; }
 .iLogRow[data-now]::before { background: var(--i-accent); }
-.iLogText { flex: 1; min-width: 0; font-size: 12px; color: var(--i-muted); line-height: 1.35;
+.iLogText { flex: 1; min-width: 0; font-size: var(--text-md); color: var(--i-muted); line-height: 1.35;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .iLogRow[data-now] .iLogText { color: var(--i-ink); }
-.iLogSrc { font-size: 8.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+.iLogSrc { font-size: var(--text-3xs); font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
   font-family: var(--i-mono); color: var(--i-dim); flex: none; }
-.iLogAge { font-size: 10.5px; font-family: var(--i-mono); color: var(--i-dim); flex: none;
+.iLogAge { font-size: var(--text-xs); font-family: var(--i-mono); color: var(--i-dim); flex: none;
   min-width: 30px; text-align: right; }
 .iLogAge.live { color: var(--i-accent); }
 
@@ -611,12 +611,12 @@ export const SCOUT_IOS_CSS = `
   .iStripHead { margin-bottom: 10px; }
   .iChartSpark { min-height: 56px; }
   .iWins { gap: 9px; }
-  .iWinLabel { font-size: 9.5px; width: 16px; }
+  .iWinLabel { font-size: var(--text-2xs); width: 16px; }
   .iWinTrack { height: 4px; }
-  .iWinPct { font-size: 10px; min-width: 28px; }
+  .iWinPct { font-size: var(--text-xs); min-width: 28px; }
   .iWinReset { display: block; }
   .iLogRow { padding: 10px 6px 10px 10px; }
-  .iLogText { font-size: 12.5px; }
+  .iLogText { font-size: var(--text-md); }
 }
 
 /* ── Entry — composer-first Home ────────────────────────────────────────── */
@@ -625,19 +625,19 @@ export const SCOUT_IOS_CSS = `
    bottom chrome (Steering Loop grammar): dock + tabs, no cockpit ticker. */
 .iEntry { display: flex; flex-direction: column; overflow: hidden; }
 .iEntryPulse { padding: 44px 6px 0; }
-.iEntryHeadline { font-size: 25px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.15;
+.iEntryHeadline { font-size: var(--text-6xl); font-weight: 600; letter-spacing: -0.02em; line-height: 1.15;
   color: var(--i-ink); }
-.iEntrySub { margin-top: 8px; font-size: 13px; color: var(--i-muted); }
+.iEntrySub { margin-top: 8px; font-size: var(--text-lg); color: var(--i-muted); }
 .iEntryAir { flex: 1 1 auto; min-height: 18px; }
-.iEntryMore { padding: 8px 6px 0; font-size: 11.5px; color: var(--i-dim); }
+.iEntryMore { padding: 8px 6px 0; font-size: var(--text-sm); color: var(--i-dim); }
 /* recents are a WHISPER — the composer is the page; recency is just the
    shortest path back. Names muted, previews dim, nothing bold. */
 .iEntryRecents { flex: none; }
 .iEntryRecent { display: flex; align-items: baseline; gap: 8px; padding: 7px 14px; }
-.iEntryConvName { font-size: 12px; font-weight: 500; color: var(--i-muted); flex: none; }
-.iEntryConvPrev { flex: 1; min-width: 0; font-size: 11.5px; color: var(--i-dim);
+.iEntryConvName { font-size: var(--text-md); font-weight: 500; color: var(--i-muted); flex: none; }
+.iEntryConvPrev { flex: 1; min-width: 0; font-size: var(--text-sm); color: var(--i-dim);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.iEntryConvAge { font-size: 9.5px; font-family: var(--i-mono); color: var(--i-dim); flex: none; }
+.iEntryConvAge { font-size: var(--text-2xs); font-family: var(--i-mono); color: var(--i-dim); flex: none; }
 /* The composer inside is the MessageComposer atom in its pill appearance —
    phone shape comes from params, not from CSS here (see the token bridge at
    the top of this sheet). */
@@ -645,15 +645,15 @@ export const SCOUT_IOS_CSS = `
 /* first run */
 .iEntryWelcome { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center;
   padding: 0 10px 44px; }
-.iEntryHeadline.big { font-size: 29px; letter-spacing: -0.025em; }
-.iEntryPromise { margin: 13px 0 0; font-size: 14px; line-height: 1.55; color: var(--i-muted);
+.iEntryHeadline.big { font-size: var(--text-6xl); letter-spacing: -0.025em; }
+.iEntryPromise { margin: 13px 0 0; font-size: var(--text-xl); line-height: 1.55; color: var(--i-muted);
   max-width: 330px; }
 .iEntryConnect { margin-top: 28px; height: 50px; border-radius: 15px; display: grid;
-  place-items: center; font-size: 15px; font-weight: 600; color: #04130d;
+  place-items: center; font-size: var(--text-2xl); font-weight: 600; color: #04130d;
   background: linear-gradient(180deg, var(--i-accent-2), var(--i-accent));
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.25),
     0 5px 16px -5px color-mix(in oklab, var(--i-accent) 55%, transparent); }
-.iEntryHint { margin-top: 13px; font-size: 12px; color: var(--i-dim); }
+.iEntryHint { margin-top: 13px; font-size: var(--text-md); color: var(--i-dim); }
 /* Liquid-glass tab bar — the Apple-shaped bottom chrome the Entry home wears
    (iOS 26 glassEffect natively; backdrop-filter is the honest CSS
    analogue). A capsule floating inset from every edge, over content rather
@@ -666,7 +666,7 @@ export const SCOUT_IOS_CSS = `
    to absorb it), so the capsule floats clear of the indicator. */
 .iGlassRail { flex: none; padding: 6px 20px 18px; display: flex; flex-direction: column;
   align-items: center; gap: 4px; }
-.iGlassNote { font-size: 9px; font-family: var(--i-mono); font-weight: 500;
+.iGlassNote { font-size: var(--text-2xs); font-family: var(--i-mono); font-weight: 500;
   letter-spacing: 0.06em; color: var(--i-dim); }
 .iGlassBar { width: 100%; display: flex; border-radius: 999px; padding: 6px;
   background: rgba(233,240,241,0.07);
@@ -687,7 +687,7 @@ export const SCOUT_IOS_CSS = `
 .scoutios[data-v="paper"] .iGlassTab[data-on="true"] .iGlassSeat {
   background: linear-gradient(180deg, #fdfcfa, #efece4);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 0 0 1px var(--i-hairline-strong); }
-.iGlassLabel { font-size: 9px; font-weight: 500; font-family: var(--i-mono); letter-spacing: 0.02em; }
+.iGlassLabel { font-size: var(--text-2xs); font-weight: 500; font-family: var(--i-mono); letter-spacing: 0.02em; }
 /* entry masthead — places leads, the host chip sits beside it, gear trails
    (no wordmark: the front door's row carries only what you'd act on) */
 .iMastEntry { justify-content: flex-start; position: relative; }
@@ -695,7 +695,7 @@ export const SCOUT_IOS_CSS = `
 /* Host chip — an indicator, not a filter: which Mac you're steering. Crisp
    plate + hairline, never a stadium (the chrome is plates and hairlines). */
 .iHostChip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px;
-  border-radius: 5px; font-family: var(--i-mono); font-size: 10.5px; font-weight: 500;
+  border-radius: 5px; font-family: var(--i-mono); font-size: var(--text-xs); font-weight: 500;
   color: var(--i-muted); background: var(--i-surface);
   border: 1px solid var(--i-hairline-strong); }
 .iHostDot { width: 5px; height: 5px; border-radius: 999px; background: var(--i-accent); }
@@ -724,7 +724,7 @@ export const SCOUT_IOS_CSS = `
   border-top: 1px solid var(--i-hairline-strong); }
 .iPlacesGrab { width: 36px; height: 4px; border-radius: 2px; margin: 0 auto 10px;
   background: var(--i-hairline-strong); }
-.iPlacesTitle { text-align: center; font-size: 16px; font-weight: 600; color: var(--i-ink);
+.iPlacesTitle { text-align: center; font-size: var(--text-2xl); font-weight: 600; color: var(--i-ink);
   padding-bottom: 10px; }
 .iPlacesList { display: flex; flex-direction: column; }
 .iPlaceRow { display: flex; align-items: center; gap: 14px; padding: 12px 0;
@@ -734,8 +734,8 @@ export const SCOUT_IOS_CSS = `
   place-items: center; color: var(--i-muted); background: var(--i-surface);
   border: 1px solid var(--i-hairline); }
 .iPlaceText { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.iPlaceName { font-size: 14px; font-weight: 500; color: var(--i-ink); }
-.iPlaceBlurb { font-size: 12px; color: var(--i-dim); white-space: nowrap; overflow: hidden;
+.iPlaceName { font-size: var(--text-xl); font-weight: 500; color: var(--i-ink); }
+.iPlaceBlurb { font-size: var(--text-md); color: var(--i-dim); white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; }
 .iPlaceCaret { flex: none; color: var(--i-dim); }
 /* accessory line — OUR line where the system QuickType strip used to be.
@@ -755,7 +755,7 @@ export const SCOUT_IOS_CSS = `
 .iAccPills { display: flex; align-items: center; gap: 8px; padding-left: 14px; padding-right: 8px; }
 .iAccPill { flex: none; height: 28px; display: inline-flex; align-items: center;
   padding: 0 14px; border-radius: 999px; white-space: nowrap;
-  font-size: 12.5px; font-weight: 500; color: var(--i-muted);
+  font-size: var(--text-md); font-weight: 500; color: var(--i-muted);
   background: var(--i-card-top); border: 1px solid var(--i-hairline); }
 .iAccToggle { flex: none; width: 44px; height: 44px; display: grid; place-items: center;
   color: var(--i-muted); border-left: 1px solid var(--i-hairline-strong); }
@@ -772,16 +772,16 @@ export const SCOUT_IOS_CSS = `
 .iKbRow { display: flex; gap: 6px; padding: 0 3px; }
 .iKbRow.indent { padding: 0 22px; }
 .iKey { flex: 1 1 0; min-width: 0; height: 42px; display: grid; place-items: center;
-  border-radius: 5.5px; font-size: 16.5px; color: var(--i-ink); font-family: var(--i-font);
+  border-radius: 5.5px; font-size: var(--text-3xl); color: var(--i-ink); font-family: var(--i-font);
   background: linear-gradient(180deg, color-mix(in oklab, #fff 6%, var(--i-surface)), var(--i-surface));
   border: 1px solid var(--i-hairline-strong); box-shadow: 0 1px 0 rgba(0,0,0,0.4); }
-.iKeyMod { background: var(--i-bg); color: var(--i-muted); font-size: 14px; }
+.iKeyMod { background: var(--i-bg); color: var(--i-muted); font-size: var(--text-xl); }
 .iKeyShift, .iKeyBksp { flex: 0 0 45px; }
 .iKeyShift { margin-right: 6px; }
 .iKeyBksp { margin-left: 6px; }
-.iKey123 { flex: 0 0 88px; font-size: 12.5px; }
-.iKeySpace { flex: 1 1 auto; font-size: 12.5px; color: var(--i-muted); }
-.iKeyGo { flex: 0 0 88px; font-size: 12.5px; font-weight: 600;
+.iKey123 { flex: 0 0 88px; font-size: var(--text-md); }
+.iKeySpace { flex: 1 1 auto; font-size: var(--text-md); color: var(--i-muted); }
+.iKeyGo { flex: 0 0 88px; font-size: var(--text-md); font-weight: 600;
   background: var(--i-accent); color: #04130d; border-color: var(--i-accent); }
 .scoutios[data-v="paper"] .iKey { background: #fdfcfa; border-color: var(--i-hairline-strong);
   box-shadow: 0 1px 0 rgba(62,56,44,0.28); }
@@ -800,19 +800,19 @@ export const SCOUT_IOS_CSS = `
   background:
     radial-gradient(130% 55% at 50% 0%, var(--i-keylight), rgba(255,255,255,0) 62%),
     linear-gradient(180deg, var(--i-wash-top) 0%, var(--i-bg) 36%, var(--i-wash-bottom) 100%); }
-.iPadScreen .iStatus { height: 34px; padding: 0 20px; font-size: 12.5px; }
+.iPadScreen .iStatus { height: 34px; padding: 0 20px; font-size: var(--text-md); }
 .iPadScreen .iBody { padding: 0 20px 10px; }
 
 /* ── Token board ─────────────────────────────────────────────────────── */
 .iBoardGroup { margin-bottom: 16px; }
-.iBoardLabel { font-family: var(--i-mono); font-size: 9px; font-weight: 700;
+.iBoardLabel { font-family: var(--i-mono); font-size: var(--text-2xs); font-weight: 700;
   letter-spacing: 0.14em; text-transform: uppercase; color: #7a7f88; margin-bottom: 8px; }
 .iSwatchRow { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
 .iSwatch { width: 26px; height: 26px; border-radius: 6px; flex: none;
   border: 1px solid rgba(255,255,255,0.12); }
-.iSwName { font-size: 12px; color: #d8dbe0; width: 118px; }
-.iSwHex { font-family: var(--i-mono); font-size: 11px; color: #9aa0aa; }
-.iSwRatio { font-family: var(--i-mono); font-size: 10.5px; margin-left: auto; }
+.iSwName { font-size: var(--text-md); color: #d8dbe0; width: 118px; }
+.iSwHex { font-family: var(--i-mono); font-size: var(--text-sm); color: #9aa0aa; }
+.iSwRatio { font-family: var(--i-mono); font-size: var(--text-xs); margin-left: auto; }
 
 /* ── Treatment overrides (driven by data-* on .scoutios) ───────────────── */
 /* Compact density — tighten list rows + section headers (Home / Agents). */
@@ -844,11 +844,11 @@ export const SCOUT_IOS_CSS = `
   background: var(--i-surface); color: var(--i-muted); border: 1px solid var(--i-hairline-strong); }
 .iDetailTitleBlock { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .iDetailTitleRow { display: flex; align-items: center; gap: 7px; }
-.iDetailTitle { font-size: 16px; font-weight: 600; color: var(--i-ink); white-space: nowrap;
+.iDetailTitle { font-size: var(--text-2xl); font-weight: 600; color: var(--i-ink); white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
-.iDetailSub { font-size: 11px; color: var(--i-muted); font-family: var(--i-mono); }
+.iDetailSub { font-size: var(--text-sm); color: var(--i-muted); font-family: var(--i-mono); }
 .iGearSm { width: 28px; height: 28px; }
-.iStreamBadge { display: inline-flex; align-items: center; gap: 4px; font-size: 8.5px; font-weight: 700;
+.iStreamBadge { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-3xs); font-weight: 700;
   letter-spacing: 0.08em; text-transform: uppercase; font-family: var(--i-mono); color: var(--i-accent);
   padding: 2px 6px; border-radius: 999px; background: var(--i-accent-soft); }
 
@@ -856,16 +856,16 @@ export const SCOUT_IOS_CSS = `
 .iConv { padding-top: 4px; }
 .iTurn { margin-bottom: 12px; }
 .iTurnLabel { display: flex; align-items: center; gap: 6px; margin: 10px 0 6px; }
-.iTurnLabel span:not(.iDot) { font-size: 9px; font-weight: 700; letter-spacing: 0.15em; font-family: var(--i-mono); }
+.iTurnLabel span:not(.iDot) { font-size: var(--text-2xs); font-weight: 700; letter-spacing: 0.15em; font-family: var(--i-mono); }
 .iTurnLabel[data-role="user"] span:not(.iDot) { color: var(--i-muted); }
 .iTurnLabel[data-role="agent"] span:not(.iDot) { color: var(--i-accent); }
-.iMsg { font-size: 13.5px; line-height: 1.5; color: var(--i-ink); padding: 9px 12px; border-radius: 12px;
+.iMsg { font-size: var(--text-lg); line-height: 1.5; color: var(--i-ink); padding: 9px 12px; border-radius: 12px;
   background: linear-gradient(180deg, color-mix(in oklab, var(--i-ink) 5%, var(--i-surface)), var(--i-surface));
   border: 1px solid var(--i-hairline-strong);
   box-shadow: inset 0 1px 0 var(--i-keylight), 0 1px 2px rgba(0,0,0,0.18); margin-bottom: 6px; }
 .iMdP + .iMdP, .iMdLi { margin-top: 3px; }
 .iMsg strong { color: var(--i-ink); font-weight: 700; }
-.iReason { font-size: 12px; font-style: italic; color: var(--i-muted); line-height: 1.5;
+.iReason { font-size: var(--text-md); font-style: italic; color: var(--i-muted); line-height: 1.5;
   border-left: 2px solid var(--i-hairline-strong); padding: 2px 0 2px 10px; margin: 0 0 6px 2px; }
 .iAct { border-radius: 12px;
   background: linear-gradient(180deg, color-mix(in oklab, var(--i-ink) 5%, var(--i-surface)), var(--i-surface));
@@ -874,34 +874,34 @@ export const SCOUT_IOS_CSS = `
   padding: 9px 11px; margin-bottom: 6px; }
 .iActHead { display: flex; align-items: center; gap: 7px; }
 .iActIcon { color: var(--i-muted); flex: none; display: grid; place-items: center; }
-.iActTitle { font-size: 11.5px; font-weight: 600; font-family: var(--i-mono); color: var(--i-ink);
+.iActTitle { font-size: var(--text-sm); font-weight: 600; font-family: var(--i-mono); color: var(--i-ink);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.iActStatus { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+.iActStatus { font-size: var(--text-2xs); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
   font-family: var(--i-mono); flex: none; }
 .iActStatus[data-s="ok"] { color: var(--i-ok); }
 .iActStatus[data-s="error"] { color: var(--i-error); }
 .iActStatus[data-s="running"] { color: var(--i-accent); }
-.iActOut { font-size: 10.5px; font-family: var(--i-mono); color: var(--i-muted); margin-top: 6px;
+.iActOut { font-size: var(--text-xs); font-family: var(--i-mono); color: var(--i-muted); margin-top: 6px;
   line-height: 1.4; white-space: pre-wrap; }
 .iApproval { margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--i-hairline); }
-.iApprovalDesc { font-size: 11.5px; color: var(--i-muted); line-height: 1.45; }
+.iApprovalDesc { font-size: var(--text-sm); color: var(--i-muted); line-height: 1.45; }
 .iApprovalRow { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-.iRiskBadge { font-size: 8.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+.iRiskBadge { font-size: var(--text-3xs); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
   font-family: var(--i-mono); padding: 2px 6px; border-radius: 999px; }
 .iRiskBadge[data-r="low"] { color: var(--i-ok); background: color-mix(in oklab, var(--i-ok) 14%, transparent); }
 .iRiskBadge[data-r="med"] { color: var(--i-warn); background: color-mix(in oklab, var(--i-warn) 16%, transparent); }
 .iRiskBadge[data-r="high"] { color: var(--i-error); background: color-mix(in oklab, var(--i-error) 16%, transparent); }
-.iBtn { font-size: 12px; font-weight: 600; padding: 6px 14px; border-radius: 9px; border: 1px solid transparent;
+.iBtn { font-size: var(--text-md); font-weight: 600; padding: 6px 14px; border-radius: 9px; border: 1px solid transparent;
   cursor: pointer; font-family: var(--i-font); }
 .iBtnDeny { background: transparent; color: var(--i-muted); border-color: var(--i-hairline-strong); }
 .iBtnApprove { background: var(--i-accent); color: #04130d; }
 .iQuestion { border-radius: 12px; padding: 10px 12px; margin-bottom: 6px;
   background: color-mix(in oklab, var(--i-warn) 8%, var(--i-surface));
   border: 1px solid color-mix(in oklab, var(--i-warn) 30%, transparent); }
-.iQHead { font-size: 8.5px; font-weight: 700; letter-spacing: 0.12em; font-family: var(--i-mono); color: var(--i-warn); }
-.iQText { font-size: 13.5px; color: var(--i-ink); margin: 6px 0 9px; line-height: 1.4; }
+.iQHead { font-size: var(--text-3xs); font-weight: 700; letter-spacing: 0.12em; font-family: var(--i-mono); color: var(--i-warn); }
+.iQText { font-size: var(--text-lg); color: var(--i-ink); margin: 6px 0 9px; line-height: 1.4; }
 .iQOpts { display: flex; gap: 7px; }
-.iQOpt { font-size: 12.5px; font-weight: 600; padding: 6px 14px; border-radius: 9px; cursor: pointer;
+.iQOpt { font-size: var(--text-md); font-weight: 600; padding: 6px 14px; border-radius: 9px; cursor: pointer;
   background: var(--i-warn); color: #1a1205; border: none; }
 .iQOpt.on { background: var(--i-surface); color: var(--i-muted); border: 1px solid var(--i-hairline-strong); }
 /* Composer dock — lifts off the transcript: a top keylight edge + a soft
@@ -917,7 +917,7 @@ export const SCOUT_IOS_CSS = `
   color: var(--i-muted); border: 1px solid var(--i-hairline-strong);
   box-shadow: inset 0 1px 0 var(--i-keylight); }
 /* Field is a recessed well (inner shadow); focus lights an accent ring. */
-.iComposerField { flex: 1; font-size: 13px; color: var(--i-dim); padding: 9px 13px; border-radius: 11px;
+.iComposerField { flex: 1; font-size: var(--text-lg); color: var(--i-dim); padding: 9px 13px; border-radius: 11px;
   background: var(--i-bg); border: 1px solid var(--i-hairline-strong);
   box-shadow: inset 0 1px 2px rgba(0,0,0,0.32);
   transition: border-color 0.13s, box-shadow 0.13s, color 0.13s; }
@@ -940,12 +940,12 @@ export const SCOUT_IOS_CSS = `
 /* ── Terminal ──────────────────────────────────────────────────────────── */
 .iTermHead { display: flex; align-items: center; gap: 8px; }
 .iTermGlyph { color: var(--i-ok); flex: none; }
-.iTermTitle { font-size: 16px; font-weight: 600; color: var(--i-ink); }
-.iTermEndpoint { font-size: 11px; color: var(--i-muted); font-family: var(--i-mono); }
+.iTermTitle { font-size: var(--text-2xl); font-weight: 600; color: var(--i-ink); }
+.iTermEndpoint { font-size: var(--text-sm); color: var(--i-muted); font-family: var(--i-mono); }
 .iTermBody { display: flex; flex-direction: column; padding: 8px 10px 6px; }
 .iTermScreen { flex: 1; overflow: hidden; border-radius: 12px; background: #050505;
   border: 1px solid var(--i-hairline-strong); padding: 11px 12px; font-family: var(--i-mono);
-  font-size: 11.5px; line-height: 1.6; }
+  font-size: var(--text-sm); line-height: 1.6; }
 .iTermLine { white-space: pre-wrap; word-break: break-all; color: var(--i-ink); }
 .iTermLine-out { color: var(--i-muted); }
 .iTermLine-dim { color: var(--i-dim); }
@@ -953,44 +953,44 @@ export const SCOUT_IOS_CSS = `
 .iTermCursor { display: inline-block; width: 7px; height: 14px; vertical-align: -2px;
   background: var(--i-ok); animation: iBlink 1.1s steps(1) infinite; }
 .iTermTray { flex: none; display: flex; align-items: center; gap: 6px; padding: 9px 2px 4px; overflow: hidden; }
-.iTermKey { font-size: 11px; font-family: var(--i-mono); color: var(--i-muted); padding: 5px 9px;
+.iTermKey { font-size: var(--text-sm); font-family: var(--i-mono); color: var(--i-muted); padding: 5px 9px;
   border-radius: 7px; background: var(--i-surface); border: 1px solid var(--i-hairline-strong); flex: none; }
 .iTermMic { color: var(--i-accent); }
 .iTermStatusPanel { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 8px; text-align: center; padding: 0 30px; }
-.iTermStatusSpin { font-size: 22px; }
-.iTermStatusTitle { font-size: 15px; font-weight: 600; color: var(--i-ink); }
-.iTermStatusSub { font-size: 12px; color: var(--i-muted); line-height: 1.4; }
+.iTermStatusSpin { font-size: var(--text-5xl); }
+.iTermStatusTitle { font-size: var(--text-2xl); font-weight: 600; color: var(--i-ink); }
+.iTermStatusSub { font-size: var(--text-md); color: var(--i-muted); line-height: 1.4; }
 
 /* ── New Session ───────────────────────────────────────────────────────── */
 .iNew { padding-top: 4px; }
 .iNewSection { margin-bottom: 14px; }
-.iNewLabel { font-size: 9.5px; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase;
+.iNewLabel { font-size: var(--text-2xs); font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase;
   font-family: var(--i-mono); color: var(--i-muted); padding: 8px 2px 6px; }
 .iNewCard { border-radius: 14px; background: var(--i-surface); border: 1px solid var(--i-hairline-strong); padding: 12px; }
 .iNewProject { display: flex; align-items: center; gap: 11px; }
 .iNewProjText { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.iNewProjName { font-size: 14px; font-weight: 500; color: var(--i-ink); }
-.iNewProjPath { font-size: 10.5px; font-family: var(--i-mono); color: var(--i-dim); }
+.iNewProjName { font-size: var(--text-xl); font-weight: 500; color: var(--i-ink); }
+.iNewProjPath { font-size: var(--text-xs); font-family: var(--i-mono); color: var(--i-dim); }
 .iNewAgent { display: flex; align-items: center; gap: 9px; }
-.iChoice { font-size: 13px; font-weight: 500; color: var(--i-ink); display: inline-flex; align-items: center; gap: 4px; }
-.iCaret2 { color: var(--i-dim); font-size: 12px; }
+.iChoice { font-size: var(--text-lg); font-weight: 500; color: var(--i-ink); display: inline-flex; align-items: center; gap: 4px; }
+.iCaret2 { color: var(--i-dim); font-size: var(--text-md); }
 .iNewDot { color: var(--i-dim); }
-.iTargetTok { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-family: var(--i-mono);
+.iTargetTok { display: inline-flex; align-items: center; gap: 5px; font-size: var(--text-sm); font-family: var(--i-mono);
   color: var(--i-muted); padding: 4px 9px; border-radius: 999px; background: var(--i-bg); border: 1px solid var(--i-hairline); }
 .iNewPrompt { position: relative; min-height: 96px; }
-.iNewPromptText { font-size: 13.5px; line-height: 1.5; color: var(--i-ink); font-family: var(--i-mono); padding-right: 44px; }
+.iNewPromptText { font-size: var(--text-lg); line-height: 1.5; color: var(--i-ink); font-family: var(--i-mono); padding-right: 44px; }
 .iMicFloat { position: absolute; right: 10px; bottom: 10px; width: 38px; height: 38px; }
 .iResultCard { border-radius: 14px; padding: 12px; background: color-mix(in oklab, var(--i-ok) 8%, var(--i-surface));
   border: 1px solid color-mix(in oklab, var(--i-ok) 28%, transparent); }
-.iResultHead { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; color: var(--i-ink); margin-bottom: 8px; }
+.iResultHead { display: flex; align-items: center; gap: 7px; font-size: var(--text-lg); font-weight: 600; color: var(--i-ink); margin-bottom: 8px; }
 .iResultRow { display: flex; align-items: baseline; gap: 10px; padding: 2px 0; }
-.iResultKey { font-size: 9.5px; font-family: var(--i-mono); color: var(--i-dim); text-transform: uppercase;
+.iResultKey { font-size: var(--text-2xs); font-family: var(--i-mono); color: var(--i-dim); text-transform: uppercase;
   letter-spacing: 0.06em; width: 92px; flex: none; }
-.iResultVal { font-size: 12px; font-family: var(--i-mono); color: var(--i-ink); }
+.iResultVal { font-size: var(--text-md); font-family: var(--i-mono); color: var(--i-ink); }
 .iNewFooter { flex: none; padding: 8px 14px 16px; border-top: 1px solid var(--i-hairline-strong);
   background: var(--i-chrome); position: relative; z-index: 2; }
-.iStartBtn { width: 100%; font-size: 14px; font-weight: 600; padding: 12px; border-radius: 12px;
+.iStartBtn { width: 100%; font-size: var(--text-xl); font-weight: 600; padding: 12px; border-radius: 12px;
   background: var(--i-accent); color: #04130d; border: none; cursor: pointer; }
 
 /* ── New session · DESTINATION picker ───────────────────────────────────── */
@@ -1009,7 +1009,7 @@ export const SCOUT_IOS_CSS = `
 .iDestScroll { flex: 1; min-height: 0; overflow: hidden; }
 
 /* eyebrow — the Instrument label. Mono caps micro, dim, generously tracked. */
-.iDestEyebrow { font-family: var(--i-mono); font-size: 9px; font-weight: 700;
+.iDestEyebrow { font-family: var(--i-mono); font-size: var(--text-2xs); font-weight: 700;
   letter-spacing: 0.16em; text-transform: uppercase; color: var(--i-dim); flex: none; }
 .iDestRule { height: 1px; background: var(--i-hairline-strong); flex: none; }
 .iDestRule[data-soft] { background: var(--i-hairline); }
@@ -1018,16 +1018,16 @@ export const SCOUT_IOS_CSS = `
 .iDestHost { display: flex; align-items: center; gap: 12px; min-height: 34px;
   padding: 4px 0 8px; }
 .iDestHostRead { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
-.iDestHostName { font-size: 13px; font-weight: 500; color: var(--i-muted);
+.iDestHostName { font-size: var(--text-lg); font-weight: 500; color: var(--i-muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.iDestHostTag { font-family: var(--i-mono); font-size: 8.5px; font-weight: 700;
+.iDestHostTag { font-family: var(--i-mono); font-size: var(--text-3xs); font-weight: 700;
   letter-spacing: 0.1em; text-transform: uppercase; color: var(--i-dim); flex: none; }
 .iDestHostChips { display: flex; align-items: center; gap: 6px; min-width: 0;
   overflow-x: auto; scrollbar-width: none; }
 .iDestHostChips::-webkit-scrollbar { display: none; }
 .iDestHostChip { flex: none; display: inline-flex; align-items: center; gap: 6px;
   padding: 4px 9px; border-radius: 5px; cursor: pointer;
-  font-family: var(--i-mono); font-size: 10.5px; font-weight: 500;
+  font-family: var(--i-mono); font-size: var(--text-xs); font-weight: 500;
   color: var(--i-dim); background: var(--i-bg); border: 1px solid var(--i-hairline); }
 .iDestHostChip[data-on] { color: var(--i-ink); background: var(--i-surface);
   border-color: var(--i-border); }
@@ -1039,21 +1039,21 @@ export const SCOUT_IOS_CSS = `
 .iDestQuery { display: flex; align-items: center; gap: 11px; height: 44px; flex: none; }
 .iDestQuery > svg { color: var(--i-dim); flex: none; }
 .iDestQuery input { flex: 1; min-width: 0; background: none; border: none; outline: none;
-  padding: 0; font-family: var(--i-font); font-size: 13.5px; color: var(--i-ink); }
+  padding: 0; font-family: var(--i-font); font-size: var(--text-lg); color: var(--i-ink); }
 .iDestQuery input::placeholder { color: var(--i-dim); }
-.iDestQueryCount { font-family: var(--i-mono); font-size: 10px; color: var(--i-dim);
+.iDestQueryCount { font-family: var(--i-mono); font-size: var(--text-xs); color: var(--i-dim);
   font-variant-numeric: tabular-nums; flex: none; }
 .iDestQueryClear { flex: none; width: 28px; height: 28px; display: grid; place-items: center;
   color: var(--i-dim); background: none; border: none; cursor: pointer;
-  font-family: var(--i-mono); font-size: 13px; }
+  font-family: var(--i-mono); font-size: var(--text-lg); }
 
 /* BAND / GROUP heads — the structure hairlines carry */
 .iDestBand { display: flex; align-items: center; gap: 8px; padding: 13px 0 6px; flex: none; }
 .iDestBandRule { flex: 1; height: 1px; background: var(--i-hairline); }
 .iDestGroup { display: flex; align-items: center; gap: 8px; padding: 12px 0 4px; }
-.iDestGroupPath { font-family: var(--i-mono); font-size: 10px; color: var(--i-dim);
+.iDestGroupPath { font-family: var(--i-mono); font-size: var(--text-xs); color: var(--i-dim);
   letter-spacing: 0.02em; }
-.iDestGroupCount { font-family: var(--i-mono); font-size: 9px; color: var(--i-dim);
+.iDestGroupCount { font-family: var(--i-mono); font-size: var(--text-2xs); color: var(--i-dim);
   font-variant-numeric: tabular-nums; margin-left: auto; }
 
 /* ONE PROJECT — a flat full-width row, which is the one shape the house rules
@@ -1067,23 +1067,23 @@ export const SCOUT_IOS_CSS = `
 .iDestRow[data-on]::before { background: var(--i-accent); }
 .iDestMark { flex: none; width: 15px; display: grid; place-items: center; color: var(--i-dim); }
 .iDestRow[data-on] .iDestMark { color: var(--i-accent); }
-.iDestName { font-size: 13.5px; font-weight: 500; color: var(--i-muted);
+.iDestName { font-size: var(--text-lg); font-weight: 500; color: var(--i-muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .iDestRow[data-on] .iDestName { font-weight: 600; color: var(--i-ink); }
 .iDestSpacer { flex: 1; min-width: 10px; }
-.iDestMeta { font-family: var(--i-mono); font-size: 10px; color: var(--i-dim); flex: none;
+.iDestMeta { font-family: var(--i-mono); font-size: var(--text-xs); color: var(--i-dim); flex: none;
   font-variant-numeric: tabular-nums; }
 .iDestMeta[data-live] { color: var(--i-accent); }
 /* The head is cut in JS (see tailPath): CSS can only ellipsize the tail, and
    the direction:rtl trick that fakes a head-cut reorders the neutrals —
    "~/dev" renders as "dev/~". */
-.iDestTail { font-family: var(--i-mono); font-size: 10px; color: var(--i-dim); flex: none;
+.iDestTail { font-family: var(--i-mono); font-size: var(--text-xs); color: var(--i-dim); flex: none;
   max-width: 132px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* the path escape hatch — a query that IS a path no workspace answers */
-.iDestUse { font-family: var(--i-mono); font-size: 8.5px; font-weight: 700;
+.iDestUse { font-family: var(--i-mono); font-size: var(--text-3xs); font-weight: 700;
   letter-spacing: 0.1em; text-transform: uppercase; color: var(--i-accent); flex: none; }
 
-.iDestNotice { font-family: var(--i-mono); font-size: 11px; line-height: 1.6;
+.iDestNotice { font-family: var(--i-mono); font-size: var(--text-sm); line-height: 1.6;
   color: var(--i-dim); padding: 22px 14px 0; max-width: 300px; }
 .iDestNotice b { color: var(--i-muted); font-weight: 600; }
 
@@ -1095,23 +1095,23 @@ export const SCOUT_IOS_CSS = `
   padding: 0 14px; border-top: 1px solid var(--i-hairline-strong); cursor: text;
   background: none; border-left: none; border-right: none; border-bottom: none;
   width: 100%; text-align: left; font-family: var(--i-font); }
-.iDestReadoutCaret { flex: none; font-family: var(--i-mono); font-size: 11px;
+.iDestReadoutCaret { flex: none; font-family: var(--i-mono); font-size: var(--text-sm);
   color: var(--i-dim); }
 .iDestReadout[data-live] .iDestReadoutCaret { color: var(--i-accent); }
-.iDestReadoutText { flex: 1; min-width: 0; font-family: var(--i-mono); font-size: 12px;
+.iDestReadoutText { flex: 1; min-width: 0; font-family: var(--i-mono); font-size: var(--text-md);
   color: var(--i-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .iDestReadoutText em { font-style: normal; color: var(--i-dim); }
 .iDestReadout[data-live] .iDestReadoutText { color: var(--i-ink); }
 .iDestReadout input { flex: 1; min-width: 0; background: none; border: none; outline: none;
-  padding: 0; font-family: var(--i-mono); font-size: 12px; color: var(--i-ink); }
+  padding: 0; font-family: var(--i-mono); font-size: var(--text-md); color: var(--i-ink); }
 .iDestReadout input::placeholder { color: var(--i-dim); }
-.iDestReadoutHint { flex: none; font-family: var(--i-mono); font-size: 9px; font-weight: 700;
+.iDestReadoutHint { flex: none; font-family: var(--i-mono); font-size: var(--text-2xs); font-weight: 700;
   letter-spacing: 0.1em; text-transform: uppercase; color: var(--i-dim); }
 /* results rise BETWEEN the line and the composer, freshest match first */
 .iDestResults { flex: none; max-height: 232px; overflow: hidden;
   border-top: 1px solid var(--i-hairline); }
 .iDestResults .iDestRow { min-height: 40px; padding-left: 14px; }
-.iDestResultsFoot { font-family: var(--i-mono); font-size: 9px; letter-spacing: 0.08em;
+.iDestResultsFoot { font-family: var(--i-mono); font-size: var(--text-2xs); letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--i-dim); padding: 7px 14px 3px; }
 /* the composer stands down while the line is live — one live field, always */
 .iDestStandby { opacity: 0.34; pointer-events: none; filter: saturate(0.35); }
@@ -1121,7 +1121,7 @@ export const SCOUT_IOS_CSS = `
    message, not a control beside it — and opens a page that owns the screen. */
 .iDestHeaderLine { display: flex; align-items: center; gap: 8px; width: 100%;
   padding: 0 2px 2px; background: none; border: none; cursor: pointer;
-  font-family: var(--i-mono); font-size: 11px; color: var(--i-muted); text-align: left; }
+  font-family: var(--i-mono); font-size: var(--text-sm); color: var(--i-muted); text-align: left; }
 .iDestHeaderLine .iDot, .iDestHeaderLine .iRing { flex: none; }
 .iDestHeaderPath { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; }
@@ -1146,15 +1146,15 @@ export const SCOUT_IOS_CSS = `
 .iDestSheetGrab { width: 36px; height: 4px; border-radius: 2px; margin: 0 auto 8px;
   background: var(--i-hairline-strong); flex: none; }
 .iDestSheetHead { display: flex; align-items: baseline; gap: 9px; padding: 2px 0 8px; flex: none; }
-.iDestSheetTitle { font-size: 16px; font-weight: 600; color: var(--i-ink); }
-.iDestSheetSub { font-family: var(--i-mono); font-size: 10px; color: var(--i-dim);
+.iDestSheetTitle { font-size: var(--text-2xl); font-weight: 600; color: var(--i-ink); }
+.iDestSheetSub { font-family: var(--i-mono); font-size: var(--text-xs); color: var(--i-dim);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.iDestSheetDone { margin-left: auto; font-size: 13px; font-weight: 600; color: var(--i-accent);
+.iDestSheetDone { margin-left: auto; font-size: var(--text-lg); font-weight: 600; color: var(--i-accent);
   background: none; border: none; cursor: pointer; font-family: var(--i-font); }
 .iDestSheetHost { display: flex; align-items: center; gap: 10px; padding: 2px 0 9px; flex: none; }
 .iDestSheet .iField { margin: 0 0 2px; flex: none; }
 .iDestSheet .iField input { flex: 1; min-width: 0; background: none; border: none; outline: none;
-  padding: 0; font-family: var(--i-font); font-size: 13px; color: var(--i-ink); }
+  padding: 0; font-family: var(--i-font); font-size: var(--text-lg); color: var(--i-ink); }
 .iDestSheet .iField input::placeholder { color: var(--i-dim); }
 .iDestSheetList { flex: 1; min-height: 0; overflow: hidden; }
 
@@ -1173,10 +1173,10 @@ export const SCOUT_IOS_CSS = `
 /* ① HOST — one line, and in the common case (one Mac) that is all it costs.
    No eyebrow row of its own, no rule above it, no band. */
 .iCalmHost { display: flex; align-items: center; gap: 8px; height: 30px; flex: none; padding: 0 2px; }
-.iCalmLabel { font-family: var(--i-mono); font-size: 9px; font-weight: 700;
+.iCalmLabel { font-family: var(--i-mono); font-size: var(--text-2xs); font-weight: 700;
   letter-spacing: 0.16em; text-transform: uppercase; color: var(--i-dim); flex: none;
   width: 46px; }
-.iCalmHostName { font-size: 13px; font-weight: 500; color: var(--i-muted);
+.iCalmHostName { font-size: var(--text-lg); font-weight: 500; color: var(--i-muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .iCalmHostName[data-none] { color: var(--i-dim); }
 .iCalmHostChips { display: flex; align-items: center; gap: 6px; min-width: 0;
@@ -1189,7 +1189,7 @@ export const SCOUT_IOS_CSS = `
   padding: 0 2px; }
 .iCalmQuery > svg { color: var(--i-dim); flex: none; }
 .iCalmQuery input { flex: 1; min-width: 0; background: none; border: none; outline: none;
-  padding: 0; font-family: var(--i-font); font-size: 13px; color: var(--i-ink); }
+  padding: 0; font-family: var(--i-font); font-size: var(--text-lg); color: var(--i-ink); }
 .iCalmQuery input::placeholder { color: var(--i-dim); }
 
 /* ② PROJECT — three rows. The name holds a floor width and the PATH is the
@@ -1206,14 +1206,14 @@ export const SCOUT_IOS_CSS = `
 .iCalmRow[data-on]::before { background: var(--i-accent); }
 .iCalmMark { flex: none; width: 15px; display: grid; place-items: center; color: var(--i-dim); }
 .iCalmRow[data-on] .iCalmMark { color: var(--i-accent); }
-.iCalmName { flex: 1 1 auto; min-width: 84px; font-size: 13.5px; font-weight: 500;
+.iCalmName { flex: 1 1 auto; min-width: 84px; font-size: var(--text-lg); font-weight: 500;
   color: var(--i-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .iCalmRow[data-on] .iCalmName { font-weight: 600; color: var(--i-ink); }
 .iCalmPath { flex: 0 1 auto; min-width: 0; margin-left: auto; padding-left: 12px;
-  font-family: var(--i-mono); font-size: 10px; color: var(--i-dim);
+  font-family: var(--i-mono); font-size: var(--text-xs); color: var(--i-dim);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 44%; }
 /* what a demoted row IS, said once on the row rather than inferred from a path */
-.iCalmKind { flex: none; font-family: var(--i-mono); font-size: 8.5px; font-weight: 700;
+.iCalmKind { flex: none; font-family: var(--i-mono); font-size: var(--text-3xs); font-weight: 700;
   letter-spacing: 0.09em; text-transform: uppercase; color: var(--i-dim);
   padding: 1px 5px; border-radius: 3px; border: 1px solid var(--i-hairline); }
 
@@ -1222,8 +1222,8 @@ export const SCOUT_IOS_CSS = `
 .iCalmMore { display: flex; align-items: center; gap: 8px; height: 34px; width: 100%;
   flex: none; padding: 0 2px 0 14px; cursor: pointer; background: none; border: none;
   border-top: 1px solid var(--i-hairline); text-align: left; font-family: var(--i-font); }
-.iCalmMoreText { font-size: 12px; font-weight: 500; color: var(--i-muted); flex: none; }
-.iCalmMoreSub { flex: 1; min-width: 0; font-family: var(--i-mono); font-size: 9.5px;
+.iCalmMoreText { font-size: var(--text-md); font-weight: 500; color: var(--i-muted); flex: none; }
+.iCalmMoreSub { flex: 1; min-width: 0; font-family: var(--i-mono); font-size: var(--text-2xs);
   color: var(--i-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .iCalmMoreChev { flex: none; margin-left: auto; color: var(--i-dim); display: flex; }
 
@@ -1247,18 +1247,18 @@ export const SCOUT_IOS_CSS = `
 .iCalmPageScrim[data-kb] { bottom: 226px; }
 .iCalmPage { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 10px 14px 0; }
 .iCalmPageHead { display: flex; align-items: baseline; gap: 9px; padding: 2px 0 8px; flex: none; }
-.iCalmPageTitle { font-size: 16px; font-weight: 600; color: var(--i-ink); }
+.iCalmPageTitle { font-size: var(--text-2xl); font-weight: 600; color: var(--i-ink); }
 .iCalmPageList { flex: 1; min-height: 0; overflow: hidden; }
 .iCalmPageBand { display: flex; align-items: center; gap: 8px; padding: 14px 0 4px; }
 
 /* ── Connect / route inspector + pairing ───────────────────────────────── */
 .iConn { padding-top: 6px; padding-bottom: 24px; }
 .iConnStatus { padding: 8px 2px 10px; }
-.iConnStatusMain { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--i-ink); }
+.iConnStatusMain { display: flex; align-items: center; gap: 8px; font-size: var(--text-2xl); color: var(--i-ink); }
 .iConnStatusMain strong { font-weight: 600; }
-.iConnStatusSub { font-size: 11px; font-family: var(--i-mono); color: var(--i-muted); margin-top: 4px; padding-left: 14px; }
+.iConnStatusSub { font-size: var(--text-sm); font-family: var(--i-mono); color: var(--i-muted); margin-top: 4px; padding-left: 14px; }
 .iRouteLegend { display: flex; align-items: center; padding: 6px 2px 12px; }
-.iRouteChip { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; font-family: var(--i-mono);
+.iRouteChip { font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.08em; font-family: var(--i-mono);
   color: var(--i-dim); padding: 4px 10px; border-radius: 7px; border: 1px solid var(--i-hairline-strong); }
 .iRouteChip.on { color: var(--i-accent); border-color: color-mix(in oklab, var(--i-accent) 45%, transparent);
   background: var(--i-accent-soft); }
@@ -1267,11 +1267,11 @@ export const SCOUT_IOS_CSS = `
 .iBtnGhost { flex: 1; background: var(--i-surface); color: var(--i-ink); border: 1px solid var(--i-hairline-strong); }
 .iBtnPrimary { flex: 1; background: var(--i-accent); color: #04130d; border: none; }
 .iConnLogRow { display: flex; align-items: baseline; gap: 9px; padding: 7px 13px; font-family: var(--i-mono); }
-.iConnRoute { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; color: var(--i-dim); width: 30px; flex: none; }
-.iConnEvent { font-size: 10.5px; font-weight: 600; width: 74px; flex: none; }
-.iConnMsg { font-size: 10.5px; color: var(--i-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iConnRoute { font-size: var(--text-2xs); font-weight: 700; letter-spacing: 0.06em; color: var(--i-dim); width: 30px; flex: none; }
+.iConnEvent { font-size: var(--text-xs); font-weight: 600; width: 74px; flex: none; }
+.iConnMsg { font-size: var(--text-xs); color: var(--i-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .iPair { padding-top: 10px; padding-bottom: 24px; display: flex; flex-direction: column; align-items: center; gap: 16px; }
-.iPairInstruction { font-size: 13px; line-height: 1.5; color: var(--i-muted); text-align: center; padding: 4px 14px 0; }
+.iPairInstruction { font-size: var(--text-lg); line-height: 1.5; color: var(--i-muted); text-align: center; padding: 4px 14px 0; }
 .iPairFrame { position: relative; width: 232px; height: 232px; border-radius: 20px; margin-top: 4px;
   border: 1px solid color-mix(in oklab, var(--i-accent) 45%, transparent); overflow: hidden; background: var(--i-surface); }
 .iPairQR { position: absolute; inset: 26px; border-radius: 6px;
@@ -1282,20 +1282,20 @@ export const SCOUT_IOS_CSS = `
 .iPairFinder.tr { top: 26px; right: 26px; }
 .iPairFinder.bl { bottom: 26px; left: 26px; }
 .iPairPaste { width: auto; }
-.iPairStatus { display: flex; align-items: center; font-size: 12px; color: var(--i-muted); font-family: var(--i-mono); }
+.iPairStatus { display: flex; align-items: center; font-size: var(--text-md); color: var(--i-muted); font-family: var(--i-mono); }
 
 /* ── Settings inspector ────────────────────────────────────────────────── */
 .iSet { padding-top: 8px; padding-bottom: 24px; }
 .iSetTabs { display: flex; gap: 4px; overflow: hidden; padding: 0 0 12px; }
-.iSetTab { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; font-family: var(--i-mono);
+.iSetTab { font-size: var(--text-2xs); font-weight: 700; letter-spacing: 0.06em; font-family: var(--i-mono);
   color: var(--i-dim); padding: 5px 9px; border-radius: 7px; cursor: pointer; flex: none; border: 1px solid transparent; }
 .iSetTab.on { color: var(--i-accent); background: var(--i-accent-soft);
   border-color: color-mix(in oklab, var(--i-accent) 35%, transparent); }
 .iSetSection { margin-bottom: 16px; }
 .iSetRow { display: flex; align-items: center; gap: 9px; padding: 10px 13px; }
-.iSetRowLabel { font-size: 13.5px; color: var(--i-ink); }
-.iSetRowVal { font-size: 12px; font-family: var(--i-mono); color: var(--i-muted); }
-.iForget { font-size: 8.5px; font-weight: 700; letter-spacing: 0.06em; font-family: var(--i-mono);
+.iSetRowLabel { font-size: var(--text-lg); color: var(--i-ink); }
+.iSetRowVal { font-size: var(--text-md); font-family: var(--i-mono); color: var(--i-muted); }
+.iForget { font-size: var(--text-3xs); font-weight: 700; letter-spacing: 0.06em; font-family: var(--i-mono);
   color: var(--i-error); margin-left: 9px; }
 .iToggle { width: 38px; height: 22px; border-radius: 999px; background: var(--i-hairline-strong);
   position: relative; flex: none; transition: background 0.15s; }
@@ -1303,15 +1303,15 @@ export const SCOUT_IOS_CSS = `
 .iToggleKnob { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%;
   background: #fff; transition: left 0.15s; }
 .iToggle.on .iToggleKnob { left: 18px; }
-.iDoneBtn { font-size: 13px; font-weight: 600; color: var(--i-accent); }
-.iSetNote { font-size: 11.5px; line-height: 1.5; color: var(--i-dim); padding: 0 4px; }
+.iDoneBtn { font-size: var(--text-lg); font-weight: 600; color: var(--i-accent); }
+.iSetNote { font-size: var(--text-sm); line-height: 1.5; color: var(--i-dim); padding: 0 4px; }
 
 /* ════ Treatment layers (additive — Source is never touched) ═════════════ */
 
 /* Tail · Kind-tone — the KIND token becomes a crisp colored chip per type, so
    the firehose is scannable by kind (mirrors the macOS Tail tone vocabulary). */
 .scoutios[data-tone="kind"] .iEvKind { padding: 1px 7px; border-radius: 999px; font-weight: 700;
-  font-size: 8.5px; letter-spacing: 0.05em; text-transform: uppercase; }
+  font-size: var(--text-3xs); letter-spacing: 0.05em; text-transform: uppercase; }
 .scoutios[data-tone="kind"] .iEvKind[data-kind="tool"],
 .scoutios[data-tone="kind"] .iEvKind[data-kind="toolResult"] {
   color: var(--i-warn); background: color-mix(in oklab, var(--i-warn) 16%, transparent); }
@@ -1324,7 +1324,7 @@ export const SCOUT_IOS_CSS = `
 
 /* Comms · Marks — a geometric identity tile per row (DMs read as people). */
 .iCommsMark { width: 25px; height: 25px; border-radius: 8px; flex: none; display: grid; place-items: center;
-  font-size: 11px; font-weight: 700; font-family: var(--i-mono); color: var(--i-muted);
+  font-size: var(--text-sm); font-weight: 700; font-family: var(--i-mono); color: var(--i-muted);
   background: var(--i-surface); border: 1px solid var(--i-hairline-strong); }
 
 /* Conversation · Compact — tighten blocks for a long session. */
@@ -1336,7 +1336,7 @@ export const SCOUT_IOS_CSS = `
 .scoutios[data-density="compact"] .iQuestion { padding: 8px 10px; margin-bottom: 4px; }
 
 /* Conversation · Collapsed reasoning — fold each reasoning block to a chip. */
-.iReasonChip { display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; font-family: var(--i-mono);
+.iReasonChip { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); font-family: var(--i-mono);
   color: var(--i-dim); padding: 3px 9px; border-radius: 999px; background: var(--i-surface);
   border: 1px solid var(--i-hairline-strong); margin: 0 0 6px 2px; }
 .iReasonChipDot { width: 4px; height: 4px; border-radius: 50%; background: var(--i-dim); }
@@ -1348,11 +1348,11 @@ export const SCOUT_IOS_CSS = `
    reads as a scope, not a set of buttons. */
 .iLedFilter { display: flex; gap: 4px; padding: 8px 0 9px; }
 .iLedFilterBtn { display: flex; align-items: center; gap: 6px; padding: 4px 11px; border-radius: 6px;
-  font-family: var(--i-mono); font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+  font-family: var(--i-mono); font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.1em;
   text-transform: uppercase; cursor: pointer;
   background: var(--i-bg); color: var(--i-dim); border: 1px solid var(--i-hairline); }
 .iLedFilterBtn[data-on] { background: var(--i-surface); color: var(--i-ink); border-color: var(--i-border); }
-.iLedFilterCount { font-size: 9.5px; font-weight: 700; color: var(--i-dim); }
+.iLedFilterCount { font-size: var(--text-2xs); font-weight: 700; color: var(--i-dim); }
 .iLedFilterBtn[data-on] .iLedFilterCount { color: var(--i-accent); }
 
 .iLedList { overflow: hidden; }
@@ -1364,32 +1364,32 @@ export const SCOUT_IOS_CSS = `
 .iLedTick[data-unseen] { background: var(--i-accent); }
 .iLedBody { flex: 1; min-width: 0; }
 .iLedTop { display: flex; align-items: baseline; gap: 7px; }
-.iLedKind { font-size: 8.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+.iLedKind { font-size: var(--text-3xs); font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
   font-family: var(--i-mono); color: var(--i-dim); flex: none; }
 .iLedRow[data-open] .iLedKind { color: var(--i-muted); }
-.iLedSession { font-size: 10.5px; font-family: var(--i-mono); color: var(--i-dim);
+.iLedSession { font-size: var(--text-xs); font-family: var(--i-mono); color: var(--i-dim);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.iLedAge { font-size: 10.5px; font-family: var(--i-mono); color: var(--i-dim);
+.iLedAge { font-size: var(--text-xs); font-family: var(--i-mono); color: var(--i-dim);
   flex: none; margin-left: auto; }
-.iLedTitle { font-size: 13px; font-weight: 600; color: var(--i-muted); margin-top: 3px;
+.iLedTitle { font-size: var(--text-lg); font-weight: 600; color: var(--i-muted); margin-top: 3px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .iLedRow[data-open] .iLedTitle { color: var(--i-ink); }
-.iLedSummary { font-size: 12px; line-height: 1.45; color: var(--i-dim); margin-top: 2px; }
+.iLedSummary { font-size: var(--text-md); line-height: 1.45; color: var(--i-dim); margin-top: 2px; }
 .iLedRow[data-open] .iLedSummary { color: var(--i-muted); }
 /* The payload the push withheld — command, path, or the first error line. */
 .iLedPayload { display: flex; align-items: center; gap: 8px; margin-top: 7px;
   padding: 5px 9px; border-radius: 8px; background: var(--i-bg);
-  border: 1px solid var(--i-hairline); font-size: 11px; font-family: var(--i-mono);
+  border: 1px solid var(--i-hairline); font-size: var(--text-sm); font-family: var(--i-mono);
   color: var(--i-dim); }
 .iLedRow[data-open] .iLedPayload { color: var(--i-ink); }
 .iLedPayloadText { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.iLedRisk { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+.iLedRisk { font-size: var(--text-2xs); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
   font-family: var(--i-mono); flex: none; color: var(--i-dim); }
 .iLedRisk[data-high] { color: var(--i-ink); }
 .iLedActions { display: flex; align-items: center; gap: 8px; margin-top: 9px; flex-wrap: wrap; }
 /* Third-rank control: a real action with a real effect, but never competing
    with Approve for the thumb. Text-weight, no fill, no border. */
-.iLedGhostBtn { font-size: 11.5px; font-weight: 600; padding: 5px 4px; border: none; cursor: pointer;
+.iLedGhostBtn { font-size: var(--text-sm); font-weight: 600; padding: 5px 4px; border: none; cursor: pointer;
   background: transparent; color: var(--i-dim); font-family: var(--i-font); margin-left: auto; }
 /* PREVIEW row (All / Archived) — two lines, no payload, no decisions. */
 .iLedRow--preview { align-items: center; padding: 9px 11px 10px 13px; }
@@ -1407,26 +1407,26 @@ export const SCOUT_IOS_CSS = `
   padding-top: 10px; border-top: 1px solid var(--i-hairline); }
 .iLedTriage .iLedGhostBtn { margin-left: 0; padding: 4px 10px; border: 1px solid var(--i-hairline-strong);
   border-radius: 8px; color: var(--i-muted); }
-.iLedTriageNote { font-size: 10px; font-family: var(--i-mono); color: var(--i-dim); }
+.iLedTriageNote { font-size: var(--text-xs); font-family: var(--i-mono); color: var(--i-dim); }
 /* How it ended. Ours (decided on this device) gets the ink; anything that
    merely stopped being pending stays dim and is never named as a decision. */
 .iLedState { display: flex; align-items: baseline; gap: 7px; margin-top: 7px; }
-.iLedStateTag { font-size: 9px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+.iLedStateTag { font-size: var(--text-2xs); font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
   font-family: var(--i-mono); color: var(--i-dim); padding: 1px 6px; border-radius: 4px;
   background: var(--i-bg); border: 1px solid var(--i-hairline); }
 .iLedStateTag[data-ours] { color: var(--i-muted); border-color: var(--i-hairline-strong); }
-.iLedStateBy, .iLedStateAge { font-size: 10px; font-family: var(--i-mono); color: var(--i-dim); }
+.iLedStateBy, .iLedStateAge { font-size: var(--text-xs); font-family: var(--i-mono); color: var(--i-dim); }
 .iLedStateAge { margin-left: auto; }
-.iLedFoot { font-size: 9.5px; font-family: var(--i-mono); letter-spacing: 0.08em;
+.iLedFoot { font-size: var(--text-2xs); font-family: var(--i-mono); letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--i-dim); text-align: center; padding: 12px 0 4px; }
 
 /* Detail — the opened notification. */
 .iLedDetail { padding: 12px 2px; }
-.iLedDetailTitle { font-size: 17px; font-weight: 600; color: var(--i-ink); margin-top: 8px;
+.iLedDetailTitle { font-size: var(--text-3xl); font-weight: 600; color: var(--i-ink); margin-top: 8px;
   line-height: 1.3; }
-.iLedDetailSummary { font-size: 13px; line-height: 1.5; color: var(--i-muted); margin-top: 6px; }
+.iLedDetailSummary { font-size: var(--text-lg); line-height: 1.5; color: var(--i-muted); margin-top: 6px; }
 .iLedDetailWell { margin-top: 11px; padding: 9px 11px; border-radius: 9px; background: var(--i-bg);
-  border: 1px solid var(--i-hairline); font-size: 11.5px; font-family: var(--i-mono);
+  border: 1px solid var(--i-hairline); font-size: var(--text-sm); font-family: var(--i-mono);
   color: var(--i-ink); line-height: 1.55; white-space: pre-wrap; }
 .iLedDetailRisk { margin-top: 6px; }
 .iLedAnswer { padding: 10px 0 0; }
@@ -1434,15 +1434,15 @@ export const SCOUT_IOS_CSS = `
    readout in the Instrument voice: dot-led key on the left, value on the right. */
 .iLedProv { margin-top: 14px; border-top: 1px solid var(--i-hairline); padding-top: 10px; }
 .iLedProvRow { display: flex; align-items: baseline; gap: 10px; padding: 3px 0;
-  font-family: var(--i-mono); font-size: 10.5px; color: var(--i-dim); }
-.iLedProvRow > span:first-child { text-transform: uppercase; letter-spacing: 0.09em; font-size: 9px;
+  font-family: var(--i-mono); font-size: var(--text-xs); color: var(--i-dim); }
+.iLedProvRow > span:first-child { text-transform: uppercase; letter-spacing: 0.09em; font-size: var(--text-2xs);
   font-weight: 700; min-width: 92px; }
 .iLedProvVal { color: var(--i-muted); margin-left: auto; text-align: right;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .iLedProvVal[data-open] { color: var(--i-accent); }
 .iLedOpenConv { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%;
   margin-top: 14px; padding: 9px 0; border-radius: 9px; cursor: pointer;
-  font-family: var(--i-font); font-size: 12.5px; font-weight: 600;
+  font-family: var(--i-font); font-size: var(--text-md); font-weight: 600;
   background: var(--i-surface); color: var(--i-ink); border: 1px solid var(--i-hairline-strong); }
 
 /* Masthead bell — the destination's entry point, with an unread count. */
@@ -1451,7 +1451,7 @@ export const SCOUT_IOS_CSS = `
   border: 1px solid var(--i-hairline-strong); }
 .iBellCount { position: absolute; top: -3px; right: -3px; min-width: 14px; height: 14px;
   padding: 0 3px; border-radius: 999px; background: var(--i-accent); color: var(--i-bg);
-  font-family: var(--i-mono); font-size: 8.5px; font-weight: 700; display: grid; place-items: center;
+  font-family: var(--i-mono); font-size: var(--text-3xs); font-weight: 700; display: grid; place-items: center;
   border: 1.5px solid var(--i-bg); box-sizing: content-box; }
 
 /* ── Crisp language (data-lang) — squarer · lighter-weight · quieter ───── */
@@ -1508,34 +1508,34 @@ export const SCOUT_IOS_CSS = `
    --i-dim fell below a comfortable read; lift such labels to --i-muted and hold
    size at/above 9px so lane labels and stat captions actually resolve. */
 .scoutios[data-lang="crisp"] .iFleetLaneLabel { font-weight: 600; letter-spacing: 0.14em;
-  font-size: 9.5px; color: var(--i-muted); }
+  font-size: var(--text-2xs); color: var(--i-muted); }
 .scoutios[data-lang="crisp"] .iFleetStatCap { font-weight: 600; letter-spacing: 0.1em;
-  font-size: 9px; color: var(--i-muted); }
+  font-size: var(--text-2xs); color: var(--i-muted); }
 .scoutios[data-lang="crisp"] .iFleetLaneCount { font-weight: 600; font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em; font-size: 9.5px; color: var(--i-muted); }
+  letter-spacing: 0.02em; font-size: var(--text-2xs); color: var(--i-muted); }
 .scoutios[data-lang="crisp"] .iFleetName { font-weight: 500; letter-spacing: -0.01em;
-  font-size: 12px; }
+  font-size: var(--text-md); }
 .scoutios[data-lang="crisp"] .iFleetName.dim { font-weight: 400; }
 .scoutios[data-lang="crisp"] .iFleetNum { font-weight: 400; font-family: var(--i-font);
-  letter-spacing: -0.03em; font-variant-numeric: tabular-nums; font-size: 15.5px; }
-.scoutios[data-lang="crisp"] .iFleetDetail { font-size: 11px; letter-spacing: 0.005em; }
-.scoutios[data-lang="crisp"] .iFleetDetail.mono { font-size: 10px; letter-spacing: 0; }
-.scoutios[data-lang="crisp"] .iFleetAge { font-size: 10px; letter-spacing: 0.01em;
+  letter-spacing: -0.03em; font-variant-numeric: tabular-nums; font-size: var(--text-2xl); }
+.scoutios[data-lang="crisp"] .iFleetDetail { font-size: var(--text-sm); letter-spacing: 0.005em; }
+.scoutios[data-lang="crisp"] .iFleetDetail.mono { font-size: var(--text-xs); letter-spacing: 0; }
+.scoutios[data-lang="crisp"] .iFleetAge { font-size: var(--text-xs); letter-spacing: 0.01em;
   color: var(--i-muted); }
 .scoutios[data-lang="crisp"] .iFleetPicker { font-weight: 600; letter-spacing: 0.06em; }
 .scoutios[data-lang="crisp"] .iFleetLogSrc { font-weight: 500; letter-spacing: 0.02em; }
 .scoutios[data-lang="crisp"] .iFleetLogTime { letter-spacing: 0.02em; }
-.scoutios[data-lang="crisp"] .iFleetLogText { font-size: 9.5px; }
+.scoutios[data-lang="crisp"] .iFleetLogText { font-size: var(--text-2xs); }
 
 /* CLARITY — the KIND token. At --i-dim/8px it was effectively invisible even
    on the wide stage, so the "what does it want from me" signal was lost. Give
    it a legible square tag voice; the needs-you kinds (see .kind) get a hairline
    tag box, blocking ones (approval/question) read ink-bright. */
 .scoutios[data-lang="crisp"] .iFleetTok { font-weight: 600; letter-spacing: 0.06em;
-  font-size: 8.5px; color: var(--i-muted); }
+  font-size: var(--text-3xs); color: var(--i-muted); }
 .scoutios[data-lang="crisp"] .iFleetTok.kind { color: var(--i-muted); padding: 1.5px 5px;
   border: 1px solid var(--i-hairline-strong); border-radius: 4px; line-height: 1;
-  font-size: 8px; letter-spacing: 0.07em; }
+  font-size: var(--text-3xs); letter-spacing: 0.07em; }
 .scoutios[data-lang="crisp"] .iFleetTok.kind.blocking { color: var(--i-ink);
   border-color: color-mix(in oklab, var(--i-ink) 30%, var(--i-hairline-strong)); }
 /* the KIND token rides on the phone for the attention lane (single-line safe —
@@ -1562,17 +1562,17 @@ export const SCOUT_IOS_CSS = `
 .scoutios[data-lang="crisp"] .iCard + .iFleetLaneHead { padding-top: 15px; }
 /* the hot (needs-you) label carries an inline color:ink — key off that inline
    style to also bump its size/tracking so it clearly outranks the others. */
-.scoutios[data-lang="crisp"] .iFleetLaneLabel[style] { font-size: 10px; letter-spacing: 0.15em; }
+.scoutios[data-lang="crisp"] .iFleetLaneLabel[style] { font-size: var(--text-xs); letter-spacing: 0.15em; }
 .scoutios[data-lang="crisp"] .iFleetLaneHead.tone-quiet .iFleetLaneLabel { color: var(--i-dim); }
 .scoutios[data-lang="crisp"] .iFleetLaneHead.tone-quiet .iFleetLaneCount { color: var(--i-dim); }
 /* the working lane's mono is a live action (present tense + caret); the detected
    lane's mono is quiet location metadata — push it dim + a hair smaller so the
    two mono voices don't compete. */
 .scoutios[data-lang="crisp"] .iFleetRow.dim .iFleetDetail.mono { color: var(--i-dim);
-  font-size: 9.5px; letter-spacing: 0.01em; }
+  font-size: var(--text-2xs); letter-spacing: 0.01em; }
 .scoutios[data-lang="crisp"] .iFleetAsk { margin-top: 12px; }
 .scoutios[data-lang="crisp"] .iFleetAskRow { padding: 7px 9px; border-radius: 6px; }
-.scoutios[data-lang="crisp"] .iFleetAskHint { font-size: 12px; letter-spacing: 0.005em; }
+.scoutios[data-lang="crisp"] .iFleetAskHint { font-size: var(--text-md); letter-spacing: 0.005em; }
 
 /* sparkline — thin stroke, soft fade fill, end mark (see fleet-surface Sparkline) */
 .scoutios[data-lang="crisp"] .iFleetSpark .iFleetSparkBase { stroke: var(--i-hairline-strong); }
@@ -1585,19 +1585,19 @@ export const SCOUT_IOS_CSS = `
     border-bottom-color: var(--i-hairline); }
   .scoutios[data-lang="crisp"] .iFleetStat { gap: 5px; }
   .scoutios[data-lang="crisp"] .iFleetStatSep { display: none; }
-  .scoutios[data-lang="crisp"] .iFleetNum { font-size: 32px; letter-spacing: -0.04em;
+  .scoutios[data-lang="crisp"] .iFleetNum { font-size: var(--text-6xl); letter-spacing: -0.04em;
     line-height: 0.95; }
-  .scoutios[data-lang="crisp"] .iFleetStatCap { font-size: 8.5px; letter-spacing: 0.13em; }
+  .scoutios[data-lang="crisp"] .iFleetStatCap { font-size: var(--text-3xs); letter-spacing: 0.13em; }
   .scoutios[data-lang="crisp"] .iFleetSpark { height: 44px; max-width: 280px; }
   .scoutios[data-lang="crisp"] .iFleetGrid { gap: 20px; margin-top: 2px; }
-  .scoutios[data-lang="crisp"] .iFleetName { max-width: 148px; font-size: 12.5px; }
-  .scoutios[data-lang="crisp"] .iFleetDetail { font-size: 11.5px; }
+  .scoutios[data-lang="crisp"] .iFleetName { max-width: 148px; font-size: var(--text-md); }
+  .scoutios[data-lang="crisp"] .iFleetDetail { font-size: var(--text-sm); }
   .scoutios[data-lang="crisp"] .iFleetRow { padding: 8px 12px; }
   .scoutios[data-lang="crisp"] .iFleetAsk { margin-top: 11px; padding: 13px 14px; }
   .scoutios[data-lang="crisp"] .iFleetAskHead { padding-bottom: 9px; }
   .scoutios[data-lang="crisp"] .iFleetAskPickers { gap: 6px; padding-bottom: 9px; }
   .scoutios[data-lang="crisp"] .iFleetAskWell { min-height: 68px; padding: 10px 12px;
-    margin-bottom: 10px; font-size: 12px; line-height: 1.5; }
+    margin-bottom: 10px; font-size: var(--text-md); line-height: 1.5; }
   .scoutios[data-lang="crisp"] .iFleetLog { margin-top: 16px; }
   .scoutios[data-lang="crisp"] .iFleetLogRow { gap: 8px; padding: 5px 2px; }
 }
@@ -1614,14 +1614,14 @@ export const SCOUT_IOS_CSS = `
 
 /* zone head — caps label · count · rule · optional trailing action */
 .iZone { display: flex; align-items: center; gap: 8px; padding: 12px 0 7px; flex: none; }
-.iZoneLabel { font-family: var(--i-mono); font-size: 9.5px; font-weight: 600;
+.iZoneLabel { font-family: var(--i-mono); font-size: var(--text-2xs); font-weight: 600;
   letter-spacing: 0.18em; text-transform: uppercase; color: var(--i-dim); }
 .iZoneLabel[data-attn] { color: var(--i-warn); }
-.iZoneCount { font-family: var(--i-mono); font-size: 9px; font-weight: 600;
+.iZoneCount { font-family: var(--i-mono); font-size: var(--text-2xs); font-weight: 600;
   color: var(--i-warn); border: 1px solid rgba(245,158,11,0.35); border-radius: 999px;
   padding: 1px 6px; line-height: 1.4; }
 .iZoneRule { flex: 1; height: 1px; background: var(--i-hairline); }
-.iZoneMeta { font-family: var(--i-mono); font-size: 9px; letter-spacing: 0.06em;
+.iZoneMeta { font-family: var(--i-mono); font-size: var(--text-2xs); letter-spacing: 0.06em;
   text-transform: uppercase; color: var(--i-dim); }
 .iZoneMeta[data-live] { color: var(--i-accent); }
 
@@ -1635,21 +1635,21 @@ export const SCOUT_IOS_CSS = `
 .iNeed2[data-read] .iNeed2Bar { background: transparent; }
 .iNeed2Body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .iNeed2Top { display: flex; align-items: baseline; gap: 7px; }
-.iNeed2Agent { font-size: 12.5px; font-weight: 600; color: var(--i-ink);
+.iNeed2Agent { font-size: var(--text-md); font-weight: 600; color: var(--i-ink);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .iNeed2[data-read] .iNeed2Agent { font-weight: 500; color: var(--i-muted); }
-.iNeed2Proj { font-family: var(--i-mono); font-size: 9.5px; color: var(--i-dim);
+.iNeed2Proj { font-family: var(--i-mono); font-size: var(--text-2xs); color: var(--i-dim);
   white-space: nowrap; }
-.iNeed2Kind { font-family: var(--i-mono); font-size: 8.5px; font-weight: 700;
+.iNeed2Kind { font-family: var(--i-mono); font-size: var(--text-3xs); font-weight: 700;
   letter-spacing: 0.09em; text-transform: uppercase; color: var(--i-dim); }
 .iNeed2Kind[data-block] { color: var(--i-warn); }
-.iNeed2Age { margin-left: auto; font-family: var(--i-mono); font-size: 9.5px;
+.iNeed2Age { margin-left: auto; font-family: var(--i-mono); font-size: var(--text-2xs);
   color: var(--i-dim); font-variant-numeric: tabular-nums; }
-.iNeed2Text { font-size: 12px; line-height: 1.35; color: var(--i-muted);
+.iNeed2Text { font-size: var(--text-md); line-height: 1.35; color: var(--i-muted);
   display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
 .iNeed2[data-read] .iNeed2Text { color: var(--i-dim); }
 .iNeed2Chev { flex: none; color: var(--i-dim); align-self: center; display: flex; }
-.iNeedMore { font-family: var(--i-mono); font-size: 10px; color: var(--i-dim);
+.iNeedMore { font-family: var(--i-mono); font-size: var(--text-xs); color: var(--i-dim);
   padding: 8px 2px 0; }
 
 /* activity — the flat log, freshest first; live rows carry the accent edge */
@@ -1658,11 +1658,11 @@ export const SCOUT_IOS_CSS = `
 .iHomeLogRow { display: flex; align-items: baseline; gap: 8px; padding: 6px 2px 6px 8px;
   border-left: 2px solid transparent; }
 .iHomeLogRow[data-now] { border-left-color: var(--i-accent); }
-.iHomeLogText { flex: 1; min-width: 0; font-size: 11.5px; line-height: 1.35;
+.iHomeLogText { flex: 1; min-width: 0; font-size: var(--text-sm); line-height: 1.35;
   color: var(--i-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .iHomeLogRow[data-now] .iHomeLogText { color: var(--i-ink); }
-.iHomeLogSrc { font-family: var(--i-mono); font-size: 9px; color: var(--i-dim); }
-.iHomeLogAge { font-family: var(--i-mono); font-size: 9px; color: var(--i-dim);
+.iHomeLogSrc { font-family: var(--i-mono); font-size: var(--text-2xs); color: var(--i-dim); }
+.iHomeLogAge { font-family: var(--i-mono); font-size: var(--text-2xs); color: var(--i-dim);
   font-variant-numeric: tabular-nums; }
 .iHomeLogAge.live { color: var(--i-accent); }
 
@@ -1671,10 +1671,10 @@ export const SCOUT_IOS_CSS = `
   padding: 7px 7px 7px 13px; border-radius: 20px; background: var(--i-chrome);
   border: 1px solid var(--i-hairline-strong);
   box-shadow: inset 0 1px 2px rgba(0,0,0,0.65); }
-.iAskDockText { flex: 1; font-size: 12.5px; color: var(--i-dim); }
+.iAskDockText { flex: 1; font-size: var(--text-md); color: var(--i-dim); }
 .iAskDockSend { flex: none; width: 28px; height: 28px; border-radius: 999px;
   background: var(--i-hairline-strong); color: var(--i-bg);
-  display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; }
+  display: flex; align-items: center; justify-content: center; font-size: var(--text-lg); font-weight: 700; }
 
 /* the quiet fleet — kept from the shipped Home; it earns its place */
 .iQuiet { flex: 1; display: flex; flex-direction: column; align-items: center;
@@ -1682,7 +1682,7 @@ export const SCOUT_IOS_CSS = `
 .iQuietRule { display: flex; align-items: center; gap: 5px; }
 .iQuietRule i { display: block; width: 46px; height: 1.5px; background: var(--i-accent); }
 .iQuietRule b { display: block; width: 3px; height: 3px; border-radius: 999px; background: var(--i-accent); }
-.iQuietLabel { font-family: var(--i-mono); font-size: 10px; font-weight: 500;
+.iQuietLabel { font-family: var(--i-mono); font-size: var(--text-xs); font-weight: 500;
   letter-spacing: 0.14em; text-transform: uppercase; color: var(--i-dim); }
 
 /* ── Notification detail (pushed page) ──────────────────────────────────── */
@@ -1698,73 +1698,73 @@ export const SCOUT_IOS_CSS = `
 
 /* identity line — who / where, mono, before the demand */
 .iNDWho { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
-.iNDKind { font-family: var(--i-mono); font-size: 9px; font-weight: 700;
+.iNDKind { font-family: var(--i-mono); font-size: var(--text-2xs); font-weight: 700;
   letter-spacing: 0.11em; text-transform: uppercase; color: var(--i-dim); }
 .iNDKind[data-block] { color: var(--i-warn); }
-.iNDAgent { font-size: 12.5px; font-weight: 600; color: var(--i-ink); }
-.iNDMeta { font-family: var(--i-mono); font-size: 9.5px; color: var(--i-dim); }
-.iNDAge { margin-left: auto; font-family: var(--i-mono); font-size: 9.5px; color: var(--i-dim); }
+.iNDAgent { font-size: var(--text-md); font-weight: 600; color: var(--i-ink); }
+.iNDMeta { font-family: var(--i-mono); font-size: var(--text-2xs); color: var(--i-dim); }
+.iNDAge { margin-left: auto; font-family: var(--i-mono); font-size: var(--text-2xs); color: var(--i-dim); }
 
 /* the demand */
-.iNDTitle { font-size: 17px; font-weight: 600; line-height: 1.25; color: var(--i-ink);
+.iNDTitle { font-size: var(--text-3xl); font-weight: 600; line-height: 1.25; color: var(--i-ink);
   letter-spacing: -0.01em; }
-.iNDSummary { font-size: 13px; line-height: 1.5; color: var(--i-muted); }
+.iNDSummary { font-size: var(--text-lg); line-height: 1.5; color: var(--i-muted); }
 
 /* evidence — the command / the failure, in a recessed mono well */
-.iNDEvidence { font-family: var(--i-mono); font-size: 11px; line-height: 1.55;
+.iNDEvidence { font-family: var(--i-mono); font-size: var(--text-sm); line-height: 1.55;
   color: var(--i-ink); white-space: pre-wrap; padding: 10px 12px; border-radius: 8px;
   background: var(--i-chrome); border: 1px solid var(--i-hairline-strong);
   box-shadow: inset 0 1px 2px rgba(0,0,0,0.55); }
 .iNDRisk { display: flex; align-items: center; gap: 7px; }
-.iNDRiskLabel { font-family: var(--i-mono); font-size: 9px; font-weight: 700;
+.iNDRiskLabel { font-family: var(--i-mono); font-size: var(--text-2xs); font-weight: 700;
   letter-spacing: 0.1em; text-transform: uppercase; color: var(--i-dim); }
-.iNDRiskVal { font-family: var(--i-mono); font-size: 9px; font-weight: 700;
+.iNDRiskVal { font-family: var(--i-mono); font-size: var(--text-2xs); font-weight: 700;
   letter-spacing: 0.1em; text-transform: uppercase; color: var(--i-dim); }
 .iNDRiskVal[data-high] { color: var(--i-ink); }
 
 /* ACT — the primary move, resolved here without ever opening the transcript */
 .iNDAct { display: flex; flex-direction: column; gap: 8px; }
-.iNDActLabel { font-family: var(--i-mono); font-size: 9px; font-weight: 700;
+.iNDActLabel { font-family: var(--i-mono); font-size: var(--text-2xs); font-weight: 700;
   letter-spacing: 0.14em; text-transform: uppercase; color: var(--i-dim); }
 .iNDBtnRow { display: flex; gap: 8px; }
 .iNDBtn { flex: 1; min-height: 44px; display: flex; align-items: center;
-  justify-content: center; border-radius: 10px; font-size: 13.5px; font-weight: 600;
+  justify-content: center; border-radius: 10px; font-size: var(--text-lg); font-weight: 600;
   border: 1px solid var(--i-hairline-strong); color: var(--i-ink); background: var(--i-surface); }
 .iNDBtn[data-primary] { background: var(--i-accent); border-color: var(--i-accent); color: #04130d; }
 .iNDBtn[data-off] { opacity: 0.4; }
 .iNDOpts { display: flex; gap: 8px; flex-wrap: wrap; }
 .iNDOpt { min-height: 40px; display: flex; align-items: center; padding: 0 14px;
-  border-radius: 10px; font-size: 13px; font-weight: 600; color: var(--i-ink);
+  border-radius: 10px; font-size: var(--text-lg); font-weight: 600; color: var(--i-ink);
   background: var(--i-surface); border: 1px solid var(--i-hairline-strong); }
 .iNDAnswer { min-height: 40px; display: flex; align-items: center; padding: 0 12px;
-  border-radius: 10px; font-size: 12.5px; color: var(--i-dim);
+  border-radius: 10px; font-size: var(--text-md); color: var(--i-dim);
   background: var(--i-chrome); border: 1px solid var(--i-hairline-strong); }
 
 /* receipt / notice strips — after acting, or when the item resolved elsewhere */
 .iNDNotice { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px;
-  border-radius: 9px; font-size: 12px; line-height: 1.45; color: var(--i-muted);
+  border-radius: 9px; font-size: var(--text-md); line-height: 1.45; color: var(--i-muted);
   background: var(--i-surface); border: 1px solid var(--i-hairline-strong); }
 .iNDNotice[data-ok] { color: var(--i-ink); border-color: rgba(16,185,129,0.35); }
 .iNDNotice[data-warn] { border-color: rgba(245,158,11,0.32); }
 .iNDNotice[data-err] { border-color: rgba(220,38,38,0.38); }
-.iNDNoticeMark { font-family: var(--i-mono); font-size: 9px; font-weight: 700;
+.iNDNoticeMark { font-family: var(--i-mono); font-size: var(--text-2xs); font-weight: 700;
   letter-spacing: 0.1em; text-transform: uppercase; color: var(--i-dim); padding-top: 2px; }
 .iNDNotice[data-ok] .iNDNoticeMark { color: var(--i-accent); }
 .iNDNotice[data-warn] .iNDNoticeMark { color: var(--i-warn); }
 .iNDNotice[data-err] .iNDNoticeMark { color: var(--i-error); }
-.iNDUndo { padding-left: 8px; font-size: 12px; font-weight: 600; color: var(--i-accent);
+.iNDUndo { padding-left: 8px; font-size: var(--text-md); font-weight: 600; color: var(--i-accent);
   white-space: nowrap; }
 
 /* provenance — where this was resolved from, and how to refresh it */
 .iNDProv { display: flex; align-items: center; gap: 6px; font-family: var(--i-mono);
-  font-size: 9px; letter-spacing: 0.05em; color: var(--i-dim); }
+  font-size: var(--text-2xs); letter-spacing: 0.05em; color: var(--i-dim); }
 .iNDProvAct { margin-left: auto; color: var(--i-accent); font-weight: 600; }
 
 /* empty / resolving states */
 .iNDState { flex: 1; display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 9px; padding: 40px 20px; text-align: center; }
-.iNDStateTitle { font-size: 14px; font-weight: 600; color: var(--i-ink); }
-.iNDStateBody { font-size: 12.5px; line-height: 1.5; color: var(--i-muted); max-width: 260px; }
+.iNDStateTitle { font-size: var(--text-xl); font-weight: 600; color: var(--i-ink); }
+.iNDStateBody { font-size: var(--text-md); line-height: 1.5; color: var(--i-muted); max-width: 260px; }
 .iNDSkel { width: 100%; border-radius: 6px; background: var(--i-surface); opacity: 0.5; }
 
 /* TRIAGE bar — pinned, always available, and deliberately SEPARATE from Act.
@@ -1776,10 +1776,10 @@ export const SCOUT_IOS_CSS = `
 .iNDTri { flex: 1; min-height: 44px; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 2px; border-radius: 9px;
   background: transparent; }
-.iNDTriLabel { font-size: 11.5px; font-weight: 600; color: var(--i-muted); }
+.iNDTriLabel { font-size: var(--text-sm); font-weight: 600; color: var(--i-muted); }
 .iNDTri[data-on] .iNDTriLabel { color: var(--i-accent); }
 .iNDTri[data-off] { opacity: 0.4; }
-.iNDTriSub { font-family: var(--i-mono); font-size: 8px; letter-spacing: 0.08em;
+.iNDTriSub { font-family: var(--i-mono); font-size: var(--text-3xs); letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--i-dim); }
 .iNDTriSep { flex: none; width: 1px; background: var(--i-hairline); margin: 6px 0; }
 
@@ -1794,15 +1794,15 @@ export const SCOUT_IOS_CSS = `
 .iBannerTop { display: flex; align-items: flex-start; gap: 9px; padding: 11px 13px; }
 .iBannerIcon { flex: none; width: 22px; height: 22px; border-radius: 6px;
   background: var(--i-accent); color: #04130d; display: flex; align-items: center;
-  justify-content: center; font-size: 11px; font-weight: 800; }
+  justify-content: center; font-size: var(--text-sm); font-weight: 800; }
 .iBannerBody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.iBannerTitle { font-size: 12.5px; font-weight: 700; color: var(--i-ink); }
-.iBannerText { font-size: 12.5px; color: var(--i-muted); }
-.iBannerAge { font-family: var(--i-mono); font-size: 9.5px; color: var(--i-dim); }
+.iBannerTitle { font-size: var(--text-md); font-weight: 700; color: var(--i-ink); }
+.iBannerText { font-size: var(--text-md); color: var(--i-muted); }
+.iBannerAge { font-family: var(--i-mono); font-size: var(--text-2xs); color: var(--i-dim); }
 .iBannerActs { display: flex; border-top: 1px solid rgba(255,255,255,0.08); }
 .scoutios[data-v="paper"] .iBannerActs { border-top-color: rgba(0,0,0,0.08); }
 .iBannerAct { flex: 1; min-height: 40px; display: flex; align-items: center;
-  justify-content: center; font-size: 12.5px; font-weight: 600; color: var(--i-ink); }
+  justify-content: center; font-size: var(--text-md); font-weight: 600; color: var(--i-ink); }
 .iBannerAct + .iBannerAct { border-left: 1px solid rgba(255,255,255,0.08); }
 .scoutios[data-v="paper"] .iBannerAct + .iBannerAct { border-left-color: rgba(0,0,0,0.08); }
 
@@ -1811,11 +1811,11 @@ export const SCOUT_IOS_CSS = `
 .iFlowStep { display: flex; gap: 10px; align-items: flex-start; }
 .iFlowMark { flex: none; width: 20px; height: 20px; border-radius: 999px;
   border: 1px solid var(--i-hairline-strong); color: var(--i-dim);
-  font-family: var(--i-mono); font-size: 9px; font-weight: 700;
+  font-family: var(--i-mono); font-size: var(--text-2xs); font-weight: 700;
   display: flex; align-items: center; justify-content: center; }
 .iFlowBody { flex: 1; min-width: 0; }
-.iFlowTitle { font-size: 12.5px; font-weight: 600; color: var(--i-ink); }
-.iFlowNote { font-size: 12px; line-height: 1.45; color: var(--i-muted); }
+.iFlowTitle { font-size: var(--text-md); font-weight: 600; color: var(--i-ink); }
+.iFlowNote { font-size: var(--text-md); line-height: 1.45; color: var(--i-muted); }
 
 /* density treatment — the compact Home (mods.density = "compact") */
 .scoutios[data-density="compact"] .iNeed2 { padding: 7px 2px; }

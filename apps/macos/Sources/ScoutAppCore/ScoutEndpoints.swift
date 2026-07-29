@@ -31,17 +31,85 @@ public enum ScoutAppError {
 public enum ScoutWeb {
     private static let fallbackURL = URL(string: "http://127.0.0.1:43120")!
 
+    /// Lock-backed process cache for disk-resolved web base URLs. Held as a
+    /// class so Swift 6 does not treat the mutable fields as global shared state.
+    private final class BaseURLCache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var url: URL?
+        private var hostInfoPath: String?
+        private var hostInfoModificationDate: Date?
+
+        func read(
+            path: String,
+            modificationDate: Date?
+        ) -> URL? {
+            lock.lock()
+            defer { lock.unlock() }
+            guard let url,
+                  hostInfoPath == path,
+                  hostInfoModificationDate == modificationDate else {
+                return nil
+            }
+            return url
+        }
+
+        func store(url: URL, path: String, modificationDate: Date?) {
+            lock.lock()
+            defer { lock.unlock() }
+            self.url = url
+            self.hostInfoPath = path
+            self.hostInfoModificationDate = modificationDate
+        }
+
+        func clear() {
+            lock.lock()
+            defer { lock.unlock() }
+            url = nil
+            hostInfoPath = nil
+            hostInfoModificationDate = nil
+        }
+    }
+
+    private static let baseURLCache = BaseURLCache()
+
     public static func baseURL() -> URL {
+        // Environment overrides are process-owned and cheap; always re-read them.
         if let url = ScoutEndpointResolver.webURLFromEnvironment() {
             return url
         }
-        if let url = ScoutEndpointResolver.webURLFromHostInfo() {
-            return url
+        return memoizedNonEnvironmentBaseURL()
+    }
+
+    /// Drop the memoized disk-resolved base URL (e.g. after an explicit Reload).
+    public static func invalidateBaseURLCache() {
+        baseURLCache.clear()
+    }
+
+    /// Resolve host-info / config / fallback once per `.host-info` mtime.
+    /// Reading and decoding host-info on every SwiftUI body evaluation was
+    /// pure overhead for the embed host's `url` computed property.
+    private static func memoizedNonEnvironmentBaseURL() -> URL {
+        let hostInfoURL = ScoutEndpointResolver.hostInfoFileURL()
+        let hostInfoPath = hostInfoURL.path
+        let modificationDate = hostInfoModificationDate(at: hostInfoURL)
+
+        if let cached = baseURLCache.read(path: hostInfoPath, modificationDate: modificationDate) {
+            return cached
         }
-        if let url = ScoutEndpointResolver.webURLFromConfig() {
-            return url
+
+        let resolved = ScoutEndpointResolver.webURLFromHostInfo()
+            ?? ScoutEndpointResolver.webURLFromConfig()
+            ?? fallbackURL
+
+        baseURLCache.store(url: resolved, path: hostInfoPath, modificationDate: modificationDate)
+        return resolved
+    }
+
+    private static func hostInfoModificationDate(at url: URL) -> Date? {
+        guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey]) else {
+            return nil
         }
-        return fallbackURL
+        return values.contentModificationDate
     }
 
     public static func url(path: String) -> URL? {
@@ -347,7 +415,7 @@ private enum ScoutEndpointResolver {
         return info
     }
 
-    private static func hostInfoFileURL() -> URL {
+    static func hostInfoFileURL() -> URL {
         supportDirectoryURL().appendingPathComponent(".host-info")
     }
 

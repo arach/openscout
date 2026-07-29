@@ -571,8 +571,8 @@ export default async function WorkflowRunStudy({
       <main className="mx-auto max-w-page px-7 py-8">
         <Header runCount={0} />
         <section className="rounded-md border border-studio-edge bg-studio-surface p-5">
-          <h2 className="font-display text-[22px] font-medium text-studio-ink">No Claude workflows found</h2>
-          <p className="mt-2 max-w-prose text-[13px] leading-relaxed text-studio-ink-faint">
+          <h2 className="font-display text-5xl font-medium text-studio-ink">No Claude workflows found</h2>
+          <p className="mt-2 max-w-prose text-lg leading-relaxed text-studio-ink-faint">
             The study looks for workflow runs under <code>~/.claude/projects/*/*/subagents/workflows/*</code>.
           </p>
         </section>
@@ -599,7 +599,7 @@ export default async function WorkflowRunStudy({
 function Header({ runCount }: { runCount: number }) {
   return (
     <header className="mb-7 border-b border-studio-edge pb-5">
-      <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         openscout / claude workflow topology
       </div>
       <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
@@ -607,7 +607,7 @@ function Header({ runCount }: { runCount: number }) {
           <h1 className="font-display text-4xl font-medium leading-none text-studio-ink">
             Workflow Topology Lab
           </h1>
-          <p className="mt-3 max-w-3xl text-[13px] leading-relaxed text-studio-ink-faint">
+          <p className="mt-3 max-w-3xl text-lg leading-relaxed text-studio-ink-faint">
             A live read-only renderer for Claude's generated workflow runs: parent session,
             fan-out workers, journal order, result shape, and source files.
           </p>
@@ -642,8 +642,8 @@ function RunSelector({
                 : "border-studio-edge bg-studio-surface text-studio-ink-faint hover:border-studio-edge-strong hover:text-studio-ink"
             }`}
           >
-            <div className="truncate font-mono text-[10px]">{run.runId}</div>
-            <div className="mt-1 flex items-center justify-between gap-3 font-mono text-[9px] uppercase tracking-ch">
+            <div className="truncate font-mono text-xs">{run.runId}</div>
+            <div className="mt-1 flex items-center justify-between gap-3 font-mono text-2xs uppercase tracking-ch">
               <span className="truncate">{run.projectLabel}</span>
               <span>{formatAgo(run.mtimeMs)}</span>
             </div>
@@ -660,13 +660,13 @@ function RunOverview({ model }: { model: WorkflowModel }) {
       <div className="rounded-md border border-studio-edge bg-studio-surface p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+            <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
               selected run
             </div>
-            <h2 className="mt-1 font-display text-[24px] font-medium leading-tight text-studio-ink">
+            <h2 className="mt-1 font-display text-5xl font-medium leading-tight text-studio-ink">
               {model.launch.summary ?? model.candidate.runId}
             </h2>
-            <p className="mt-2 max-w-3xl text-[13px] leading-relaxed text-studio-ink-faint">
+            <p className="mt-2 max-w-3xl text-lg leading-relaxed text-studio-ink-faint">
               {compactPath(model.candidate.workflowDir)}
             </p>
           </div>
@@ -715,11 +715,11 @@ function JournalTimeline({
               key={`${event.index}:${event.agentId ?? "event"}`}
               className="grid grid-cols-[34px_78px_minmax(0,1fr)] items-center gap-3 rounded border border-studio-edge bg-studio-canvas-alt px-3 py-2"
             >
-              <span className="font-mono text-[10px] text-studio-ink-faint">
+              <span className="font-mono text-xs text-studio-ink-faint">
                 {String(event.index + 1).padStart(2, "0")}
               </span>
               <span
-                className={`inline-flex h-6 items-center justify-center rounded-sm border px-2 font-mono text-[9px] uppercase tracking-ch ${
+                className={`inline-flex h-6 items-center justify-center rounded-sm border px-2 font-mono text-2xs uppercase tracking-ch ${
                   result
                     ? "border-scout-accent/40 bg-scout-accent-soft text-scout-accent"
                     : "border-studio-edge-strong bg-studio-canvas text-studio-ink-faint"
@@ -729,10 +729,10 @@ function JournalTimeline({
               </span>
               <div className="min-w-0">
                 <div className="flex min-w-0 items-baseline gap-2">
-                  <span className="font-mono text-[10px] text-studio-ink-muted">
+                  <span className="font-mono text-xs text-studio-ink-muted">
                     {shortId(event.agentId, 8)}
                   </span>
-                  <span className="truncate text-[13px] text-studio-ink">
+                  <span className="truncate text-lg text-studio-ink">
                     {worker?.label ?? event.key ?? "workflow event"}
                   </span>
                 </div>
@@ -759,10 +759,10 @@ function WorkerResults({ workers }: { workers: WorkerNode[] }) {
           <article key={worker.id} className="rounded border border-studio-edge bg-studio-canvas-alt p-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="font-mono text-[10px] uppercase tracking-ch text-studio-ink-faint">
+                <div className="font-mono text-xs uppercase tracking-ch text-studio-ink-faint">
                   {worker.shortId} / {worker.kind}
                 </div>
-                <h3 className="mt-1 truncate font-display text-[17px] font-medium text-studio-ink">
+                <h3 className="mt-1 truncate font-display text-3xl font-medium text-studio-ink">
                   {worker.label}
                 </h3>
               </div>
@@ -773,7 +773,7 @@ function WorkerResults({ workers }: { workers: WorkerNode[] }) {
                 />
                 <a
                   href={`#trace-${worker.shortId}`}
-                  className="rounded-sm border border-studio-edge bg-studio-canvas px-2 py-1 font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint transition hover:border-scout-accent/50 hover:text-studio-ink"
+                  className="rounded-sm border border-studio-edge bg-studio-canvas px-2 py-1 font-mono text-2xs uppercase tracking-ch text-studio-ink-faint transition hover:border-scout-accent/50 hover:text-studio-ink"
                 >
                   trace ↓
                 </a>
@@ -782,13 +782,13 @@ function WorkerResults({ workers }: { workers: WorkerNode[] }) {
             {worker.output.length > 0 ? (
               <ul className="mt-3 grid gap-1.5">
                 {worker.output.map((line) => (
-                  <li key={line} className="text-[12.5px] leading-relaxed text-studio-ink-faint">
+                  <li key={line} className="text-md leading-relaxed text-studio-ink-faint">
                     {line}
                   </li>
                 ))}
               </ul>
             ) : worker.prompt ? (
-              <p className="mt-3 text-[12.5px] leading-relaxed text-studio-ink-faint">
+              <p className="mt-3 text-md leading-relaxed text-studio-ink-faint">
                 {worker.prompt}
               </p>
             ) : null}
@@ -809,7 +809,7 @@ function SubagentTraces({ model }: { model: WorkflowModel }) {
   return (
     <section className="mt-6 rounded-md border border-studio-edge bg-studio-surface p-5">
       <SectionHead title="Subagent traces" meta="what each subagent did · execution order" />
-      <p className="mt-2 max-w-3xl text-[12.5px] leading-relaxed text-studio-ink-faint">
+      <p className="mt-2 max-w-3xl text-md leading-relaxed text-studio-ink-faint">
         Each card stays tied to its node in the fan-out map and its rows in the journal. Expand a trace
         to read the transcript edges without leaving the run context.
       </p>
@@ -843,7 +843,7 @@ function TraceCard({ worker }: { worker: WorkerNode }) {
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint">
+          <div className="flex items-center gap-2 font-mono text-2xs uppercase tracking-ch text-studio-ink-faint">
             <span className={`h-1.5 w-1.5 rounded-sm ${accentClass}`} />
             <span>{worker.shortId}</span>
             <span className="text-studio-edge-strong">/</span>
@@ -851,7 +851,7 @@ function TraceCard({ worker }: { worker: WorkerNode }) {
             <span className="text-studio-edge-strong">/</span>
             <span>{worker.status}</span>
           </div>
-          <h3 className="mt-1.5 truncate font-display text-[16px] font-medium text-studio-ink">
+          <h3 className="mt-1.5 truncate font-display text-2xl font-medium text-studio-ink">
             {worker.label}
           </h3>
         </div>
@@ -876,10 +876,10 @@ function TraceCard({ worker }: { worker: WorkerNode }) {
         ) : null}
         {worker.output.length > 0 ? (
           <div className="rounded border border-studio-edge bg-studio-canvas px-3 py-2">
-            <div className="font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint">promoted result</div>
+            <div className="font-mono text-2xs uppercase tracking-ch text-studio-ink-faint">promoted result</div>
             <ul className="mt-1.5 grid gap-1">
               {worker.output.map((line) => (
-                <li key={line} className="text-[12.5px] leading-relaxed text-studio-ink">
+                <li key={line} className="text-md leading-relaxed text-studio-ink">
                   {line}
                 </li>
               ))}
@@ -892,10 +892,10 @@ function TraceCard({ worker }: { worker: WorkerNode }) {
       </div>
 
       <details className="group mt-3 rounded border border-studio-edge bg-studio-canvas">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 font-mono text-[10px] uppercase tracking-ch text-studio-ink-faint transition hover:text-studio-ink">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 font-mono text-xs uppercase tracking-ch text-studio-ink-faint transition hover:text-studio-ink">
           <span>transcript · {worker.trace.totalEvents} events</span>
-          <span className="font-mono text-[10px] text-studio-ink-muted group-open:hidden">expand ↓</span>
-          <span className="hidden font-mono text-[10px] text-studio-ink-muted group-open:inline">collapse ↑</span>
+          <span className="font-mono text-xs text-studio-ink-muted group-open:hidden">expand ↓</span>
+          <span className="hidden font-mono text-xs text-studio-ink-muted group-open:inline">collapse ↑</span>
         </summary>
         <div className="border-t border-studio-edge px-3 py-3">
           <TranscriptStream trace={worker.trace} sourceFile={worker.sourceFile} />
@@ -908,8 +908,8 @@ function TraceCard({ worker }: { worker: WorkerNode }) {
 function TraceExcerpt({ label, body, muted }: { label: string; body: string; muted?: boolean }) {
   return (
     <div className="rounded border border-studio-edge bg-studio-canvas px-3 py-2">
-      <div className="font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint">{label}</div>
-      <p className={`mt-1.5 text-[12.5px] leading-relaxed ${muted ? "text-studio-ink-faint" : "text-studio-ink"}`}>
+      <div className="font-mono text-2xs uppercase tracking-ch text-studio-ink-faint">{label}</div>
+      <p className={`mt-1.5 text-md leading-relaxed ${muted ? "text-studio-ink-faint" : "text-studio-ink"}`}>
         {body}
       </p>
     </div>
@@ -923,8 +923,8 @@ function TraceHistogram({ trace }: { trace: WorkerTrace }) {
 
   return (
     <div className="mt-3 rounded border border-studio-edge bg-studio-canvas px-3 py-2">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] text-studio-ink-faint">
-        <span className="text-[9px] uppercase tracking-ch">event mix</span>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-studio-ink-faint">
+        <span className="text-2xs uppercase tracking-ch">event mix</span>
         {typeEntries.map(([type, count]) => (
           <span key={type} className="text-studio-ink-muted">
             {type} <span className="text-studio-ink">{count}</span>
@@ -935,19 +935,19 @@ function TraceHistogram({ trace }: { trace: WorkerTrace }) {
         <div className="mt-2 grid gap-1">
           {toolEntries.map(([tool, count]) => (
             <div key={tool} className="grid grid-cols-[88px_minmax(0,1fr)_28px] items-center gap-2">
-              <span className="truncate font-mono text-[10px] text-studio-ink" title={tool}>{tool}</span>
+              <span className="truncate font-mono text-xs text-studio-ink" title={tool}>{tool}</span>
               <span className="h-1.5 overflow-hidden rounded-sm bg-studio-canvas-alt">
                 <span
                   className="block h-full rounded-sm bg-scout-accent/70"
                   style={{ width: `${maxTool ? Math.max(8, Math.round((count / maxTool) * 100)) : 0}%` }}
                 />
               </span>
-              <span className="text-right font-mono text-[10px] text-studio-ink-faint">{count}</span>
+              <span className="text-right font-mono text-xs text-studio-ink-faint">{count}</span>
             </div>
           ))}
         </div>
       ) : (
-        <div className="mt-1.5 font-mono text-[10px] text-studio-ink-muted">no tool calls recorded</div>
+        <div className="mt-1.5 font-mono text-xs text-studio-ink-muted">no tool calls recorded</div>
       )}
     </div>
   );
@@ -957,14 +957,14 @@ function TranscriptStream({ trace, sourceFile }: { trace: WorkerTrace; sourceFil
   const elided = Math.max(0, trace.totalEvents - trace.head.length - trace.tail.length);
   return (
     <div className="grid gap-1.5">
-      <div className="font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint">
+      <div className="font-mono text-2xs uppercase tracking-ch text-studio-ink-faint">
         {sourceFile}
       </div>
       {trace.head.map((event) => (
         <TraceEventRow key={`head-${event.index}`} event={event} />
       ))}
       {elided > 0 ? (
-        <div className="py-1 text-center font-mono text-[9px] uppercase tracking-ch text-studio-ink-muted">
+        <div className="py-1 text-center font-mono text-2xs uppercase tracking-ch text-studio-ink-muted">
           ··· {elided} interior events elided ···
         </div>
       ) : null}
@@ -985,9 +985,9 @@ function TraceEventRow({ event }: { event: TraceEvent }) {
     : event.text ?? "";
   return (
     <div className="grid grid-cols-[26px_92px_minmax(0,1fr)_62px] items-center gap-2 rounded-sm border border-studio-edge bg-studio-canvas-alt px-2 py-1">
-      <span className="font-mono text-[9px] text-studio-ink-muted">{String(event.index + 1).padStart(2, "0")}</span>
+      <span className="font-mono text-2xs text-studio-ink-muted">{String(event.index + 1).padStart(2, "0")}</span>
       <span
-        className={`inline-flex h-5 items-center justify-center truncate rounded-sm border px-1.5 font-mono text-[8.5px] uppercase tracking-ch ${
+        className={`inline-flex h-5 items-center justify-center truncate rounded-sm border px-1.5 font-mono text-3xs uppercase tracking-ch ${
           isTool
             ? "border-scout-accent/40 bg-scout-accent-soft text-scout-accent"
             : "border-studio-edge-strong bg-studio-canvas text-studio-ink-faint"
@@ -996,10 +996,10 @@ function TraceEventRow({ event }: { event: TraceEvent }) {
       >
         {tag}
       </span>
-      <span className="truncate text-[11px] text-studio-ink-faint" title={main || undefined}>
+      <span className="truncate text-sm text-studio-ink-faint" title={main || undefined}>
         {main || (isTool ? "—" : event.type)}
       </span>
-      <span className="text-right font-mono text-[9px] text-studio-ink-muted">{formatTime(event.at)}</span>
+      <span className="text-right font-mono text-2xs text-studio-ink-muted">{formatTime(event.at)}</span>
     </div>
   );
 }
@@ -1030,10 +1030,10 @@ function ModelNotes({ model }: { model: WorkflowModel }) {
 function SectionHead({ title, meta }: { title: string; meta: string }) {
   return (
     <div className="flex items-baseline gap-3">
-      <h2 className="font-display text-[20px] font-medium tracking-tight text-studio-ink">
+      <h2 className="font-display text-4xl font-medium tracking-tight text-studio-ink">
         {title}
       </h2>
-      <span className="font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint">
+      <span className="font-mono text-2xs uppercase tracking-ch text-studio-ink-faint">
         {meta}
       </span>
       <span className="h-px flex-1 bg-studio-edge" />
@@ -1044,10 +1044,10 @@ function SectionHead({ title, meta }: { title: string; meta: string }) {
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0 rounded border border-studio-edge bg-studio-canvas-alt px-3 py-2">
-      <dt className="truncate font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint">
+      <dt className="truncate font-mono text-2xs uppercase tracking-ch text-studio-ink-faint">
         {label}
       </dt>
-      <dd className="mt-1 truncate font-mono text-[11px] text-studio-ink">
+      <dd className="mt-1 truncate font-mono text-sm text-studio-ink">
         {value}
       </dd>
     </div>
@@ -1057,10 +1057,10 @@ function Metric({ label, value }: { label: string; value: string }) {
 function SourceRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-3 border-t border-studio-edge py-2 first:border-t-0 first:pt-0">
-      <span className="font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint">
+      <span className="font-mono text-2xs uppercase tracking-ch text-studio-ink-faint">
         {label}
       </span>
-      <span className="truncate font-mono text-[10px] text-studio-ink-muted" title={value}>
+      <span className="truncate font-mono text-xs text-studio-ink-muted" title={value}>
         {value}
       </span>
     </div>
@@ -1081,7 +1081,7 @@ function StatusBadge({
         ? "border-status-warn-fg/40 bg-status-warn-bg text-status-warn-fg"
         : "border-studio-edge-strong bg-status-neutral-bg text-status-neutral-fg";
   return (
-    <span className={`inline-flex rounded-sm border px-2 py-1 font-mono text-[9px] uppercase tracking-ch ${cls}`}>
+    <span className={`inline-flex rounded-sm border px-2 py-1 font-mono text-2xs uppercase tracking-ch ${cls}`}>
       {label}
     </span>
   );
@@ -1098,7 +1098,7 @@ function ListPanel({ title, items }: { title: string; items: string[] }) {
             className="grid grid-cols-[10px_minmax(0,1fr)] gap-3 rounded border border-studio-edge bg-studio-canvas-alt px-3 py-2"
           >
             <span className="mt-[7px] h-1.5 w-1.5 rounded-sm bg-scout-accent" />
-            <span className="text-[13px] leading-relaxed text-studio-ink-faint">
+            <span className="text-lg leading-relaxed text-studio-ink-faint">
               {item}
             </span>
           </li>

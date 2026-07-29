@@ -64,21 +64,21 @@ function CompactDock({
       >
         <MicGlyph size={12} />
       </button>
-      <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-studio-ink-faint">
+      <span className="min-w-0 flex-1 truncate font-mono text-xs text-studio-ink-faint">
         {COMPACT_PLACEHOLDER}
       </span>
-      <span className="hidden shrink-0 items-baseline gap-1 font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint xs:inline-flex">
+      <span className="hidden shrink-0 items-baseline gap-1 font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint xs:inline-flex">
         <span aria-hidden>↑</span>
         <span className="tabular-nums">{responseCount}</span>
         <span>·</span>
         <span className="tabular-nums">{messageCount}</span>
         <span>msg</span>
       </span>
-      <span className="inline-flex shrink-0 items-baseline gap-1 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint transition-colors hover:text-[var(--scout-accent)]">
+      <span className="inline-flex shrink-0 items-baseline gap-1 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint transition-colors hover:text-[var(--scout-accent)]">
         <span aria-hidden>↵</span>
         <span>SEND</span>
       </span>
-      <span className="rounded-[2px] border border-studio-edge bg-studio-canvas px-1 py-px font-mono text-[8px] font-bold tracking-[0.05em] text-studio-ink-faint">
+      <span className="rounded-[2px] border border-studio-edge bg-studio-canvas px-1 py-px font-mono text-3xs font-bold tracking-[0.05em] text-studio-ink-faint">
         ESC
       </span>
       <HyperKeyChip />
@@ -103,8 +103,8 @@ function MediumLargeDock({
   const micBox = isLarge ? 28 : 24;
   const micSize = isLarge ? 16 : 14;
   const placeholderClass = isLarge
-    ? "font-sans text-[12.5px] text-studio-ink-faint"
-    : "font-sans text-[11.5px] text-studio-ink-faint";
+    ? "font-sans text-md text-studio-ink-faint"
+    : "font-sans text-sm text-studio-ink-faint";
 
   return (
     <div className="flex flex-col">
@@ -112,7 +112,7 @@ function MediumLargeDock({
           line of the content rather than part of the dock. */}
       <button
         type="button"
-        className={`flex items-center gap-1.5 bg-studio-canvas text-left font-mono text-[10px] text-studio-ink-faint transition-colors hover:text-studio-ink-muted ${PANEL_PAD_X[size]}`}
+        className={`flex items-center gap-1.5 bg-studio-canvas text-left font-mono text-xs text-studio-ink-faint transition-colors hover:text-studio-ink-muted ${PANEL_PAD_X[size]}`}
         style={{ height: stripH }}
       >
         <span aria-hidden>↑</span>
@@ -139,12 +139,12 @@ function MediumLargeDock({
         <span className={`min-w-0 flex-1 truncate ${placeholderClass}`}>
           {FULL_PLACEHOLDER}
         </span>
-        <span className="inline-flex shrink-0 items-baseline gap-1 font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint transition-colors hover:text-[var(--scout-accent)]">
+        <span className="inline-flex shrink-0 items-baseline gap-1 font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint transition-colors hover:text-[var(--scout-accent)]">
           <span aria-hidden>↵</span>
           <span>SEND</span>
         </span>
         <span className="ml-1 inline-flex shrink-0 items-center gap-2">
-          <span className="rounded-[2px] border border-studio-edge bg-studio-canvas px-1 py-px font-mono text-[8px] font-bold tracking-[0.05em] text-studio-ink-faint">
+          <span className="rounded-[2px] border border-studio-edge bg-studio-canvas px-1 py-px font-mono text-3xs font-bold tracking-[0.05em] text-studio-ink-faint">
             ESC
           </span>
           <HyperKeyChip />
@@ -199,13 +199,13 @@ function HyperKeyChip() {
       {["⌃", "⌥", "⇧", "⌘"].map((g) => (
         <span
           key={g}
-          className="font-mono text-[8px] font-semibold text-studio-ink-faint"
+          className="font-mono text-3xs font-semibold text-studio-ink-faint"
         >
           {g}
         </span>
       ))}
       <span
-        className="ml-[1px] font-mono text-[8px] font-bold"
+        className="ml-[1px] font-mono text-3xs font-bold"
         style={{ color: "var(--scout-accent)" }}
       >
         H

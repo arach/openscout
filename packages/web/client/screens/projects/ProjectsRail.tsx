@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { Archive, ChevronDown, ChevronRight, Folder, FolderPlus, Pin, Search, X } from "lucide-react";
 import type { Route } from "../../lib/types.ts";
 import { timeAgo } from "../../lib/time.ts";
@@ -30,8 +30,7 @@ type RailProjectGroup = {
   lastActivityAt: number;
 };
 
-type SessionPreviewState = {
-  session: InboxSession;
+type SessionPreviewPosition = {
   left: number;
   top: number;
 };
@@ -80,11 +79,10 @@ export function ProjectsRail({
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(() => new Set());
   const [pinnedSessions, setPinnedSessions] = useState<Set<string>>(() => readPinnedSessions());
   const [archivedSessions, setArchivedSessions] = useState<Set<string>>(() => readArchivedSessions());
-  const [previewSession, setPreviewSession] = useState<SessionPreviewState | null>(null);
   const [addingProject, setAddingProject] = useState(false);
 
-  const machineScope = route.machineId ? { machineId: route.machineId } : {};
-  const ephemeralScope = route.showEphemeral ? { showEphemeral: true } : {};
+  const machineId = route.machineId;
+  const showEphemeral = route.showEphemeral;
   const initialLoading = loading && model.projects.length === 0 && model.sessions.length === 0;
 
   const projectSessions = useMemo(
@@ -118,28 +116,28 @@ export function ProjectsRail({
     [projectSessions, pinnedSessions, query, zeroPreview],
   );
 
-  const openProject = (slug: string) => {
+  const openProject = useCallback((slug: string) => {
     setCollapsedProjects((current) => withoutValue(current, slug));
     navigate({
       view: "agents-v2",
       projectSlug: slug,
-      ...machineScope,
-      ...ephemeralScope,
+      ...(machineId ? { machineId } : {}),
+      ...(showEphemeral ? { showEphemeral: true } : {}),
     });
-  };
+  }, [machineId, navigate, showEphemeral]);
 
-  const openSession = (session: InboxSession) => {
+  const openSession = useCallback((session: InboxSession) => {
     setCollapsedProjects((current) => withoutValue(current, session.projectSlug));
     navigate(sessionOpenRoute(session, {
       view: "agents-v2",
       projectSlug: session.projectSlug,
       indexView: "sessions",
-      ...machineScope,
-      ...ephemeralScope,
+      ...(machineId ? { machineId } : {}),
+      ...(showEphemeral ? { showEphemeral: true } : {}),
     }));
-  };
+  }, [machineId, navigate, showEphemeral]);
 
-  const togglePinnedSession = (session: InboxSession) => {
+  const togglePinnedSession = useCallback((session: InboxSession) => {
     const key = sessionKey(session);
     setPinnedSessions((current) => {
       const next = new Set(current);
@@ -148,11 +146,10 @@ export function ProjectsRail({
       writePinnedSessions(next);
       return next;
     });
-  };
+  }, []);
 
-  const archiveSession = (session: InboxSession) => {
+  const archiveSession = useCallback((session: InboxSession) => {
     const key = sessionKey(session);
-    setPreviewSession(null);
     setArchivedSessions((current) => {
       if (current.has(key)) return current;
       const next = new Set(current);
@@ -172,20 +169,11 @@ export function ProjectsRail({
         view: "agents-v2",
         projectSlug: session.projectSlug,
         indexView: "sessions",
-        ...machineScope,
-        ...ephemeralScope,
+        ...(machineId ? { machineId } : {}),
+        ...(showEphemeral ? { showEphemeral: true } : {}),
       });
     }
-  };
-
-  const showSessionPreview = (session: InboxSession, node: HTMLElement) => {
-    const rect = node.getBoundingClientRect();
-    const width = 304;
-    const height = 174;
-    const left = Math.min(window.innerWidth - width - 12, rect.right + 10);
-    const top = Math.max(12, Math.min(window.innerHeight - height - 12, rect.top - 18));
-    setPreviewSession({ session, left, top });
-  };
+  }, [machineId, navigate, route, showEphemeral]);
 
   return (
     <nav className="s-pi s-pi-rail" aria-label="Projects" aria-busy={loading || undefined} data-loading={loading || undefined}>
@@ -259,8 +247,6 @@ export function ProjectsRail({
                         onOpenSession={openSession}
                         onTogglePinnedSession={togglePinnedSession}
                         onArchiveSession={archiveSession}
-                        onPreviewSession={showSessionPreview}
-                        onClearPreview={() => setPreviewSession(null)}
                       />
                     ))}
                   </div>
@@ -283,8 +269,6 @@ export function ProjectsRail({
                   onToggleExpanded={() => setExpandedProjects((current) => toggled(current, group.project.slug))}
                   onTogglePinnedSession={togglePinnedSession}
                   onArchiveSession={archiveSession}
-                  onPreviewSession={showSessionPreview}
-                  onClearPreview={() => setPreviewSession(null)}
                 />
               ))}
 
@@ -320,8 +304,6 @@ export function ProjectsRail({
                           onToggleExpanded={() => setExpandedProjects((current) => toggled(current, group.project.slug))}
                           onTogglePinnedSession={togglePinnedSession}
                           onArchiveSession={archiveSession}
-                          onPreviewSession={showSessionPreview}
-                          onClearPreview={() => setPreviewSession(null)}
                         />
                       ))
                     : null}
@@ -338,7 +320,6 @@ export function ProjectsRail({
           Search agents &amp; sessions
         </button>
       </div>
-      {previewSession ? <ProjectSessionHoverCard preview={previewSession} nowMs={nowMs} /> : null}
     </nav>
   );
 }
@@ -357,8 +338,6 @@ function ProjectRailGroup({
   onToggleExpanded,
   onTogglePinnedSession,
   onArchiveSession,
-  onPreviewSession,
-  onClearPreview,
 }: {
   group: RailProjectGroup;
   selected: boolean;
@@ -373,8 +352,6 @@ function ProjectRailGroup({
   onToggleExpanded: () => void;
   onTogglePinnedSession: (session: InboxSession) => void;
   onArchiveSession: (session: InboxSession) => void;
-  onPreviewSession: (session: InboxSession, node: HTMLElement) => void;
-  onClearPreview: () => void;
 }) {
   const { project, sessions } = group;
   const orderedSessions = sortSessionsForRail(
@@ -435,8 +412,6 @@ function ProjectRailGroup({
               onOpenSession={onOpenSession}
               onTogglePinnedSession={onTogglePinnedSession}
               onArchiveSession={onArchiveSession}
-              onPreviewSession={onPreviewSession}
-              onClearPreview={onClearPreview}
             />
           ))}
         </div>
@@ -457,18 +432,7 @@ function ProjectRailGroup({
   );
 }
 
-function ProjectSessionRailRow({
-  session,
-  pinned,
-  selected,
-  showProject,
-  nowMs,
-  onOpenSession,
-  onTogglePinnedSession,
-  onArchiveSession,
-  onPreviewSession,
-  onClearPreview,
-}: {
+type ProjectSessionRailRowProps = {
   session: InboxSession;
   pinned: boolean;
   selected: boolean;
@@ -477,67 +441,106 @@ function ProjectSessionRailRow({
   onOpenSession: (session: InboxSession) => void;
   onTogglePinnedSession: (session: InboxSession) => void;
   onArchiveSession: (session: InboxSession) => void;
-  onPreviewSession: (session: InboxSession, node: HTMLElement) => void;
-  onClearPreview: () => void;
-}) {
-  const title = sessionTitle(session);
+};
 
+function railRowPropsEqual(prev: ProjectSessionRailRowProps, next: ProjectSessionRailRowProps): boolean {
   return (
-    <div
-      className="pi-projectSession"
-      data-active={session.working || undefined}
-      data-pinned={pinned || undefined}
-      data-selected={selected || undefined}
-      onMouseEnter={(event) => onPreviewSession(session, event.currentTarget)}
-      onMouseLeave={onClearPreview}
-      onFocusCapture={(event) => onPreviewSession(session, event.currentTarget)}
-      onBlurCapture={onClearPreview}
-    >
-      <button
-        type="button"
-        className="pi-projectSessionMain"
-        aria-label={showProject ? `${title} /${session.projectTitle}` : title}
-        onClick={() => {
-          onClearPreview();
-          onOpenSession(session);
-        }}
-      >
-        <span className="pi-projectSessionTitle">{title}</span>
-        {showProject ? <span className="pi-projectSessionProject">/{session.projectTitle}</span> : null}
-      </button>
-      <button
-        type="button"
-        className="pi-sessionPin"
-        data-pinned={pinned || undefined}
-        aria-pressed={pinned}
-        aria-label={pinned ? "Unpin session" : "Pin session"}
-        title={pinned ? "Unpin session" : "Pin session"}
-        onClick={() => onTogglePinnedSession(session)}
-      >
-        <Pin size={11} strokeWidth={2} aria-hidden />
-      </button>
-      <button
-        type="button"
-        className="pi-sessionArchive"
-        aria-label="Archive session"
-        title="Archive session"
-        onClick={() => onArchiveSession(session)}
-      >
-        <Archive size={11} strokeWidth={2} aria-hidden />
-      </button>
-      <span className="pi-projectSessionWhen">{session.lastActivityAt ? timeAgo(session.lastActivityAt, nowMs) : "-"}</span>
-    </div>
+    prev.session === next.session
+    && prev.pinned === next.pinned
+    && prev.selected === next.selected
+    && prev.showProject === next.showProject
+    && prev.nowMs === next.nowMs
+    && prev.onOpenSession === next.onOpenSession
+    && prev.onTogglePinnedSession === next.onTogglePinnedSession
+    && prev.onArchiveSession === next.onArchiveSession
   );
 }
 
+function previewPositionFor(node: HTMLElement): SessionPreviewPosition {
+  const rect = node.getBoundingClientRect();
+  const width = 304;
+  const height = 174;
+  return {
+    left: Math.min(window.innerWidth - width - 12, rect.right + 10),
+    top: Math.max(12, Math.min(window.innerHeight - height - 12, rect.top - 18)),
+  };
+}
+
+const ProjectSessionRailRow = memo(function ProjectSessionRailRow({
+  session,
+  pinned,
+  selected,
+  showProject,
+  nowMs,
+  onOpenSession,
+  onTogglePinnedSession,
+  onArchiveSession,
+}: ProjectSessionRailRowProps) {
+  const [preview, setPreview] = useState<SessionPreviewPosition | null>(null);
+  const title = sessionTitle(session);
+
+  return (
+    <>
+      <div
+        className="pi-projectSession"
+        data-active={session.working || undefined}
+        data-pinned={pinned || undefined}
+        data-selected={selected || undefined}
+        onMouseEnter={(event) => setPreview(previewPositionFor(event.currentTarget))}
+        onMouseLeave={() => setPreview(null)}
+        onFocusCapture={(event) => setPreview(previewPositionFor(event.currentTarget))}
+        onBlurCapture={() => setPreview(null)}
+      >
+        <button
+          type="button"
+          className="pi-projectSessionMain"
+          aria-label={showProject ? `${title} /${session.projectTitle}` : title}
+          onClick={() => {
+            setPreview(null);
+            onOpenSession(session);
+          }}
+        >
+          <span className="pi-projectSessionTitle">{title}</span>
+          {showProject ? <span className="pi-projectSessionProject">/{session.projectTitle}</span> : null}
+        </button>
+        <button
+          type="button"
+          className="pi-sessionPin"
+          data-pinned={pinned || undefined}
+          aria-pressed={pinned}
+          aria-label={pinned ? "Unpin session" : "Pin session"}
+          title={pinned ? "Unpin session" : "Pin session"}
+          onClick={() => onTogglePinnedSession(session)}
+        >
+          <Pin size={11} strokeWidth={2} aria-hidden />
+        </button>
+        <button
+          type="button"
+          className="pi-sessionArchive"
+          aria-label="Archive session"
+          title="Archive session"
+          onClick={() => onArchiveSession(session)}
+        >
+          <Archive size={11} strokeWidth={2} aria-hidden />
+        </button>
+        <span className="pi-projectSessionWhen">{session.lastActivityAt ? timeAgo(session.lastActivityAt, nowMs) : "-"}</span>
+      </div>
+      {preview ? <ProjectSessionHoverCard session={session} left={preview.left} top={preview.top} nowMs={nowMs} /> : null}
+    </>
+  );
+}, railRowPropsEqual);
+
 function ProjectSessionHoverCard({
-  preview,
+  session,
+  left,
+  top,
   nowMs,
 }: {
-  preview: SessionPreviewState;
+  session: InboxSession;
+  left: number;
+  top: number;
   nowMs: number;
 }) {
-  const { session, left, top } = preview;
   const agent = session.agentName || null;
   const workspace = session.projectRoot ? shortHomePath(session.projectRoot) : `/${session.projectTitle}`;
   const ref = sessionRouteRef(session);

@@ -45,13 +45,13 @@ export default function AgentInspectorReworkPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-8 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · macos · agent-inspector-rework
         </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+        <h1 className="mt-1 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
           Engage — two levels
         </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-3 font-sans text-lg leading-relaxed text-studio-ink-faint">
           Bring back the engage buttons — just scope them. <strong className="text-studio-ink-muted">Observe</strong>{" "}
           and <strong className="text-studio-ink-muted">Take over</strong> live both at the{" "}
           <strong className="text-studio-ink-muted">agent level</strong> (a compact bar that operates the live
@@ -71,7 +71,7 @@ export default function AgentInspectorReworkPage() {
       </div>
 
       <div className="mt-12 max-w-prose">
-        <h2 className="mb-3 font-display text-[16px] font-medium tracking-tight text-studio-ink">
+        <h2 className="mb-3 font-display text-2xl font-medium tracking-tight text-studio-ink">
           The two levels
         </h2>
         <ul className="flex flex-col gap-2.5">
@@ -89,7 +89,7 @@ export default function AgentInspectorReworkPage() {
             <strong className="text-studio-ink">accent only when working</strong>.
           </Change>
         </ul>
-        <p className="mt-4 font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-4 font-sans text-md leading-relaxed text-studio-ink-faint">
           Note: for a single-session agent the agent bar and the one row&apos;s buttons are the same target — the
           agent bar earns its place once there are several sessions. Could auto-hide the bar at 1 session if the
           redundancy reads heavy.
@@ -103,7 +103,7 @@ function Labeled({ label, tone, children }: { label: string; tone: "muted" | "ac
   return (
     <div className="w-[300px]">
       <div
-        className={`mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow ${
+        className={`mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow ${
           tone === "accent" ? "text-scout-accent" : "text-studio-ink-faint"
         }`}
       >
@@ -138,16 +138,16 @@ function Essentials() {
     <div className="flex flex-col gap-2.5">
       <div className="flex min-w-0 items-center gap-2.5">
         <div
-          className="relative grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[8px] font-mono text-[12px]"
+          className="relative grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[8px] font-mono text-md"
           style={{ background: "oklch(0.42 0.008 80)", color: "var(--studio-canvas)" }}
         >
           O
         </div>
         <div className="min-w-0 flex-1">
-          <div className="truncate font-sans text-[14px] font-semibold tracking-tight text-studio-ink">
+          <div className="truncate font-sans text-xl font-semibold tracking-tight text-studio-ink">
             Openscout Card T
           </div>
-          <div className="truncate font-mono text-[9px] text-studio-ink-faint">@openscout-card-t-39kmsa</div>
+          <div className="truncate font-mono text-2xs text-studio-ink-faint">@openscout-card-t-39kmsa</div>
         </div>
         <CopyDot />
       </div>
@@ -168,7 +168,7 @@ function AgentEngageBar() {
 
 function GlyphFacts() {
   return (
-    <div className="flex flex-col gap-1 font-mono text-[9.5px] text-studio-ink-muted">
+    <div className="flex flex-col gap-1 font-mono text-2xs text-studio-ink-muted">
       <div className="flex items-center gap-2">
         <Glyph>▤</Glyph>
         <span className="truncate">~/dev/openscout</span>
@@ -189,7 +189,7 @@ function FilesChanged() {
   return (
     <div className="flex flex-col gap-1.5">
       <SectionLabel>Files changed</SectionLabel>
-      <div className="font-mono text-[10px] text-studio-ink-faint">No file touches yet</div>
+      <div className="font-mono text-xs text-studio-ink-faint">No file touches yet</div>
     </div>
   );
 }
@@ -202,7 +202,7 @@ function Sessions({ variant }: { variant: "before" | "after" }) {
         <SectionLabel>Sessions</SectionLabel>
         <button
           type="button"
-          className="flex items-center gap-1 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint transition-colors hover:text-scout-accent"
+          className="flex items-center gap-1 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint transition-colors hover:text-scout-accent"
         >
           <PlusIcon /> New session
         </button>
@@ -226,18 +226,18 @@ function SessionRowView({ row, showButtons }: { row: SessionRow; showButtons: bo
           className="h-1.5 w-1.5 shrink-0 rounded-full"
           style={{ background: dot, boxShadow: showButtons && working ? "0 0 0 3px color-mix(in oklab, var(--scout-accent) 22%, transparent)" : undefined }}
         />
-        <span className="truncate font-sans text-[11px] font-medium text-studio-ink">{row.title}</span>
+        <span className="truncate font-sans text-sm font-medium text-studio-ink">{row.title}</span>
         <RoleBadge role={row.role} />
-        <span className="ml-auto shrink-0 font-mono text-[9px] text-studio-ink-faint">{row.age}</span>
+        <span className="ml-auto shrink-0 font-mono text-2xs text-studio-ink-faint">{row.age}</span>
       </div>
-      <div className="mt-0.5 truncate pl-4 font-mono text-[9px] text-studio-ink-faint">
+      <div className="mt-0.5 truncate pl-4 font-mono text-2xs text-studio-ink-faint">
         {row.branch} · {row.msgs} msgs
       </div>
       {showButtons ? (
         <div className="mt-1.5 flex items-center gap-1.5 pl-4">
           <Chip icon={<EyeIcon />} label="Observe" accent small />
           <Chip icon={<HandIcon />} label="Take over" small />
-          {working ? null : <span className="font-mono text-[8px] uppercase tracking-eyebrow text-studio-ink-faint/60">on hover</span>}
+          {working ? null : <span className="font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint/60">on hover</span>}
         </div>
       ) : null}
     </div>
@@ -248,7 +248,7 @@ function Runtime() {
   return (
     <div className="flex flex-col gap-1.5">
       <SectionLabel>Runtime</SectionLabel>
-      <div className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-1 font-mono text-[10px]">
+      <div className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-1 font-mono text-xs">
         {[
           ["Transport", "tmux"],
           ["Role", "Relay agent"],
@@ -271,7 +271,7 @@ function Chip({ icon, label, accent, small }: { icon: React.ReactNode; label: st
     <button
       type="button"
       className={`flex items-center justify-center gap-1.5 whitespace-nowrap rounded-[5px] border font-mono font-semibold uppercase tracking-eyebrow transition-colors ${
-        small ? "h-6 px-2 text-[9px]" : "h-7 px-2.5 text-[9.5px]"
+        small ? "h-6 px-2 text-2xs" : "h-7 px-2.5 text-2xs"
       } ${
         accent
           ? "border-[color-mix(in_oklab,var(--scout-accent)_45%,transparent)] bg-[color-mix(in_oklab,var(--scout-accent)_12%,transparent)] text-[var(--scout-accent)]"
@@ -286,7 +286,7 @@ function Chip({ icon, label, accent, small }: { icon: React.ReactNode; label: st
 
 function Elided({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-2 py-0.5 font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint/70">
+    <div className="flex items-center gap-2 py-0.5 font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint/70">
       <span className="h-px flex-1" style={{ background: "color-mix(in oklab, var(--studio-ink) 8%, transparent)" }} />
       {children}
       <span className="h-px flex-1" style={{ background: "color-mix(in oklab, var(--studio-ink) 8%, transparent)" }} />
@@ -311,13 +311,13 @@ function CopyDot() {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">{children}</div>
+    <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">{children}</div>
   );
 }
 
 function RoleBadge({ role }: { role: string }) {
   return (
-    <span className="shrink-0 rounded-[3px] border border-studio-edge px-1.5 py-px font-mono text-[8px] uppercase tracking-eyebrow text-studio-ink-muted">
+    <span className="shrink-0 rounded-[3px] border border-studio-edge px-1.5 py-px font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-muted">
       {role}
     </span>
   );
@@ -334,10 +334,10 @@ function Divider() {
 function Change({ tag, children }: { tag: string; children: React.ReactNode }) {
   return (
     <li className="flex gap-3">
-      <span className="mt-px w-[58px] shrink-0 rounded-[3px] border border-studio-edge-strong px-1 py-0.5 text-center font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-scout-accent">
+      <span className="mt-px w-[58px] shrink-0 rounded-[3px] border border-studio-edge-strong px-1 py-0.5 text-center font-mono text-3xs font-semibold uppercase tracking-eyebrow text-scout-accent">
         {tag}
       </span>
-      <div className="flex-1 font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">{children}</div>
+      <div className="flex-1 font-sans text-md leading-relaxed text-studio-ink-faint">{children}</div>
     </li>
   );
 }

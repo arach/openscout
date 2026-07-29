@@ -9,6 +9,7 @@
  */
 import type { LucideIcon } from "lucide-react";
 import {
+  Code2,
   Compass,
   FileText,
   GitBranch,
@@ -46,7 +47,6 @@ export type NavDestinationId =
   | "projects"
   | "sessions"
   | "chat"
-  | "channels"
   | "search"
   | "terminals"
   | "tail"
@@ -113,12 +113,6 @@ export const NAV_DESTINATIONS: readonly NavDestination[] = [
     active: (route) =>
       route.view === "messages" ||
       route.view === "conversation",
-  },
-  {
-    id: "channels",
-    label: "Channels",
-    route: { view: "channels" },
-    active: (route) => route.view === "channels",
   },
   {
     id: "search",
@@ -366,19 +360,14 @@ export function projectAgentsSecondaryNav(): SecondaryNavGroup[] {
   ];
 }
 
+/**
+ * Chat secondary strip is production-dead. Route unification collapsed the
+ * DM/Channels split onto a single conversation route, so there is nothing left
+ * to switch between. Kept as an empty projection only for catalog integrity
+ * helpers; do not reintroduce a Chat strip in chrome.
+ */
 export function projectChatSecondaryNav(): SecondaryNavGroup[] {
-  return [
-    projectSecondaryGroup([
-      {
-        destinationId: "chat",
-        id: "messages",
-        label: "Direct Messages",
-        route: { view: "messages", filter: "dm" },
-        active: (route) => route.view === "messages" || route.view === "conversation",
-      },
-      { destinationId: "channels", id: "channels" },
-    ]),
-  ];
+  return [];
 }
 
 /**
@@ -433,6 +422,7 @@ export const GO_SHORTCUT_PROJECTION: readonly GoShortcutProjection[] = [
   { key: "s", label: "Go to sessions", destinationId: "sessions" },
   { key: "t", label: "Go to terminals", destinationId: "terminals" },
   { key: "r", label: "Go to repositories", destinationId: "repos" },
+  { key: "b", label: "Go to code browser", destinationId: "code" },
   { key: "f", label: "Go to search", destinationId: "search" },
   { key: "l", label: "Go to live activity", destinationId: "tail" },
   // Default ops entry uses bare `{ view: "ops" }` (mode undefined), matching
@@ -487,6 +477,7 @@ const JUMP_DOCK_PROJECTION: readonly JumpDockProjection[] = [
   { destinationId: "sessions", id: "sessions", icon: FileText },
   { destinationId: "terminals", id: "terminals", icon: Terminal },
   { destinationId: "repos", id: "repos", icon: GitBranch },
+  { destinationId: "code", id: "code", icon: Code2 },
   { destinationId: "search", id: "search", icon: Search },
   { destinationId: "tail", id: "tail", icon: ScrollText },
   // Mission control bounces to Home when the ops cluster is off — only offer
@@ -546,18 +537,6 @@ const PALETTE_NAV_PROJECTION: readonly PaletteNavProjection[] = [
   { id: "nav:home", label: "Go to Home", destinationId: "home", shortcut: "Cmd+1" },
   { id: "nav:agents", label: "Go to Projects", destinationId: "projects", shortcut: "Cmd+2" },
   { id: "nav:messages", label: "Go to Chat", destinationId: "chat", shortcut: "Cmd+3" },
-  {
-    id: "nav:messages-dms",
-    label: "Go to Chat — DMs",
-    destinationId: "chat",
-    route: { view: "messages", filter: "dm" },
-  },
-  {
-    id: "nav:messages-channels",
-    label: "Go to Chat — Channels",
-    destinationId: "chat",
-    route: { view: "messages", filter: "channel" },
-  },
   { id: "nav:sessions", label: "Open Sessions", destinationId: "sessions" },
   { id: "nav:terminals", label: "Open Terminals", destinationId: "terminals" },
   { id: "nav:search", label: "Go to Search", destinationId: "search", shortcut: "Cmd+4" },
@@ -565,6 +544,7 @@ const PALETTE_NAV_PROJECTION: readonly PaletteNavProjection[] = [
   { id: "nav:mesh", label: "Open Mesh", destinationId: "mesh" },
   { id: "nav:dispatch", label: "Open Dispatch", destinationId: "dispatch" },
   { id: "nav:repos", label: "Open Repos", destinationId: "repos" },
+  { id: "nav:code", label: "Open Code Browser", destinationId: "code" },
   { id: "nav:harnesses", label: "Open Providers", destinationId: "providers" },
   { id: "nav:ops-lanes", label: "Open Agent Lanes", destinationId: "lanes" },
   {
@@ -697,7 +677,7 @@ export function areaSubNavForRoute(route: Route): {
 
 /* ── Projection: expanded sidebar sub-nav ────────────────────────────── */
 
-export type SidebarSubNavAreaId = AreaSubNavAreaId | "chat" | "dispatch" | "ops";
+export type SidebarSubNavAreaId = AreaSubNavAreaId | "dispatch" | "ops";
 
 type SidebarSubNavProjection = AreaSubNavProjection & {
   route?: Route;
@@ -709,16 +689,8 @@ const SIDEBAR_SUB_NAV_PROJECTION: Record<
   readonly SidebarSubNavProjection[]
 > = {
   ...AREA_SUB_NAV_PROJECTION,
-  chat: [
-    {
-      destinationId: "chat",
-      id: "messages",
-      label: "Direct Messages",
-      route: { view: "messages", filter: "dm" },
-      active: (route) => route.view === "messages" || route.view === "conversation",
-    },
-    { destinationId: "channels", id: "channels" },
-  ],
+  // No `chat` entry: route unification left the Chat area with a single
+  // surface, so the expanded sidebar projects no sub-nav for it.
   dispatch: [
     {
       destinationId: "dispatch",
@@ -824,7 +796,6 @@ export function allProjectedDestinationIds(): NavDestinationId[] {
   for (const id of [
     "agent-config",
     "chat",
-    "channels",
     "lanes",
     "mission-control",
     "providers",

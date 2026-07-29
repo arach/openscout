@@ -53,6 +53,8 @@ import { CenterPaneHeader } from "./scout/sidebar/CenterPaneHeader.tsx";
 
 import {
   RAIL_COLLAPSED_WIDTH,
+  RAIL_HEADER_HEIGHT,
+  RAIL_TOGGLE_HEADER_TOP,
   SIDEBAR_COLLAPSED_WIDTH,
   SIDEBAR_EXPANDED_WIDTH,
   SIDE_RAIL_DEFAULT_WIDTH,
@@ -95,15 +97,8 @@ const GO_SHORTCUT_TIMEOUT_MS = 1500;
 // row, utilities pinned right, one bottom hairline. Side rail / center / inspector
 // all begin below it (contentTopOffset); the three chevrons center in the panel
 // header band just under the row (the shared y≈48 band).
-/** SidePanel header band height (see app.css manifest/inspector header rule). */
-const RAIL_HEADER_HEIGHT = 44;
 /** The single top-row height (study: 40px permanent horizontal). */
 const SIDEBAR_TOP_ROW_HEIGHT = 40;
-/** Rail edge chevron height (see .scout-rail-toggle). */
-const RAIL_TOGGLE_HEIGHT = 28;
-/** Chevron top so it centers in a header band (title band and rail header band
- *  are the same height, so one offset serves both). */
-const RAIL_TOGGLE_HEADER_TOP = Math.round((RAIL_HEADER_HEIGHT - RAIL_TOGGLE_HEIGHT) / 2);
 
 interface ScoutNavigationBarProps {
   title: string;
@@ -209,7 +204,7 @@ function ScoutNavigationBar({ title, center, actions, search }: ScoutNavigationB
             className="flex items-center gap-2 rounded-sm px-0.5 -mx-0.5 leading-none text-foreground/90"
           >
             <ScoutChromeMark className="h-5 w-5 text-[#f8f3e8] drop-shadow-[0_0_6px_rgba(255,247,234,0.3)]" />
-            <span className="font-mono text-[11px] font-medium tracking-[0.06em] leading-none">
+            <span className="font-mono text-sm font-medium tracking-[0.06em] leading-none">
               {title}
             </span>
           </div>
@@ -233,7 +228,7 @@ function ScoutNavigationBar({ title, center, actions, search }: ScoutNavigationB
                 onChange={(event) => search.onChange(event.target.value)}
                 placeholder={search.placeholder ?? "Search"}
                 className={`
-                  w-full h-7 pl-5 pr-6 bg-transparent text-[11px] font-mono font-normal tracking-[0.02em]
+                  w-full h-7 pl-5 pr-6 bg-transparent text-sm font-mono font-normal tracking-[0.02em]
                   placeholder:text-muted-foreground/80 placeholder:font-light text-foreground
                   focus:outline-none transition-all duration-200
                   ${isFiltered ? "text-accent" : ""}
@@ -292,21 +287,21 @@ function OpenScoutStatusBarLeft({
   return (
     <div className="flex items-center gap-3 font-mono leading-none">
       <div className="flex items-center gap-1.5">
-        <span className="text-[9px] font-normal uppercase tracking-[0.16em] text-muted-foreground">
+        <span className="text-2xs font-normal uppercase tracking-[0.16em] text-muted-foreground">
           {statusBar.activeAgents.label}
         </span>
-        <span className="text-[10px] tabular-nums text-foreground">{statusBar.activeAgents.count}</span>
+        <span className="text-xs tabular-nums text-foreground">{statusBar.activeAgents.count}</span>
       </div>
-      <span aria-hidden="true" className="select-none text-muted-foreground/40 text-[10px]">·</span>
+      <span aria-hidden="true" className="select-none text-muted-foreground/40 text-xs">·</span>
       <div className="flex items-center gap-1.5">
-        <span className="text-[9px] font-normal uppercase tracking-[0.16em] text-muted-foreground">
+        <span className="text-2xs font-normal uppercase tracking-[0.16em] text-muted-foreground">
           {statusBar.mesh.label}
         </span>
-        <span className={`text-[10px] ${meshValueClass}`}>{statusBar.mesh.value}</span>
+        <span className={`text-xs ${meshValueClass}`}>{statusBar.mesh.value}</span>
       </div>
       {(scoutbotEnabled || realtimeVoiceEnabled) && (
         <>
-          <span aria-hidden="true" className="select-none text-muted-foreground/40 text-[10px]">·</span>
+          <span aria-hidden="true" className="select-none text-muted-foreground/40 text-xs">·</span>
           <div className="flex items-center gap-1">
             {scoutbotEnabled && <ScoutbotBroadcastChip />}
             {realtimeVoiceEnabled && (
@@ -331,10 +326,10 @@ function OpenScoutStatusBarRight({
   return (
     <div className="flex max-w-[42vw] items-center gap-3">
       <ScoutActivityLogStatusButton onOpen={onOpenActivityLog} />
-      <span aria-hidden="true" className="select-none text-muted-foreground/40 text-[10px]">·</span>
+      <span aria-hidden="true" className="select-none text-muted-foreground/40 text-xs">·</span>
       <DevFlagToggle onOpenPanel={onOpenFlagPanel} />
       <div
-        className="truncate font-mono text-[10px] leading-none text-muted-foreground"
+        className="truncate font-mono text-xs leading-none text-muted-foreground"
         title={statusBar.build.title}
       >
         {statusBar.build.label}
@@ -979,7 +974,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
               <div key={tool.id}>
                 <button
                   onClick={() => toggleTool(tool.id)}
-                  className={`w-full flex items-center gap-2 px-4 py-2.5 text-[11px] font-mono tracking-wider uppercase transition-colors hover:bg-white/5 ${
+                  className={`w-full flex items-center gap-2 px-4 py-2.5 text-sm font-mono tracking-wider uppercase transition-colors hover:bg-white/5 ${
                     activeToolHint === tool.id ? "text-emerald-400" : "text-neutral-300"
                   }`}
                 >
@@ -1062,6 +1057,11 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     && !route.sessionId;
   const dispatchHasNothingInContext = route.view === "broker" && !selectedBrokerAttempt;
   const agentsV2Route = route.view === "agents-v2";
+  // First-class Settings pages use the center workspace and their own section
+  // navigation. An empty inspector made them read like a drawer beside a blank
+  // sheet and needlessly reduced the form canvas. Agent configuration retains
+  // the inspector because it can still carry agent-specific context.
+  const settingsOwnTheWorkspace = route.view === "settings" && route.section !== "agents";
 
   // SCO-085 empty CONTEXT on /ops/lanes: expose message count/loading ABOVE the
   // panel (ScoutbotStateContext) so we never depend on mounted panel children
@@ -1087,7 +1087,9 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     forceOpen: lanesContextForceOpen,
     baseCollapsed: baseRightCollapsed,
   });
-  const showRightPanel = !scopePresentation && (route.view !== "broker" || dispatchSheetOpen);
+  const showRightPanel = !scopePresentation
+    && !settingsOwnTheWorkspace
+    && (route.view !== "broker" || dispatchSheetOpen);
 
   // Scope presentation: legacy chrome collapses left/right as derived state
   // (never written to prefs). New sidebar chrome keeps a path-aware Scope model.
@@ -1469,7 +1471,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                     title={
                       agentsV2Route
                         ? "Browse"
-                        : route.view === "agents-v2" || route.view === "agent-info"
+                        : route.view === "agent-info"
                           ? "Projects"
                           : app.leftPanel?.title ?? "Navigation"
                     }
@@ -1686,7 +1688,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                     app.slots.Terminal ? (
                       <app.slots.Terminal />
                     ) : (
-                      <div className="p-4 font-mono text-[12px] text-neutral-400">
+                      <div className="p-4 font-mono text-md text-neutral-400">
                         No terminal content
                       </div>
                     )

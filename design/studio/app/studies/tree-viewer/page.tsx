@@ -95,27 +95,27 @@ export default function TreeViewerPage() {
       </div>
 
       <section className="mt-12 max-w-prose">
-        <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · safety
         </div>
-        <p className="font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="font-sans text-lg leading-relaxed text-studio-ink-faint">
           The tree walker enforces containment (no{" "}
-          <code className="font-mono text-[11px] text-studio-ink">..</code>{" "}
+          <code className="font-mono text-sm text-studio-ink">..</code>{" "}
           escape from repo root), max depth (default 6), and a default
           ignore set covering{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
+          <code className="font-mono text-sm text-studio-ink">
             node_modules
           </code>
           ,{" "}
-          <code className="font-mono text-[11px] text-studio-ink">.git</code>
+          <code className="font-mono text-sm text-studio-ink">.git</code>
           ,{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
+          <code className="font-mono text-sm text-studio-ink">
             .next
           </code>
-          , <code className="font-mono text-[11px] text-studio-ink">dist</code>
-          , <code className="font-mono text-[11px] text-studio-ink">build</code>
+          , <code className="font-mono text-sm text-studio-ink">dist</code>
+          , <code className="font-mono text-sm text-studio-ink">build</code>
           , and dotfiles. Same containment guard the{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
+          <code className="font-mono text-sm text-studio-ink">
             /eng/file
           </code>{" "}
           viewer uses.
@@ -137,10 +137,10 @@ function Column({
   return (
     <section>
       <div className="mb-2 flex items-baseline gap-2 border-b border-studio-edge pb-1.5">
-        <span className="font-mono text-[10.5px] font-semibold uppercase tracking-eyebrow text-studio-ink">
+        <span className="font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink">
           {title}
         </span>
-        <span className="font-mono text-[9.5px] text-studio-ink-faint">
+        <span className="font-mono text-2xs text-studio-ink-faint">
           {subtitle}
         </span>
       </div>
@@ -153,7 +153,7 @@ function Column({
 
 function Missing({ path }: { path: string }) {
   return (
-    <div className="px-3 py-2 font-mono text-[10.5px] italic text-studio-ink-faint">
+    <div className="px-3 py-2 font-mono text-xs italic text-studio-ink-faint">
       {path} not found on disk.
     </div>
   );

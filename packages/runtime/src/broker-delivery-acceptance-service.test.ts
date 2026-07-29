@@ -66,6 +66,23 @@ function testConversation(input: Partial<ConversationDefinition> = {}): Conversa
   };
 }
 
+function testMessage(input: Partial<MessageRecord> = {}): MessageRecord {
+  return {
+    id: "message-1",
+    conversationId: "conversation-1",
+    actorId: "operator",
+    originNodeId: "node-1",
+    class: "agent",
+    body: "please investigate",
+    audience: { notify: ["agent-1"], reason: "direct_message" },
+    visibility: "workspace",
+    policy: "durable",
+    createdAt: 20_000,
+    metadata: {},
+    ...input,
+  };
+}
+
 function testSnapshot(input: {
   agents?: Record<string, AgentDefinition>;
   endpoints?: Record<string, AgentEndpoint>;
@@ -512,6 +529,86 @@ describe("BrokerDeliveryAcceptanceService", () => {
       }),
     }));
     expect(harness.dispatchedInvocations).toEqual(harness.acceptedInvocations);
+  });
+
+  test("replays a committed delivery by stable client and request ids without a second write", async () => {
+    const message = testMessage({
+      metadata: {
+        clientMessageId: "ios-stable-1",
+        deliveryRequestId: "deliver-client-stable-1",
+        relayTarget: "agent-1",
+      },
+    });
+    const harness = createHarness({
+      snapshot: testSnapshot({
+        agents: { "agent-1": testAgent() },
+        endpoints: { "endpoint-1": testEndpoint() },
+        conversations: { "conversation-1": testConversation() },
+        messages: { [message.id]: message },
+      }),
+    });
+
+    const result = await harness.service.accept({
+      id: "deliver-client-stable-1",
+      body: "please investigate",
+      intent: "consult",
+      targetAgentId: "agent-1",
+      caller: { actorId: "operator", nodeId: "node-1" },
+      messageMetadata: { clientMessageId: "ios-stable-1" },
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      kind: "delivery",
+      accepted: true,
+      message: expect.objectContaining({ id: message.id }),
+      receipt: expect.objectContaining({
+        requestId: "deliver-client-stable-1",
+        messageId: message.id,
+      }),
+    }));
+    expect(harness.postedMessages).toEqual([]);
+    expect(harness.acceptedInvocations).toEqual([]);
+    expect(harness.dispatchedInvocations).toEqual([]);
+  });
+
+  test("promotes a recoverable durable message instead of creating a duplicate bubble", async () => {
+    const message = testMessage({
+      id: "message-recoverable",
+      metadata: { clientMessageId: "ios-recoverable-1" },
+    });
+    const harness = createHarness({
+      snapshot: testSnapshot({
+        agents: { "agent-1": testAgent() },
+        endpoints: { "endpoint-1": testEndpoint() },
+        conversations: { "conversation-1": testConversation() },
+        messages: { [message.id]: message },
+      }),
+    });
+
+    const result = await harness.service.accept({
+      id: "deliver-client-recoverable-1",
+      body: "please investigate",
+      intent: "consult",
+      targetAgentId: "agent-1",
+      caller: { actorId: "operator", nodeId: "node-1" },
+      messageMetadata: { clientMessageId: "ios-recoverable-1" },
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      kind: "delivery",
+      accepted: true,
+      message: expect.objectContaining({ id: message.id }),
+    }));
+    expect(harness.postedMessages).toHaveLength(1);
+    expect(harness.postedMessages[0]).toEqual(expect.objectContaining({
+      id: message.id,
+      metadata: expect.objectContaining({
+        clientMessageId: "ios-recoverable-1",
+        deliveryRequestId: "deliver-client-recoverable-1",
+      }),
+    }));
+    expect(harness.acceptedInvocations).toHaveLength(1);
+    expect(harness.acceptedInvocations[0]?.messageId).toBe(message.id);
   });
 
   test("resolved target handles continue the resolved session", async () => {

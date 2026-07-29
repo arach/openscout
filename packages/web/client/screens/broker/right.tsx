@@ -140,7 +140,7 @@ function BrokerContextPanel() {
 
   if (!broker && !error) {
     return (
-      <div className="flex h-full flex-col overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
+      <div className="flex h-full flex-col overflow-y-auto frame-scrollbar p-4 gap-4 text-sm">
         <BrokerContextSummaryCard title="Dispatch context" status="Loading broker ledger..." />
       </div>
     );
@@ -148,9 +148,9 @@ function BrokerContextPanel() {
 
   if (!broker) {
     return (
-      <div className="flex h-full flex-col overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
+      <div className="flex h-full flex-col overflow-y-auto frame-scrollbar p-4 gap-4 text-sm">
         <BrokerContextSummaryCard title="Dispatch context" status="Broker diagnostics unavailable" />
-        <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] p-2.5 text-[11px] leading-relaxed text-[var(--scout-chrome-ink-soft)]">
+        <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] p-2.5 text-sm leading-relaxed text-[var(--scout-chrome-ink-soft)]">
           {error}
         </div>
       </div>
@@ -162,7 +162,7 @@ function BrokerContextPanel() {
   const failureRate = routeTotal > 0 && rowCounts ? rowCounts.failures / routeTotal : 0;
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
+    <div className="flex h-full flex-col overflow-y-auto frame-scrollbar p-4 gap-4 text-sm">
       <BrokerContextSummaryCard
         title="Dispatch context"
         status={`${routeTotal}${routeTotalSuffix} latest route${routeTotal === 1 ? "" : "s"}`}
@@ -172,7 +172,7 @@ function BrokerContextPanel() {
           <BrokerMiniStat label="Query" value={`${rowCounts?.query ?? 0}`} />
           <BrokerMiniStat label="Delivery" value={`${rowCounts?.delivery ?? 0}`} />
         </div>
-        <div className="mt-2 flex items-center justify-between gap-2 border-t border-[var(--scout-chrome-border-soft)] pt-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
+        <div className="mt-2 flex items-center justify-between gap-2 border-t border-[var(--scout-chrome-border-soft)] pt-2 font-mono text-2xs uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
           <span>{brokerContextPercent(failureRate)} failed</span>
           <span>{timeAgo(broker.generatedAt)}</span>
         </div>
@@ -229,10 +229,10 @@ function BrokerContextSummaryCard({
 }) {
   return (
     <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] p-2.5">
-      <div className="text-[9px] font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
+      <div className="text-2xs font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
         {title}
       </div>
-      <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-soft)]">
+      <div className="mt-1 font-mono text-xs uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-soft)]">
         {status}
       </div>
       {children}
@@ -243,10 +243,10 @@ function BrokerContextSummaryCard({
 function BrokerMiniStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0 rounded-sm border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-bg)] px-1.5 py-1">
-      <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--scout-chrome-ink-faint)]">
+      <div className="font-mono text-2xs uppercase tracking-[0.1em] text-[var(--scout-chrome-ink-faint)]">
         {label}
       </div>
-      <div className="mt-0.5 truncate font-mono text-[13px] text-[var(--scout-chrome-ink-strong)]">
+      <div className="mt-0.5 truncate font-mono text-lg text-[var(--scout-chrome-ink-strong)]">
         {value}
       </div>
     </div>
@@ -262,7 +262,7 @@ function BrokerContextSection({
 }) {
   return (
     <div className="flex flex-col">
-      <div className="mb-1.5 text-[9px] font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
+      <div className="mb-1.5 text-2xs font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
         {label}
       </div>
       {children}
@@ -283,7 +283,7 @@ function BrokerPillList({
       {items.map((item) => (
         <span
           key={item.label}
-          className="rounded-sm border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--scout-chrome-ink-soft)]"
+          className="rounded-sm border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] px-1.5 py-0.5 font-mono text-xs text-[var(--scout-chrome-ink-soft)]"
           title={`${item.count} ${item.label}`}
         >
           {item.label} {item.count}
@@ -295,7 +295,7 @@ function BrokerPillList({
 
 function BrokerEmptyLine({ children }: { children: ReactNode }) {
   return (
-    <div className="text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
+    <div className="text-xs font-mono uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
       {children}
     </div>
   );
@@ -317,18 +317,18 @@ function BrokerContextAttemptButton({
       onClick={() => onOpen(attempt)}
     >
       <div className="flex items-center gap-2">
-        <span className="shrink-0 rounded-sm bg-[var(--scout-chrome-bg)] px-1 py-0.5 font-mono text-[8px] uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-faint)]">
+        <span className="shrink-0 rounded-sm bg-[var(--scout-chrome-bg)] px-1 py-0.5 font-mono text-3xs uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-faint)]">
           {brokerContextKindLabel(attempt.kind)}
         </span>
-        <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--scout-chrome-ink)]">
+        <span className="min-w-0 flex-1 truncate text-sm text-[var(--scout-chrome-ink)]">
           {attempt.detail}
         </span>
-        <span className="shrink-0 font-mono text-[9px] text-[var(--scout-chrome-ink-faint)]">
+        <span className="shrink-0 font-mono text-2xs text-[var(--scout-chrome-ink-faint)]">
           {timeAgo(attempt.ts)}
         </span>
       </div>
       {!compact && (
-        <div className="mt-0.5 flex items-center gap-2 font-mono text-[9px] text-[var(--scout-chrome-ink-ghost)]">
+        <div className="mt-0.5 flex items-center gap-2 font-mono text-2xs text-[var(--scout-chrome-ink-ghost)]">
           <span className="truncate">{attempt.actorName ?? "unknown"}</span>
           <span className="shrink-0">-&gt;</span>
           <span className="truncate">{attempt.target ?? "none"}</span>

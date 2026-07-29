@@ -139,7 +139,7 @@ function ConfigInspector({
   onConfigSaved: (config: LocalAgentConfigState) => void;
   sessionCatalog: SessionCatalogWithResume | null;
   navigate: (route: Route) => void;
-  homeView: "agents" | "agents-v2";
+  homeView: "agents-v2";
 }) {
   const spec = agentSpecialization(agent, config);
   const handle = agent.handle?.replace(/^@+/, "") || agent.name;
@@ -313,7 +313,7 @@ export function AgentDefinitionsWorkspace({
 }: {
   agent: Agent;
   navigate: (route: Route) => void;
-  homeView?: "agents" | "agents-v2";
+  homeView?: "agents-v2";
 }) {
   const { openFilePreview } = useScout();
   const [payload, setPayload] = useState<AgentDefinitionsPayload | null>(null);
@@ -441,6 +441,11 @@ export function AgentDefinitionsWorkspace({
                 artifact={selectedFile}
                 onOpen={openFilePreview}
                 onReveal={(path) => void revealPath(path)}
+                onBrowse={payload ? (path) => navigate({
+                  view: "code",
+                  root: payload.projectRoot,
+                  file: path,
+                }) : undefined}
               />
             ) : (
               <div className="av2-repoViewerState">

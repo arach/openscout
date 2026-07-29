@@ -685,7 +685,7 @@ const REPOS: Repo[] = [
    row is the actual signal; the bar is just the visual. */
 function DriftBar({ value, attention, max = 50 }: { value: number | null; attention?: boolean; max?: number }) {
   if (value === null) {
-    return <span className="font-mono text-[8.5px] text-studio-ink-faint">—</span>;
+    return <span className="font-mono text-3xs text-studio-ink-faint">—</span>;
   }
   const pct = Math.min(100, (Math.abs(value) / max) * 100);
   const color = value < 0
@@ -704,7 +704,7 @@ function DriftBar({ value, attention, max = 50 }: { value: number | null; attent
         }}
       />
       <span
-        className="font-mono text-[8.5px] tabular-nums"
+        className="font-mono text-3xs tabular-nums"
         style={{ color }}
       >
         {value > 0 ? `+${value}` : value}
@@ -815,7 +815,7 @@ function NavRail({ active }: { active: SectionId }) {
       className="flex w-[40px] flex-none flex-col items-center gap-1 border-r border-studio-edge py-2"
       style={{ background: "var(--studio-canvas-alt)" }}
     >
-      <div className="mb-1 grid h-[26px] w-[26px] place-items-center rounded-[6px] bg-scout-accent font-display text-[12px] font-semibold text-studio-canvas">
+      <div className="mb-1 grid h-[26px] w-[26px] place-items-center rounded-[6px] bg-scout-accent font-display text-md font-semibold text-studio-canvas">
         S
       </div>
       {NAV_ITEMS.map((it) => {
@@ -843,7 +843,7 @@ function NavRail({ active }: { active: SectionId }) {
 function StatusBar({ active }: { active: SectionId }) {
   return (
     <div
-      className="flex h-[22px] flex-none items-center gap-2 border-t border-studio-edge px-3 font-mono text-[9px] uppercase tracking-eyebrow"
+      className="flex h-[22px] flex-none items-center gap-2 border-t border-studio-edge px-3 font-mono text-2xs uppercase tracking-eyebrow"
       style={{ background: "var(--studio-canvas-alt)" }}
     >
       <span className="inline-block h-1.5 w-1.5 rounded-full bg-status-ok-fg" />
@@ -894,12 +894,12 @@ function InspectorPane({
       <div className="flex items-center justify-between border-b border-studio-edge px-3 py-2">
         <div className="flex items-center gap-1.5">
           <div className="h-3 w-0.5 rounded-sm bg-scout-accent" />
-          <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             {kind}
           </span>
         </div>
         <span
-          className="inline-flex items-center gap-1 rounded-[3px] px-1.5 py-0.5 font-mono text-[8px] font-semibold uppercase tracking-eyebrow"
+          className="inline-flex items-center gap-1 rounded-[3px] px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow"
           style={{
             background: `var(--status-${statusTone}-bg)`,
             color: `var(--status-${statusTone}-fg)`,
@@ -935,12 +935,12 @@ function InspectorPaneV2({
             className="h-3.5 w-[2px] rounded-[1px]"
             style={{ background: "var(--scout-accent)" }}
           />
-          <span className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
+          <span className="font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
             {kind}
           </span>
         </div>
         <span
-          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow"
+          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow"
           style={{
             background: `var(--status-${statusTone}-bg)`,
             color: `var(--status-${statusTone}-fg)`,
@@ -969,7 +969,7 @@ function ISecV2({
     <div className="flex flex-col gap-2.5">
       <div className="flex items-center gap-1.5">
         <span className="text-studio-ink-faint">{icon}</span>
-        <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           {label}
         </span>
       </div>
@@ -989,21 +989,21 @@ function KVV2({
 }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <span className="font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         {k}
       </span>
       {variant === "mono" ? (
-        <span className="truncate font-mono text-[11px] text-studio-ink">{v}</span>
+        <span className="truncate font-mono text-sm text-studio-ink">{v}</span>
       ) : variant === "pill" ? (
-        <span className="inline-flex w-fit items-center gap-1 rounded-full border border-studio-edge bg-studio-canvas-alt px-2 py-0.5 font-mono text-[9.5px] text-studio-ink-muted">
+        <span className="inline-flex w-fit items-center gap-1 rounded-full border border-studio-edge bg-studio-canvas-alt px-2 py-0.5 font-mono text-2xs text-studio-ink-muted">
           {v}
         </span>
       ) : variant === "badge" ? (
-        <span className="inline-flex w-fit items-center gap-1 rounded-[3px] bg-status-info-bg px-1.5 py-0.5 font-mono text-[10px] font-semibold text-status-info-fg">
+        <span className="inline-flex w-fit items-center gap-1 rounded-[3px] bg-status-info-bg px-1.5 py-0.5 font-mono text-xs font-semibold text-status-info-fg">
           {v}
         </span>
       ) : (
-        <span className="truncate font-sans text-[12.5px] text-studio-ink">{v}</span>
+        <span className="truncate font-sans text-md text-studio-ink">{v}</span>
       )}
     </div>
   );
@@ -1016,7 +1016,7 @@ function EmptyStateV2({ message }: { message: string }) {
         <circle cx="8" cy="8" r="7" stroke="var(--status-ok-fg)" strokeWidth="1.2" />
         <path d="M4.8 8.2L6.8 10.2L11.2 5.4" stroke="var(--status-ok-fg)" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
-      <span className="font-sans text-[11.5px] text-studio-ink-faint">{message}</span>
+      <span className="font-sans text-sm text-studio-ink-faint">{message}</span>
     </div>
   );
 }
@@ -1026,7 +1026,7 @@ function ActionRowV2({ primary, secondary }: { primary: string; secondary: strin
     <div className="flex items-center gap-1.5">
       <button
         type="button"
-        className="rounded-[6px] border px-3 py-1.5 font-mono text-[9.5px] font-semibold uppercase tracking-eyebrow"
+        className="rounded-[6px] border px-3 py-1.5 font-mono text-2xs font-semibold uppercase tracking-eyebrow"
         style={{
           background: "var(--scout-accent-soft)",
           borderColor: "var(--scout-accent)",
@@ -1037,7 +1037,7 @@ function ActionRowV2({ primary, secondary }: { primary: string; secondary: strin
       </button>
       <button
         type="button"
-        className="rounded-[6px] border border-studio-edge bg-transparent px-3 py-1.5 font-mono text-[9.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted"
+        className="rounded-[6px] border border-studio-edge bg-transparent px-3 py-1.5 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-muted"
       >
         {secondary}
       </button>
@@ -1057,7 +1057,7 @@ function IdentityV2({
   return (
     <div className="flex items-center gap-3">
       <div
-        className="grid h-[40px] w-[40px] shrink-0 place-items-center rounded-full font-display text-[16px] font-medium text-studio-canvas"
+        className="grid h-[40px] w-[40px] shrink-0 place-items-center rounded-full font-display text-2xl font-medium text-studio-canvas"
         style={{
           background:
             "linear-gradient(135deg, var(--scout-accent) 0%, oklch(0.72 0.16 125) 100%)",
@@ -1066,10 +1066,10 @@ function IdentityV2({
         {initial}
       </div>
       <div className="min-w-0">
-        <div className="truncate font-display text-[16px] font-medium leading-tight tracking-tight text-studio-ink">
+        <div className="truncate font-display text-2xl font-medium leading-tight tracking-tight text-studio-ink">
           {name}
         </div>
-        <div className="truncate font-mono text-[10px] text-studio-ink-faint">{sub}</div>
+        <div className="truncate font-mono text-xs text-studio-ink-faint">{sub}</div>
       </div>
     </div>
   );
@@ -1119,12 +1119,12 @@ function InspectorPaneV3({
             className="h-3.5 w-[2px] rounded-[1px]"
             style={{ background: "var(--scout-accent)" }}
           />
-          <span className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
+          <span className="font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
             {kind}
           </span>
         </div>
         <span
-          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow"
+          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow"
           style={{
             background: `var(--status-${statusTone}-bg)`,
             color: `var(--status-${statusTone}-fg)`,
@@ -1162,7 +1162,7 @@ function InspectorPaneV3({
           <div className="flex items-center gap-1.5 bg-studio-canvas-alt px-3 py-2.5">
             <button
               type="button"
-              className="flex-1 rounded-[5px] border px-3 py-1.5 font-mono text-[9.5px] font-semibold uppercase tracking-eyebrow"
+              className="flex-1 rounded-[5px] border px-3 py-1.5 font-mono text-2xs font-semibold uppercase tracking-eyebrow"
               style={{
                 background: "var(--scout-accent-soft)",
                 borderColor: "var(--scout-accent)",
@@ -1173,7 +1173,7 @@ function InspectorPaneV3({
             </button>
             <button
               type="button"
-              className="flex-1 rounded-[5px] border border-studio-edge bg-transparent px-3 py-1.5 font-mono text-[9.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted"
+              className="flex-1 rounded-[5px] border border-studio-edge bg-transparent px-3 py-1.5 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-muted"
             >
               {actions.secondary}
             </button>
@@ -1198,7 +1198,7 @@ function IdentityHeroV3({
   return (
     <div className="flex items-center gap-3">
       <div
-        className="grid h-[36px] w-[36px] shrink-0 place-items-center rounded-full font-display text-[14px] font-semibold text-studio-canvas"
+        className="grid h-[36px] w-[36px] shrink-0 place-items-center rounded-full font-display text-xl font-semibold text-studio-canvas"
         style={{
           background:
             "linear-gradient(135deg, var(--scout-accent) 0%, oklch(0.72 0.16 125) 100%)",
@@ -1207,12 +1207,12 @@ function IdentityHeroV3({
         {initial}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="truncate font-display text-[15px] font-medium leading-tight tracking-tight text-studio-ink">
+        <div className="truncate font-display text-2xl font-medium leading-tight tracking-tight text-studio-ink">
           {name}
         </div>
-        <div className="truncate font-mono text-[9.5px] text-studio-ink-faint">{sub}</div>
+        <div className="truncate font-mono text-2xs text-studio-ink-faint">{sub}</div>
         {meta ? (
-          <div className="mt-0.5 truncate font-sans text-[10.5px] text-studio-ink-muted">
+          <div className="mt-0.5 truncate font-sans text-xs text-studio-ink-muted">
             {meta}
           </div>
         ) : null}
@@ -1232,21 +1232,21 @@ function StatusRowCell({
 }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="font-mono text-[8px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <span className="font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         {k}
       </span>
       {variant === "mono" ? (
-        <span className="truncate font-mono text-[10.5px] text-studio-ink">{v}</span>
+        <span className="truncate font-mono text-xs text-studio-ink">{v}</span>
       ) : variant === "pill" ? (
-        <span className="inline-flex w-fit items-center rounded-full border border-studio-edge bg-studio-surface px-1.5 py-px font-mono text-[9px] text-studio-ink-muted">
+        <span className="inline-flex w-fit items-center rounded-full border border-studio-edge bg-studio-surface px-1.5 py-px font-mono text-2xs text-studio-ink-muted">
           {v}
         </span>
       ) : variant === "badge" ? (
-        <span className="inline-flex w-fit items-center rounded-[3px] bg-status-info-bg px-1.5 py-0.5 font-mono text-[9.5px] font-semibold text-status-info-fg">
+        <span className="inline-flex w-fit items-center rounded-[3px] bg-status-info-bg px-1.5 py-0.5 font-mono text-2xs font-semibold text-status-info-fg">
           {v}
         </span>
       ) : (
-        <span className="truncate font-sans text-[12px] text-studio-ink">{v}</span>
+        <span className="truncate font-sans text-md text-studio-ink">{v}</span>
       )}
     </div>
   );
@@ -1267,13 +1267,13 @@ function SectionCardV3({
     <div className="rounded-md border border-studio-edge bg-studio-canvas-alt px-3 py-2.5">
       <div className="mb-2 flex items-center gap-1.5">
         <span className="text-studio-ink-faint">{icon}</span>
-        <span className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           {label}
         </span>
       </div>
       {children}
       {description ? (
-        <div className="mt-1.5 font-mono text-[8.5px] leading-snug text-studio-ink-faint">
+        <div className="mt-1.5 font-mono text-3xs leading-snug text-studio-ink-faint">
           {description}
         </div>
       ) : null}
@@ -1317,7 +1317,7 @@ function SectionCardEmptyV3({
           <circle cx="8" cy="8" r="7" stroke="var(--status-ok-fg)" strokeWidth="1.2" />
           <path d="M4.8 8.2L6.8 10.2L11.2 5.4" stroke="var(--status-ok-fg)" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-        <span className="font-sans text-[10.5px] text-studio-ink-faint">{message}</span>
+        <span className="font-sans text-xs text-studio-ink-faint">{message}</span>
       </div>
     </SectionCardV3>
   );
@@ -1377,7 +1377,7 @@ function Hairline() {
 function ISecBare({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
-      <div className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         {label}
       </div>
       <div className="flex flex-col gap-0.5">{children}</div>
@@ -1387,7 +1387,7 @@ function ISecBare({ label, children }: { label: string; children: React.ReactNod
 function ISecDot({ label, dot, children }: { label: string; dot: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-1.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="flex items-center gap-1.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         <span
           className="inline-block h-1.5 w-1.5 rounded-full"
           style={{ background: dot }}
@@ -1406,7 +1406,7 @@ function ISecOverline({ label, children }: { label: string; children: React.Reac
         className="h-px w-3.5"
         style={{ background: "var(--studio-edge-strong)" }}
       />
-      <div className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         {label}
       </div>
       <div className="flex flex-col gap-1">{children}</div>
@@ -1416,7 +1416,7 @@ function ISecOverline({ label, children }: { label: string; children: React.Reac
 
 function InspectorRow({ k, v, vColor }: { k: string; v: string; vColor?: string }) {
   return (
-    <div className="grid grid-cols-[64px_1fr] items-baseline gap-x-1.5 font-mono text-[9.5px]">
+    <div className="grid grid-cols-[64px_1fr] items-baseline gap-x-1.5 font-mono text-2xs">
       <span className="uppercase tracking-eyebrow text-studio-ink-faint">{k}</span>
       <span
         className="truncate text-right"
@@ -1446,7 +1446,7 @@ function CommsMock() {
         {/* header */}
         <div className="flex flex-none items-center justify-between border-b border-studio-edge px-3 py-2">
           <div className="flex items-center gap-1.5">
-            <span className="font-sans text-[12.5px] font-semibold tracking-tight text-studio-ink">
+            <span className="font-sans text-md font-semibold tracking-tight text-studio-ink">
               Conversations
             </span>
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-status-ok-fg" />
@@ -1456,7 +1456,7 @@ function CommsMock() {
               {iconRefresh()}
             </span>
             <span
-              className="rounded-[3px] px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow"
+              className="rounded-[3px] px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow"
               style={{ background: "var(--scout-accent-soft)", color: "var(--scout-accent)" }}
             >
               + New
@@ -1470,7 +1470,7 @@ function CommsMock() {
               <span
                 key={f}
                 className={[
-                  "rounded-[3px] px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow",
+                  "rounded-[3px] px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow",
                   i === 0
                     ? "bg-studio-surface text-studio-ink"
                     : "text-studio-ink-faint",
@@ -1482,7 +1482,7 @@ function CommsMock() {
           </div>
           <div className="flex h-[20px] items-center gap-1.5 rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-2 text-studio-ink-faint">
             {iconSearch()}
-            <span className="font-mono text-[9.5px]">Search</span>
+            <span className="font-mono text-2xs">Search</span>
           </div>
         </div>
         {/* list */}
@@ -1492,7 +1492,7 @@ function CommsMock() {
             if (rows.length === 0) return null;
             return (
               <div key={g}>
-                <div className="px-3 py-1 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+                <div className="px-3 py-1 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
                   {groupLabels[g]}
                 </div>
                 {rows.map((c, i) => (
@@ -1506,19 +1506,19 @@ function CommsMock() {
                     ].join(" ")}
                   >
                     <div className="flex items-baseline justify-between gap-2">
-                      <span className="truncate font-sans text-[11px] font-semibold text-studio-ink">
+                      <span className="truncate font-sans text-sm font-semibold text-studio-ink">
                         {c.name}
                       </span>
-                      <span className="font-mono text-[8.5px] text-studio-ink-faint">
+                      <span className="font-mono text-3xs text-studio-ink-faint">
                         {c.time}
                       </span>
                     </div>
                     <div className="flex items-baseline gap-1.5">
-                      <span className="line-clamp-1 font-sans text-[9.5px] text-studio-ink-faint">
+                      <span className="line-clamp-1 font-sans text-2xs text-studio-ink-faint">
                         {c.preview}
                       </span>
                       {c.unread > 0 ? (
-                        <span className="ml-auto shrink-0 rounded-full bg-status-info-fg px-1 font-mono text-[7.5px] font-semibold text-studio-canvas">
+                        <span className="ml-auto shrink-0 rounded-full bg-status-info-fg px-1 font-mono text-3xs font-semibold text-studio-canvas">
                           {c.unread}
                         </span>
                       ) : null}
@@ -1526,7 +1526,7 @@ function CommsMock() {
                     {c.ask ? (
                       <span
                         className={[
-                          "self-start rounded-[2px] px-1 py-px font-mono text-[7.5px] font-semibold uppercase tracking-eyebrow",
+                          "self-start rounded-[2px] px-1 py-px font-mono text-3xs font-semibold uppercase tracking-eyebrow",
                           c.ask === "pending"
                             ? "bg-status-warn-bg text-status-warn-fg"
                             : "bg-status-ok-bg text-status-ok-fg",
@@ -1544,24 +1544,24 @@ function CommsMock() {
       </div>
       <InspectorPane kind="DM" status="AVAILABLE" statusTone="ok">
         <div className="flex items-center gap-2">
-          <div className="grid h-[22px] w-[22px] place-items-center rounded-full bg-studio-canvas-alt font-mono text-[10px] text-studio-ink">
+          <div className="grid h-[22px] w-[22px] place-items-center rounded-full bg-studio-canvas-alt font-mono text-xs text-studio-ink">
             D
           </div>
           <div>
-            <div className="font-sans text-[11px] font-semibold text-studio-ink">Dewey</div>
-            <div className="font-mono text-[8px] text-studio-ink-faint">
+            <div className="font-sans text-sm font-semibold text-studio-ink">Dewey</div>
+            <div className="font-mono text-3xs text-studio-ink-faint">
               dewey.main.arts-mac-mini-local
             </div>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
           <span
-            className="rounded-[3px] px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow"
+            className="rounded-[3px] px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow"
             style={{ background: "var(--scout-accent-soft)", color: "var(--scout-accent)" }}
           >
             Message
           </span>
-          <span className="rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
+          <span className="rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
             + New
           </span>
         </div>
@@ -1586,11 +1586,11 @@ function AgentsMock() {
         {/* header */}
         <div className="flex flex-none items-center justify-between border-b border-studio-edge px-3 py-2">
           <div className="flex items-center gap-1.5">
-            <span className="font-sans text-[12.5px] font-semibold tracking-tight text-studio-ink">
+            <span className="font-sans text-md font-semibold tracking-tight text-studio-ink">
               Agents
             </span>
             <span
-              className="rounded-[3px] px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint"
+              className="rounded-[3px] px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint"
               style={{ background: "var(--status-neutral-bg)" }}
             >
               25 agents
@@ -1601,23 +1601,23 @@ function AgentsMock() {
         <div className="flex flex-none items-center gap-1.5 border-b border-studio-edge px-3 py-1.5">
           <div className="flex h-[20px] flex-1 items-center gap-1.5 rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-2 text-studio-ink-faint">
             {iconSearch()}
-            <span className="font-mono text-[9.5px]">Filter agents</span>
+            <span className="font-mono text-2xs">Filter agents</span>
           </div>
-          <span className="rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink">
+          <span className="rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink">
             All
           </span>
-          <span className="rounded-[3px] px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="rounded-[3px] px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             Live
           </span>
-          <span className="ml-auto rounded-[3px] border border-studio-edge px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
+          <span className="ml-auto rounded-[3px] border border-studio-edge px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
             Expand
           </span>
-          <span className="rounded-[3px] border border-studio-edge px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
+          <span className="rounded-[3px] border border-studio-edge px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
             Collapse
           </span>
         </div>
         {/* column headers */}
-        <div className="grid flex-none grid-cols-[1fr_56px] items-center gap-x-2 border-b border-studio-edge-strong bg-studio-canvas-alt px-3 py-1 font-mono text-[7.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="grid flex-none grid-cols-[1fr_56px] items-center gap-x-2 border-b border-studio-edge-strong bg-studio-canvas-alt px-3 py-1 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           <span>Agent</span>
           <span className="text-right">Updated</span>
         </div>
@@ -1626,14 +1626,14 @@ function AgentsMock() {
           {AGENT_GROUPS.map((g) => (
             <div key={g.project}>
               <div className="flex items-baseline gap-1.5 px-3 py-1">
-                <span className="font-mono text-[8.5px] text-studio-ink-faint">▾</span>
-                <span className="font-sans text-[10.5px] font-semibold text-studio-ink">
+                <span className="font-mono text-3xs text-studio-ink-faint">▾</span>
+                <span className="font-sans text-xs font-semibold text-studio-ink">
                   {g.project}
                 </span>
                 {g.path ? (
-                  <span className="font-mono text-[8.5px] text-studio-ink-faint">{g.path}</span>
+                  <span className="font-mono text-3xs text-studio-ink-faint">{g.path}</span>
                 ) : null}
-                <span className="ml-auto font-mono text-[8.5px] text-studio-ink-faint">
+                <span className="ml-auto font-mono text-3xs text-studio-ink-faint">
                   {g.count} agent{g.count === 1 ? "" : "s"}
                 </span>
               </div>
@@ -1650,16 +1650,16 @@ function AgentsMock() {
                       className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
                       style={{ background: STATE_COLOR[a.state] }}
                     />
-                    <span className="truncate font-sans text-[10.5px] font-medium text-studio-ink">
+                    <span className="truncate font-sans text-xs font-medium text-studio-ink">
                       {a.name}
                     </span>
-                    <span className="truncate font-mono text-[8.5px] text-studio-ink-faint">
+                    <span className="truncate font-mono text-3xs text-studio-ink-faint">
                       {a.role}
                       {a.harness ? ` · ${a.harness}` : ""}
                       {a.transport ? ` · ${a.transport}` : ""}
                     </span>
                   </span>
-                  <span className="text-right font-mono text-[8.5px] text-studio-ink-faint">
+                  <span className="text-right font-mono text-3xs text-studio-ink-faint">
                     {a.updated}
                   </span>
                 </div>
@@ -1670,24 +1670,24 @@ function AgentsMock() {
       </div>
       <InspectorPane kind="AGENT" status="AVAILABLE" statusTone="ok">
         <div className="flex items-center gap-2">
-          <div className="grid h-[22px] w-[22px] place-items-center rounded-full bg-studio-canvas-alt font-mono text-[10px] text-studio-ink">
+          <div className="grid h-[22px] w-[22px] place-items-center rounded-full bg-studio-canvas-alt font-mono text-xs text-studio-ink">
             A
           </div>
           <div className="min-w-0">
-            <div className="truncate font-sans text-[11px] font-semibold text-studio-ink">Action</div>
-            <div className="truncate font-mono text-[8px] text-studio-ink-faint">
+            <div className="truncate font-sans text-sm font-semibold text-studio-ink">Action</div>
+            <div className="truncate font-mono text-3xs text-studio-ink-faint">
               action.codex-polished-mira-demo.arts-mac-mini-local
             </div>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
           <span
-            className="rounded-[3px] px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow"
+            className="rounded-[3px] px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow"
             style={{ background: "var(--scout-accent-soft)", color: "var(--scout-accent)" }}
           >
             Message
           </span>
-          <span className="rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
+          <span className="rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
             + New
           </span>
         </div>
@@ -1706,10 +1706,10 @@ function AgentsMock() {
         </ISecBare>
         <Hairline />
         <div className="flex items-center justify-between">
-          <span className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             Session
           </span>
-          <span className="rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-1.5 py-0.5 font-mono text-[7.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
+          <span className="rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
             ◉ Observe
           </span>
         </div>
@@ -1729,21 +1729,21 @@ function TailMock() {
         {/* header */}
         <div className="flex flex-none items-center justify-between border-b border-studio-edge px-3 py-2">
           <div className="flex items-center gap-1.5">
-            <span className="font-sans text-[12.5px] font-semibold tracking-tight text-studio-ink">
+            <span className="font-sans text-md font-semibold tracking-tight text-studio-ink">
               Tail
             </span>
             <span
-              className="rounded-[3px] px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow"
+              className="rounded-[3px] px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow"
               style={{ background: "var(--status-ok-bg)", color: "var(--status-ok-fg)" }}
             >
               ● Live
             </span>
-            <span className="font-mono text-[8.5px] text-studio-ink-faint">
+            <span className="font-mono text-3xs text-studio-ink-faint">
               40 logs · 19 procs · <span className="text-studio-ink">0.0</span> lines/s
             </span>
           </div>
           <div className="flex items-center gap-1">
-            <span className="rounded-[3px] border border-studio-edge px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
+            <span className="rounded-[3px] border border-studio-edge px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
               ‖ Pause
             </span>
             <span className="grid h-[18px] w-[18px] place-items-center rounded-[3px] border border-studio-edge text-studio-ink-faint">
@@ -1758,7 +1758,7 @@ function TailMock() {
         <div className="flex flex-none flex-col gap-1.5 border-b border-studio-edge px-3 py-1.5">
           <div className="flex h-[20px] items-center gap-1.5 rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-2 text-studio-ink-faint">
             {iconSearch()}
-            <span className="font-mono text-[9.5px]">Search</span>
+            <span className="font-mono text-2xs">Search</span>
           </div>
           <div className="flex flex-wrap items-center gap-1">
             {[
@@ -1774,7 +1774,7 @@ function TailMock() {
               <span
                 key={`${c.l}-${i}`}
                 className={[
-                  "inline-flex items-center gap-1 rounded-[3px] px-1.5 py-0.5 font-mono text-[7.5px] font-semibold uppercase tracking-eyebrow",
+                  "inline-flex items-center gap-1 rounded-[3px] px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow",
                   c.active
                     ? "bg-studio-surface text-studio-ink"
                     : "text-studio-ink-faint",
@@ -1792,7 +1792,7 @@ function TailMock() {
           </div>
         </div>
         {/* rows: time | source | agent | name · id | pid | kind | msg */}
-        <div className="flex-1 overflow-hidden font-mono text-[9px]">
+        <div className="flex-1 overflow-hidden font-mono text-2xs">
           {TAIL_ROWS.map((r, i) => (
             <div
               key={i}
@@ -1800,13 +1800,13 @@ function TailMock() {
             >
               <span className="text-studio-ink-faint">{r.time}</span>
               <span
-                className="rounded-[2px] px-1 text-center text-[7.5px] font-semibold"
+                className="rounded-[2px] px-1 text-center text-3xs font-semibold"
                 style={{ background: "oklch(0.72 0.16 350 / 0.22)", color: "oklch(0.82 0.16 350)" }}
               >
                 {r.source}
               </span>
               <span
-                className="rounded-[2px] border px-1 text-center text-[7.5px] font-semibold"
+                className="rounded-[2px] border px-1 text-center text-3xs font-semibold"
                 style={{ borderColor: "var(--studio-edge)", color: "var(--studio-ink-muted)" }}
               >
                 {r.agent}
@@ -1816,7 +1816,7 @@ function TailMock() {
               </span>
               <span className="text-right text-studio-ink-faint">{r.pid}</span>
               <span
-                className="rounded-[2px] px-1 text-center text-[7.5px] font-semibold"
+                className="rounded-[2px] px-1 text-center text-3xs font-semibold"
                 style={{ background: KIND_COLOR[r.kind].bg, color: KIND_COLOR[r.kind].fg }}
               >
                 {r.kind}
@@ -1827,7 +1827,7 @@ function TailMock() {
         </div>
         {/* status footer for the tail pane */}
         <div
-          className="flex flex-none items-center gap-2 border-t border-studio-edge px-3 py-1 font-mono text-[8.5px]"
+          className="flex flex-none items-center gap-2 border-t border-studio-edge px-3 py-1 font-mono text-3xs"
           style={{ background: "var(--studio-canvas-alt)" }}
         >
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-status-ok-fg" />
@@ -1837,7 +1837,7 @@ function TailMock() {
         </div>
       </div>
       <InspectorPane kind="OVERVIEW" status="LIVE" statusTone="ok">
-        <div className="flex items-center gap-1.5 font-mono text-[8.5px] text-studio-ink-faint">
+        <div className="flex items-center gap-1.5 font-mono text-3xs text-studio-ink-faint">
           <span
             className="inline-block h-1.5 w-1.5 rounded-full"
             style={{ background: "var(--status-ok-fg)" }}
@@ -1875,7 +1875,7 @@ function TailMock() {
           <Track t="Projects" d="Current working directory and project labels." />
         </ISecOverline>
         <ISecOverline label="Defaults">
-          <label className="flex items-center gap-1.5 font-mono text-[9px] text-studio-ink">
+          <label className="flex items-center gap-1.5 font-mono text-2xs text-studio-ink">
             <span
               className="grid h-[12px] w-[12px] place-items-center rounded-[2px]"
               style={{ background: "var(--scout-accent)" }}
@@ -1886,7 +1886,7 @@ function TailMock() {
             </span>
             Show transcript metadata
           </label>
-          <div className="font-mono text-[8.5px] leading-snug text-studio-ink-faint">
+          <div className="font-mono text-3xs leading-snug text-studio-ink-faint">
             Metadata includes records like model, title, permission-mode, and last-prompt.
           </div>
         </ISecOverline>
@@ -1910,35 +1910,35 @@ function ReposMock() {
         {/* header */}
         <div className="flex flex-none flex-col gap-1 border-b border-studio-edge px-3 py-2">
           <div className="flex items-center gap-1.5">
-            <span className="font-sans text-[12.5px] font-semibold tracking-tight text-studio-ink">
+            <span className="font-sans text-md font-semibold tracking-tight text-studio-ink">
               Repos
             </span>
             <span
-              className="rounded-[3px] px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow"
+              className="rounded-[3px] px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow"
               style={{ background: "var(--status-ok-bg)", color: "var(--status-ok-fg)" }}
             >
               ● Live
             </span>
-            <span className="font-mono text-[8.5px] text-studio-ink-faint">
+            <span className="font-mono text-3xs text-studio-ink-faint">
               <span className="text-studio-ink">10</span> repos
             </span>
-            <span className="font-mono text-[8.5px] text-studio-ink-faint">
+            <span className="font-mono text-3xs text-studio-ink-faint">
               <span className="text-studio-ink">15</span> trees
             </span>
-            <span className="font-mono text-[8.5px]" style={{ color: "var(--status-warn-fg)" }}>
+            <span className="font-mono text-3xs" style={{ color: "var(--status-warn-fg)" }}>
               {totals.dirty} dirty
             </span>
-            <span className="font-mono text-[8.5px]" style={{ color: "var(--status-warn-fg)" }}>
+            <span className="font-mono text-3xs" style={{ color: "var(--status-warn-fg)" }}>
               {totals.attn} attn
             </span>
             <span className="ml-auto flex items-center gap-1.5 text-studio-ink-faint">
-              <span className="font-mono text-[8.5px]">◐ Quiet 2</span>
+              <span className="font-mono text-3xs">◐ Quiet 2</span>
               <span className="grid h-[16px] w-[16px] place-items-center rounded text-studio-ink-faint">
                 {iconRefresh()}
               </span>
             </span>
           </div>
-          <div className="flex items-center gap-1.5 font-mono text-[8.5px]">
+          <div className="flex items-center gap-1.5 font-mono text-3xs">
             <span className="font-semibold uppercase tracking-eyebrow text-studio-ink">
               Table
             </span>
@@ -1947,7 +1947,7 @@ function ReposMock() {
         </div>
         {/* table */}
         <div className="flex-1 overflow-hidden">
-          <div className="grid grid-cols-[1fr_72px_36px_72px_44px] items-center gap-x-2 border-b border-studio-edge-strong bg-studio-canvas-alt px-3 py-1 font-mono text-[7.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="grid grid-cols-[1fr_72px_36px_72px_44px] items-center gap-x-2 border-b border-studio-edge-strong bg-studio-canvas-alt px-3 py-1 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             <span>Repo / Branch · Worktree</span>
             <span className="text-right">Churn</span>
             <span className="text-right">Files</span>
@@ -1962,25 +1962,25 @@ function ReposMock() {
                   r.selected ? "bg-studio-canvas-alt" : "",
                 ].join(" ")}
               >
-                <span className="font-mono text-[8.5px] text-studio-ink-faint">▾</span>
+                <span className="font-mono text-3xs text-studio-ink-faint">▾</span>
                 <span
                   className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
                   style={{
                     background: r.state === "attention" ? "var(--status-warn-fg)" : "var(--studio-ink-faint)",
                   }}
                 />
-                <span className="font-sans text-[10.5px] font-semibold text-studio-ink">
+                <span className="font-sans text-xs font-semibold text-studio-ink">
                   {r.name}
                 </span>
-                <span className="font-mono text-[8.5px] text-studio-ink-faint">{r.path}</span>
-                <span className="ml-auto font-mono text-[8.5px] text-studio-ink-faint">
+                <span className="font-mono text-3xs text-studio-ink-faint">{r.path}</span>
+                <span className="ml-auto font-mono text-3xs text-studio-ink-faint">
                   {r.agents} idle
                 </span>
               </div>
               {r.worktrees.map((w, i) => (
                 <div
                   key={i}
-                  className="grid grid-cols-[1fr_72px_36px_72px_44px] items-baseline gap-x-2 border-b border-studio-edge px-3 py-0.5 font-mono text-[8.5px]"
+                  className="grid grid-cols-[1fr_72px_36px_72px_44px] items-baseline gap-x-2 border-b border-studio-edge px-3 py-0.5 font-mono text-3xs"
                 >
                   <span className="truncate">
                     <span className="text-studio-ink-faint">└ </span>
@@ -2023,14 +2023,14 @@ function ReposMock() {
               className="inline-block h-1.5 w-1.5 rounded-full"
               style={{ background: "var(--status-warn-fg)" }}
             />
-            <span className="font-sans text-[11.5px] font-semibold text-studio-ink">lattices</span>
+            <span className="font-sans text-sm font-semibold text-studio-ink">lattices</span>
           </div>
-          <div className="font-mono text-[8.5px] text-studio-ink-faint">
+          <div className="font-mono text-3xs text-studio-ink-faint">
             /Users/art/dev/lattices
           </div>
         </div>
         <ISecDot label="Why" dot="var(--status-warn-fg)">
-          <div className="font-mono text-[9.5px] text-studio-ink-muted">Dirty main</div>
+          <div className="font-mono text-2xs text-studio-ink-muted">Dirty main</div>
         </ISecDot>
         <ISecDot label="Worktrees" dot="var(--status-warn-fg)">
           <InspectorRow k="Total" v="1" />
@@ -2093,7 +2093,7 @@ function InspectorPaneV4({
             style={{ background: `var(--status-${stateTone}-fg)` }}
             aria-hidden
           />
-          <span className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             {kind}
           </span>
         </div>
@@ -2124,7 +2124,7 @@ function SectionV4({
           style={{ background: "var(--studio-edge-strong)" }}
         />
         <span className="text-studio-ink-faint">{icon}</span>
-        <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           {label}
         </span>
       </div>
@@ -2150,7 +2150,7 @@ function IdentityV4({
     <div className="flex items-center gap-3">
       <div className="relative shrink-0">
         <div
-          className="grid h-[36px] w-[36px] place-items-center rounded-full font-display text-[14px] font-semibold text-studio-canvas"
+          className="grid h-[36px] w-[36px] place-items-center rounded-full font-display text-xl font-semibold text-studio-canvas"
           style={{
             background:
               "linear-gradient(135deg, var(--scout-accent) 0%, oklch(0.72 0.16 125) 100%)",
@@ -2165,10 +2165,10 @@ function IdentityV4({
         />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="truncate font-display text-[16px] font-medium leading-tight tracking-tight text-studio-ink">
+        <div className="truncate font-display text-2xl font-medium leading-tight tracking-tight text-studio-ink">
           {name}
         </div>
-        <div className="truncate font-mono text-[10px] text-studio-ink-faint">{sub}</div>
+        <div className="truncate font-mono text-xs text-studio-ink-faint">{sub}</div>
       </div>
     </div>
   );
@@ -2180,7 +2180,7 @@ function ActionsV4({ primary, secondary }: { primary: string; secondary: string 
     <div className="flex items-center gap-1.5">
       <button
         type="button"
-        className="rounded-[5px] border px-3 py-1 font-mono text-[9.5px] font-semibold uppercase tracking-eyebrow"
+        className="rounded-[5px] border px-3 py-1 font-mono text-2xs font-semibold uppercase tracking-eyebrow"
         style={{
           background: "var(--scout-accent-soft)",
           borderColor: "var(--scout-accent)",
@@ -2191,7 +2191,7 @@ function ActionsV4({ primary, secondary }: { primary: string; secondary: string 
       </button>
       <button
         type="button"
-        className="rounded-[5px] border border-studio-edge bg-transparent px-3 py-1 font-mono text-[9.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted"
+        className="rounded-[5px] border border-studio-edge bg-transparent px-3 py-1 font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-muted"
       >
         {secondary}
       </button>
@@ -2212,21 +2212,21 @@ function FieldV4({
 }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <span className="font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         {k}
       </span>
       {variant === "mono" ? (
-        <span className="truncate font-mono text-[11px] text-studio-ink">{v}</span>
+        <span className="truncate font-mono text-sm text-studio-ink">{v}</span>
       ) : variant === "pill" ? (
-        <span className="inline-flex w-fit items-center rounded-full border border-studio-edge px-1.5 py-px font-mono text-[9.5px] text-studio-ink-muted">
+        <span className="inline-flex w-fit items-center rounded-full border border-studio-edge px-1.5 py-px font-mono text-2xs text-studio-ink-muted">
           {v}
         </span>
       ) : variant === "badge" ? (
-        <span className="inline-flex w-fit items-center rounded-[3px] bg-status-info-bg px-1.5 py-0.5 font-mono text-[9.5px] font-semibold text-status-info-fg">
+        <span className="inline-flex w-fit items-center rounded-[3px] bg-status-info-bg px-1.5 py-0.5 font-mono text-2xs font-semibold text-status-info-fg">
           {v}
         </span>
       ) : (
-        <span className="truncate font-sans text-[12.5px] text-studio-ink">{v}</span>
+        <span className="truncate font-sans text-md text-studio-ink">{v}</span>
       )}
     </div>
   );
@@ -2255,7 +2255,7 @@ function EmptyV4({ message }: { message: string }) {
         <circle cx="8" cy="8" r="7" stroke="var(--status-ok-fg)" strokeWidth="1.2" />
         <path d="M4.8 8.2L6.8 10.2L11.2 5.4" stroke="var(--status-ok-fg)" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
-      <span className="font-sans text-[11.5px]">{message}</span>
+      <span className="font-sans text-sm">{message}</span>
     </div>
   );
 }
@@ -2267,13 +2267,13 @@ function CommsAfterMock() {
         {/* header — unchanged */}
         <div className="flex flex-none items-center justify-between border-b border-studio-edge px-3 py-2">
           <div className="flex items-center gap-1.5">
-            <span className="font-sans text-[12.5px] font-semibold tracking-tight text-studio-ink">
+            <span className="font-sans text-md font-semibold tracking-tight text-studio-ink">
               Conversations
             </span>
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-status-ok-fg" />
           </div>
           <span
-            className="rounded-[3px] px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow"
+            className="rounded-[3px] px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow"
             style={{ background: "var(--scout-accent-soft)", color: "var(--scout-accent)" }}
           >
             + New
@@ -2290,12 +2290,12 @@ function CommsAfterMock() {
               ].join(" ")}
             >
               <div className="flex items-baseline justify-between gap-2">
-                <span className="truncate font-sans text-[11px] font-semibold text-studio-ink">
+                <span className="truncate font-sans text-sm font-semibold text-studio-ink">
                   {c.name}
                 </span>
-                <span className="font-mono text-[8.5px] text-studio-ink-faint">{c.time}</span>
+                <span className="font-mono text-3xs text-studio-ink-faint">{c.time}</span>
               </div>
-              <span className="line-clamp-1 font-sans text-[9.5px] text-studio-ink-faint">
+              <span className="line-clamp-1 font-sans text-2xs text-studio-ink-faint">
                 {c.preview}
               </span>
             </div>
@@ -2345,11 +2345,11 @@ function AgentsAfterMock() {
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex flex-none items-center justify-between border-b border-studio-edge px-3 py-2">
           <div className="flex items-center gap-1.5">
-            <span className="font-sans text-[12.5px] font-semibold tracking-tight text-studio-ink">
+            <span className="font-sans text-md font-semibold tracking-tight text-studio-ink">
               Agents
             </span>
             <span
-              className="rounded-[3px] px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint"
+              className="rounded-[3px] px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint"
               style={{ background: "var(--status-neutral-bg)" }}
             >
               25 agents
@@ -2359,9 +2359,9 @@ function AgentsAfterMock() {
         <div className="flex flex-none items-center gap-1.5 border-b border-studio-edge px-3 py-1.5">
           <div className="flex h-[20px] flex-1 items-center gap-1.5 rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-2 text-studio-ink-faint">
             {iconSearch()}
-            <span className="font-mono text-[9.5px]">Filter agents</span>
+            <span className="font-mono text-2xs">Filter agents</span>
           </div>
-          <span className="rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink">
+          <span className="rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink">
             All
           </span>
         </div>
@@ -2380,14 +2380,14 @@ function AgentsAfterMock() {
                   className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
                   style={{ background: STATE_COLOR[a.state] }}
                 />
-                <span className="truncate font-sans text-[10.5px] font-medium text-studio-ink">
+                <span className="truncate font-sans text-xs font-medium text-studio-ink">
                   {a.name}
                 </span>
-                <span className="ml-auto font-mono text-[8.5px] text-studio-ink-faint">
+                <span className="ml-auto font-mono text-3xs text-studio-ink-faint">
                   {a.updated}
                 </span>
               </div>
-              <div className="truncate pl-3 font-mono text-[8.5px] text-studio-ink-faint">
+              <div className="truncate pl-3 font-mono text-3xs text-studio-ink-faint">
                 {a.role}
                 {a.harness ? ` · ${a.harness}` : ""}
                 {a.transport ? ` · ${a.transport}` : ""}
@@ -2444,25 +2444,25 @@ function TailAfterMock() {
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex flex-none items-center justify-between border-b border-studio-edge px-3 py-2">
           <div className="flex items-center gap-1.5">
-            <span className="font-sans text-[12.5px] font-semibold tracking-tight text-studio-ink">
+            <span className="font-sans text-md font-semibold tracking-tight text-studio-ink">
               Tail
             </span>
             <span
-              className="rounded-[3px] px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow"
+              className="rounded-[3px] px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow"
               style={{ background: "var(--status-ok-bg)", color: "var(--status-ok-fg)" }}
             >
               ● Live
             </span>
-            <span className="font-mono text-[8.5px] text-studio-ink-faint">
+            <span className="font-mono text-3xs text-studio-ink-faint">
               40 · 19 · 0.0 l/s
             </span>
           </div>
-          <span className="rounded-[3px] border border-studio-edge px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
+          <span className="rounded-[3px] border border-studio-edge px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
             ‖ Pause
           </span>
         </div>
         {/* collapsed 4-column rows: time | kind | speaker | msg */}
-        <div className="flex-1 overflow-hidden font-mono text-[9px]">
+        <div className="flex-1 overflow-hidden font-mono text-2xs">
           {TAIL_ROWS.slice(0, 8).map((r, i) => (
             <div
               key={i}
@@ -2470,7 +2470,7 @@ function TailAfterMock() {
             >
               <span className="text-studio-ink-faint">{r.time}</span>
               <span
-                className="rounded-[2px] px-1 text-center text-[7.5px] font-semibold"
+                className="rounded-[2px] px-1 text-center text-3xs font-semibold"
                 style={{ background: KIND_COLOR[r.kind].bg, color: KIND_COLOR[r.kind].fg }}
               >
                 {r.kind}
@@ -2483,7 +2483,7 @@ function TailAfterMock() {
       {/* per-selection inspector — replaces the overview */}
       <InspectorPane kind="EVENT" status="SELECTED" statusTone="info">
         <div className="flex items-center gap-1.5">
-          <span className="font-sans text-[11.5px] font-semibold text-studio-ink">
+          <span className="font-sans text-sm font-semibold text-studio-ink">
             00:01:55 · codex
           </span>
         </div>
@@ -2493,10 +2493,10 @@ function TailAfterMock() {
           <InspectorRow k="Session" v="talkie · 019eb9da" />
         </ISecOverline>
         <ISecOverline label="Kind">
-          <div className="font-mono text-[9.5px] text-studio-ink-muted">SYS · agent_message</div>
+          <div className="font-mono text-2xs text-studio-ink-muted">SYS · agent_message</div>
         </ISecOverline>
         <ISecOverline label="Body">
-          <div className="line-clamp-4 font-mono text-[9.5px] leading-snug text-studio-ink-muted">
+          <div className="line-clamp-4 font-mono text-2xs leading-snug text-studio-ink-muted">
             Done. I tightened the selector geometry and queried the index
             for the project. The runtime inventory now reads back cleanly
             and the parent attribution is consistent.
@@ -2514,23 +2514,23 @@ function ReposAfterMock() {
         {/* condensed header — single summary, drill-in for the rest */}
         <div className="flex flex-none items-center justify-between border-b border-studio-edge px-3 py-2">
           <div className="flex items-center gap-1.5">
-            <span className="font-sans text-[12.5px] font-semibold tracking-tight text-studio-ink">
+            <span className="font-sans text-md font-semibold tracking-tight text-studio-ink">
               Repos
             </span>
             <span
-              className="rounded-[3px] px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow"
+              className="rounded-[3px] px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow"
               style={{ background: "var(--status-ok-bg)", color: "var(--status-ok-fg)" }}
             >
               ● Live
             </span>
-            <span className="font-mono text-[8.5px] text-studio-ink-faint">
+            <span className="font-mono text-3xs text-studio-ink-faint">
               <span className="text-studio-ink">10 repos</span>
             </span>
-            <span className="font-mono text-[8.5px]" style={{ color: "var(--status-warn-fg)" }}>
+            <span className="font-mono text-3xs" style={{ color: "var(--status-warn-fg)" }}>
               3 need attention
             </span>
           </div>
-          <div className="flex items-center gap-1.5 font-mono text-[8.5px]">
+          <div className="flex items-center gap-1.5 font-mono text-3xs">
             <span className="font-semibold uppercase tracking-eyebrow text-studio-ink">
               Table
             </span>
@@ -2538,7 +2538,7 @@ function ReposAfterMock() {
           </div>
         </div>
         <div className="flex-1 overflow-hidden">
-          <div className="grid grid-cols-[1fr_72px_36px_90px_44px] items-center gap-x-2 border-b border-studio-edge-strong bg-studio-canvas-alt px-3 py-1 font-mono text-[7.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="grid grid-cols-[1fr_72px_36px_90px_44px] items-center gap-x-2 border-b border-studio-edge-strong bg-studio-canvas-alt px-3 py-1 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             <span>Repo / Branch</span>
             <span className="text-right">Churn</span>
             <span className="text-right">Files</span>
@@ -2553,7 +2553,7 @@ function ReposAfterMock() {
                   r.selected ? "bg-studio-canvas-alt" : "",
                 ].join(" ")}
               >
-                <span className="font-mono text-[8.5px] text-studio-ink-faint">▾</span>
+                <span className="font-mono text-3xs text-studio-ink-faint">▾</span>
                 <span
                   className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
                   style={{
@@ -2561,17 +2561,17 @@ function ReposAfterMock() {
                       r.state === "attention" ? "var(--status-warn-fg)" : "var(--studio-ink-faint)",
                   }}
                 />
-                <span className="font-sans text-[10.5px] font-semibold text-studio-ink">
+                <span className="font-sans text-xs font-semibold text-studio-ink">
                   {r.name}
                 </span>
-                <span className="ml-auto font-mono text-[8.5px] text-studio-ink-faint">
+                <span className="ml-auto font-mono text-3xs text-studio-ink-faint">
                   {r.agents} idle
                 </span>
               </div>
               {r.worktrees.slice(0, 1).map((w, i) => (
                 <div
                   key={i}
-                  className="grid grid-cols-[1fr_72px_36px_90px_44px] items-baseline gap-x-2 border-b border-studio-edge px-3 py-0.5 font-mono text-[8.5px]"
+                  className="grid grid-cols-[1fr_72px_36px_90px_44px] items-baseline gap-x-2 border-b border-studio-edge px-3 py-0.5 font-mono text-3xs"
                 >
                   <span className="truncate">
                     <span className="text-studio-ink-faint">└ </span>
@@ -2612,14 +2612,14 @@ function ReposAfterMock() {
               className="inline-block h-1.5 w-1.5 rounded-full"
               style={{ background: "var(--status-warn-fg)" }}
             />
-            <span className="font-sans text-[11.5px] font-semibold text-studio-ink">lattices</span>
+            <span className="font-sans text-sm font-semibold text-studio-ink">lattices</span>
           </div>
-          <div className="font-mono text-[8.5px] text-studio-ink-faint">
+          <div className="font-mono text-3xs text-studio-ink-faint">
             /Users/art/dev/lattices
           </div>
         </div>
         <ISecOverline label="Why">
-          <div className="font-mono text-[9.5px] text-studio-ink-muted">Dirty main</div>
+          <div className="font-mono text-2xs text-studio-ink-muted">Dirty main</div>
         </ISecOverline>
         <ISecOverline label="Drill-in">
           <InspectorRow k="Worktrees" v="1" />
@@ -2627,7 +2627,7 @@ function ReposAfterMock() {
           <InspectorRow k="Unstaged" v="2" vColor="var(--status-warn-fg)" />
         </ISecOverline>
         <ISecOverline label="Quiet">
-          <div className="font-mono text-[9.5px] text-studio-ink-muted">
+          <div className="font-mono text-2xs text-studio-ink-muted">
             2 repos w/o activity ≥24h
           </div>
         </ISecOverline>
@@ -2643,10 +2643,10 @@ function ReposAfterMock() {
 function Stat({ label, v }: { label: string; v: string }) {
   return (
     <div className="rounded-[4px] border border-studio-edge bg-studio-canvas-alt px-2 py-1">
-      <div className="font-mono text-[7.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         {label}
       </div>
-      <div className="mt-0.5 font-mono text-[14px] font-medium tabular-nums leading-none text-studio-ink">
+      <div className="mt-0.5 font-mono text-xl font-medium tabular-nums leading-none text-studio-ink">
         {v}
       </div>
     </div>
@@ -2656,8 +2656,8 @@ function Stat({ label, v }: { label: string; v: string }) {
 function Track({ t, d }: { t: string; d: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <div className="font-sans text-[10px] font-semibold text-studio-ink">{t}</div>
-      <div className="font-mono text-[8.5px] leading-snug text-studio-ink-faint">{d}</div>
+      <div className="font-sans text-xs font-semibold text-studio-ink">{t}</div>
+      <div className="font-mono text-3xs leading-snug text-studio-ink-faint">{d}</div>
     </div>
   );
 }
@@ -2789,10 +2789,10 @@ export default function ScoutMacOSShellPage() {
         />
         <div className="relative px-8 py-9 pl-10">
           <EyebrowLabel size="sm">· studies · macos · shell</EyebrowLabel>
-          <h1 className="mt-2 font-display text-[36px] font-medium leading-[1.05] tracking-tight text-studio-ink">
+          <h1 className="mt-2 font-display text-6xl font-medium leading-[1.05] tracking-tight text-studio-ink">
             Scout macOS shell
           </h1>
-          <p className="mt-4 max-w-prose font-sans text-[13.5px] leading-relaxed text-studio-ink-faint">
+          <p className="mt-4 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
             The design direction for the four screens in the Scout macOS
             app — <span className="text-studio-ink-muted">Comms</span>,{" "}
             <span className="text-studio-ink-muted">Agents</span>,{" "}
@@ -2825,7 +2825,7 @@ export default function ScoutMacOSShellPage() {
           ──────────────────────────────────────────────────────────── */}
       <section className="mb-12">
         <SectionHeader n="1" title="Projected state" kicker="the design direction" />
-        <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mb-5 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
           The design direction. One concrete redesign per screen, each
           addressing an open question from the live app. Windows are at
           the same height as §2 so the two read at the same scale.
@@ -2880,7 +2880,7 @@ export default function ScoutMacOSShellPage() {
           ──────────────────────────────────────────────────────────── */}
       <section className="mb-12">
         <SectionHeader n="2" title="Current state" kicker="the baseline" />
-        <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mb-5 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
           The live app as it ships today — the baseline §1 was projected
           from. Each window uses real data from the recent screenshots;
           Comms is illustrative (no live screenshot was provided). The
@@ -2928,7 +2928,7 @@ export default function ScoutMacOSShellPage() {
           ──────────────────────────────────────────────────────────── */}
       <section className="mb-12">
         <SectionHeader n="3" title="Design language" kicker="chrome · blocks · entity model" />
-        <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mb-5 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
           The shell chrome (the bits every screen shares), the inspector
           grammar (the chrome rules), the block library (the contents),
           the canonical entity model, and the composition rules. The
@@ -2941,10 +2941,10 @@ export default function ScoutMacOSShellPage() {
         </p>
 
         {/* §3.1 — Shell chrome */}
-        <h3 className="mt-8 mb-3 font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-scout-accent">
+        <h3 className="mt-8 mb-3 font-mono text-xs font-semibold uppercase tracking-eyebrow text-scout-accent">
           §3.1 · Shell chrome
         </h3>
-        <p className="mb-4 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+        <p className="mb-4 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
           The five pieces every screen shares. When a piece changes
           here, it changes on all four screens at once.
         </p>
@@ -2982,18 +2982,18 @@ export default function ScoutMacOSShellPage() {
         </div>
 
         {/* §3.2 — Inspector grammar */}
-        <h3 className="mt-8 mb-3 font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-scout-accent">
+        <h3 className="mt-8 mb-3 font-mono text-xs font-semibold uppercase tracking-eyebrow text-scout-accent">
           §3.2 · Inspector grammar
         </h3>
-        <p className="mb-4 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+        <p className="mb-4 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
           The chrome rules every inspector follows. Nine rules, one
           per row. The "why" column is what survives if a future
           implementer wants to bend a rule.
         </p>
         <div className="mb-8 overflow-hidden rounded-md border border-studio-edge">
-          <table className="w-full border-collapse font-sans text-[12px]">
+          <table className="w-full border-collapse font-sans text-md">
             <thead>
-              <tr className="bg-studio-canvas-alt text-left font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+              <tr className="bg-studio-canvas-alt text-left font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
                 <th className="px-3 py-2 w-12">#</th>
                 <th className="px-3 py-2">Rule</th>
                 <th className="px-3 py-2">Why</th>
@@ -3005,7 +3005,7 @@ export default function ScoutMacOSShellPage() {
                   key={r.title}
                   className={i % 2 === 0 ? "bg-studio-surface" : "bg-studio-canvas-alt"}
                 >
-                  <td className="px-3 py-2 font-mono text-[9.5px] text-studio-ink-faint align-top">
+                  <td className="px-3 py-2 font-mono text-2xs text-studio-ink-faint align-top">
                     {String(i + 1).padStart(2, "0")}
                   </td>
                   <td className="px-3 py-2 text-studio-ink align-top">{r.title}</td>
@@ -3017,10 +3017,10 @@ export default function ScoutMacOSShellPage() {
         </div>
 
         {/* §3.3 — Block library */}
-        <h3 className="mt-8 mb-3 font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-scout-accent">
+        <h3 className="mt-8 mb-3 font-mono text-xs font-semibold uppercase tracking-eyebrow text-scout-accent">
           §3.3 · Block library
         </h3>
-        <p className="mb-5 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+        <p className="mb-5 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
           The named set of blocks every inspector is composed from.
           Each card shows the block rendered, the purpose, the
           fields it reads, and which inspectors use it. The Comms
@@ -3038,10 +3038,10 @@ export default function ScoutMacOSShellPage() {
         </div>
 
         {/* §3.4 — Entity model */}
-        <h3 className="mt-8 mb-3 font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-scout-accent">
+        <h3 className="mt-8 mb-3 font-mono text-xs font-semibold uppercase tracking-eyebrow text-scout-accent">
           §3.4 · Entity model
         </h3>
-        <p className="mb-4 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+        <p className="mb-4 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
           The canonical <code className="text-studio-ink-muted">InspectorEntity</code>{" "}
           shape every block reads from. A dot means the surface's
           concrete model exposes the field; the InspectorEntity is a
@@ -3050,9 +3050,9 @@ export default function ScoutMacOSShellPage() {
           requirements; in TypeScript, a partial type.
         </p>
         <div className="mb-8 overflow-hidden rounded-md border border-studio-edge">
-          <table className="w-full border-collapse font-mono text-[11px]">
+          <table className="w-full border-collapse font-mono text-sm">
             <thead>
-              <tr className="bg-studio-canvas-alt text-left text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+              <tr className="bg-studio-canvas-alt text-left text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
                 <th className="px-3 py-2">Field</th>
                 <th className="px-3 py-2">Type</th>
                 <th className="px-3 py-2">Comms</th>
@@ -3093,17 +3093,17 @@ export default function ScoutMacOSShellPage() {
         </div>
 
         {/* §3.5 — Composition rules */}
-        <h3 className="mt-8 mb-3 font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-scout-accent">
+        <h3 className="mt-8 mb-3 font-mono text-xs font-semibold uppercase tracking-eyebrow text-scout-accent">
           §3.5 · Composition rules
         </h3>
-        <p className="mb-4 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+        <p className="mb-4 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
           How blocks are ordered, what's conditional, and how the
           spacing rhythm works.
         </p>
-        <ol className="mb-2 flex max-w-prose flex-col gap-3 font-sans text-[12.5px] leading-relaxed text-studio-ink">
+        <ol className="mb-2 flex max-w-prose flex-col gap-3 font-sans text-md leading-relaxed text-studio-ink">
           {COMPOSITION_RULES.map((r, i) => (
             <li key={r.title} className="flex gap-3">
-              <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-[3px] border border-studio-edge bg-studio-canvas-alt font-mono text-[10px] font-semibold text-studio-ink">
+              <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-[3px] border border-studio-edge bg-studio-canvas-alt font-mono text-xs font-semibold text-studio-ink">
                 {i + 1}
               </span>
               <div>
@@ -3114,7 +3114,7 @@ export default function ScoutMacOSShellPage() {
           ))}
         </ol>
 
-        <p className="mt-6 max-w-prose font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+        <p className="mt-6 max-w-prose font-sans text-md leading-relaxed text-studio-ink-faint">
           See{" "}
           <a href="/studies/scout-comms-inspector" className="text-scout-accent hover:underline">
             /studies/scout-comms-inspector
@@ -3130,14 +3130,14 @@ export default function ScoutMacOSShellPage() {
           ──────────────────────────────────────────────────────────── */}
       <section className="mb-8">
         <SectionHeader n="4" title="Open questions" kicker="what §1 + §3 don't answer" />
-        <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+        <p className="mb-5 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
           Questions the projections in §1 raise but don't answer. Three
           questions from the prior draft (Comms w/o inspector, Tail's
           overview inspector, agent-row density) are resolved by §1 and
           removed from this list.
         </p>
 
-        <ul className="flex max-w-prose flex-col gap-3 font-sans text-[13px] leading-relaxed text-studio-ink">
+        <ul className="flex max-w-prose flex-col gap-3 font-sans text-lg leading-relaxed text-studio-ink">
           <Question q="Does the Comms projection break the list-first read?">
             The 300px inspector takes ~45% of the content area at the
             live app's width. The list drops from ~6 visible rows to ~3-4
@@ -3173,7 +3173,7 @@ export default function ScoutMacOSShellPage() {
         </ul>
       </section>
 
-      <footer className="border-t border-studio-edge pt-4 font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <footer className="border-t border-studio-edge pt-4 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         Status · draft ·{" "}
         <span className="text-studio-ink-muted">drives</span>{" "}
         ScoutRootView, ScoutCommsView, ScoutTailView, ScoutReposView
@@ -3205,28 +3205,28 @@ function ScreenCard({
     <div className="flex flex-col gap-2.5">
       <div className="flex items-baseline justify-between gap-2">
         <div className="flex items-baseline gap-1.5">
-          <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-scout-accent">
+          <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-scout-accent">
             {label}
           </div>
           {illustrative ? (
-            <span className="rounded-[2px] bg-studio-canvas-alt px-1 py-px font-mono text-[7.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+            <span className="rounded-[2px] bg-studio-canvas-alt px-1 py-px font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
               Illustrative
             </span>
           ) : sourceScreenshot ? (
-            <span className="rounded-[2px] bg-studio-canvas-alt px-1 py-px font-mono text-[7.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+            <span className="rounded-[2px] bg-studio-canvas-alt px-1 py-px font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
               from screenshot
             </span>
           ) : null}
         </div>
         <a
           href={href}
-          className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint hover:text-studio-ink"
+          className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint hover:text-studio-ink"
         >
           study →
         </a>
       </div>
       {children}
-      <p className="font-sans text-[11.5px] leading-snug text-studio-ink-faint">{note}</p>
+      <p className="font-sans text-sm leading-snug text-studio-ink-faint">{note}</p>
     </div>
   );
 }
@@ -3245,15 +3245,15 @@ function ChromeSpec({
   return (
     <div className="rounded-md border border-studio-edge bg-studio-surface p-3">
       <div className="mb-1.5 flex items-baseline justify-between gap-2">
-        <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink">
+        <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink">
           {label}
         </div>
-        <code className="font-mono text-[8.5px] text-studio-ink-faint">{owner}</code>
+        <code className="font-mono text-3xs text-studio-ink-faint">{owner}</code>
       </div>
-      <div className="mb-1.5 font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-muted">
+      <div className="mb-1.5 font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-muted">
         {token}
       </div>
-      <p className="font-sans text-[10.5px] leading-snug text-studio-ink-faint">{note}</p>
+      <p className="font-sans text-xs leading-snug text-studio-ink-faint">{note}</p>
     </div>
   );
 }
@@ -3281,19 +3281,19 @@ function ProjectionCard({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-baseline justify-between gap-2">
-        <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-scout-accent">
+        <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-scout-accent">
           {screen}
         </div>
-        <span className="rounded-[2px] bg-scout-accent-soft px-1 py-px font-mono text-[7.5px] font-semibold uppercase tracking-eyebrow text-scout-accent">
+        <span className="rounded-[2px] bg-scout-accent-soft px-1 py-px font-mono text-3xs font-semibold uppercase tracking-eyebrow text-scout-accent">
           Direction
         </span>
       </div>
       {mock}
       <div className="rounded-md border border-studio-edge bg-studio-canvas-alt p-3">
-        <div className="mb-1.5 font-sans text-[12px] font-medium text-studio-ink">
+        <div className="mb-1.5 font-sans text-md font-medium text-studio-ink">
           {problem}
         </div>
-        <ul className="flex flex-col gap-1 font-sans text-[11px] leading-snug text-studio-ink-faint">
+        <ul className="flex flex-col gap-1 font-sans text-sm leading-snug text-studio-ink-faint">
           {changes.map((c, i) => (
             <li key={i} className="flex gap-1.5">
               <span className="mt-1.5 inline-block h-[3px] w-[3px] shrink-0 rounded-full bg-scout-accent" />
@@ -3435,13 +3435,13 @@ const COMPOSITION_RULES: { title: string; body: string }[] = [
 function HeroStat({ label, value, note }: { label: string; value: string; note: string }) {
   return (
     <div className="bg-studio-canvas px-4 py-3">
-      <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         {label}
       </div>
-      <div className="mt-1 font-display text-[24px] font-medium leading-none tracking-tight text-studio-ink">
+      <div className="mt-1 font-display text-5xl font-medium leading-none tracking-tight text-studio-ink">
         {value}
       </div>
-      <div className="mt-1 font-mono text-[9.5px] text-studio-ink-faint">{note}</div>
+      <div className="mt-1 font-mono text-2xs text-studio-ink-faint">{note}</div>
     </div>
   );
 }
@@ -3453,10 +3453,10 @@ function BlockSpecimen({ block }: { block: (typeof BLOCKS)[number] }) {
   return (
     <div className="flex flex-col gap-2.5 rounded-md border border-studio-edge bg-studio-canvas-alt p-3">
       <div className="flex items-baseline justify-between gap-2">
-        <code className="font-mono text-[10.5px] font-semibold text-studio-ink">
+        <code className="font-mono text-xs font-semibold text-studio-ink">
           {block.key}
         </code>
-        <div className="flex items-center gap-1.5 font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="flex items-center gap-1.5 font-mono text-3xs uppercase tracking-eyebrow text-studio-ink-faint">
           {block.conditional ? (
             <span className="rounded-[2px] bg-status-warn-bg px-1 py-px text-status-warn-fg">
               conditional
@@ -3468,10 +3468,10 @@ function BlockSpecimen({ block }: { block: (typeof BLOCKS)[number] }) {
       <div className="rounded-md border border-studio-edge bg-studio-surface p-3">
         {renderBlockSpecimen(block.key)}
       </div>
-      <p className="font-sans text-[11.5px] leading-snug text-studio-ink-faint">
+      <p className="font-sans text-sm leading-snug text-studio-ink-faint">
         {block.purpose}
       </p>
-      <div className="font-mono text-[9.5px] text-studio-ink-faint">
+      <div className="font-mono text-2xs text-studio-ink-faint">
         <span className="text-studio-ink-muted">reads </span>
         {block.reads}
       </div>
@@ -3486,12 +3486,12 @@ function renderBlockSpecimen(key: string) {
     case "identity":
       return (
         <div className="flex items-center gap-2">
-          <div className="grid h-[22px] w-[22px] place-items-center rounded-full bg-studio-canvas-alt font-mono text-[10px] text-studio-ink">
+          <div className="grid h-[22px] w-[22px] place-items-center rounded-full bg-studio-canvas-alt font-mono text-xs text-studio-ink">
             D
           </div>
           <div>
-            <div className="font-sans text-[12px] font-semibold text-studio-ink">Dewey</div>
-            <div className="font-mono text-[9px] text-studio-ink-faint">dewey.main.arts-mac-mini-local</div>
+            <div className="font-sans text-md font-semibold text-studio-ink">Dewey</div>
+            <div className="font-mono text-2xs text-studio-ink-faint">dewey.main.arts-mac-mini-local</div>
           </div>
         </div>
       );
@@ -3501,7 +3501,7 @@ function renderBlockSpecimen(key: string) {
           {(["ok", "warn", "error", "info", "neutral"] as const).map((t) => (
             <span
               key={t}
-              className="inline-flex items-center gap-1 rounded-[3px] px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow"
+              className="inline-flex items-center gap-1 rounded-[3px] px-1.5 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow"
               style={{ background: `var(--status-${t}-bg)`, color: `var(--status-${t}-fg)` }}
             >
               <span className="block h-1.5 w-1.5 rounded-full bg-current" />
@@ -3514,7 +3514,7 @@ function renderBlockSpecimen(key: string) {
       return (
         <div className="flex gap-1.5">
           <span
-            className="rounded-[4px] border px-2 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow"
+            className="rounded-[4px] border px-2 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow"
             style={{
               background: "var(--scout-accent-soft)",
               borderColor: "var(--scout-accent)",
@@ -3523,7 +3523,7 @@ function renderBlockSpecimen(key: string) {
           >
             Open
           </span>
-          <span className="rounded-[4px] border border-studio-edge bg-transparent px-2 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
+          <span className="rounded-[4px] border border-studio-edge bg-transparent px-2 py-0.5 font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
             + New
           </span>
         </div>
@@ -3593,14 +3593,14 @@ function renderBlockSpecimen(key: string) {
           {miniSectionTitle("Ask")}
           <div className="flex items-center gap-1.5">
             <span
-              className="rounded-[2px] px-1 py-px font-mono text-[7.5px] font-semibold uppercase tracking-eyebrow"
+              className="rounded-[2px] px-1 py-px font-mono text-3xs font-semibold uppercase tracking-eyebrow"
               style={{ background: "var(--status-warn-bg)", color: "var(--status-warn-fg)" }}
             >
               pending
             </span>
-            <span className="font-mono text-[8.5px] text-studio-ink-faint">from Art</span>
+            <span className="font-mono text-3xs text-studio-ink-faint">from Art</span>
           </div>
-          <div className="font-sans text-[10px] leading-snug text-studio-ink-muted">
+          <div className="font-sans text-xs leading-snug text-studio-ink-muted">
             Review AgentHomeShellView — should overlay settings render before send?
           </div>
         </div>
@@ -3618,10 +3618,10 @@ function renderBlockSpecimen(key: string) {
               key={k}
               className="rounded-[4px] border border-studio-edge bg-studio-canvas-alt px-2 py-1"
             >
-              <div className="font-mono text-[7.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+              <div className="font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
                 {k}
               </div>
-              <div className="mt-0.5 font-mono text-[15px] font-medium tabular-nums leading-none text-studio-ink">
+              <div className="mt-0.5 font-mono text-2xl font-medium tabular-nums leading-none text-studio-ink">
                 {v}
               </div>
             </div>
@@ -3633,8 +3633,8 @@ function renderBlockSpecimen(key: string) {
         <div className="flex flex-col gap-1.5">
           {miniSectionTitle("Tracks")}
           <div>
-            <div className="font-sans text-[10px] font-semibold text-studio-ink">Transcript logs</div>
-            <div className="font-mono text-[8.5px] leading-snug text-studio-ink-faint">
+            <div className="font-sans text-xs font-semibold text-studio-ink">Transcript logs</div>
+            <div className="font-mono text-3xs leading-snug text-studio-ink-faint">
               Claude and Codex JSONL files discovered on disk.
             </div>
           </div>
@@ -3644,7 +3644,7 @@ function renderBlockSpecimen(key: string) {
       return (
         <div className="flex flex-col gap-1">
           {miniSectionTitle("Defaults")}
-          <div className="font-mono text-[9.5px] leading-snug text-studio-ink-faint">
+          <div className="font-mono text-2xs leading-snug text-studio-ink-faint">
             Metadata includes records like model, title, permission-mode.
           </div>
         </div>
@@ -3657,11 +3657,11 @@ function renderBlockSpecimen(key: string) {
 function kvRow(k: string, v: string, vColor?: string) {
   return (
     <div className="grid grid-cols-[56px_1fr] items-baseline gap-x-2">
-      <span className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <span className="font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         {k}
       </span>
       <span
-        className="truncate text-right font-mono text-[10px]"
+        className="truncate text-right font-mono text-xs"
         style={{ color: vColor ?? "var(--studio-ink-muted)" }}
       >
         {v}
@@ -3678,7 +3678,7 @@ function miniSectionTitle(label: string) {
         className="mb-1 h-px w-3"
         style={{ background: "var(--studio-edge-strong)" }}
       />
-      <span className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <span className="font-mono text-3xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         {label}
       </span>
     </div>
@@ -3691,16 +3691,16 @@ function miniSectionTitle(label: string) {
 function SectionHeader({ n, title, kicker }: { n: string; title: string; kicker?: string }) {
   return (
     <header className="mb-4 flex items-baseline gap-4">
-      <h2 className="font-display text-[24px] font-medium leading-none tracking-tight text-studio-ink">
+      <h2 className="font-display text-5xl font-medium leading-none tracking-tight text-studio-ink">
         {title}
       </h2>
       <div className="h-px flex-1 bg-studio-edge" />
       {kicker ? (
-        <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           {kicker}
         </span>
       ) : null}
-      <span className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-scout-accent">
+      <span className="font-mono text-xs font-semibold uppercase tracking-eyebrow text-scout-accent">
         §{n}
       </span>
     </header>

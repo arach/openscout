@@ -67,6 +67,8 @@ export type MessageComposerProps = {
    * the primary action is ambiguous (e.g. Steer alongside Queue).
    */
   secondaryAction?: ReactNode;
+  /** Toolbar tools on the left (commands, context controls, etc.). */
+  leadingTools?: ReactNode;
   /**
    * Toolbar tools on the right, before mic/Send (model picker, harness, etc.).
    * Attach stays on the left.
@@ -77,11 +79,21 @@ export type MessageComposerProps = {
   /** Top decoration: reply annotation, target chip, etc. */
   header?: ReactNode;
   /**
+   * Rendered above the shell, outside the box but at the same width (queued
+   * message stack, etc.). Use `header` for decoration that belongs inside.
+   */
+  above?: ReactNode;
+  /**
+   * Fuse the `above` slot onto the top of the shell so the two read as one
+   * object (shared edge, no gap) instead of two stacked boxes.
+   */
+  aboveAttached?: boolean;
+  /**
    * Replace the default textarea (e.g. AgentMentionTextarea). Parent still
    * owns `value` / `onChange` for Send enablement; this only swaps the field.
    */
   input?: ReactNode;
-  /** Absolute overlay inside the shell (slash / mention menus). */
+  /** Absolute overlay anchored to the shell (slash / mention menus). */
   overlay?: ReactNode;
   /** Send receipt or other feedback rendered below the toolbar. */
   status?: ReactNode;
@@ -204,9 +216,12 @@ export function MessageComposer({
   dropHandlers,
   dragActive = false,
   secondaryAction,
+  leadingTools,
   tools,
   footer,
   header,
+  above,
+  aboveAttached = false,
   input,
   overlay,
   status,
@@ -353,14 +368,12 @@ export function MessageComposer({
       ? "Finalizing transcript…"
       : partialText;
 
-  const content = (
+  const shell = (
     <div
       className={shellClass}
       data-drag-active={dragActive ? "true" : undefined}
       {...dropHandlers}
     >
-      {overlay}
-
       {header ? <div className="s-msg-compose-header">{header}</div> : null}
 
       <div className="s-msg-compose-body">
@@ -415,8 +428,9 @@ export function MessageComposer({
           .filter(Boolean)
           .join(" ")}
       >
-        {/* Left: attach only */}
+        {/* Left: contextual tools, then attach when the surface supports it. */}
         <div className="s-msg-compose-toolbar-start">
+          {leadingTools}
           {showAttach ? (
             <button
               type="button"
@@ -428,9 +442,9 @@ export function MessageComposer({
             >
               <AttachIcon />
             </button>
-          ) : (
+          ) : !leadingTools ? (
             <span className="s-msg-compose-toolbar-spacer" aria-hidden="true" />
-          )}
+          ) : null}
         </div>
 
         {/* Right: model/tools · mic · Send (flush end) */}
@@ -478,6 +492,20 @@ export function MessageComposer({
       </div>
 
       {status}
+    </div>
+  );
+
+  // Menus must be siblings of the clipped shell. Keeping them inside the shell
+  // makes an overlay positioned above the composer fully invisible because the
+  // rounded composer clips its contents.
+  const content = (
+    <div
+      className="s-msg-compose-frame"
+      data-above-attached={above && aboveAttached ? "true" : undefined}
+    >
+      {overlay}
+      {above ? <div className="s-msg-compose-above">{above}</div> : null}
+      {shell}
     </div>
   );
 

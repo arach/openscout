@@ -27,4 +27,14 @@ struct ScoutTerminalDeepLinkTests {
             "/terminal?session=registered.1&surface=zellij:scout-zj&mode=takeover")
         #expect(ScoutTerminalDeepLink.routePath(from: incompleteURL) == nil)
     }
+
+    @Test("maps herdr surface targets into the embedded web terminal route")
+    func mapsHerdrTarget() throws {
+        let url = try #require(URL(string:
+            "scout://terminal?session=discovered.herdr.default&surface=herdr%3Adefault&mode=takeover"
+        ))
+
+        #expect(ScoutTerminalDeepLink.routePath(from: url) ==
+            "/terminal?session=discovered.herdr.default&surface=herdr:default&mode=takeover")
+    }
 }

@@ -10,7 +10,7 @@ import type { AgentRun, FlightSessionTraceEntry } from "@openscout/protocol";
 import type { AgentSummaryState, WorkAttention } from "./common.ts";
 
 export type WebTerminalSurfaceDescriptor = {
-  backend: "tmux" | "zellij";
+  backend: "tmux" | "zellij" | "herdr";
   sessionName: string;
   paneId: string | null;
   socketDir: string | null;
@@ -221,6 +221,7 @@ export type WebWorkItem = {
 export type WebFlight = {
   id: string;
   invocationId: string;
+  messageId?: string | null;
   agentId: string;
   agentName: string | null;
   conversationId: string | null;

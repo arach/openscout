@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { closeDb } from "./db/internal/db.ts";
 import {
+  importProviderDashboardUsage,
   loadServiceBudgets,
   resetServiceBudgetsCache,
 } from "./service-budgets.ts";
@@ -19,6 +20,7 @@ const originalGhRateLimitJson = process.env.OPENSCOUT_GH_RATE_LIMIT_JSON;
 const originalKimiCodeHome = process.env.KIMI_CODE_HOME;
 const originalKimiUsageJson = process.env.OPENSCOUT_KIMI_USAGE_JSON;
 const originalCursorStatusJson = process.env.OPENSCOUT_CURSOR_STATUS_JSON;
+const originalGrokUsageJson = process.env.OPENSCOUT_GROK_USAGE_JSON;
 const originalMinimaxApiKey = process.env.MINIMAX_API_KEY;
 const originalMinimaxToken = process.env.MINIMAX_TOKEN;
 const originalMinimaxRemainsJson = process.env.OPENSCOUT_MINIMAX_REMAINS_JSON;
@@ -78,6 +80,11 @@ afterEach(() => {
     delete process.env.OPENSCOUT_CURSOR_STATUS_JSON;
   } else {
     process.env.OPENSCOUT_CURSOR_STATUS_JSON = originalCursorStatusJson;
+  }
+  if (originalGrokUsageJson === undefined) {
+    delete process.env.OPENSCOUT_GROK_USAGE_JSON;
+  } else {
+    process.env.OPENSCOUT_GROK_USAGE_JSON = originalGrokUsageJson;
   }
   if (originalMinimaxApiKey === undefined) {
     delete process.env.MINIMAX_API_KEY;
@@ -468,6 +475,36 @@ describe("service budgets", () => {
     ]);
   });
 
+  test("allows usage to drop when a newer Codex reset cycle starts", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-service-budgets-reset-cycle-"));
+    tempPaths.add(controlHome);
+    process.env.OPENSCOUT_CONTROL_HOME = controlHome;
+    process.env.HOME = join(controlHome, "home");
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(controlHome, "home", "Library", "Application Support", "OpenScout");
+    process.env.PATH = "";
+    mkdirSync(controlHome, { recursive: true });
+
+    const rawDb = new Database(join(controlHome, "control-plane.sqlite"));
+    createQuotaTable(rawDb);
+    const insert = rawDb.query(`
+      INSERT INTO budget_quota_window_snapshots (
+        id, source, provider, harness, transport, label, window_kind,
+        used_percent, percent_remaining, reset_at, window_ms, captured_at,
+        metadata_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const now = Date.now();
+    insert.run("codex-old-cycle", "provider_reported", "openai", "codex", "codex_app_server", "5h", "primary", 82, 18, now + 60 * 60_000, 5 * 60 * 60_000, now - 60_000, "{}", now - 60_000);
+    insert.run("codex-new-cycle", "provider_reported", "openai", "codex", "codex_app_server", "5h", "primary", 4, 96, now + 6 * 60 * 60_000, 5 * 60 * 60_000, now, "{}", now);
+    rawDb.close();
+
+    const response = await loadServiceBudgets();
+    const codex = response.gauges.find((gauge) => gauge.id === "codex");
+    expect(codex && codex.kind === "quota" ? codex.windows : []).toEqual([
+      expect.objectContaining({ label: "5h", usedLabel: "4%", fill: 0.04 }),
+    ]);
+  });
+
   test("harvests Codex rate limits into quota snapshots", async () => {
     const root = mkdtempSync(join(tmpdir(), "openscout-service-budgets-codex-"));
     tempPaths.add(root);
@@ -485,19 +522,22 @@ describe("service budgets", () => {
     const sessionDir = join(home, ".codex", "sessions", "2026", "06", "08");
     mkdirSync(sessionDir, { recursive: true });
     const now = Date.now();
-    writeFileSync(join(sessionDir, "session.jsonl"), JSON.stringify({
+    const sessionPath = join(sessionDir, "session.jsonl");
+    const primaryReset = Math.floor((now + 300 * 60 * 1000) / 1000);
+    const weeklyReset = Math.floor((now + 7 * 24 * 60 * 60 * 1000) / 1000);
+    writeFileSync(sessionPath, JSON.stringify({
       timestamp: new Date(now).toISOString(),
       payload: {
         rate_limits: {
           primary: {
             used_percent: 22,
             window_minutes: 300,
-            resets_at: Math.floor((now + 300 * 60 * 1000) / 1000),
+            resets_at: primaryReset,
           },
           secondary: {
             used_percent: 44,
             window_minutes: 7 * 24 * 60,
-            resets_at: Math.floor((now + 7 * 24 * 60 * 60 * 1000) / 1000),
+            resets_at: weeklyReset,
           },
         },
       },
@@ -524,6 +564,67 @@ describe("service budgets", () => {
     expect(rawDb.query<{ count: number }>(
       "SELECT count(*) AS count FROM budget_quota_window_snapshots WHERE id LIKE 'budget:quota:history:%' AND provider = 'openai' AND harness = 'codex'",
     ).get()?.count).toBe(2);
+
+    // A resumed session can replay a lower percentage for the same reset with
+    // a newer capture timestamp. The persistence high-water mark must survive
+    // that replay, not only the in-memory selector.
+    writeFileSync(sessionPath, JSON.stringify({
+      timestamp: new Date(now + 60_000).toISOString(),
+      payload: {
+        rate_limits: {
+          primary: { used_percent: 10, window_minutes: 300, resets_at: primaryReset },
+          secondary: { used_percent: 12, window_minutes: 7 * 24 * 60, resets_at: weeklyReset },
+        },
+      },
+    }) + "\n", "utf8");
+    resetServiceBudgetsCache();
+    const replayed = await loadServiceBudgets(true);
+    const replayedCodex = replayed.gauges.find((gauge) => gauge.id === "codex");
+    expect(replayedCodex && replayedCodex.kind === "quota" ? replayedCodex.windows : []).toEqual([
+      expect.objectContaining({ label: "5h", usedLabel: "22%" }),
+      expect.objectContaining({ label: "7d", usedLabel: "44%" }),
+    ]);
+    rawDb.close();
+  });
+
+  test("uses semantic Codex window duration even when weekly quota is primary", async () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-service-budgets-codex-weekly-primary-"));
+    tempPaths.add(root);
+    const controlHome = join(root, "control-plane");
+    const home = join(root, "home");
+    process.env.OPENSCOUT_CONTROL_HOME = controlHome;
+    process.env.HOME = home;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
+    process.env.PATH = "";
+    mkdirSync(controlHome, { recursive: true });
+    const rawDb = new Database(join(controlHome, "control-plane.sqlite"));
+    createQuotaTable(rawDb);
+
+    const sessionDir = join(home, ".codex", "sessions", "2026", "07", "29");
+    mkdirSync(sessionDir, { recursive: true });
+    const now = Date.now();
+    writeFileSync(join(sessionDir, "usage.jsonl"), [
+      JSON.stringify({ timestamp: new Date(now + 1_000).toISOString(), payload: { type: "turn_started" } }),
+      JSON.stringify({
+        timestamp: new Date(now).toISOString(),
+        payload: {
+          type: "token_count",
+          rate_limits: {
+            primary: {
+              used_percent: 13,
+              window_minutes: 7 * 24 * 60,
+              resets_at: Math.floor((now + 7 * 24 * 60 * 60_000) / 1000),
+            },
+          },
+        },
+      }),
+    ].join("\n") + "\n", "utf8");
+
+    const response = await loadServiceBudgets(true);
+    const codex = response.gauges.find((gauge) => gauge.id === "codex");
+    expect(codex && codex.kind === "quota" ? codex.windows : []).toEqual([
+      expect.objectContaining({ label: "7d", usedLabel: "13%", source: "Codex local session" }),
+    ]);
     rawDb.close();
   });
 
@@ -626,7 +727,101 @@ describe("service budgets", () => {
       windowLabel: "subscription",
       detailLabel: "Active",
       tone: "ok",
+      source: "Cursor local membership",
     });
+    rawDb.close();
+  });
+
+  test("aggregates only cumulative Grok usage totals from each recent local session", async () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-service-budgets-grok-local-"));
+    tempPaths.add(root);
+    const controlHome = join(root, "control-plane");
+    const home = join(root, "home");
+    process.env.OPENSCOUT_CONTROL_HOME = controlHome;
+    process.env.HOME = home;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
+    process.env.PATH = "";
+    mkdirSync(controlHome, { recursive: true });
+    const rawDb = new Database(join(controlHome, "control-plane.sqlite"));
+    createQuotaTable(rawDb);
+
+    const now = Date.now();
+    for (const [session, updates] of Object.entries({
+      one: [
+        { totalTokens: 1_000, numTurns: 2, modelCalls: 2 },
+        { totalTokens: 2_000, numTurns: 4, modelCalls: 5 },
+      ],
+      two: [{ totalTokens: 500, numTurns: 1, modelCalls: 1 }],
+    })) {
+      const directory = join(home, ".grok", "sessions", session);
+      mkdirSync(directory, { recursive: true });
+      writeFileSync(join(directory, "updates.jsonl"), updates.map((usage, index) => JSON.stringify({
+        timestamp: now + index,
+        params: { update: { usage } },
+      })).join("\n") + "\n", "utf8");
+    }
+
+    const response = await loadServiceBudgets(true);
+    expect(response.gauges.find((gauge) => gauge.id === "grok")).toEqual(expect.objectContaining({
+      id: "grok",
+      kind: "status",
+      statusLabel: "Local activity",
+      windowLabel: "observed 7d",
+      detailLabel: "2.5K tokens · 5 turns · 6 model calls",
+      source: "Grok local telemetry",
+    }));
+    rawDb.close();
+  });
+
+  test("normalizes Grok and Cursor dashboard captures without retaining pasted rows", async () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-service-budgets-dashboard-import-"));
+    tempPaths.add(root);
+    const controlHome = join(root, "control-plane");
+    const home = join(root, "home");
+    process.env.OPENSCOUT_CONTROL_HOME = controlHome;
+    process.env.HOME = home;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
+    process.env.PATH = "";
+    process.env.OPENSCOUT_CURSOR_STATUS_JSON = JSON.stringify({ membershipType: "pro", subscriptionStatus: "active" });
+    mkdirSync(controlHome, { recursive: true });
+    const rawDb = new Database(join(controlHome, "control-plane.sqlite"));
+    createQuotaTable(rawDb);
+
+    const grok = importProviderDashboardUsage({
+      provider: "grok",
+      text: "Usage\nWeekly SuperGrok Heavy Limit\n17% used\nResets August 5, 2026\nProduct usage",
+    });
+    expect(grok).toEqual(expect.objectContaining({
+      id: "grok",
+      kind: "quota",
+      plan: "SuperGrok Heavy",
+      usedLabel: "17%",
+      source: "dashboard capture",
+    }));
+
+    const cursor = importProviderDashboardUsage({
+      provider: "cursor",
+      text: "Date (UTC),Type,Model,Tokens,Cost\n2026-07-28,Included,secret-model-name,1.2M,Included\n2026-07-29,Included,secret-model-name,850K,Included",
+    });
+    expect(cursor).toEqual(expect.objectContaining({
+      id: "cursor",
+      kind: "status",
+      detailLabel: "2 events · 2.0M tokens",
+      source: "dashboard capture",
+    }));
+
+    const stored = readFileSync(join(controlHome, "provider-usage-snapshots.json"), "utf8");
+    expect(stored).not.toContain("secret-model-name");
+    expect(stored).not.toContain("2026-07-28");
+
+    resetServiceBudgetsCache();
+    const response = await loadServiceBudgets();
+    expect(response.gauges.find((gauge) => gauge.id === "grok")).toEqual(expect.objectContaining({ usedLabel: "17%" }));
+    expect(response.gauges.find((gauge) => gauge.id === "cursor")).toEqual(expect.objectContaining({
+      statusLabel: "Pro",
+      detailLabel: "2 events · 2.0M tokens",
+      source: "dashboard capture",
+    }));
     rawDb.close();
   });
 
@@ -641,19 +836,34 @@ describe("service budgets", () => {
     process.env.PATH = "";
     const now = Date.now();
     process.env.OPENSCOUT_MINIMAX_REMAINS_JSON = JSON.stringify({
-      model_remains: [{
-        model_name: "general",
-        start_time: now - 60_000,
-        end_time: now + 5 * 60 * 60 * 1000,
-        current_interval_total_count: 4500,
-        current_interval_usage_count: 900,
-        current_interval_remaining_percent: 80,
-        weekly_start_time: now - 24 * 60 * 60 * 1000,
-        weekly_end_time: now + 6 * 24 * 60 * 60 * 1000,
-        current_weekly_total_count: 20_000,
-        current_weekly_usage_count: 5_000,
-        current_weekly_remaining_percent: 75,
-      }],
+      model_remains: [
+        {
+          model_name: "general",
+          start_time: now,
+          end_time: now + 5 * 60 * 60 * 1000,
+          current_interval_total_count: 4500,
+          current_interval_usage_count: 900,
+          current_interval_remaining_percent: 80,
+          weekly_start_time: now - 24 * 60 * 60 * 1000,
+          weekly_end_time: now + 6 * 24 * 60 * 60 * 1000,
+          current_weekly_total_count: 20_000,
+          current_weekly_usage_count: 5_000,
+          current_weekly_remaining_percent: 75,
+        },
+        {
+          model_name: "video",
+          start_time: now,
+          end_time: now + 24 * 60 * 60 * 1000,
+          current_interval_total_count: 100,
+          current_interval_usage_count: 8,
+          current_interval_remaining_percent: 92,
+          weekly_start_time: now,
+          weekly_end_time: now + 7 * 24 * 60 * 60 * 1000,
+          current_weekly_total_count: 500,
+          current_weekly_usage_count: 40,
+          current_weekly_remaining_percent: 92,
+        },
+      ],
       base_resp: { status_code: 0, status_msg: "success" },
     });
     mkdirSync(controlHome, { recursive: true });
@@ -674,6 +884,8 @@ describe("service budgets", () => {
     expect(minimax && minimax.kind === "quota" ? minimax.windows : []).toEqual([
       expect.objectContaining({ label: "5h", fill: 0.2, usedLabel: "900", capLabel: "4.5k" }),
       expect.objectContaining({ label: "7d", fill: 0.25, usedLabel: "5.0k", capLabel: "20k" }),
+      expect.objectContaining({ label: "video 1d", fill: 0.08, usedLabel: "8", capLabel: "100" }),
+      expect.objectContaining({ label: "video 7d", fill: 0.08, usedLabel: "40", capLabel: "500" }),
     ]);
     rawDb.close();
   });

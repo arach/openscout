@@ -92,9 +92,19 @@ function useSessionRefLookup(sessionRef: string) {
     void load();
   }, [load]);
 
-  useBrokerEvents(() => {
-    void load();
-  });
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+    }
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTimerRef.current = null;
+      void load();
+    }, 150);
+  }, [load]);
+
+  // Same 150ms debounce as the tail-event path — broker control events arrive
+  // in bursts and must not force a full session-ref reload per event.
+  useBrokerEvents(scheduleRefresh);
 
   useTailEvents((event) => {
     const eventRef = normalizeSessionRef(event.sessionId);
@@ -113,13 +123,7 @@ function useSessionRefLookup(sessionRef: string) {
       return;
     }
 
-    if (refreshTimerRef.current) {
-      clearTimeout(refreshTimerRef.current);
-    }
-    refreshTimerRef.current = setTimeout(() => {
-      refreshTimerRef.current = null;
-      void load();
-    }, 150);
+    scheduleRefresh();
   });
 
   useEffect(() => {
@@ -143,6 +147,8 @@ export function SessionRefContextRail({ sessionRef }: { sessionRef: string }) {
         agentId={lookup.observe.agentId ?? lookup.session?.agentId ?? undefined}
         sessionId={lookup.observe.sessionId ?? lookup.observe.refId}
         surface="context"
+        observeSource={lookup.observe.source}
+        observeFidelity={lookup.observe.fidelity}
       />
     );
   }
@@ -202,6 +208,8 @@ export function SessionRefScreen({
           sessionId={lookup.observe.sessionId ?? lookup.observe.refId}
           conversationId={lookup.session?.id ?? null}
           showRail={showObserveRail}
+          observeSource={lookup.observe.source}
+          observeFidelity={lookup.observe.fidelity}
         />
       </>
     );

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   namedChannelNaturalKey,
+  stableChannelId,
   type ActorIdentity,
   type AgentDefinition,
   type AgentEndpoint,
@@ -205,6 +206,27 @@ describe("broker conversation helpers", () => {
     expect(findConversationByIdentity(snapshot, namedChannelNaturalKey("shared"))?.id).toBe("channel.shared");
   });
 
+  test("prefers the stable named-channel record over its structural alias", () => {
+    const naturalKey = namedChannelNaturalKey("huddle-v1");
+    const stableId = stableChannelId(naturalKey);
+    const snapshot = createRuntimeRegistrySnapshot({
+      conversations: {
+        "channel.huddle-v1": conversation({
+          id: "channel.huddle-v1",
+          title: "huddle-v1",
+          metadata: { channel: "huddle-v1" },
+        }),
+        [stableId]: conversation({
+          id: stableId,
+          title: "huddle-v1",
+          metadata: { channel: "huddle-v1", naturalKey },
+        }),
+      },
+    });
+
+    expect(findConversationByIdentity(snapshot, naturalKey)?.id).toBe(stableId);
+  });
+
   test("detects shared conversation mode when any participant is remote", () => {
     const snapshot = createRuntimeRegistrySnapshot({
       agents: {
@@ -258,6 +280,12 @@ describe("broker conversation helpers", () => {
       reachable: false,
     }));
     expect(summarizeHomeAgent(endpoint({ state: "active" }))).toEqual(expect.objectContaining({
+      state: "available",
+      reachable: true,
+      statusLabel: "Available",
+      statusDetail: "codex · tmux",
+    }));
+    expect(summarizeHomeAgent(endpoint({ state: "active" }), true)).toEqual(expect.objectContaining({
       state: "working",
       reachable: true,
       statusLabel: "Working",

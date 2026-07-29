@@ -27,9 +27,9 @@
   line-height: var(--leading-none);
   font-weight: 600;
 }
-.label-xs { font-size: var(--text-2xs); letter-spacing: var(--tracking-xl); } /*  9px / .18em */
-.label-sm { font-size: var(--text-xs); letter-spacing: var(--tracking-md); } /* 10px / .08em */
-.label-md { font-size: var(--text-sm); letter-spacing: var(--tracking-lg); } /* 11px / .12em */
+.label-xs { font-size: var(--text-3xs); letter-spacing: var(--tracking-xl); } /*  8px / .18em */
+.label-sm { font-size: var(--text-2xs); letter-spacing: var(--tracking-md); } /*  9px / .08em */
+.label-md { font-size: var(--text-xs); letter-spacing: var(--tracking-lg); } /* 10px / .12em */
 .label-lg { font-size: var(--text-sm); letter-spacing: var(--tracking-xl); } /* 11px / .18em */
 
 /* ── Chip (status / label) ───────────────────────────────────────────────────

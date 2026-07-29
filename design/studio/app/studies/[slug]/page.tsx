@@ -25,7 +25,7 @@ function Frame({ children }: { children: React.ReactNode }) {
 function Loading() {
   return (
     <Frame>
-      <div className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-xs uppercase tracking-eyebrow text-studio-ink-faint">
         Loading…
       </div>
     </Frame>
@@ -35,10 +35,10 @@ function Loading() {
 function Missing({ slug }: { slug?: string }) {
   return (
     <Frame>
-      <div className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-xs uppercase tracking-eyebrow text-studio-ink-faint">
         Study not found
       </div>
-      <p className="mt-2 text-[13px] text-studio-ink">
+      <p className="mt-2 text-lg text-studio-ink">
         No view module exists for{" "}
         <code className="font-mono text-studio-ink-muted">/studies/{slug}</code>.
       </p>

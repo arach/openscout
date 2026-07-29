@@ -28,11 +28,11 @@ export function EngDocHeader({ doc }: { doc: EngDoc }) {
       <div className="[&>*+*]:border-t [&>*+*]:border-studio-edge">
         {scoLabel ? (
           <DataRow label="Proposal">
-            <span className="font-mono text-[12.5px] font-semibold uppercase tracking-eyebrow text-studio-ink">
+            <span className="font-mono text-md font-semibold uppercase tracking-eyebrow text-studio-ink">
               {scoLabel}
             </span>
             {doc.kind !== "proposal" && doc.kind !== "other" ? (
-              <span className="ml-2 font-mono text-[9.5px] uppercase tracking-[0.18em] text-studio-ink-faint">
+              <span className="ml-2 font-mono text-2xs uppercase tracking-[0.18em] text-studio-ink-faint">
                 · {kindLabel(doc.kind)}
               </span>
             ) : null}
@@ -43,7 +43,7 @@ export function EngDocHeader({ doc }: { doc: EngDoc }) {
           <div className="flex flex-wrap items-baseline gap-2">
             <StatusPill status={doc.status} />
             {doc.statusRaw ? (
-              <span className="font-mono text-[11px] text-studio-ink-faint">
+              <span className="font-mono text-sm text-studio-ink-faint">
                 {doc.statusRaw}
               </span>
             ) : null}
@@ -51,7 +51,7 @@ export function EngDocHeader({ doc }: { doc: EngDoc }) {
         </DataRow>
 
         <DataRow label="Title">
-          <h1 className="m-0 font-display text-[22px] font-medium leading-tight tracking-tight text-studio-ink">
+          <h1 className="m-0 font-display text-5xl font-medium leading-tight tracking-tight text-studio-ink">
             {doc.title}
           </h1>
         </DataRow>
@@ -67,12 +67,12 @@ export function EngDocHeader({ doc }: { doc: EngDoc }) {
             <ul className="m-0 flex flex-col gap-1.5">
               {doc.siblings.map((s) => (
                 <li key={s.slug} className="flex items-baseline gap-2">
-                  <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-studio-ink-faint min-w-[110px]">
+                  <span className="font-mono text-2xs uppercase tracking-[0.18em] text-studio-ink-faint min-w-[110px]">
                     {kindLabel(s.kind)}
                   </span>
                   <Link
                     href={`/eng/${s.slug}`}
-                    className="font-sans text-[13px] text-studio-ink underline decoration-studio-edge underline-offset-2 hover:decoration-studio-ink"
+                    className="font-sans text-lg text-studio-ink underline decoration-studio-edge underline-offset-2 hover:decoration-studio-ink"
                   >
                     {s.title}
                   </Link>
@@ -108,7 +108,7 @@ function DataRow({
 }) {
   return (
     <div className="grid grid-cols-[120px_1fr] gap-6 px-7 py-3">
-      <div className="pt-[3px] font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="pt-[3px] font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         {label}
       </div>
       <div className="min-w-0">{children}</div>

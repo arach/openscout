@@ -20,8 +20,8 @@ export interface SessionInitMessage {
   workspaceFiles?: Record<string, string>;
   /** How long (ms) to keep the PTY alive after the client disconnects. Defaults to 30 min. */
   orphanTTL?: number;
-  /** PTY backend. 'pty' spawns a fresh process; 'tmux'/'zellij' attach to named multiplexers. */
-  backend?: 'pty' | 'tmux' | 'zellij';
+  /** PTY backend. 'pty' spawns a fresh process; 'tmux'/'zellij'/'herdr' attach to named hosts. */
+  backend?: 'pty' | 'tmux' | 'zellij' | 'herdr';
   /** Client control intent. Observe is enforced read-only and cannot size the shared terminal. */
   controlMode?: 'owner' | 'takeover' | 'observe';
   /** For tmux backend: the tmux session name. Required when backend is 'tmux'. */
@@ -30,6 +30,8 @@ export interface SessionInitMessage {
   zellijSession?: string;
   /** For zellij backend: optional shorter socket directory (useful on macOS). */
   zellijSocketDir?: string;
+  /** For herdr backend: the Herdr session name (`default` or named). */
+  herdrSession?: string;
   /** Process to spawn. 'claude' (default), 'pi', or 'shell' for a normal login shell. */
   agent?: 'claude' | 'pi' | 'shell';
   /** For pi agent: provider name (e.g. 'minimax', 'github-copilot'). */
@@ -131,6 +133,7 @@ export const RELAY_CAPABILITIES = [
   'backend:pty',
   'backend:tmux',
   'backend:zellij',
+  'backend:herdr',
   'control-mode:observe',
 ] as const;
 
@@ -158,7 +161,7 @@ export interface Session {
   /** Secret required to reattach to this session (proves ownership on reconnect). */
   reconnectToken: string;
   /** PTY backend type. */
-  backend: 'pty' | 'tmux' | 'zellij';
+  backend: 'pty' | 'tmux' | 'zellij' | 'herdr';
   /** Client control intent. */
   controlMode: 'owner' | 'takeover' | 'observe';
   /** tmux session name (only set when backend is 'tmux'). */
@@ -167,6 +170,8 @@ export interface Session {
   zellijSession?: string;
   /** zellij socket directory override (only set when backend is 'zellij'). */
   zellijSocketDir?: string;
+  /** herdr session name (only set when backend is 'herdr'). */
+  herdrSession?: string;
   /** Temporary layout file used to create a zellij session with the requested command. */
   zellijLayoutPath?: string;
   /** ACK-based outbound flow-control state for attached clients. */
@@ -673,10 +678,17 @@ export async function createSession(ws: RelaySocket, msg: SessionInitMessage): P
   const controlMode = msg.controlMode || 'owner';
   const tmuxName = msg.tmuxSession || `hudson-${id}`;
   const zellijName = msg.zellijSession || `hudson-${id}`;
+  const herdrName = msg.herdrSession || msg.tmuxSession || `scout-herdr-${id}`;
   const agent = msg.agent || 'claude';
 
-  // ---- Pre-flight: multiplexer session names reach tmux/zellij CLIs ----
-  const multiplexerName = backend === 'tmux' ? tmuxName : backend === 'zellij' ? zellijName : null;
+  // ---- Pre-flight: multiplexer session names reach tmux/zellij/herdr CLIs ----
+  const multiplexerName = backend === 'tmux'
+    ? tmuxName
+    : backend === 'zellij'
+      ? zellijName
+      : backend === 'herdr'
+        ? herdrName
+        : null;
   if (multiplexerName && !isValidMultiplexerName(multiplexerName)) {
     const reason = `Invalid ${backend} session name. Use only letters, digits, dashes, and underscores.`;
     console.error(`[relay] Session ${id} failed: ${reason}`);
@@ -685,8 +697,23 @@ export async function createSession(ws: RelaySocket, msg: SessionInitMessage): P
   }
 
   // ---- Pre-flight: locate command binary ----
-  let agentBin: string | null;
-  if (agent === 'shell') {
+  let agentBin: string | null = null;
+  let agentArgs: string[] = [];
+  const herdrBin = backend === 'herdr' ? await findBin('herdr', 'OPENSCOUT_HERDR_BIN') : null;
+
+  if (backend === 'herdr') {
+    if (!herdrBin) {
+      const reason = 'herdr not found. Install it from https://herdr.dev/docs/install/';
+      console.error(`[relay] Session ${id} failed: ${reason}`);
+      send(ws, { type: 'session:error', error: reason });
+      return null;
+    }
+    agentBin = herdrBin;
+    // Create-or-attach for named sessions; plain `herdr` for the default session.
+    agentArgs = !herdrName || herdrName === 'default'
+      ? []
+      : ['--session', herdrName];
+  } else if (agent === 'shell') {
     agentBin = await findShellBin();
     if (!agentBin) {
       const reason = 'No login shell found. Set SHELL or install zsh, bash, or sh.';
@@ -712,8 +739,8 @@ export async function createSession(ws: RelaySocket, msg: SessionInitMessage): P
     }
   }
 
-  if (!existsSync(agentBin)) {
-    const reason = `${agent} binary not found at ${agentBin}`;
+  if (!agentBin || !existsSync(agentBin)) {
+    const reason = `${backend === 'herdr' ? 'herdr' : agent} binary not found${agentBin ? ` at ${agentBin}` : ''}`;
     console.error(`[relay] Session ${id} failed: ${reason}`);
     send(ws, { type: 'session:error', error: reason });
     return null;
@@ -744,29 +771,28 @@ export async function createSession(ws: RelaySocket, msg: SessionInitMessage): P
   }
 
   // ---- Build command arguments based on process type ----
-  let agentArgs: string[];
-
-  if (agent === 'shell') {
-    const shellName = agentBin.split('/').pop() ?? '';
-    agentArgs = shellName === 'sh' ? [] : ['-l'];
-  } else if (agent === 'pi') {
-    agentArgs = ['--verbose'];
-    const provider = normalizePiProviderForCli(msg.provider);
-    if (provider) agentArgs.push('--provider', provider);
-    if (msg.model) agentArgs.push('--model', msg.model);
-    if (msg.systemPrompt) agentArgs.push('--system-prompt', msg.systemPrompt);
-  } else {
-    agentArgs = ['--verbose'];
-    if (msg.systemPrompt) agentArgs.push('--system-prompt', msg.systemPrompt);
+  if (backend !== 'herdr') {
+    if (agent === 'shell') {
+      const shellName = agentBin.split('/').pop() ?? '';
+      agentArgs = shellName === 'sh' ? [] : ['-l'];
+    } else if (agent === 'pi') {
+      agentArgs = ['--verbose'];
+      const provider = normalizePiProviderForCli(msg.provider);
+      if (provider) agentArgs.push('--provider', provider);
+      if (msg.model) agentArgs.push('--model', msg.model);
+      if (msg.systemPrompt) agentArgs.push('--system-prompt', msg.systemPrompt);
+    } else {
+      agentArgs = ['--verbose'];
+      if (msg.systemPrompt) agentArgs.push('--system-prompt', msg.systemPrompt);
+    }
   }
 
   const env: Record<string, string | undefined> = buildInteractiveTerminalEnvironment(process.env, {
     ...prepareZellijSocketDir(backend === 'zellij' ? msg.zellijSocketDir : undefined),
     TERM: 'xterm-256color',
   });
-  delete env.CLAUDECODE;
 
-  // ---- Spawn PTY (direct or tmux-backed) ----
+  // ---- Spawn PTY (direct or host-backed) ----
   let ptyProcess: IPty;
   let attachPtyOutput: AttachPtyOutput | null = null;
   let zellijLayoutPath: string | undefined;
@@ -792,6 +818,17 @@ export async function createSession(ws: RelaySocket, msg: SessionInitMessage): P
       zellijLayoutPath = spawned.layoutPath;
       if (trackZellij) trackCreatedMuxSession('zellij', zellijName);
       else markMuxSessionInUse('zellij', zellijName);
+    } else if (backend === 'herdr') {
+      // Full Herdr client inside the Scout relay PTY. Detaching the relay
+      // closes this client only; the Herdr server and panes keep running.
+      console.log(`[relay] Session ${id}: herdr backend (session: ${herdrName}) in ${cwd}`);
+      ptyProcess = pty.spawn(agentBin, agentArgs, {
+        name: 'xterm-256color',
+        cols,
+        rows,
+        cwd,
+        env,
+      });
     } else {
       console.log(`[relay] Session ${id}: pty backend, spawning ${agentBin} in ${cwd} [agent: ${agent}]`);
       ptyProcess = pty.spawn(agentBin, agentArgs, {
@@ -833,6 +870,7 @@ export async function createSession(ws: RelaySocket, msg: SessionInitMessage): P
       ...(msg.zellijSocketDir ? { zellijSocketDir: msg.zellijSocketDir } : {}),
       ...(zellijLayoutPath ? { zellijLayoutPath } : {}),
     } : {}),
+    ...(backend === 'herdr' ? { herdrSession: herdrName } : {}),
     flowControl: createTerminalFlowControlState(),
     flowControlEnabled: clientSupportsAck(msg.clientCapabilities),
     exited: false,
@@ -965,6 +1003,8 @@ export function destroy(sessionId: string) {
   } else if (session.backend === 'zellij') {
     console.log(`[relay] Session ${sessionId} bridge destroyed (zellij session '${session.zellijSession}' still alive)`);
     if (session.zellijSession) markMuxSessionDetached('zellij', session.zellijSession);
+  } else if (session.backend === 'herdr') {
+    console.log(`[relay] Session ${sessionId} bridge destroyed (herdr session '${session.herdrSession}' still alive)`);
   } else {
     console.log(`[relay] Session ${sessionId} destroyed`);
   }

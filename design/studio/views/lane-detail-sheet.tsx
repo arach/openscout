@@ -573,15 +573,15 @@ export default function LaneDetailSheetPage() {
 const CSS = `
 .lds-study{min-height:100vh;background:${C.bg};color:${C.ink};font-family:Inter,system-ui,sans-serif;padding:40px}
 .study-head{margin-bottom:22px;max-width:720px}
-.eyebrow{font-family:ui-monospace,monospace;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:${C.dim}}
-.lds-study h1{font-size:28px;font-weight:600;margin:4px 0}
-.sub{font-family:ui-monospace,monospace;font-size:12px;color:${C.dim};margin:0;line-height:1.5}
+.eyebrow{font-family:ui-monospace,monospace;font-size: var(--text-2xs);text-transform:uppercase;letter-spacing:.08em;color:${C.dim}}
+.lds-study h1{font-size: var(--text-6xl);font-weight:600;margin:4px 0}
+.sub{font-family:ui-monospace,monospace;font-size: var(--text-md);color:${C.dim};margin:0;line-height:1.5}
 
 /* stage — a faint left context so the sheet reads as a right-rail, plus the panel */
 .stage{display:flex;gap:0;align-items:flex-start;margin-top:8px;border:1px solid ${C.edge};border-radius:11px;overflow:hidden;width:fit-content;background:${C.bg}}
 .stage-context{width:230px;padding:16px 14px;display:flex;flex-direction:column;gap:7px;opacity:.55}
-.ctx-line{font-family:ui-monospace,monospace;font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:${C.dim};margin-bottom:6px}
-.ctx-lane{display:flex;align-items:center;gap:8px;font-family:ui-monospace,monospace;font-size:12px;color:${C.muted};padding:7px 9px;border-radius:6px}
+.ctx-line{font-family:ui-monospace,monospace;font-size: var(--text-2xs);text-transform:uppercase;letter-spacing:.1em;color:${C.dim};margin-bottom:6px}
+.ctx-lane{display:flex;align-items:center;gap:8px;font-family:ui-monospace,monospace;font-size: var(--text-md);color:${C.muted};padding:7px 9px;border-radius:6px}
 .ctx-lane--sel{background:rgba(255,255,255,.04);color:${C.ink};opacity:1}
 .ctx-dot{width:6px;height:6px;border-radius:50%;background:${C.faint}}
 .ctx-dot--on{background:${C.green};box-shadow:0 0 0 3px color-mix(in srgb,${C.green} 18%,transparent)}
@@ -594,11 +594,11 @@ const CSS = `
 .sheet-head{display:flex;align-items:center;gap:10px;padding:12px 14px 11px;border-bottom:1px solid ${C.edge}}
 .sheet-av{flex:none;border-radius:8px}
 .sheet-ident{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 auto}
-.sheet-name{display:inline-flex;align-items:center;gap:6px;font-size:15px;font-weight:600;letter-spacing:-.01em;color:${C.ink}}
-.sheet-sub{display:inline-flex;align-items:center;gap:6px;font-family:ui-monospace,monospace;font-size:10.5px;color:${C.dim}}
+.sheet-name{display:inline-flex;align-items:center;gap:6px;font-size: var(--text-2xl);font-weight:600;letter-spacing:-.01em;color:${C.ink}}
+.sheet-sub{display:inline-flex;align-items:center;gap:6px;font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.dim}}
 .working-dot{width:6px;height:6px;border-radius:50%;background:${C.green};box-shadow:0 0 0 3px color-mix(in srgb,${C.green} 16%,transparent);animation:pulse 2.6s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
-.harness-badge{display:inline-flex;align-items:center;gap:5px;flex:none;padding:3px 8px 3px 6px;border:1px solid ${C.edge};border-radius:5px;color:${C.muted};font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.02em}
+.harness-badge{display:inline-flex;align-items:center;gap:5px;flex:none;padding:3px 8px 3px 6px;border:1px solid ${C.edge};border-radius:5px;color:${C.muted};font-family:ui-monospace,monospace;font-size: var(--text-xs);letter-spacing:.02em}
 .harness-badge .harness-label{color:${C.muted};text-transform:lowercase}
 .closebtn{flex:none;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border:0;background:transparent;color:${C.dim};border-radius:6px;cursor:pointer}
 .closebtn:hover{color:${C.ink};background:rgba(255,255,255,.04)}
@@ -606,12 +606,12 @@ const CSS = `
 /* anchor bar — sticky jump nav */
 .anchorbar{display:flex;align-items:center;gap:4px;padding:7px 12px;border-bottom:1px solid ${C.edge};background:rgba(0,0,0,.18);position:sticky;top:0;z-index:5}
 .anchor-link{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:5px;text-decoration:none;
-  font-family:ui-monospace,monospace;font-size:10.5px;color:${C.muted};cursor:pointer}
+  font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.muted};cursor:pointer}
 .anchor-link:hover{background:rgba(255,255,255,.05);color:${C.ink}}
 .anchor-n{display:inline-flex;align-items:center;justify-content:center;min-width:15px;height:14px;padding:0 4px;border-radius:7px;
-  background:rgba(255,255,255,.06);color:${C.dim};font-size:9px}
+  background:rgba(255,255,255,.06);color:${C.dim};font-size: var(--text-2xs)}
 .anchorbar-spacer{flex:1 1 auto}
-.anchorbar-turn{margin-left:auto;font-family:ui-monospace,monospace;font-size:9.5px;color:${C.dim};display:inline-flex;align-items:center;gap:5px}
+.anchorbar-turn{margin-left:auto;font-family:ui-monospace,monospace;font-size: var(--text-2xs);color:${C.dim};display:inline-flex;align-items:center;gap:5px}
 .anchorbar-turn::before{content:"";width:5px;height:5px;border-radius:50%;background:${C.green}}
 
 /* scroll body */
@@ -624,18 +624,18 @@ const CSS = `
 .now-action{display:flex;align-items:flex-start;gap:8px;
   background:#070809;border:1px solid color-mix(in srgb,${C.ink} 12%,transparent);border-radius:7px;
   padding:7px 9px;box-shadow:inset 0 1px 0 rgba(255,255,255,.03),0 1px 2px rgba(0,0,0,.4)}
-.now-prompt{flex:none;color:color-mix(in srgb,${C.green} 80%,${C.muted});font-weight:700;font-family:ui-monospace,monospace;font-size:12px;line-height:1.5}
-.now-cmd{flex:1 1 auto;min-width:0;font-family:ui-monospace,monospace;font-size:11.5px;line-height:1.5;color:${C.ink};
+.now-prompt{flex:none;color:color-mix(in srgb,${C.green} 80%,${C.muted});font-weight:700;font-family:ui-monospace,monospace;font-size: var(--text-md);line-height:1.5}
+.now-cmd{flex:1 1 auto;min-width:0;font-family:ui-monospace,monospace;font-size: var(--text-sm);line-height:1.5;color:${C.ink};
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all}
 .now-acts{display:inline-flex;align-items:center;gap:3px;flex:none}
 .statstrip{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
-.stat{font-family:ui-monospace,monospace;font-size:10px;color:${C.muted};padding:2px 7px;border-radius:4px;background:color-mix(in srgb,${C.ink} 4%,transparent)}
+.stat{font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.muted};padding:2px 7px;border-radius:4px;background:color-mix(in srgb,${C.ink} 4%,transparent)}
 .stat b{color:${C.ink};font-weight:600}
 
 /* ACTIONS */
 .actions{display:flex;flex-wrap:wrap;gap:7px;padding:11px 14px}
 .ghost{display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border:1px solid ${C.edge};border-radius:6px;
-  background:rgba(255,255,255,.015);color:${C.muted};font-family:ui-monospace,monospace;font-size:11px;cursor:pointer;white-space:nowrap}
+  background:rgba(255,255,255,.015);color:${C.muted};font-family:ui-monospace,monospace;font-size: var(--text-sm);cursor:pointer;white-space:nowrap}
 .ghost:hover{color:${C.ink};border-color:rgba(255,255,255,.14);background:rgba(255,255,255,.04)}
 .ghost--primary{color:${C.ink};border-color:color-mix(in srgb,${C.green} 36%,transparent);
   background:color-mix(in srgb,${C.green} 9%,transparent)}
@@ -643,17 +643,17 @@ const CSS = `
 
 /* section head */
 .sechead{display:flex;align-items:center;gap:9px;padding:16px 14px 7px;scroll-margin-top:46px}
-.sechead-label{font-family:ui-monospace,monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:${C.muted};flex:none}
-.sechead-count{font-family:ui-monospace,monospace;font-size:9.5px;color:${C.dim};flex:none}
+.sechead-label{font-family:ui-monospace,monospace;font-size: var(--text-2xs);font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:${C.muted};flex:none}
+.sechead-count{font-family:ui-monospace,monospace;font-size: var(--text-2xs);color:${C.dim};flex:none}
 .sechead-rule{flex:1 1 auto;height:1px;background:${C.edge};min-width:8px}
 .sechead-actions{display:inline-flex;align-items:center;gap:6px;flex:none}
 
 /* kv grid (runtime) */
 .kvgrid{display:flex;flex-direction:column;gap:0;padding:0 14px}
 .kv{display:grid;grid-template-columns:74px 1fr;column-gap:10px;align-items:center;padding:4px 0;min-width:0}
-.kv-k{font-family:ui-monospace,monospace;font-size:10px;color:${C.dim};text-transform:lowercase;letter-spacing:.02em}
-.kv-v{font-family:ui-monospace,monospace;font-size:11px;color:${C.ink};min-width:0;display:flex;align-items:center;gap:8px}
-.kv-aux{color:${C.dim};font-size:10px}
+.kv-k{font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.dim};text-transform:lowercase;letter-spacing:.02em}
+.kv-v{font-family:ui-monospace,monospace;font-size: var(--text-sm);color:${C.ink};min-width:0;display:flex;align-items:center;gap:8px}
+.kv-aux{color:${C.dim};font-size: var(--text-xs)}
 
 /* copy value + dot */
 .cval{display:inline-flex;align-items:center;gap:6px;min-width:0;max-width:100%}
@@ -675,24 +675,24 @@ const CSS = `
 /* more block */
 .more{padding:2px 14px 0}
 .more-toggle{display:inline-flex;align-items:center;gap:6px;border:0;background:transparent;color:${C.dim};cursor:pointer;
-  font-family:ui-monospace,monospace;font-size:10px;padding:4px 0}
+  font-family:ui-monospace,monospace;font-size: var(--text-xs);padding:4px 0}
 .more-toggle:hover{color:${C.muted}}
 .more-body{padding:2px 0 4px}
 
 /* USAGE */
 .usage{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;margin:0 14px;border:1px solid ${C.edge};border-radius:7px;overflow:hidden;background:${C.edge}}
 .ucell{display:flex;flex-direction:column;gap:2px;padding:8px 10px;background:${C.panel};position:relative}
-.ucell-n{font-family:ui-monospace,monospace;font-size:12px;color:${C.ink};font-variant-numeric:tabular-nums}
-.ucell-l{font-family:ui-monospace,monospace;font-size:9px;color:${C.dim};text-transform:lowercase;letter-spacing:.04em}
+.ucell-n{font-family:ui-monospace,monospace;font-size: var(--text-md);color:${C.ink};font-variant-numeric:tabular-nums}
+.ucell-l{font-family:ui-monospace,monospace;font-size: var(--text-2xs);color:${C.dim};text-transform:lowercase;letter-spacing:.04em}
 .ucell--ctx .ucell-n{color:${C.green}}
 .ctxbar{position:absolute;left:10px;right:10px;bottom:6px;height:2px;border-radius:2px;background:rgba(255,255,255,.07);overflow:hidden}
 .ctxbar-fill{display:block;height:100%;background:${C.green};border-radius:2px}
 
 /* FILES */
-.diff-tally{display:inline-flex;gap:5px;font-family:ui-monospace,monospace;font-size:10px}
+.diff-tally{display:inline-flex;gap:5px;font-family:ui-monospace,monospace;font-size: var(--text-xs)}
 .fadd{color:${C.muted}}.fdel{color:${C.dim}}
 .filegroup{padding:0 14px;margin-top:4px}
-.fglabel{display:flex;align-items:center;gap:7px;padding:7px 0 4px;font-family:ui-monospace,monospace;font-size:9px;font-weight:600;letter-spacing:.1em;color:${C.dim};width:100%;border:0;background:transparent;text-align:left;cursor:default}
+.fglabel{display:flex;align-items:center;gap:7px;padding:7px 0 4px;font-family:ui-monospace,monospace;font-size: var(--text-2xs);font-weight:600;letter-spacing:.1em;color:${C.dim};width:100%;border:0;background:transparent;text-align:left;cursor:default}
 .fglabel--btn{cursor:pointer}
 .fglabel--btn:hover{color:${C.muted}}
 .fglabel-caret{display:inline-flex;color:${C.dim}}
@@ -704,30 +704,30 @@ const CSS = `
 .fglabel-hint{margin-left:auto;color:${C.faint};font-weight:400;letter-spacing:.02em;text-transform:none}
 .frow{display:flex;align-items:center;gap:8px;padding:3px 6px 3px 13px;margin:0 -6px;border-radius:5px;min-width:0}
 .frow:hover{background:rgba(255,255,255,.025)}
-.fstate{flex:none;width:11px;text-align:center;font-family:ui-monospace,monospace;font-size:12px;line-height:1;color:${C.dim}}
+.fstate{flex:none;width:11px;text-align:center;font-family:ui-monospace,monospace;font-size: var(--text-md);line-height:1;color:${C.dim}}
 .fstate--new{color:${C.green}}
 .fstate--mod{color:${C.muted}}
 .fstate--read{color:${C.faint}}
-.fpath{flex:1 1 auto;min-width:0;font-family:ui-monospace,monospace;font-size:11px;display:flex;align-items:baseline;overflow:hidden}
+.fpath{flex:1 1 auto;min-width:0;font-family:ui-monospace,monospace;font-size: var(--text-sm);display:flex;align-items:baseline;overflow:hidden}
 .fdir{color:${C.dim};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;max-width:46%;flex:0 1 auto}
 .fbase{color:${C.ink};white-space:nowrap;flex:none}
-.fdiff{flex:none;display:inline-flex;gap:4px;font-family:ui-monospace,monospace;font-size:10px}
+.fdiff{flex:none;display:inline-flex;gap:4px;font-family:ui-monospace,monospace;font-size: var(--text-xs)}
 .frow-acts{flex:none;display:inline-flex;align-items:center;gap:1px}
 .rowact{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:1px solid transparent;border-radius:4px;background:transparent;color:${C.faint};cursor:pointer;opacity:0;transition:opacity .12s ease,color .12s ease}
 .frow:hover .rowact,.now-action:hover .rowact{opacity:1}
 .rowact:hover{color:${C.ink};border-color:${C.edge};background:rgba(255,255,255,.04)}
-.showall{margin:5px 0 2px 19px;border:0;background:transparent;color:${C.dim};font-family:ui-monospace,monospace;font-size:10.5px;cursor:pointer;padding:2px 0}
+.showall{margin:5px 0 2px 19px;border:0;background:transparent;color:${C.dim};font-family:ui-monospace,monospace;font-size: var(--text-xs);cursor:pointer;padding:2px 0}
 .showall:hover{color:${C.muted}}
 
 /* COMMANDS */
 .cmdlist{padding:2px 14px 0}
 .crow{display:flex;align-items:center;gap:8px;padding:4px 6px;margin:0 -6px;border-radius:5px;min-width:0}
 .crow:hover{background:rgba(255,255,255,.025)}
-.cmark{flex:none;width:12px;text-align:center;font-family:ui-monospace,monospace;font-size:11px;color:${C.dim}}
+.cmark{flex:none;width:12px;text-align:center;font-family:ui-monospace,monospace;font-size: var(--text-sm);color:${C.dim}}
 .crow--bash .cmark{color:color-mix(in srgb,${C.green} 70%,${C.muted})}
-.ctext{flex:1 1 auto;min-width:0;font-family:ui-monospace,monospace;font-size:11px;color:${C.muted};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ctext{flex:1 1 auto;min-width:0;font-family:ui-monospace,monospace;font-size: var(--text-sm);color:${C.muted};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .crow--bash .ctext{color:${C.ink}}
-.cresult{flex:none;font-family:ui-monospace,monospace;font-size:9.5px;color:${C.dim};white-space:nowrap}
+.cresult{flex:none;font-family:ui-monospace,monospace;font-size: var(--text-2xs);color:${C.dim};white-space:nowrap}
 .crow-acts{flex:none;display:inline-flex;align-items:center}
 
 /* PLANS */
@@ -736,10 +736,10 @@ const CSS = `
 .plan-head{display:flex;align-items:center;gap:8px;width:100%;border:0;background:transparent;cursor:pointer;padding:8px 10px;text-align:left;min-width:0}
 .plan-head:hover{background:rgba(255,255,255,.02)}
 .plan-caret{flex:none;color:${C.dim};display:inline-flex}
-.plan-title{flex:1 1 auto;min-width:0;font-size:12px;color:${C.ink};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.plan-tally{flex:none;font-family:ui-monospace,monospace;font-size:9.5px;color:${C.dim}}
+.plan-title{flex:1 1 auto;min-width:0;font-size: var(--text-md);color:${C.ink};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.plan-tally{flex:none;font-family:ui-monospace,monospace;font-size: var(--text-2xs);color:${C.dim}}
 .plan-steps{padding:2px 12px 9px 14px;border-top:1px solid ${C.edgeSoft};display:flex;flex-direction:column;gap:3px}
-.pstep{display:flex;align-items:baseline;gap:8px;font-family:ui-monospace,monospace;font-size:10.5px;color:${C.muted};padding-top:5px}
+.pstep{display:flex;align-items:baseline;gap:8px;font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.muted};padding-top:5px}
 .pstep-box{flex:none;width:11px;text-align:center;color:${C.dim}}
 .pstep--done .pstep-text{color:${C.dim};text-decoration:line-through}
 .pstep--doing .pstep-box{color:${C.green}}
@@ -748,10 +748,10 @@ const CSS = `
 
 /* DOCS / empty */
 .empty{margin:2px 14px 0;padding:11px;border:1px dashed ${C.edge};border-radius:7px;text-align:center;
-  font-family:ui-monospace,monospace;font-size:10.5px;color:${C.faint}}
+  font-family:ui-monospace,monospace;font-size: var(--text-xs);color:${C.faint}}
 
 /* foot */
 .sheet-foot{margin:18px 14px 6px;padding-top:11px;border-top:1px solid ${C.edgeSoft};
-  font-family:ui-monospace,monospace;font-size:9.5px;color:${C.faint};display:flex;align-items:center;gap:6px}
+  font-family:ui-monospace,monospace;font-size: var(--text-2xs);color:${C.faint};display:flex;align-items:center;gap:6px}
 .foot-id{color:${C.dim}}
 `;
