@@ -229,13 +229,8 @@ Changes:
    plane was migrated once in place so its two historical `openscout`
    identities retained their durable references. No general rename command is
    shipped. Any other stored project or registry entry using a reserved name
-   is rejected with `reserved_name_existing` and must be repaired explicitly.
-   Fleet discovery quarantines a sibling offender and reports a structured
-   `reserved_name_existing` project error so one bad project cannot erase the
-   rest of the fleet. Targeted setup/routing for the offending project still
-   fails closed, as does broker startup when a historical reserved identity is
-   already present in the durable control plane. Inferred new names use a
-   non-reserved `-agent` suffix automatically.
+   fails startup with `reserved_name_existing` and must be repaired explicitly.
+   Inferred new names use a non-reserved `-agent` suffix automatically.
 
 ---
 
@@ -297,6 +292,49 @@ row is accept-or-defer at implementation time:
 - iOS wire structs gain `effort` (absent from all of `ScoutIOSCore`); Claude
   observe gains effort so the observed side is complete
   (`packages/runtime/src/claude-stream-json.ts:494-498` records model only).
+
+### C.5 Host-published runtime catalog ⟨v3.1 addendum, operator-requested⟩
+
+The picker must be instant and the menu must reflect what this host's
+configured subscriptions actually offer — not just the seed plus whatever the
+current project's 50 most recent agents happen to run.
+
+**Assembly (broker-side, one product).** The catalog =
+`SCOUT_RUNTIME_MODEL_CATALOG` seed ∪ **fleet-observed distinct
+(harness, model) pairs across the store's full history** (agents + sessions
+tables both carry `model`; one indexed `SELECT DISTINCT`, not
+project-scoped `queryAgents(50)`) ∪ harness readiness from
+`loadHarnessCatalogSnapshot()` (binary presence, version, auth state — this is
+where "configured subscriptions" surfaces: a harness with no binary or no auth
+is listed dimmed-with-reason, never hidden). Observed entries keep
+`source: "observed"` so UIs rank curated defaults first; the retired-model
+filter (`isRetiredHudRunnerModel`) still applies.
+
+**Persistence + TTL.** The broker persists the assembled catalog
+(`generatedAt`, schema v1) in its home dir. Recompute lazily after **24h**, or
+eagerly when the harness-catalog snapshot changes (binary version or auth
+delta — those are the only events that change the menu). Assembly is cheap;
+the cache exists to make the payload *stable and pushable*, not to hide cost.
+
+**Transport — the catalog comes with the host.** Pickers never fetch on open.
+The persisted catalog rides the payloads each client already receives at
+boot/handshake: the web bootstrap payload, the mobile bridge hello (the mobile
+service already serves the v1 schema), and the macOS HUD state feed.
+`/api/runner/options` remains the pull/refresh path serving the same persisted
+object (ETag on `generatedAt` for cheap revalidation).
+
+**Client semantics.** Cold-start seed (`lib/runtime-capabilities.ts`
+`RUNTIME_CAPABILITY_SEED`, iOS hardcoded list) renders synchronously →
+replaced by the host catalog from the boot payload → persisted per device
+(localStorage / iOS defaults) with the same 24h stale-while-revalidate
+window, so a phone away from its Mac keeps last-known-good. This subsumes the
+C mobile offline policy above — one cache rule for all three clients.
+
+2026-07-29: seed expanded with the host's verifiable subscription models
+(Opus 4.8/4.7, Sonnet 4.5, Grok 4.5/4.3) in both `runtime-execution.ts` and
+`runtime-capabilities.ts`; Kimi/Cursor model ids are deliberately absent from
+the seed — no verifiable ids in-repo; they arrive via the fleet-observed
+union.
 
 ---
 
