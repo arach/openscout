@@ -145,6 +145,11 @@ describe("BrokerWebControlService", () => {
       resolveLogPath: () => "/dev/null",
       startPollTimeoutMs: 1_000,
       startPollIntervalMs: 1,
+      sleep: async () => {
+        if (child.killed && child.exitCode === null) {
+          child.emitExit();
+        }
+      },
       log() {},
     });
 
@@ -160,6 +165,7 @@ describe("BrokerWebControlService", () => {
     expect(spawns[0]?.command).toBe("/usr/local/bin/bun");
     expect(spawns[0]?.args).toEqual(["run", "/repo/packages/web/server/index.ts"]);
     expect(spawns[0]?.options.argv0).toBe("scout-web");
+    expect(spawns[0]?.options.detached).toBeUndefined();
     expect(spawns[0]?.options.env).toEqual(expect.objectContaining({
       OPENSCOUT_WEB_HOST: "0.0.0.0",
       OPENSCOUT_WEB_PORT: "4321",
@@ -171,8 +177,101 @@ describe("BrokerWebControlService", () => {
       OPENSCOUT_SETUP_CWD: "/repo",
     }));
 
-    service.stop();
+    await service.stop();
     expect(child.killed).toBe(true);
+  });
+
+  test("waits for its owned web child to exit during broker shutdown", async () => {
+    const child = fakeChild(2468);
+    let healthChecks = 0;
+    const service = new BrokerWebControlService({
+      brokerControlUrl: "http://127.0.0.1:4321",
+      env: { OPENSCOUT_WEB_PORT: "4321" },
+      healthCheck: async () => {
+        healthChecks += 1;
+        return healthChecks >= 2;
+      },
+      spawnProcess() {
+        return child;
+      },
+      resolveEntry: () => "/repo/packages/web/server/index.ts",
+      resolveBun: () => ({ path: "/usr/local/bin/bun" }),
+      resolveLogPath: () => "/dev/null",
+      startPollTimeoutMs: 1_000,
+      startPollIntervalMs: 1,
+      sleep: async () => {
+        if (child.killed && child.exitCode === null) {
+          child.emitExit();
+        }
+      },
+    });
+
+    await service.startIfNeeded();
+    await service.stop();
+
+    expect(child.killed).toBe(true);
+    expect(child.exitCode).toBe(0);
+    expect((await service.status()).managed).toBe(false);
+  });
+
+  test("forces its owned web child to exit after the graceful stop deadline", async () => {
+    const child = fakeChild(2468);
+    const signals: NodeJS.Signals[] = [];
+    child.kill = (signal?: number | NodeJS.Signals) => {
+      signals.push(signal as NodeJS.Signals);
+      child.killed = true;
+      if (signal === "SIGKILL") child.emitExit();
+      return true;
+    };
+    let healthChecks = 0;
+    const service = new BrokerWebControlService({
+      brokerControlUrl: "http://127.0.0.1:4321",
+      env: { OPENSCOUT_WEB_PORT: "4321" },
+      healthCheck: async () => {
+        healthChecks += 1;
+        return healthChecks >= 2;
+      },
+      spawnProcess: () => child,
+      resolveEntry: () => "/repo/packages/web/server/index.ts",
+      resolveBun: () => ({ path: "/usr/local/bin/bun" }),
+      resolveLogPath: () => "/dev/null",
+      startPollTimeoutMs: 1_000,
+      startPollIntervalMs: 1,
+      stopTimeoutMs: 0,
+      sleep: async () => {},
+    });
+
+    await service.startIfNeeded();
+    await service.stop();
+
+    expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
+    expect((await service.status()).managed).toBe(false);
+  });
+
+  test("does not spawn a web child after shutdown starts during a health probe", async () => {
+    let resolveHealthCheck: ((healthy: boolean) => void) | null = null;
+    let spawnCount = 0;
+    const service = new BrokerWebControlService({
+      brokerControlUrl: "http://127.0.0.1:4321",
+      env: { OPENSCOUT_WEB_PORT: "4321" },
+      healthCheck: () => new Promise<boolean>((resolve) => {
+        resolveHealthCheck = resolve;
+      }),
+      spawnProcess() {
+        spawnCount += 1;
+        return fakeChild(2468);
+      },
+    });
+
+    const start = service.startIfNeeded();
+    await Promise.resolve();
+    await service.stop();
+    resolveHealthCheck?.(false);
+    const status = await start;
+
+    expect(spawnCount).toBe(0);
+    expect(status.ok).toBe(false);
+    expect(status.error).toContain("broker is stopping");
   });
 
   test("waits for the managed web process to exit before spawning its replacement", async () => {

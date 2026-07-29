@@ -1,5 +1,5 @@
 import type { RuntimeErrnoError } from "./portable-types.js";
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, openSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -29,13 +29,12 @@ const RESTART_MIN_DELAY_MS = 1_000;
 const RESTART_MAX_DELAY_MS = 30_000;
 const BROKER_HEALTH_TIMEOUT_MS = 30_000;
 const BROKER_HEALTH_POLL_MS = 250;
-// Broker's graceful window before base SIGKILLs it. Kept below scoutd's own
-// CHILD_SHUTDOWN_TIMEOUT (18s) so base's whole subtree finishes before scoutd
-// force-kills base; 8s clears the broker's internal 5s server force-close with margin.
-const CHILD_SHUTDOWN_TIMEOUT_MS = 8_000;
+// Broker owns web shutdown and allows the web server 10s to drain. Base must
+// give that child boundary enough room, while still finishing below scoutd's
+// 18s outer child timeout.
+const CHILD_SHUTDOWN_TIMEOUT_MS = 15_000;
 const WEB_START_RETRY_MS = 5_000;
 const MENU_BUNDLE_ID = "app.openscout.scout.menu";
-const MENU_PROCESS_NAME = "ScoutMenu";
 const PROCESS_NAME = "scout-base";
 // openscout-runtime.mjs runs broker-daemon in-process (no second bun child),
 // so the process spawned here IS the broker; name it accordingly for ps/doctor.
@@ -51,7 +50,6 @@ let caddyProcess: ChildProcess | null = null;
 let mdnsProcesses: ChildProcess[] = [];
 let brokerRestartDelayMs = RESTART_MIN_DELAY_MS;
 let edgeRestartDelayMs = RESTART_MIN_DELAY_MS;
-let supervisedWebPid: number | null = null;
 let baseKeepAlive: ReturnType<typeof setInterval> | null = null;
 let webStartRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let webStartInFlight = false;
@@ -162,7 +160,6 @@ function spawnBroker(): void {
   brokerProcess.once("exit", (code, signal) => {
     log("broker exited", { code, signal });
     brokerProcess = null;
-    supervisedWebPid = null;
     if (!shuttingDown) {
       scheduleBrokerRestart();
     }
@@ -383,15 +380,12 @@ async function startWebWhenBrokerIsReady(): Promise<void> {
         signal: AbortSignal.timeout(15_000),
       });
       const body = await response.json() as { ok?: boolean; pid?: number | null; error?: string | null };
-      supervisedWebPid = typeof body.pid === "number"
-        ? body.pid
-        : resolvePortListenerPid(Number.parseInt(process.env.OPENSCOUT_WEB_PORT ?? "", 10) || resolveWebPort());
       if (!response.ok || body.ok !== true) {
         warn("web server did not report healthy", body.error ?? response.statusText);
         scheduleWebStartRetry();
         return;
       }
-      log("web server ready", { pid: supervisedWebPid });
+      log("web server ready", { pid: body.pid ?? null });
     } catch (error) {
       warn("web server startup failed", error instanceof Error ? error.message : String(error));
       scheduleWebStartRetry();
@@ -410,17 +404,6 @@ function scheduleWebStartRetry(): void {
     void startWebWhenBrokerIsReady();
   }, WEB_START_RETRY_MS);
   webStartRetryTimer.unref();
-}
-
-function resolvePortListenerPid(port: number): number | null {
-  const result = spawnSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], {
-    encoding: "utf8",
-  });
-  if ((result.status ?? 1) !== 0) {
-    return null;
-  }
-  const pid = Number.parseInt(result.stdout.trim().split(/\s+/)[0] ?? "", 10);
-  return Number.isFinite(pid) && pid > 0 ? pid : null;
 }
 
 function findRepoMenuBundle(): string | null {
@@ -463,13 +446,6 @@ function startMenuBarApp(): void {
     }
     warn("menu bar app launch failed", { target: repoBundle ?? MENU_BUNDLE_ID, code });
   });
-}
-
-function stopMenuBarApp(): void {
-  if (process.platform !== "darwin" || process.env.OPENSCOUT_BASE_MENU_ENABLED === "0") {
-    return;
-  }
-  spawn("pkill", ["-x", MENU_PROCESS_NAME], { stdio: "ignore" }).unref();
 }
 
 function isChildExited(child: ChildProcess): boolean {
@@ -517,17 +493,6 @@ async function terminateChildProcess(
   await waitForChildExit(child, 2_000);
 }
 
-function stopSupervisedWeb(): void {
-  if (supervisedWebPid && supervisedWebPid > 0) {
-    try {
-      process.kill(supervisedWebPid, "SIGTERM");
-    } catch {
-      // The broker may already have stopped its web child.
-    }
-  }
-  supervisedWebPid = null;
-}
-
 async function shutdown(exitCode = 0): Promise<void> {
   if (shuttingDown) {
     return;
@@ -545,8 +510,10 @@ async function shutdown(exitCode = 0): Promise<void> {
     clearTimeout(webStartRetryTimer);
     webStartRetryTimer = null;
   }
-  stopSupervisedWeb();
-  stopMenuBarApp();
+  // The broker is the sole owner of scout-web and awaits its drain in its own
+  // shutdown path. Scout.app owns its embedded helper through LaunchServices;
+  // base must not use a same-name process kill as a substitute for that
+  // registration boundary.
   const activeCaddyProcess = caddyProcess;
   stopEdgeProcesses();
   await terminateChildProcess(brokerProcess, "broker");

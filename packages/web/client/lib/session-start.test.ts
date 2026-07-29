@@ -47,6 +47,7 @@ describe("startAgentSession", () => {
     await startAgentSession(agent, {
       instructions: "Inspect this screenshot",
       attachments: [{
+        id: "capture-1",
         url: "http://localhost:43122/api/blobs/capture-1",
         mediaType: "image/png",
         fileName: "capture.png",
@@ -69,6 +70,7 @@ describe("startAgentSession", () => {
         seed: {
           instructions: "Inspect this screenshot",
           attachments: [{
+            id: "capture-1",
             url: "http://localhost:43122/api/blobs/capture-1",
             mediaType: "image/png",
             fileName: "capture.png",
@@ -131,6 +133,7 @@ describe("startAgentSession", () => {
       reasoningEffort: " high ",
       instructions: " Start here. ",
       attachments: [{
+        id: "capture-2",
         url: "http://localhost:43122/api/blobs/capture-2",
         mediaType: "image/png",
         fileName: "capture.png",
@@ -149,6 +152,7 @@ describe("startAgentSession", () => {
       seed: {
         instructions: "Start here.",
         attachments: [{
+          id: "capture-2",
           url: "http://localhost:43122/api/blobs/capture-2",
           mediaType: "image/png",
           fileName: "capture.png",

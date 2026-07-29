@@ -142,7 +142,7 @@ export function buildChannelMembers(
     groups.set(key, [...(groups.get(key) ?? []), participant]);
   }
 
-  return [...groups.entries()].map(([id, group]) => {
+  return [...groups.entries()].map<ChannelMemberProfile>(([id, group]) => {
     const primary = preferredParticipant(group);
     const agent = matchingAgent(group, agents);
     const actorIds = uniqueStrings(group.flatMap((participant) => [

@@ -228,8 +228,8 @@ export function createScoutApp(options: { initialTheme?: ScoutTheme } = {}): Hud
           defaultTheme: initialTheme,
           defaultTemplate: initialTemplate,
           storageKey: SCOUT_THEME_STORAGE_KEY,
+          children: createElement(ScoutProvider, { initialTheme, children }),
         },
-        createElement(ScoutProvider, { initialTheme, children }),
       ),
 
     leftPanel: {

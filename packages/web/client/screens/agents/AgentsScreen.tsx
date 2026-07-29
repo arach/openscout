@@ -3,6 +3,7 @@ import { api, peekApiGet } from "../../lib/api.ts";
 import { filterAgentsByMachineScope } from "../../lib/machine-scope.ts";
 import { routeMachineId } from "../../lib/router.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
+import { isScoutSurfaceActive, onScoutSurfaceActivated } from "../../lib/surface-activity.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { AgentDirectoryStudioInjection } from "../../studio/AgentDirectoryStudioInjection.tsx";
 import type {
@@ -80,11 +81,18 @@ export function AgentsScreen({
     void load();
   }, [load]);
   useEffect(() => {
-    const id = window.setInterval(() => void load(), 10_000);
-    return () => window.clearInterval(id);
+    const refreshIfActive = () => {
+      if (isScoutSurfaceActive()) void load();
+    };
+    const id = window.setInterval(refreshIfActive, 10_000);
+    const stopActivationListener = onScoutSurfaceActivated(refreshIfActive);
+    return () => {
+      window.clearInterval(id);
+      stopActivationListener();
+    };
   }, [load]);
   useBrokerEvents(() => {
-    void load();
+    if (isScoutSurfaceActive()) void load();
   });
 
   const selectedAgent = resolveSelectedAgent(scopedAgents, selectedAgentId);

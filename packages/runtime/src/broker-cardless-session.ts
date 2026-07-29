@@ -172,6 +172,7 @@ export function buildCardlessSessionEndpoint(input: CardlessSessionInput): Agent
   const endpointSessionId = input.pairingSessionId?.trim() || input.sessionId;
   const launchArgs = input.launchArgs?.map((entry) => entry.trim()).filter(Boolean);
   const handle = cleanCardlessSessionHandle(input);
+  const startedAt = Date.now();
   const displayName = input.displayName?.trim() || (input.handle?.trim()
     ? cardlessSessionDisplayName({ handle, projectName })
     : undefined);
@@ -195,6 +196,7 @@ export function buildCardlessSessionEndpoint(input: CardlessSessionInput): Agent
       project: projectName,
       projectRoot,
       pendingExternalSession: !externalSessionId,
+      ...(!externalSessionId ? { pendingExternalSessionAt: startedAt } : {}),
       ...(externalSessionId ? {
         externalSessionId,
         ...(input.transport === "codex_app_server" ? { threadId: externalSessionId } : {}),
@@ -207,7 +209,7 @@ export function buildCardlessSessionEndpoint(input: CardlessSessionInput): Agent
       ...(input.reasoningEffort?.trim() ? { reasoningEffort: input.reasoningEffort.trim() } : {}),
       ...(launchArgs && launchArgs.length > 0 ? { launchArgs } : {}),
       ...(input.viaCard ? { viaCard: input.viaCard } : {}),
-      startedAt: String(Date.now()),
+      startedAt: String(startedAt),
     },
   };
 }

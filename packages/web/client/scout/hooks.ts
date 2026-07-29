@@ -3,6 +3,7 @@ import { Settings } from "lucide-react";
 import { type CommandOption, type StatusColor, type TakeoverState } from "@hudsonkit";
 import { useOptionalFlag } from "hudsonkit/flags";
 import { api } from "../lib/api.ts";
+import { isScoutSurfaceActive, onScoutSurfaceActivated } from "../lib/surface-activity.ts";
 import { ensureAgentChat } from "../lib/agent-chat.ts";
 import { useScout } from "./Provider.tsx";
 import { localMachineLabel } from "../lib/mesh-buckets.ts";
@@ -147,10 +148,15 @@ export function useScoutStatusBarState(): ScoutStatusBarState {
 
   useEffect(() => {
     void loadMesh();
-    const timer = setInterval(() => {
-      void loadMesh();
-    }, 15_000);
-    return () => clearInterval(timer);
+    const refreshIfActive = () => {
+      if (isScoutSurfaceActive()) void loadMesh();
+    };
+    const timer = setInterval(refreshIfActive, 15_000);
+    const stopActivationListener = onScoutSurfaceActivated(refreshIfActive);
+    return () => {
+      clearInterval(timer);
+      stopActivationListener();
+    };
   }, [loadMesh]);
 
   useEffect(() => {

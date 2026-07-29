@@ -1267,7 +1267,7 @@ describe("isAgentLaneWorking", () => {
     expect(lanes).toHaveLength(0);
   });
 
-  test("keeps provider-present scout lanes when trace rows fall outside the horizon", () => {
+  test("drops provider-present scout lanes when registration and trace rows fall outside the horizon", () => {
     const agent = stubAgent("dewey-present");
     agent.state = "callable";
     agent.transport = "codex_app_server";
@@ -1307,12 +1307,7 @@ describe("isAgentLaneWorking", () => {
       horizon: "5m",
     });
 
-    expect(lanes).toHaveLength(1);
-    expect(lanes[0]?.id).toBe(agent.id);
-    expect(lanes[0]?.current).toBe(false);
-    // Presence keeps the lane; the trace fill floor keeps its history visible
-    // instead of an empty window.
-    expect(lanes[0]?.observe?.events.map((event) => event.id)).toEqual(["evt-1"]);
+    expect(lanes).toHaveLength(0);
   });
 });
 

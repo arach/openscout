@@ -10,6 +10,7 @@ import { TailView } from "../shared/TailView.tsx";
 import { api } from "../../lib/api.ts";
 import { useObservePolling } from "../../lib/observe.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
+import { isScoutSurfaceActive, onScoutSurfaceActivated } from "../../lib/surface-activity.ts";
 import {
   compareTimestampsDesc,
   normalizeTimestampMs,
@@ -396,6 +397,7 @@ export function HomeContent({
   }, [reload, lookbackOption]);
 
   const scheduleRefresh = useCallback(() => {
+    if (!isScoutSurfaceActive()) return;
     if (refreshTimerRef.current) return;
     refreshTimerRef.current = setTimeout(() => {
       refreshTimerRef.current = null;
@@ -422,9 +424,13 @@ export function HomeContent({
       }
     };
     void fetchBudgets();
-    const id = setInterval(fetchBudgets, SERVICE_BUDGETS_REFRESH_MS);
+    const id = setInterval(() => {
+      if (isScoutSurfaceActive()) void fetchBudgets();
+    }, SERVICE_BUDGETS_REFRESH_MS);
     const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") void fetchBudgets();
+      if (document.visibilityState === "visible" && isScoutSurfaceActive()) {
+        void fetchBudgets();
+      }
     };
     window.addEventListener("focus", refreshWhenVisible);
     document.addEventListener("visibilitychange", refreshWhenVisible);
@@ -455,13 +461,15 @@ export function HomeContent({
 
   useEffect(() => {
     void loadLocalTailSnapshot();
-    const id = setInterval(() => void loadLocalTailSnapshot(), LOCAL_TAIL_REFRESH_MS);
+    const id = setInterval(() => {
+      if (isScoutSurfaceActive()) void loadLocalTailSnapshot();
+    }, LOCAL_TAIL_REFRESH_MS);
     return () => clearInterval(id);
   }, [loadLocalTailSnapshot]);
 
   useEffect(() => {
     const timer = setInterval(() => {
-      if (document.visibilityState === "visible") {
+      if (isScoutSurfaceActive()) {
         void load("background");
       }
     }, 15_000);
@@ -469,31 +477,26 @@ export function HomeContent({
   }, [load]);
 
   useEffect(() => {
-    const refreshIfVisible = () => {
-      if (document.visibilityState !== "visible") {
-        return;
-      }
-
+    const refreshIfActive = () => {
       const now = Date.now();
       if (now - lastForegroundRefreshAtRef.current < 1000) {
         return;
       }
       lastForegroundRefreshAtRef.current = now;
       void load("background");
+      void fetchServiceGauges().then(setServiceGauges).catch(() => null);
+      void loadLocalTailSnapshot();
     };
 
-    window.addEventListener("focus", refreshIfVisible);
-    document.addEventListener("visibilitychange", refreshIfVisible);
-    return () => {
-      window.removeEventListener("focus", refreshIfVisible);
-      document.removeEventListener("visibilitychange", refreshIfVisible);
-    };
-  }, [load]);
+    return onScoutSurfaceActivated(refreshIfActive);
+  }, [fetchServiceGauges, load, loadLocalTailSnapshot]);
 
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
-    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    const id = setInterval(() => {
+      if (isScoutSurfaceActive()) setNowMs(Date.now());
+    }, 1000);
     return () => clearInterval(id);
   }, []);
 

@@ -1,7 +1,17 @@
 import { afterAll, beforeEach, afterEach, describe, expect, mock, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ActionBlock, BlockState, QuestionBlock, SessionState } from "@openscout/agent-sessions";
 import type { DiscoverySnapshot } from "@openscout/runtime/tail";
@@ -9,6 +19,15 @@ import {
   buildRelayAgentInstance,
   writeRelayAgentOverrides,
 } from "@openscout/runtime/setup";
+
+// Before anything captures the ambient environment. The server builds a shared
+// pair-request store keyed on `~/.openscout`, and a pairing test here once
+// persisted a live bearer token into the runner's REAL home. The store now
+// refuses to write without this set, so it is set for the whole file rather
+// than per test — every restore below restores to this, not to the operator's
+// home.
+const isolatedTestHome = mkdtempSync(join(tmpdir(), "openscout-web-server-test-home-"));
+process.env.OPENSCOUT_HOME = join(isolatedTestHome, ".openscout");
 
 const originalFetch = globalThis.fetch;
 const originalHome = process.env.HOME;
@@ -183,6 +202,11 @@ mock.module("./terminal-session-discovery.ts", () => ({
       raw: line,
     })),
   queryDiscoveredTerminalSessions: () => queryDiscoveredTerminalSessionsResult,
+  reconcileTerminalSessionInventory: (
+    registered: Array<Record<string, unknown>>,
+    discovered: Array<Record<string, unknown>>,
+    limit: number,
+  ) => [...registered, ...discovered].slice(0, limit),
   terminalSurfaceKey: (backend: string, sessionName: string) => `${backend}:${sessionName}`,
 }));
 
@@ -288,6 +312,7 @@ mock.restore();
 
 afterAll(() => {
   mock.restore();
+  rmSync(isolatedTestHome, { recursive: true, force: true });
 });
 
 function makeStaticRoot(): string {
@@ -2931,6 +2956,7 @@ describe("createOpenScoutWebServer", () => {
         agentId: "session-1",
         agentName: "openscout-haydn",
         conversationId: "chn-session",
+        messageId: "msg-session-seed",
         collaborationRecordId: null,
         state: "completed",
         summary: "openscout-haydn replied.",
@@ -3582,6 +3608,270 @@ describe("createOpenScoutWebServer", () => {
     });
   });
 
+  test("stores a workspace on the server and reconciles its cells against live hosts", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const created = await server.app.request("http://localhost/api/terminal-workspaces", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Release desk",
+        purpose: "Watch the train",
+        columns: 3,
+        cells: [
+          { id: "cell-1", intent: { hostId: "tmux", sessionName: "scout-tmux-cell-1", cwd: "/repo" } },
+          { id: "cell-2", intent: {} },
+        ],
+      }),
+    });
+    expect(created.status).toBe(201);
+    const { workspace } = await created.json() as { workspace: { id: string; columns: number } };
+    expect(workspace.columns).toBe(3);
+
+    const listed = await server.app.request("http://localhost/api/terminal-workspaces");
+    expect(listed.status).toBe(200);
+    const payload = await listed.json() as {
+      count: number;
+      workspaces: Array<{ id: string }>;
+      resolutions: Array<{ workspaceId: string; cells: Array<{ cellId: string; status: string; revive: unknown }> }>;
+    };
+    expect(payload.workspaces.some((entry) => entry.id === workspace.id)).toBe(true);
+
+    const cells = payload.resolutions.find((entry) => entry.workspaceId === workspace.id)!.cells;
+    // Nothing is live in a test control home, so a cell with intent is
+    // revivable and a cell without one is honestly unavailable.
+    expect(cells.find((cell) => cell.cellId === "cell-1")?.status).toBe("revivable");
+    expect(cells.find((cell) => cell.cellId === "cell-2")).toMatchObject({
+      status: "unavailable",
+      revive: null,
+    });
+
+    const deleted = await server.app.request(
+      `http://localhost/api/terminal-workspaces/${workspace.id}`,
+      { method: "DELETE" },
+    );
+    expect(deleted.status).toBe(200);
+    await expect(deleted.json()).resolves.toEqual({ ok: true, deleted: true });
+  });
+
+  test("a registry record is not proof a session is running", async () => {
+    // The registry says this zellij surface is live, because `session intake`
+    // wrote `state: "live"` once and never revisited it. Only the discovered
+    // tmux session is an actual observation of the host. A workspace holding
+    // one of each must not report both as Running.
+    queryTerminalSessionsResult = [{
+      id: "ts.recorded",
+      harness: "claude",
+      sourceSessionId: "claude-session-123",
+      cwd: "/tmp/openscout",
+      resumeCommand: "claude --resume claude-session-123",
+      surfaces: [{
+        backend: "zellij",
+        sessionName: "scout-zj-demo",
+        paneId: null,
+        attachCommand: ["zellij", "attach", "scout-zj-demo"],
+        observeCommand: null,
+        relay: { backend: "zellij", sessionName: "scout-zj-demo" },
+        state: "live",
+      }],
+      createdAt: 1,
+      updatedAt: 2,
+    }];
+    queryDiscoveredTerminalSessionsResult = [{
+      id: "discovered.tmux.demo",
+      harness: "",
+      sourceSessionId: "raw-tmux-demo",
+      cwd: "",
+      resumeCommand: "",
+      origin: "discovered",
+      surfaces: [{
+        backend: "tmux",
+        sessionName: "raw-tmux-demo",
+        paneId: null,
+        attachCommand: ["tmux", "attach", "-t", "raw-tmux-demo"],
+        observeCommand: null,
+        relay: { backend: "tmux", sessionName: "raw-tmux-demo" },
+        state: "live",
+      }],
+      createdAt: 3,
+      updatedAt: 3,
+      metadata: { source: "backend-discovery", registryState: "discovered" },
+    }];
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const created = await server.app.request("http://localhost/api/terminal-workspaces", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Mixed desk",
+        layout: { mode: "lanes", columns: "dynamic" },
+        cells: [
+          { id: "recorded", intent: { hostId: "zellij", sessionName: "scout-zj-demo" } },
+          { id: "observed", intent: { hostId: "tmux", sessionName: "raw-tmux-demo" } },
+        ],
+      }),
+    });
+    const { workspace } = await created.json() as { workspace: { id: string; layout?: unknown } };
+    // And the authored layout is stored rather than re-derived from a count.
+    expect(workspace.layout).toEqual({ mode: "lanes", columns: "dynamic" });
+
+    const listed = await server.app.request(`http://localhost/api/terminal-workspaces/${workspace.id}`);
+    const payload = await listed.json() as {
+      workspace: { layout?: unknown };
+      resolution: { cells: Array<{ cellId: string; status: string; detail: string }> };
+    };
+    expect(payload.workspace.layout).toEqual({ mode: "lanes", columns: "dynamic" });
+
+    const cells = payload.resolution.cells;
+    expect(cells.find((cell) => cell.cellId === "observed")).toMatchObject({
+      status: "live",
+      detail: "Running",
+    });
+    expect(cells.find((cell) => cell.cellId === "recorded")?.status).not.toBe("live");
+  });
+
+  test("refuses to revive a cell that was never given anything to rebuild from", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const created = await server.app.request("http://localhost/api/terminal-workspaces", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Desk", cells: [{ id: "cell-1", intent: {} }] }),
+    });
+    const { workspace } = await created.json() as { workspace: { id: string } };
+
+    const revived = await server.app.request(
+      `http://localhost/api/terminal-workspaces/${workspace.id}/cells/cell-1/revive`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+    );
+    expect(revived.status).toBe(409);
+    await expect(revived.json()).resolves.toMatchObject({
+      status: "unavailable",
+      capability: "create",
+    });
+
+    const missing = await server.app.request(
+      `http://localhost/api/terminal-workspaces/${workspace.id}/cells/nope/revive`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+    );
+    expect(missing.status).toBe(404);
+  });
+
+  test("rejects a nameless workspace instead of storing a blank one", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/terminal-workspaces", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "   " }),
+    });
+    expect(response.status).toBe(400);
+  });
+
+  test("publishes what each terminal host can do, so clients stop offering dead actions", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/terminal-hosts");
+    expect(response.status).toBe(200);
+    const payload = await response.json() as {
+      ok: boolean;
+      hosts: Array<{
+        id: string;
+        capabilities: { control: string[]; harnessControl: string[]; relayAttach: boolean };
+        availability: { installed: boolean };
+      }>;
+      preferredHostId: string | null;
+    };
+
+    expect(payload.ok).toBe(true);
+    expect(payload.hosts.map((host) => host.id).sort()).toEqual(["herdr", "tmux", "zellij"]);
+    const herdr = payload.hosts.find((host) => host.id === "herdr")!;
+    // A herdr session outlives Scout, but that is not something Scout PERFORMS:
+    // herdr has no detach verb at all, so the only control here is the
+    // Scout-side bridge teardown and the UI draws no detach action.
+    expect(herdr.capabilities.control).toEqual(["force-quit-bridge"]);
+    expect(herdr.capabilities.harnessControl).toEqual([]);
+    expect(herdr.capabilities.relayAttach).toBe(false);
+    // A preferred host is only offered when one is actually installed here.
+    if (payload.preferredHostId !== null) {
+      const preferred = payload.hosts.find((host) => host.id === payload.preferredHostId)!;
+      expect(preferred.availability.installed).toBe(true);
+      expect(preferred.capabilities.relayAttach).toBe(true);
+    }
+  });
+
+  test("refuses to start a session on a host Scout does not know, or without a name", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const unknown = await server.app.request("http://localhost/api/terminal-hosts/kitty/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionName: "scout-1" }),
+    });
+    expect(unknown.status).toBe(404);
+
+    const nameless = await server.app.request("http://localhost/api/terminal-hosts/tmux/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionName: "   " }),
+    });
+    expect(nameless.status).toBe(400);
+  });
+
+  test("refuses a control verb the host cannot perform, naming the host and the verb", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/terminal-sessions/control", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ backend: "zellij", sessionName: "scout-zj-demo", action: "restart-resume" }),
+    });
+
+    // 501, not 400: the request is well-formed, the capability is absent.
+    expect(response.status).toBe(501);
+    await expect(response.json()).resolves.toEqual({
+      error: "zellij does not support restart-resume",
+      backend: "zellij",
+      action: "restart-resume",
+      capability: "control",
+    });
+
+    const unknownHost = await server.app.request("http://localhost/api/terminal-sessions/control", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ backend: "screen", sessionName: "x", action: "detach" }),
+    });
+    expect(unknownHost.status).toBe(400);
+  });
+
   test("redirects the remote pairing page to the iOS deep link", async () => {
     const qrValue = JSON.stringify({
       v: 1,
@@ -3735,6 +4025,7 @@ describe("createOpenScoutWebServer", () => {
   });
 
   test("registers an approval request when remote pairing has no active payload", async () => {
+    const startedAt = Date.now();
     pairingStateResult = makePairingState({ pairing: null });
     const server = await createOpenScoutWebServer({
       currentDirectory: "/tmp/openscout",
@@ -3747,6 +4038,31 @@ describe("createOpenScoutWebServer", () => {
     expect(response.status).toBe(202);
     expect(response.headers.get("cache-control")).toBe("no-store");
     await expect(response.text()).resolves.toContain("scout://pair pairing requires approval");
+
+    // The request that just got registered carries a bearer token, and this
+    // test used to persist one into the runner's REAL ~/.openscout because it
+    // never isolated OPENSCOUT_HOME. It has to land in the temp home instead,
+    // and it has to land there unreadable by anyone else. State is published a
+    // generation at a time, so the file to look at is whichever generation is
+    // newest rather than a fixed name.
+    const runDirectory = join(isolatedTestHome, ".openscout", "run");
+    const published = readdirSync(runDirectory).filter((entry) => entry.startsWith("pair-requests"));
+    expect(published).not.toHaveLength(0);
+    for (const entry of published) {
+      expect(statSync(join(runDirectory, entry)).mode & 0o077).toBe(0);
+    }
+    // And nothing of this test's went to the operator's real home. That home
+    // may legitimately hold pair state of its own, so what is asserted is that
+    // nothing was written there while this test ran.
+    const realRunDirectory = join(homedir(), ".openscout", "run");
+    const writtenDuringTest = existsSync(realRunDirectory)
+      ? readdirSync(realRunDirectory).filter(
+        (entry) =>
+          entry.startsWith("pair-requests")
+          && statSync(join(realRunDirectory, entry)).mtimeMs >= startedAt,
+      )
+      : [];
+    expect(writtenDuringTest).toEqual([]);
   });
 
   test("serves site-level feature flag bundle config for the client", async () => {

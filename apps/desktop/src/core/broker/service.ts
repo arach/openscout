@@ -2444,6 +2444,10 @@ export async function syncScoutBrokerBindings(input: {
     currentDirectory: input.currentDirectory,
   });
 
+  for (const error of setup.projectErrors) {
+    console.warn(`[scout] quarantined project ${error.relativePath}: ${error.message}`);
+  }
+
   for (const agent of setup.discoveredAgents) {
     await ensureTargetRelayAgentRegistered(
       broker.baseUrl,
@@ -4086,7 +4090,7 @@ export async function deliverScoutAsk(input: {
     messageId: delivery.message.id,
     bindingRef: delivery.receipt?.bindingRef ?? delivery.bindingRef,
     sessionAlias: delivery.receipt?.sessionAlias ?? delivery.sessionAlias,
-    executionResolution: delivery.receipt.executionResolution,
+    executionResolution: delivery.receipt?.executionResolution,
     workItem,
   };
 }

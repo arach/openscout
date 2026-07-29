@@ -73,12 +73,6 @@ struct HomeSurface: View {
 
     @State private var agents: [HomeAgent] = []
     @State private var isLoading = true
-    /// Whether the whisper lane has ever had a SUCCESSFUL conversation read.
-    /// Distinct from `isLoading`, which is a one-shot first-pass flag: this one
-    /// stays false through every failed or machine-less attempt, so "we have not
-    /// asked and got an answer yet" and "we asked and there is nothing" stay
-    /// different facts on screen.
-    @State private var hasReadConversations = false
     @State private var route: HomeConversationRoute?
     @State private var routeClient: (any ScoutBrokerClient)?
     @State private var activity: [HomeActivity] = []
@@ -345,15 +339,6 @@ struct HomeSurface: View {
     private var entryRecents: some View {
         let rows = Array(conversations.prefix(5))
         VStack(spacing: 0) {
-            // Before the first answer lands this lane rendered nothing at all,
-            // and the front door was a black sheet with a composer at the foot.
-            // The whisper keeps its shape while it is being fetched: same row
-            // geometry, same rhythm, redacted rather than invented — so the real
-            // recents fade in where the ghosts were instead of shoving the
-            // composer down the screen when they arrive.
-            if rows.isEmpty, !hasReadConversations, !isNotConnected {
-                entryRecentsSkeleton
-            }
             ForEach(rows) { row in
                 Button {
                     routeClient = row.client
@@ -392,37 +377,6 @@ struct HomeSurface: View {
         // with it the whole surface, which shoves the masthead off-screen).
         .frame(width: max(0, layout.contentWidth - HudSpacing.xxl * 2), alignment: .leading)
         .padding(.horizontal, layout.contentInset + HudSpacing.xxl)
-    }
-
-    /// The whisper lane's own silhouette, on Home's established skeleton recipe
-    /// (`HomeLoadingSkeleton`): the real row geometry in the real fonts, dimmed,
-    /// `.redacted(reason: .placeholder)`, `.opacity(0.46)`. Three rows, not five
-    /// — enough to say "a list is coming" without promising how long it is.
-    private var entryRecentsSkeleton: some View {
-        ForEach(0..<3, id: \.self) { index in
-            HStack(alignment: .firstTextBaseline, spacing: HudSpacing.md) {
-                Text(["Openscout", "Hudson", "Talkie"][index])
-                    .font(HudFont.ui(HudTextSize.sm, weight: .medium))
-                    .lineLimit(1)
-                    .layoutPriority(1)
-                Text("Recent conversation")
-                    .font(HudFont.ui(11.5))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: HudSpacing.sm)
-                Text("2h")
-                    .font(HudFont.mono(9.5))
-                    .monospacedDigit()
-                    .fixedSize()
-            }
-            .padding(.vertical, 7)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .foregroundStyle(ScoutInk.dim)
-        .redacted(reason: .placeholder)
-        .opacity(0.46)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Loading recent conversations")
     }
 
     /// OUR line where the system's QuickType strip used to be: the smart-action
@@ -1343,12 +1297,6 @@ struct HomeSurface: View {
             conversations = freshConversations.sorted {
                 ($0.conversation.lastMessageAt ?? .distantPast) > ($1.conversation.lastMessageAt ?? .distantPast)
             }
-            // Only a real answer retires the ghosts. `isLoading` cannot do this
-            // job: it goes false after the FIRST pass and never re-arms, and that
-            // first pass routinely runs before any machine is readable — so the
-            // lane spent the entire connect window looking like a fleet with no
-            // history rather than one still being asked.
-            hasReadConversations = true
         } else if noReadableMachines {
             conversations = []
         }

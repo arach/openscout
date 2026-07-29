@@ -48,6 +48,7 @@ describe("buildInteractiveTerminalEnvironment", () => {
     for (const key of INHERITED_CLAUDE_SESSION_ENV_KEYS) {
       expect(env[key]).toBeUndefined();
     }
+    // Only the parent-session markers go; deliberate configuration stays.
     expect(env.CLAUDE_CODE_FORCE_SESSION_PERSISTENCE).toBe("1");
   });
 });

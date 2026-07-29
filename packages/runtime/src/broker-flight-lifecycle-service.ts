@@ -1,4 +1,5 @@
 import type {
+  DeliveryAttempt,
   DeliveryIntent,
   DeliveryStatus,
   FlightRecord,
@@ -31,6 +32,7 @@ type FlightLifecycleJournal = {
     transport?: DeliveryIntent["transport"];
     status?: DeliveryIntent["status"];
   }): DeliveryIntent[];
+  listDeliveryAttempts?: (deliveryId: string) => DeliveryAttempt[];
 };
 
 type DurableStore = {
@@ -110,7 +112,7 @@ export function deliveryStatusForFlight(flight: FlightRecord): DeliveryStatus | 
 export function staleLocalDeliveryReason(
   snapshot: RuntimeSnapshot,
   delivery: DeliveryIntent,
-  options: { now?: number; graceMs?: number } = {},
+  options: { now?: number; graceMs?: number; latestAttemptAt?: number } = {},
 ): string | null {
   if (delivery.targetKind !== "agent" || !staleReconcileableDeliveryStatuses.has(delivery.status)) {
     return null;
@@ -122,7 +124,15 @@ export function staleLocalDeliveryReason(
   const invocationCreatedAt = delivery.invocationId
     ? snapshot.invocations[delivery.invocationId]?.createdAt
     : undefined;
-  const createdAt = messageCreatedAt ?? invocationCreatedAt ?? 0;
+  const metadataCreatedAt = numericMetadataTimestamp(delivery.metadata?.createdAt);
+  const firstAttemptQueuedAt = numericMetadataTimestamp(delivery.metadata?.firstAttemptQueuedAt);
+  const createdAt = Math.max(
+    messageCreatedAt ?? 0,
+    invocationCreatedAt ?? 0,
+    options.latestAttemptAt ?? 0,
+    metadataCreatedAt,
+    firstAttemptQueuedAt,
+  );
   const now = options.now ?? Date.now();
   const graceMs = options.graceMs ?? STALE_LOCAL_DELIVERY_GRACE_MS;
   if (createdAt > 0 && now - createdAt < graceMs) {
@@ -148,6 +158,12 @@ export function staleLocalDeliveryReason(
     .sort((left, right) => endpointLifecycleAt(right.endpoint) - endpointLifecycleAt(left.endpoint));
   const transportMatch = rankedUnavailable.find((entry) => entry.endpoint.transport === delivery.transport);
   return (transportMatch ?? rankedUnavailable[0] ?? null)?.reason ?? null;
+}
+
+function numericMetadataTimestamp(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : 0;
 }
 
 function localEndpointUnavailableReason(endpoint: AgentEndpoint): string | null {
@@ -276,7 +292,10 @@ export class BrokerFlightLifecycleService {
     const now = this.now();
 
     for (const delivery of this.options.journal.listDeliveries({ limit: 5000 })) {
-      const reason = staleLocalDeliveryReason(snapshot, delivery, { now });
+      const latestAttemptAt = this.options.journal
+        .listDeliveryAttempts?.(delivery.id)
+        .at(-1)?.createdAt;
+      const reason = staleLocalDeliveryReason(snapshot, delivery, { now, latestAttemptAt });
       if (!reason) {
         continue;
       }

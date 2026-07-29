@@ -14,6 +14,8 @@ import {
   extractAgentSelectors,
   flightSessionTrace,
   isOpaqueChannelId,
+  isScoutLaunchableHarness,
+  reconcileTerminalWorkspace,
   resolveAgentIdentity,
   SCOUT_LAUNCHABLE_HARNESSES,
   SCOUT_RUNTIME_EFFORT_CATALOG,
@@ -26,6 +28,9 @@ import {
   type ConversationDefinition,
   type ConversationKind,
   type ScoutRuntimeCapabilityCatalog,
+  type TerminalWorkspaceRecord,
+  type TerminalWorkspaceRecordInput,
+  type TerminalWorkspaceResolution,
 } from "@openscout/protocol";
 import {
   collectOccupiedDefinitionIdsFromBrokerSnapshot,
@@ -70,8 +75,24 @@ import { resolveTerminalSurface } from "./core/terminal-surfaces.ts";
 import { resolveRepoKeysByRoot } from "./core/repo-identity.ts";
 import {
   queryDiscoveredTerminalSessions,
+  reconcileTerminalSessionInventory,
   terminalSurfaceKey,
 } from "./terminal-session-discovery.ts";
+import {
+  deleteTerminalWorkspace,
+  queryTerminalWorkspace,
+  queryTerminalWorkspaces,
+  upsertTerminalWorkspace,
+} from "./db/terminal-workspaces.ts";
+import {
+  describeTerminalHosts,
+  isKnownTerminalHost,
+  relayCarriedTerminalBackend,
+  resolvePreferredTerminalHost,
+  resolveTerminalHostAdapter,
+  terminalHostAdapter,
+  terminalHostSupportsControl,
+} from "./terminal-hosts/index.ts";
 import {
   getImageBlob,
   ImageBlobError,
@@ -1264,9 +1285,50 @@ function firstMetadataString(...values: Array<unknown>): string | null {
   return null;
 }
 
-function parseTerminalSessionBackend(value: string | undefined): "tmux" | "zellij" | "herdr" | undefined {
+/**
+ * Reconcile saved workspaces against the live host inventory.
+ *
+ * Both inputs are gathered once and shared across every workspace: probing the
+ * hosts per workspace would multiply shell-outs by the size of the library for
+ * an answer that is identical each time.
+ *
+ * The node id goes in with them because the sessions are THIS machine's
+ * observations: a session discovered here carries no node in its handle, and
+ * only this node's cells may be proven live by it. Without the id a cell scoped
+ * to any node at all would bind to a same-named local session — which is how
+ * two machines' workspaces both reported one session Running. The broker
+ * context is cached, so this costs no extra round trip in practice, and a
+ * broker that is down means the id is unknown, which reconciliation reads as
+ * "cannot prove it" rather than "matches anything".
+ */
+async function resolveTerminalWorkspaces(
+  workspaces: readonly TerminalWorkspaceRecord[],
+): Promise<TerminalWorkspaceResolution[]> {
+  if (workspaces.length === 0) return [];
+  const [sessions, hosts, preferred, broker] = await Promise.all([
+    queryDiscoveredTerminalSessions({ limit: 500 }),
+    describeTerminalHosts(),
+    resolvePreferredTerminalHost(),
+    loadScoutBrokerContext().catch(() => null),
+  ]);
+  const registered = queryTerminalSessions({ limit: 500 });
+  const hostStates = hosts.map((host) => ({
+    id: host.id,
+    installed: host.availability.installed,
+    canCreate: host.capabilities.create,
+  }));
+  return workspaces.map((workspace) => reconcileTerminalWorkspace(workspace, {
+    sessions: [...registered, ...sessions],
+    hosts: hostStates,
+    defaultHostId: preferred?.id ?? null,
+    localNodeId: broker?.node.id ?? null,
+  }));
+}
+
+/** Any host with a registered adapter, not a hardcoded pair. */
+function parseTerminalSessionBackend(value: string | undefined): string | undefined {
   const normalized = value?.trim().toLowerCase();
-  return normalized === "tmux" || normalized === "zellij" || normalized === "herdr" ? normalized : undefined;
+  return normalized && isKnownTerminalHost(normalized) ? normalized : undefined;
 }
 
 function parseTerminalSessionLimit(value: string | undefined): number {
@@ -1279,7 +1341,7 @@ function parseTerminalSessionDiscoveryFlag(value: string | undefined): boolean {
   return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "backend";
 }
 
-function parseTerminalSurfaceControlAction(value: string | undefined): "interrupt" | "quit" | "stop-job" | "restart-resume" | "detach" | "force-quit" | "force-quit-bridge" | undefined {
+function parseTerminalSurfaceControlAction(value: string | undefined): "interrupt" | "quit" | "stop-job" | "restart-resume" | "detach" | "release" | "force-quit" | "force-quit-bridge" | undefined {
   const normalized = value?.trim().toLowerCase();
   if (
     normalized === "interrupt"
@@ -1287,6 +1349,7 @@ function parseTerminalSurfaceControlAction(value: string | undefined): "interrup
     || normalized === "stop-job"
     || normalized === "restart-resume"
     || normalized === "detach"
+    || normalized === "release"
     || normalized === "force-quit"
     || normalized === "force-quit-bridge"
   ) {
@@ -4427,7 +4490,7 @@ function hudRunnerModels(agents: WebAgent[]): HudRunnerModelOption[] {
   for (const agent of agents) {
     const harness = agent.harness?.trim().toLowerCase() ?? "";
     const model = agent.model?.trim() ?? "";
-    if (!harness || !model || isRetiredHudRunnerModel(model, harness)) continue;
+    if (!isScoutLaunchableHarness(harness) || !model || isRetiredHudRunnerModel(model, harness)) continue;
     const key = `${harness}:${model.toLowerCase()}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -5236,8 +5299,19 @@ export async function createOpenScoutWebServer(
     // Live payload available (pair mode running) — hand it straight over. This
     // is the existing fast path: manual start, QR, or an approved request whose
     // pair mode has come up. Once delivered, the request is done.
+    //
+    // Delivering it and burying the token are one decision, so the store takes
+    // it: `fulfill` reports the row it buried, and only a report is licence to
+    // redirect. A token whose row this instance cannot see live — expired here
+    // while a peer holds an extension it could not publish, or already spent —
+    // gets the answer any unknown token gets, and nothing is handed over. The
+    // instance that can still see the row is the one that serves it.
     if (location) {
-      if (token) pendingPairRequests.fulfill(token);
+      if (token && !pendingPairRequests.fulfill(token)) {
+        return wantsJson
+          ? c.json({ status: "expired", token }, 410)
+          : c.text("Pairing request expired.", 410);
+      }
       return c.redirect(location, 302);
     }
 
@@ -5459,10 +5533,146 @@ export async function createOpenScoutWebServer(
     );
     return c.json(summary ? agents.map(agentListSummary) : agents);
   });
+  // What each terminal host can do, and whether it is installed here. Clients
+  // read this to decide which actions to render, so a host that cannot do
+  // something never gets a button that 400s.
+  app.get("/api/terminal-hosts", async (c) => {
+    const hosts = await describeTerminalHosts();
+    const preferred = await resolvePreferredTerminalHost();
+    return c.json({
+      ok: true,
+      count: hosts.length,
+      preferredHostId: preferred?.id ?? null,
+      hosts,
+    });
+  });
+
+  // Durable workspaces. The record is the web client's source of truth: it
+  // seeds its deck from these routes and writes changes back, instead of
+  // keeping a private store that cannot follow an operator to another device or
+  // be reasoned about by the broker. macOS and iOS have not adopted it yet —
+  // macOS still reads its own UserDefaults — so this is one client over a
+  // shared object today, with the others to follow.
+  app.get("/api/terminal-workspaces", async (c) => {
+    const workspaces = queryTerminalWorkspaces({ limit: parseTerminalSessionLimit(c.req.query("limit")) });
+    const resolutions = await resolveTerminalWorkspaces(workspaces);
+    return c.json({ ok: true, count: workspaces.length, workspaces, resolutions });
+  });
+
+  app.get("/api/terminal-workspaces/:workspaceId", async (c) => {
+    const workspace = queryTerminalWorkspace(c.req.param("workspaceId"));
+    if (!workspace) return c.json({ error: "workspace not found" }, 404);
+    const [resolution] = await resolveTerminalWorkspaces([workspace]);
+    return c.json({ ok: true, workspace, resolution });
+  });
+
+  app.put("/api/terminal-workspaces/:workspaceId", async (c) => {
+    const body = await c.req.json<TerminalWorkspaceRecordInput>().catch(() => null);
+    const name = body?.name?.trim();
+    if (!body || !name) return c.json({ error: "name is required" }, 400);
+    const workspace = upsertTerminalWorkspace({
+      ...body,
+      id: c.req.param("workspaceId"),
+      name,
+    });
+    return c.json({ ok: true, workspace });
+  });
+
+  app.post("/api/terminal-workspaces", async (c) => {
+    const body = await c.req.json<TerminalWorkspaceRecordInput>().catch(() => null);
+    const name = body?.name?.trim();
+    if (!body || !name) return c.json({ error: "name is required" }, 400);
+    return c.json({ ok: true, workspace: upsertTerminalWorkspace({ ...body, name }) }, 201);
+  });
+
+  // Re-materialize one saved cell. The only path that creates a host session
+  // from stored intent, and it refuses unless reconciliation says the cell is
+  // actually revivable — an operator is never told a tile came back when the
+  // host was never asked.
+  app.post("/api/terminal-workspaces/:workspaceId/cells/:cellId/revive", async (c) => {
+    const workspace = queryTerminalWorkspace(c.req.param("workspaceId"));
+    if (!workspace) return c.json({ error: "workspace not found" }, 404);
+    const [resolution] = await resolveTerminalWorkspaces([workspace]);
+    const cell = resolution?.cells.find((candidate) => candidate.cellId === c.req.param("cellId"));
+    if (!cell) return c.json({ error: "cell not found" }, 404);
+    if (cell.status === "live") return c.json({ ok: true, revived: false, status: cell.status, detail: cell.detail });
+    if (cell.status !== "revivable" || !cell.revive) {
+      return c.json({ error: cell.detail, status: cell.status, capability: "create" }, 409);
+    }
+
+    const adapter = terminalHostAdapter(cell.revive.hostId);
+    if (!adapter?.create) {
+      return c.json({ error: `${cell.revive.hostId} cannot be started by Scout`, capability: "create" }, 501);
+    }
+    // Probe for real before shelling out. Reconciliation reads a cached
+    // availability that deliberately holds a recent success through a
+    // momentary failure, and acting on that memory is how a revive turns into
+    // an unhandled spawn error instead of a 409.
+    const availability = await adapter.probe();
+    if (!availability.installed) {
+      return c.json({
+        error: availability.reason ?? `${adapter.label} is not installed here`,
+        status: "unavailable",
+        capability: "create",
+      }, 409);
+    }
+    const created = await adapter.create({
+      sessionName: cell.revive.sessionName,
+      cwd: cell.revive.cwd,
+      resumeCommand: cell.revive.resumeCommand,
+    });
+    // A session that came back WITHOUT the harness the cell asked for is not
+    // "live" in the sense the operator means, so it does not get to say so.
+    // `started` is a distinct outcome with its own detail; the alternative is
+    // reporting a resumed agent when what is actually there is a bare shell.
+    const resumedHarness = created.resumed !== false;
+    return c.json({
+      ok: created.created,
+      revived: created.created,
+      status: created.created ? (resumedHarness ? "live" : "started") : cell.status,
+      resumed: created.resumed ?? null,
+      sessionName: cell.revive.sessionName,
+      ...(created.reason
+        ? { detail: created.reason }
+        : created.created && !resumedHarness
+          ? { detail: `Started ${cell.revive.hostId} session ${cell.revive.sessionName}, but Scout could not replay the harness command there.` }
+          : {}),
+    }, created.created ? 200 : 502);
+  });
+
+  app.delete("/api/terminal-workspaces/:workspaceId", (c) => {
+    const deleted = deleteTerminalWorkspace(c.req.param("workspaceId"));
+    return c.json({ ok: true, deleted });
+  });
+
+  // Create a session on a host. The one primitive behind both "start something
+  // new" for a host the relay cannot render and the workspace revive path.
+  // Guarded by the declared capability, so a host that does not create sessions
+  // answers 501 instead of pretending.
+  app.post("/api/terminal-hosts/:hostId/sessions", async (c) => {
+    const adapter = terminalHostAdapter(c.req.param("hostId"));
+    if (!adapter) return c.json({ error: "unknown terminal host" }, 404);
+    if (!adapter.capabilities.create || !adapter.create) {
+      return c.json({ error: `${adapter.label} sessions cannot be started by Scout`, capability: "create" }, 501);
+    }
+    const body = await c.req.json<{ sessionName?: string; cwd?: string | null }>().catch(() => null);
+    const sessionName = body?.sessionName?.trim();
+    if (!sessionName) return c.json({ error: "sessionName is required" }, 400);
+    const availability = await adapter.probe();
+    if (!availability.installed) {
+      return c.json({ error: availability.reason ?? `${adapter.label} is not installed here` }, 409);
+    }
+    const created = await adapter.create({ sessionName, cwd: body?.cwd ?? null });
+    return c.json(
+      { ok: created.created, created: created.created, hostId: adapter.id, sessionName, ...(created.reason ? { detail: created.reason } : {}) },
+      created.created ? 201 : 502,
+    );
+  });
+
   app.get("/api/terminal-sessions", async (c) => {
     const backend = parseTerminalSessionBackend(c.req.query("backend"));
     if (c.req.query("backend") && !backend) {
-      return c.json({ error: "backend must be tmux, zellij, or herdr" }, 400);
+      return c.json({ error: "backend must be a registered terminal host" }, 400);
     }
     const limit = parseTerminalSessionLimit(c.req.query("limit"));
     const sessions = queryTerminalSessions({
@@ -5475,13 +5685,14 @@ export async function createOpenScoutWebServer(
     const discovered = includeDiscovered
       ? await queryDiscoveredTerminalSessions({
           ...(backend ? { backend } : {}),
-          limit: Math.max(0, limit - sessions.length),
-          excludeSurfaces: sessions.flatMap((session) =>
-            session.surfaces.map((surface) => terminalSurfaceKey(surface.backend, surface.sessionName))
-          ),
+          // Read the full host inventory so a registered surface can inherit
+          // authoritative activity even when it is already at the result cap.
+          limit: 1000,
         })
       : [];
-    const visibleSessions = [...sessions, ...discovered];
+    const visibleSessions = includeDiscovered
+      ? reconcileTerminalSessionInventory(sessions, discovered, limit)
+      : sessions;
     return c.json({
       ok: true,
       count: visibleSessions.length,
@@ -5496,12 +5707,13 @@ export async function createOpenScoutWebServer(
     const columns = parseTmuxPeekColumnCount(c.req.query("cols") ?? c.req.query("columns"));
 
     if (!backend) {
-      return c.json({ error: "backend must be tmux or zellij" }, 400);
+      return c.json({ error: "backend must be a registered terminal host" }, 400);
     }
     if (!sessionName) {
       return c.json({ error: "sessionName is required" }, 400);
     }
-    if (backend !== "tmux") {
+    const previewHost = terminalHostAdapter(backend);
+    if (!previewHost?.capabilities.capture) {
       return c.json({
         available: false,
         agentId: "terminal",
@@ -5511,7 +5723,24 @@ export async function createOpenScoutWebServer(
         lineCount: lines,
         columnCount: columns,
         truncated: false,
-        reason: `${backend} previews are not available yet.`,
+        reason: `${previewHost?.label ?? backend} does not report screen contents.`,
+      });
+    }
+    if (backend !== "tmux") {
+      // tmux keeps the dedicated capture path (line/column normalization, the
+      // injectable capture hook the tests drive); other hosts go through the
+      // adapter's own capture verb.
+      const body = await previewHost.capture?.({ sessionName, lines });
+      return c.json({
+        available: Boolean(body),
+        agentId: "terminal",
+        sessionId: sessionName,
+        capturedAt,
+        body: body ? normalizeTmuxPeekBody(body, lines, columns) : "",
+        lineCount: lines,
+        columnCount: columns,
+        truncated: false,
+        ...(body ? {} : { reason: `The ${previewHost.label} session is not available right now.` }),
       });
     }
 
@@ -7128,34 +7357,52 @@ export async function createOpenScoutWebServer(
     const sessionName = body.sessionName?.trim();
     const action = parseTerminalSurfaceControlAction(body.action);
 
-    if (!backend) return c.json({ error: "backend must be tmux, zellij, or herdr" }, 400);
+    if (!backend) return c.json({ error: "backend must be a registered terminal host" }, 400);
     if (!sessionName) return c.json({ error: "sessionName is required" }, 400);
-    if (!action) return c.json({ error: "action must be interrupt, quit, stop-job, restart-resume, detach, force-quit, or force-quit-bridge" }, 400);
+    if (!action) return c.json({ error: "action must be interrupt, quit, stop-job, restart-resume, detach, release, force-quit, or force-quit-bridge" }, 400);
+
+    // Capability, not backend. A host that cannot perform a verb says so with
+    // the capability that is missing, and the UI is expected to have read
+    // /api/terminal-hosts and not offered the action in the first place.
+    const support = terminalHostSupportsControl(backend, action);
+    if (!support.supported) {
+      return c.json({
+        error: `${backend} does not support ${action}`,
+        backend,
+        action,
+        capability: "control",
+      }, 501);
+    }
 
     let delivered = false;
     let resumeResult: { ok: boolean; sessionId: string | null; transcriptPath: string | null } | null = null;
-    if (backend === "herdr") {
-      // Herdr host sessions outlive Scout clients. Track A only detaches Scout
-      // relay bridges; it never stops or force-quits the Herdr server.
-      if (action !== "detach" && action !== "force-quit-bridge") {
-        return c.json({ error: "herdr surface control is limited to detach / force-quit-bridge" }, 400);
+    if (support.via === "harness") {
+      // Harness-aware verbs walk a process tree and read a Claude transcript;
+      // they are Scout features layered over one host, not host features.
+      if (action === "restart-resume") {
+        resumeResult = await restartClaudeWithResumeInTmuxSurface(sessionName);
+        delivered = resumeResult.ok;
+      } else if (action !== "force-quit-bridge" && action !== "release") {
+        delivered = await controlTmuxSurface(sessionName, action);
       }
-    } else if (backend === "tmux" && action === "restart-resume") {
-      resumeResult = await restartClaudeWithResumeInTmuxSurface(sessionName);
-      delivered = resumeResult.ok;
-    } else if (backend === "tmux" && action !== "force-quit-bridge") {
-      delivered = await controlTmuxSurface(sessionName, action);
     } else if (action !== "force-quit-bridge") {
-      return c.json({ error: `${backend} surface control is not available yet` }, 400);
+      const adapter = resolveTerminalHostAdapter(backend);
+      const result = await adapter.control?.(action, { sessionName });
+      delivered = result?.delivered ?? false;
     }
 
     let destroyed = 0;
-    if (action === "detach" || action === "force-quit" || action === "force-quit-bridge" || action === "restart-resume") {
-      if (options.destroyTerminalRelaySurface) {
-        destroyed = await options.destroyTerminalRelaySurface(backend, sessionName);
+    if (action === "detach" || action === "release" || action === "force-quit" || action === "force-quit-bridge" || action === "restart-resume") {
+      // Only hosts the relay can carry have a bridge to tear down. That is the
+      // `relayAttach` capability plus what this vendored relay build accepts,
+      // asked as one question instead of spelled out as a backend list here.
+      const relayBackend = relayCarriedTerminalBackend(backend);
+      if (options.destroyTerminalRelaySurface && relayBackend) {
+        destroyed = await options.destroyTerminalRelaySurface(relayBackend, sessionName);
       }
-      if (backend === "tmux" && action !== "restart-resume") {
-        await controlTmuxSurface(sessionName, "detach");
+      const detachSupport = terminalHostSupportsControl(backend, "detach");
+      if (action !== "restart-resume" && action !== "detach" && action !== "release" && detachSupport.supported) {
+        await resolveTerminalHostAdapter(backend).control?.("detach", { sessionName });
       }
     }
 

@@ -1,12 +1,16 @@
 import { describe, expect, test } from "bun:test";
 
+import { formatTerminalSurfaceId, parseTerminalSurfaceId } from "@openscout/protocol";
+import type { TerminalSessionRecord } from "@openscout/protocol";
+
 import {
-  parseHerdrSessionList,
+  isDiscoverableTerminalBackend,
   parseTmuxSessionList,
+  queryDiscoveredTerminalSessions,
   parseZellijSessionList,
+  reconcileTerminalSessionInventory,
   terminalSurfaceKey,
 } from "./terminal-session-discovery.ts";
-import { resolvePreferredDurableBackend } from "./preferred-terminal-backend.ts";
 
 describe("terminal session discovery", () => {
   test("parses tmux session inventory", () => {
@@ -33,27 +37,95 @@ describe("terminal session discovery", () => {
     }]);
   });
 
-  test("parses herdr session inventory JSON", () => {
-    expect(parseHerdrSessionList(JSON.stringify({
-      sessions: [
-        { default: true, name: "default", running: true, session_dir: "/Users/art/.config/herdr" },
-        { default: false, name: "scout-local-1", running: false },
-      ],
-    }))).toEqual([
-      { name: "default", isDefault: true, running: true, sessionDir: "/Users/art/.config/herdr" },
-      { name: "scout-local-1", isDefault: false, running: false, sessionDir: null },
+  test("keys backend surfaces through the one surface-id constructor", () => {
+    const key = terminalSurfaceKey("tmux", "relay-claude");
+    expect(key).toBe(formatTerminalSurfaceId({ backend: "tmux", hostSession: "relay-claude" }));
+    expect(parseTerminalSurfaceId(key)).toEqual({
+      backend: "tmux",
+      hostSession: "relay-claude",
+      paneId: null,
+      nodeId: null,
+    });
+  });
+});
+
+describe("discovered records", () => {
+  test("stop stuffing the backend into harness and the attach argv into resumeCommand", async () => {
+    // No host reachable: discovery must degrade to an empty inventory, not throw.
+    const sessions = await queryDiscoveredTerminalSessions({
+      env: { ...process.env, PATH: "/nonexistent-scout-probe" },
+    });
+    expect(Array.isArray(sessions)).toBe(true);
+    for (const session of sessions) {
+      expect(session.origin).toBe("discovered");
+      expect(session.harness).toBe("");
+      expect(session.resumeCommand).toBe("");
+    }
+  });
+
+  test("rejects an unregistered backend filter by discovering nothing", async () => {
+    expect(await queryDiscoveredTerminalSessions({ backend: "not-a-host" })).toEqual([]);
+  });
+
+  test("knows which backends are discoverable from the registry, not a literal", () => {
+    expect(isDiscoverableTerminalBackend("tmux")).toBe(true);
+    expect(isDiscoverableTerminalBackend("zellij")).toBe(true);
+    expect(isDiscoverableTerminalBackend("herdr")).toBe(true);
+    expect(isDiscoverableTerminalBackend("screen")).toBe(false);
+    expect(isDiscoverableTerminalBackend(null)).toBe(false);
+  });
+});
+
+describe("terminal inventory reconciliation", () => {
+  test("enriches a registered surface with live host activity without duplicating it", () => {
+    const registered = terminalSession("registered", "shared", 1, { owner: "scout" });
+    const discovered = terminalSession("discovered", "shared", 2, {
+      source: "backend-discovery",
+      activityAt: 9_000,
+    });
+    const other = terminalSession("other", "other", 3, { activityAt: 8_000 });
+
+    expect(reconcileTerminalSessionInventory([registered], [discovered, other], 10)).toEqual([
+      {
+        ...registered,
+        metadata: { owner: "scout", activityAt: 9_000 },
+      },
+      other,
     ]);
   });
 
-  test("keys backend surfaces by backend and session name", () => {
-    expect(terminalSurfaceKey("tmux", "relay-claude")).toBe("tmux:relay-claude");
-    expect(terminalSurfaceKey("herdr", "default")).toBe("herdr:default");
-  });
+  test("keeps the newest known activity and honors the result limit", () => {
+    const registered = terminalSession("registered", "shared", 1, { activityAt: 12_000 });
+    const discovered = terminalSession("discovered", "shared", 2, { activityAt: 9_000 });
+    const other = terminalSession("other", "other", 3, { activityAt: 8_000 });
 
-  test("prefers herdr for durable backends when available", () => {
-    expect(resolvePreferredDurableBackend({ herdr: true, tmux: true, zellij: true })).toBe("herdr");
-    expect(resolvePreferredDurableBackend({ herdr: false, tmux: true, zellij: true })).toBe("tmux");
-    expect(resolvePreferredDurableBackend({ herdr: false, tmux: false, zellij: true })).toBe("zellij");
-    expect(resolvePreferredDurableBackend({})).toBe("pty");
+    expect(reconcileTerminalSessionInventory([registered], [discovered, other], 1)).toEqual([registered]);
   });
 });
+
+function terminalSession(
+  id: string,
+  sessionName: string,
+  updatedAt: number,
+  metadata: Record<string, unknown>,
+): TerminalSessionRecord {
+  return {
+    id,
+    harness: id === "discovered" ? "" : "claude",
+    sourceSessionId: sessionName,
+    cwd: "/repo",
+    resumeCommand: id === "discovered" ? "" : `claude --resume ${sessionName}`,
+    surfaces: [{
+      backend: "tmux",
+      sessionName,
+      paneId: null,
+      attachCommand: ["tmux", "attach", "-t", sessionName],
+      observeCommand: null,
+      relay: { backend: "tmux", sessionName, tmuxSession: sessionName },
+      state: "live",
+    }],
+    createdAt: updatedAt,
+    updatedAt,
+    metadata,
+  };
+}

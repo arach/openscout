@@ -72,7 +72,7 @@ function writeProjectManifest(projectRoot: string, config: OpenScoutProjectConfi
 }
 
 describe("loadResolvedRelayAgents (dev-like fixtures)", () => {
-  test("suffixes inferred reserved project names and rejects stored offenders", async () => {
+  test("suffixes inferred reserved names, quarantines sibling offenders, and rejects the targeted offender", async () => {
     const home = useIsolatedOpenScoutHome();
     const dev = join(home, "dev");
     const inferred = join(dev, "codex");
@@ -93,7 +93,16 @@ describe("loadResolvedRelayAgents (dev-like fixtures)", () => {
       discovery: { workspaceRoots: [dev], includeCurrentRepo: false },
     });
 
-    await expect(loadResolvedRelayAgents()).rejects.toThrow("reserved_name_existing");
+    const quarantined = await loadResolvedRelayAgents();
+    expect(quarantined.discoveredAgents.map((agent) => agent.definitionId)).toEqual(["codex-agent"]);
+    expect(quarantined.projectErrors).toEqual([
+      expect.objectContaining({
+        code: "reserved_name_existing",
+        projectRoot: stored,
+        message: expect.stringContaining('reserved agent name "codex"'),
+      }),
+    ]);
+    await expect(loadResolvedRelayAgents({ currentDirectory: stored })).rejects.toThrow("reserved_name_existing");
 
     rmSync(stored, { recursive: true, force: true });
     const setup = await loadResolvedRelayAgents();

@@ -193,37 +193,7 @@ export function AgentsInspector() {
     );
   }
 
-  if (route.view !== "agents") return null;
-
-  const agent = route.agentId
-    ? agents.find((a) => a.id === route.agentId) ?? null
-    : null;
-
-  if (!agent) {
-    return (
-      <AgentsDirectoryContextPanel
-        agents={agents}
-        navigate={navigate}
-        route={route}
-      />
-    );
-  }
-
-  // Directory-selection (master-detail): the center is still the directory, not
-  // this agent's profile, so the inspector owns identity — it renders the agent
-  // CARD (header + sessions). A tab means the center profile owns identity, so
-  // the rail narrows to the live instrument (no identity replay).
-  const directorySelection = Boolean(route.projectSlug && !route.tab);
-  return (
-    <AgentContextPanel
-      agent={agent}
-      agents={agents}
-      navigate={navigate}
-      route={route}
-      observeMode={route.tab === "observe"}
-      showStaticIdentity={directorySelection}
-    />
-  );
+  return null;
 }
 
 function AgentsDirectoryContextPanel({

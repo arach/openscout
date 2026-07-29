@@ -12,6 +12,7 @@ import {
   channelNaturalKeyFromMetadata,
   directChannelNaturalKey,
   epochMs,
+  isScoutLaunchableHarness,
   SCOUT_LAUNCHABLE_HARNESSES,
   SCOUT_RUNTIME_EFFORT_CATALOG,
   SCOUT_RUNTIME_MODEL_CATALOG,
@@ -72,7 +73,7 @@ export async function getScoutMobileRuntimeCapabilities(projectRoot?: string) {
       const root = agent.projectRoot ?? agent.cwd;
       const harness = agent.harness?.trim().toLowerCase();
       const model = agent.model?.trim();
-      if (!root || resolve(root) !== normalizedProjectRoot || !harness || !model) continue;
+      if (!root || resolve(root) !== normalizedProjectRoot || !isScoutLaunchableHarness(harness) || !model) continue;
       const key = `${harness}:${model.toLowerCase()}`;
       if (!seenModels.add(key)) continue;
       models.push({ id: model, label: model, harnesses: [harness], source: "observed" });

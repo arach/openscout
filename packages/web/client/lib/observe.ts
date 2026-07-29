@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "./api.ts";
 import { isAgentBusy } from "./agent-state.ts";
+import { isScoutSurfaceActive, onScoutSurfaceActivated } from "./surface-activity.ts";
 import type { Agent, AgentObservePayload, ObserveEvent } from "./types.ts";
 
 const ACTIVE_POLL_INTERVAL_MS = 10_000;
@@ -9,10 +10,6 @@ const IDLE_POLL_INTERVAL_MS = 60_000;
 
 export type ObserveCacheEntry = Omit<AgentObservePayload, "agentId">;
 export type ObserveCache = Record<string, ObserveCacheEntry>;
-
-function documentIsHidden(): boolean {
-  return typeof document !== "undefined" && document.visibilityState === "hidden";
-}
 
 export function useObservePolling(agents: Agent[], options?: {
   enabled?: boolean;
@@ -40,7 +37,7 @@ export function useObservePolling(agents: Agent[], options?: {
       setCache({});
       return;
     }
-    if (pauseWhenHidden && documentIsHidden()) return;
+    if (pauseWhenHidden && !isScoutSurfaceActive()) return;
     if (inFlightRef.current) {
       queuedRef.current = true;
       return;
@@ -85,18 +82,13 @@ export function useObservePolling(agents: Agent[], options?: {
     }
     void fetchAll();
     const timer = setInterval(() => void fetchAll(), pollIntervalMs);
-    const handleVisibilityChange = () => {
-      if (!documentIsHidden()) void fetchAll();
-    };
-    if (pauseWhenHidden && typeof document !== "undefined") {
-      document.addEventListener("visibilitychange", handleVisibilityChange);
-    }
+    const stopActivationListener = pauseWhenHidden
+      ? onScoutSurfaceActivated(() => void fetchAll())
+      : null;
     return () => {
       mountedRef.current = false;
       clearInterval(timer);
-      if (pauseWhenHidden && typeof document !== "undefined") {
-        document.removeEventListener("visibilitychange", handleVisibilityChange);
-      }
+      stopActivationListener?.();
     };
   }, [agents.length, enabled, fetchAll, pauseWhenHidden, pollIntervalMs]);
   return cache;

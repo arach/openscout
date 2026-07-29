@@ -1,9 +1,10 @@
-/** Claude exports these markers to commands that run inside an active session.
- * They describe the parent harness, not a fresh terminal or agent launched by
- * OpenScout, and leaking them can make a new Claude session disable transcript
- * persistence because it believes it is still a nested child session.
+/**
+ * Claude exports these markers to commands that run inside an active session.
+ * They describe the PARENT harness, not a fresh terminal OpenScout launched,
+ * and leaking them can make a new Claude session disable transcript
+ * persistence because it believes it is a nested child session.
  *
- * Keep this list in sync with ScoutTerminalLaunchCommand in the macOS app.
+ * Keep in sync with the macOS terminal launch command.
  */
 export const INHERITED_CLAUDE_SESSION_ENV_KEYS = [
   "CLAUDECODE",
@@ -21,7 +22,7 @@ export const INHERITED_CLAUDE_SESSION_ENV_KEYS = [
  * OpenScout's supervisors may intentionally run with NO_COLOR for their own
  * logs. That setting must not leak into a PTY-backed application: it suppresses
  * the application's ANSI output before a terminal client ever sees it. Harness
- * identity from a parent Claude process must not leak across this boundary,
+ * identity from a parent Claude process must not leak across this boundary
  * either: the terminal is a new top-level environment, not a Claude child.
  */
 export function buildInteractiveTerminalEnvironment(

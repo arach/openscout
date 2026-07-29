@@ -89,13 +89,6 @@ struct NewSessionSurface: View {
     /// In flight — so the list can say "looking" instead of "nothing here" on a
     /// surface whose whole top half is that list.
     @State private var isLoadingWorkspaces = false
-    /// Why the last inventory read failed, when it did. Kept apart from
-    /// `workspaces.isEmpty` because the two are DIFFERENT facts: a Mac that
-    /// answered with nothing has reported no projects, and a Mac we never got an
-    /// answer out of has reported nothing at all. Conflating them is how the
-    /// surface came to claim "This Mac hasn't reported any projects yet" over a
-    /// timed-out RPC — an assertion about the Mac we had no standing to make.
-    @State private var loadFailure: String?
     /// The project search. Doubles as the manual-path field: a query that looks
     /// like a path and matches no known workspace is offered verbatim.
     @State private var projectQuery = ""
@@ -290,16 +283,6 @@ struct NewSessionSurface: View {
                 composerDock
                     .cockpitEntrance(index: 1, phase: entrance)
                 keyboardBar
-                // On a PHONE the block stays bottom-anchored: the composer is a
-                // thumb target and belongs against the tab bar. On an iPad there
-                // is no thumb and no reach argument — only a 13" sheet of glass
-                // with the whole working column shoved into its bottom quarter
-                // and ~75% void above. A second flexible spacer splits the air
-                // evenly and the block sits on the centre line, which is what
-                // makes it read as composed rather than stretched.
-                if layout.isRegularWidth {
-                    Spacer(minLength: 0)
-                }
             }
             .frame(width: laneWidth, alignment: .leading)
             .frame(maxHeight: .infinity)
@@ -362,13 +345,7 @@ struct NewSessionSurface: View {
                 onStatusContextChange: onConversationStatusContext
             )
         }
-            // `fleetRevision` belongs in this key, exactly as it does in Home's
-            // (`HomeSurface.reloadKey`). Without it New fetched ONCE, and a first
-            // fire that landed while the bridge was still handshaking threw
-            // `notConnected`, got swallowed, and left the surface empty for the
-            // rest of the session with no way back. Now a fleet that comes up
-            // re-asks by itself.
-            .task(id: "\(reloadToken)|\(model.fleetRevision)|\(isActive)") {
+            .task(id: "\(reloadToken)|\(isActive)") {
                 guard isActive else { return }
                 await entrance.reveal(when: isActive, animated: !reduceMotion)
                 async let catalogRefresh: Void = refreshRuntimeCatalog()
@@ -437,7 +414,6 @@ struct NewSessionSurface: View {
         // fixture mixed into live data would be a lie.
         if ProcessInfo.processInfo.environment["SCOUT_WORKSPACE_FIXTURE"] == "1" {
             let loaded = Self.captureFixture
-            loadFailure = nil
             workspaces = loaded
             recurate(loaded)
             if trimmedProjectPath.isEmpty {
@@ -448,21 +424,8 @@ struct NewSessionSurface: View {
         }
         #endif
         // Don't clobber the current list (or the curated fallback) on a failed
-        // fetch — only a successful load replaces it. But DO record why it
-        // failed: the previous `try?` sank every timeout, decode miss and
-        // not-yet-connected into the same silent no-op, and the empty state then
-        // spoke for the Mac. Measured 2026-07-28: this Mac answers
-        // `mobile/workspaces` with 58 rows in ~10.7s, against the bridge's 15s
-        // RPC budget — so a real inventory losing that race is the common case,
-        // not an edge one.
-        let loaded: [WorkspaceSummary]
-        do {
-            loaded = try await activeClient.listWorkspaces(query: nil, limit: 200)
-        } catch {
-            loadFailure = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            return
-        }
-        loadFailure = nil
+        // fetch — only a successful load replaces it.
+        guard let loaded = try? await activeClient.listWorkspaces(query: nil, limit: 200) else { return }
         workspaces = loaded
         recurate(loaded)
         if trimmedProjectPath.isEmpty {
@@ -555,8 +518,29 @@ struct NewSessionSurface: View {
                 Text("Not connected")
                     .font(HudFont.ui(HudTextSize.sm))
                     .foregroundStyle(ScoutInk.dim)
+            } else if machines.count == 1, let only = machines.first {
+                HStack(spacing: HudSpacing.xs) {
+                    HudStatusDot(color: only.isOnline ? HudPalette.accent : ScoutInk.dim, size: 6)
+                    Text(only.name)
+                        .font(HudFont.ui(HudTextSize.sm, weight: .medium))
+                        .foregroundStyle(ScoutInk.muted)
+                        .lineLimit(1)
+                    if !only.isOnline {
+                        Text("offline")
+                            .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                            .tracking(0.6)
+                            .textCase(.uppercase)
+                            .foregroundStyle(ScoutInk.dim)
+                    }
+                }
             } else {
-                hostPicker(machines)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: HudSpacing.xs) {
+                        ForEach(machines) { machine in
+                            hostChip(machine)
+                        }
+                    }
+                }
             }
             Spacer(minLength: 0)
         }
@@ -567,59 +551,30 @@ struct NewSessionSurface: View {
         .frame(height: 30)
     }
 
-    /// Which Mac, as a PICK rather than a caption. The old line rendered a lone
-    /// paired Mac as a dot and a name — indistinguishable from a label, so the
-    /// fact that a host is choosable at all was invisible until a second Mac
-    /// paired. It now wears the runtime chip's seat (card fill, hairline rim,
-    /// trailing chevron) — the same grammar Home's accessory pills name as "the
-    /// runtime chip's grammar", and the same one the composer's model token uses
-    /// two rows below — so "this opens something" reads at a glance and the two
-    /// pickers on the surface look like siblings.
-    ///
-    /// The menu offers exactly the Macs that are paired. Offline ones are listed
-    /// and disabled rather than hidden: a Mac you know about that has gone to
-    /// sleep is information, and dropping it turns "your Mac is asleep" into
-    /// "you have no Macs".
-    private func hostPicker(_ machines: [AppModel.PairedMachine]) -> some View {
-        let active = activeMachine
-        let seat = Capsule(style: .continuous)
-        return Menu {
-            ForEach(machines) { machine in
-                Button {
-                    guard machine.isOnline else { return }
-                    selectedMachineId = machine.id
-                } label: {
-                    Text(machine.isOnline ? machine.name : "\(machine.name) — offline")
-                }
-                .disabled(!machine.isOnline)
-            }
+    private func hostChip(_ machine: AppModel.PairedMachine) -> some View {
+        let selected = activeMachine?.id == machine.id
+        let plate = RoundedRectangle(cornerRadius: 5, style: .continuous)
+        return Button {
+            guard machine.isOnline else { return }
+            selectedMachineId = machine.id
         } label: {
             HStack(spacing: HudSpacing.xs) {
-                HudStatusDot(color: (active?.isOnline ?? false) ? HudPalette.accent : ScoutInk.dim, size: 6)
-                Text(active?.name ?? "Choose a Mac")
-                    .font(HudFont.ui(HudTextSize.sm, weight: .medium))
-                    .foregroundStyle(ScoutInk.muted)
+                HudStatusDot(color: machine.isOnline ? HudPalette.accent : ScoutInk.dim, size: 5)
+                Text(machine.name)
+                    .font(HudFont.mono(10.5, weight: .medium))
+                    .foregroundStyle(selected ? HudPalette.ink : ScoutInk.muted)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                if let active, !active.isOnline {
-                    Text("offline")
-                        .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                        .tracking(0.6)
-                        .textCase(.uppercase)
-                        .foregroundStyle(ScoutInk.dim)
-                }
-                Glyphic.chevron(.bottom, size: 9)
-                    .foregroundStyle(ScoutInk.dim)
+                    .frame(maxWidth: 108, alignment: .leading)
             }
-            .padding(.horizontal, HudSpacing.md)
+            .padding(.horizontal, HudSpacing.sm)
             .padding(.vertical, 3)
-            .background(seat.fill(ScoutSurface.card))
-            .overlay(seat.stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin))
-            .contentShape(seat)
+            .background(plate.fill(selected ? ScoutSurface.raised : ScoutSurface.inset))
+            .overlay(plate.stroke(selected ? ScoutInk.dim : HudHairline.standard, lineWidth: HudStrokeWidth.thin))
         }
-        .menuStyle(.button)
         .buttonStyle(.plain)
-        .accessibilityLabel("Host: \(active?.name ?? "none"). Choose a Mac")
+        .accessibilityLabel("Start on \(machine.name)")
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     /// Search over the machine's known projects — and the manual-path escape
@@ -938,12 +893,7 @@ struct NewSessionSurface: View {
                 projectRows
             }
             .scrollDismissesKeyboard(.interactively)
-            // 268 is the phone's budget — what is left once a raised keyboard
-            // and the composer have taken theirs. An iPad has neither problem
-            // and a foot of unused glass either side of the column, so the open
-            // picker there shows a section and a half instead of clipping the
-            // first one mid-row.
-            .frame(maxWidth: .infinity, maxHeight: layout.isRegularWidth ? 440 : 268, alignment: .top)
+            .frame(maxWidth: .infinity, maxHeight: 268, alignment: .top)
         } else {
             // Closed, it is EXACTLY as tall as its rows. It must not be a
             // ScrollView here: a scroll view is greedy, and a greedy view in
@@ -955,122 +905,33 @@ struct NewSessionSurface: View {
         }
     }
 
-    /// The four piles the curation already computes, in reading order. Durable
-    /// projects lead because they are what you almost always want; the swept-up
-    /// kinds follow in descending trustworthiness.
-    private static let kindOrder: [WorkspaceKind] = [.project, .worktree, .scratch, .umbrella]
-
-    private func kindHeading(_ kind: WorkspaceKind) -> String {
-        switch kind {
-        case .project: return "Projects"
-        case .worktree: return "Worktrees"
-        case .scratch: return "Scratch"
-        case .umbrella: return "Folders"
-        }
-    }
-
-    /// The open picker, grouped. `moreFoot` already names the pile it is holding
-    /// back — "5 worktrees · 4 scratch · 3 folders" — so opening it into one flat
-    /// run of 58 rows contradicted the summary that got you there. The counts
-    /// were always the outline; these are the sections they describe.
-    ///
-    /// Grouping is off the SAME `workspaceKinds` map the summary counts, so the
-    /// two can never disagree, and it costs no extra pass: the classification is
-    /// computed once per load in `recurate`.
-    private var groupedVisibleWorkspaces: [(kind: WorkspaceKind, rows: [WorkspaceSummary])] {
-        var buckets: [WorkspaceKind: [WorkspaceSummary]] = [:]
-        for workspace in visibleWorkspaces {
-            buckets[workspaceKinds[workspace.root] ?? .project, default: []].append(workspace)
-        }
-        return Self.kindOrder.compactMap { kind in
-            guard let rows = buckets[kind], !rows.isEmpty else { return nil }
-            return (kind, rows)
-        }
-    }
-
-    @ViewBuilder
     private var projectRows: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if isPickerOpen, let typedPath {
-                projectRow(
-                    path: typedPath,
-                    name: (typedPath as NSString).lastPathComponent,
-                    harness: nil,
-                    kind: nil,
-                    isTyped: true
-                )
-            }
-            if isPickerOpen {
-                // Open: sectioned by kind. A heading only appears where there is
-                // more than one pile to tell apart — a search that matches three
-                // durable projects should not grow a "PROJECTS" banner over an
-                // otherwise obvious list.
-                let groups = groupedVisibleWorkspaces
-                ForEach(groups, id: \.kind) { group in
-                    if groups.count > 1 {
-                        sectionHeading(kindHeading(group.kind), count: group.rows.count)
-                    }
-                    ForEach(group.rows) { workspace in
-                        projectRow(
-                            path: workspace.root,
-                            name: displayName(for: workspace),
-                            harness: workspace.defaultHarness,
-                            // The per-row badge is redundant under a heading that
-                            // already says which pile this is.
-                            kind: groups.count > 1 ? nil : demotedKindLabel(workspace.root),
-                            isTyped: false
-                        )
-                    }
+                if isPickerOpen, let typedPath {
+                    projectRow(
+                        path: typedPath,
+                        name: (typedPath as NSString).lastPathComponent,
+                        harness: nil,
+                        kind: nil,
+                        isTyped: true
+                    )
                 }
-            } else {
                 ForEach(visibleWorkspaces) { workspace in
                     projectRow(
                         path: workspace.root,
-                        name: displayName(for: workspace),
+                        name: workspace.projectName.isEmpty ? workspace.title : workspace.projectName,
                         harness: workspace.defaultHarness,
-                        kind: nil,
+                        // The badge only appears where it is news: in the open
+                        // picker, on a root that is not a durable project.
+                        kind: isPickerOpen ? demotedKindLabel(workspace.root) : nil,
                         isTyped: false
                     )
                 }
-            }
             if visibleWorkspaces.isEmpty, typedPath == nil { projectListNotice }
         }
         // The column has to CLAIM the width, or a short list (or a one-line
         // notice) sizes the stack to itself and the enclosing view centres it.
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    /// A section rule in the lane's own instrument language — the `eyebrow`
-    /// already used for HOST, plus the count and a filler rule. Same idea as
-    /// Home's `laneHeader`, at this surface's tighter scale.
-    private func sectionHeading(_ title: String, count: Int) -> some View {
-        HStack(spacing: HudSpacing.sm) {
-            eyebrow(title)
-            Text("\(count)")
-                .font(HudFont.mono(HudTextSize.micro, weight: .medium))
-                .monospacedDigit()
-                .foregroundStyle(ScoutInk.dim)
-            Rectangle()
-                .fill(HudHairline.subtle)
-                .frame(height: HudStrokeWidth.thin)
-        }
-        .padding(.leading, HudSpacing.lg)
-        .frame(height: 26)
-    }
-
-    /// What to call a project.
-    ///
-    /// The Mac's `projectName` is a PRETTIFIED string — the relay registry
-    /// persists a title-cased display name, so `/Users/art/dev/arach.io` arrives
-    /// as "Arach Io" and `openscout-work-list-wt` as "Openscout Work List Wt".
-    /// Neither is a thing that exists on that disk. The directory name is the
-    /// verbatim ground truth and the only name the operator ever typed, so the
-    /// row shows that and keeps the server's string only as a fallback for a
-    /// root with no last component to speak of.
-    private func displayName(for workspace: WorkspaceSummary) -> String {
-        let leaf = (workspace.root as NSString).lastPathComponent
-        if !leaf.isEmpty, leaf != "/" { return leaf }
-        return workspace.projectName.isEmpty ? workspace.title : workspace.projectName
     }
 
     /// One project.
@@ -1106,14 +967,7 @@ struct NewSessionSurface: View {
                 // A fixed slot whether or not there is a mark, so every name in
                 // the list starts on one x.
                 .frame(width: 14)
-                // Monochrome, always. The harness mark is PROVENANCE — which
-                // runtime this checkout recommends — not a live signal, and
-                // tinting the selected one emerald spent the screen's one accent
-                // on a fact the left bar and the bolder name already carry. The
-                // selection reads through weight and ink here; emerald stays with
-                // the host dot, which is the only thing on this surface reporting
-                // something live.
-                .foregroundStyle(selected ? ScoutInk.muted : ScoutInk.dim)
+                .foregroundStyle(selected ? HudPalette.accent : ScoutInk.dim)
 
                 // The name holds the row. It takes layout priority over the
                 // path, so under pressure the PATH is the side that gives —
@@ -1147,10 +1001,7 @@ struct NewSessionSurface: View {
                 Text(isTyped ? "USE THIS PATH" : abbreviate((path as NSString).deletingLastPathComponent))
                     .font(HudFont.mono(isTyped ? HudTextSize.micro : HudTextSize.xxs, weight: isTyped ? .semibold : .regular))
                     .tracking(isTyped ? 0.6 : 0)
-                    // Weight and tracking carry this one, not colour: it is an
-                    // affordance, not a signal, and the surface has one accent to
-                    // spend.
-                    .foregroundStyle(isTyped ? ScoutInk.muted : ScoutInk.dim)
+                    .foregroundStyle(isTyped ? HudPalette.accent : ScoutInk.dim)
                     .lineLimit(1)
                     .truncationMode(.head)
                     .frame(maxWidth: 128, alignment: .trailing)
@@ -1174,131 +1025,24 @@ struct NewSessionSurface: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    /// Honest about which nothing this is — and there are FOUR, not one.
-    ///
-    /// The version this replaces had a single fall-through sentence, "This Mac
-    /// hasn't reported any projects yet", and reached it from every dead end
-    /// including a failed fetch. That sentence is a claim about the Mac. Making
-    /// it after an RPC we never got an answer out of is asserting something we
-    /// have no standing to assert — and on this fleet it was flatly untrue: the
-    /// Mac holds 58 workspaces and answers in ~10.7s, against a 15s client
-    /// budget it regularly loses.
-    ///
-    /// So: fetching gets ghost rows and a caption that says it is fetching; a
-    /// failed read says so and offers the one move that can fix it; a genuine
-    /// empty says the Mac reported nothing; and no Mac at all says connect one.
+    /// Honest about which nothing this is: still fetching, nothing matched, or
+    /// no Mac to ask.
     @ViewBuilder
     private var projectListNotice: some View {
-        if isLoadingWorkspaces {
-            projectLoadingSkeleton
-        } else if let loadFailure {
-            projectLoadFailed(loadFailure)
-        } else {
-            noticeLine(
-                {
-                    if onlineMachines.isEmpty { return "Connect a Mac to choose a project." }
-                    if !projectQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        return "No project matches. Type a full path to use one anyway."
-                    }
-                    return "This Mac hasn't reported any projects yet."
-                }()
-            )
-        }
-    }
-
-    private func noticeLine(_ text: String) -> some View {
+        let text: String = {
+            if isLoadingWorkspaces { return "Looking for projects…" }
+            if onlineMachines.isEmpty { return "Connect a Mac to choose a project." }
+            if !projectQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return "No project matches. Type a full path to use one anyway."
+            }
+            return "This Mac hasn't reported any projects yet."
+        }()
         Text(text)
             .font(HudFont.mono(HudTextSize.xs))
             .foregroundStyle(ScoutInk.dim)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.leading, HudSpacing.lg)
             .padding(.vertical, HudSpacing.xl)
-    }
-
-    /// The lane, holding its own shape while the Mac is asked.
-    ///
-    /// Three ghost rows on the real 38pt `projectRow` geometry — mark slot, name,
-    /// trailing path — so the populated and loading states have the SAME
-    /// silhouette and nothing jumps when the answer lands. Built with Home's
-    /// recipe exactly (`HomeLoadingSkeleton`): real strings in the real fonts,
-    /// dimmed, `.redacted(reason: .placeholder)`, `.opacity(0.46)` — redaction
-    /// rather than invented data, because a placeholder that reads as content is
-    /// a lie told briefly.
-    ///
-    /// The caption carries the progress: ghost rows alone are ambiguous between
-    /// "fetching" and "broken", and this state must be unmistakably transient.
-    private var projectLoadingSkeleton: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(0..<3, id: \.self) { index in
-                HStack(spacing: HudSpacing.md) {
-                    Circle()
-                        .fill(ScoutInk.dim)
-                        .frame(width: 11, height: 11)
-                        .frame(width: 14)
-                    Text(["openscout", "hudson", "talkie"][index])
-                        .font(HudFont.ui(HudTextSize.sm, weight: .medium))
-                    Spacer(minLength: HudSpacing.md)
-                    Text("~/dev")
-                        .font(HudFont.mono(HudTextSize.xxs))
-                }
-                .padding(.leading, HudSpacing.lg)
-                .frame(height: 38)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .foregroundStyle(ScoutInk.dim)
-            .redacted(reason: .placeholder)
-            .opacity(0.46)
-
-            HStack(spacing: HudSpacing.sm) {
-                ProgressView()
-                    .controlSize(.mini)
-                    .tint(ScoutInk.dim)
-                Text("Looking for projects…")
-                    .font(HudFont.mono(HudTextSize.xs))
-                    .foregroundStyle(ScoutInk.dim)
-            }
-            .padding(.leading, HudSpacing.lg)
-            .frame(height: 30)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Looking for projects")
-    }
-
-    /// A read that failed, said plainly, with the one move that can change it.
-    /// Retry rather than Connect: the Mac is paired and online — the request is
-    /// what did not come back.
-    private func projectLoadFailed(_ detail: String) -> some View {
-        VStack(alignment: .leading, spacing: HudSpacing.xs) {
-            Text("Couldn't read this Mac's projects.")
-                .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                .foregroundStyle(ScoutInk.muted)
-            Text(detail)
-                .font(HudFont.mono(HudTextSize.micro))
-                .foregroundStyle(ScoutInk.dim)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-            Button {
-                Task { await loadWorkspaces() }
-            } label: {
-                HStack(spacing: HudSpacing.xs) {
-                    // The same icon MissionControl's `retryRecovery` uses, so a
-                    // retry looks like a retry wherever a Scout surface offers one.
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text("Retry")
-                }
-                .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                .foregroundStyle(ScoutInk.muted)
-                .padding(.vertical, HudSpacing.xs)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Retry reading this Mac's projects")
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.leading, HudSpacing.lg)
-        .padding(.vertical, HudSpacing.lg)
     }
 
     private func eyebrow(_ text: String) -> some View {

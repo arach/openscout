@@ -1471,7 +1471,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                     title={
                       agentsV2Route
                         ? "Browse"
-                        : route.view === "agents-v2" || route.view === "agent-info"
+                        : route.view === "agent-info"
                           ? "Projects"
                           : app.leftPanel?.title ?? "Navigation"
                     }
@@ -1649,7 +1649,6 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                 )}
                 onToggleTerminal={() => setShowTerminal((visible) => !visible)}
                 isTerminalOpen={showTerminal}
-                terminalLabel="Terminal"
               />
 
               <ScoutActivityLogOverlay

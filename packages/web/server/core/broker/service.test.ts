@@ -598,10 +598,10 @@ describe("askScoutQuestion", () => {
         name: "OpenScout",
       },
       agent: {
-        id: "scoutbot",
+        id: "project-agent",
       },
     });
-    const configured = await resolveRelayAgentConfig("scoutbot", {
+    const configured = await resolveRelayAgentConfig("project-agent", {
       currentDirectory: repo,
     });
     expect(configured).not.toBeNull();
@@ -633,8 +633,8 @@ describe("askScoutQuestion", () => {
             [configuredAgentId]: {
               id: configuredAgentId,
               kind: "agent",
-              definitionId: "scoutbot",
-              displayName: "Scoutbot",
+              definitionId: "project-agent",
+              displayName: "Project Agent",
               metadata: {
                 staleLocalRegistration: true,
                 projectRoot: repo,
@@ -661,7 +661,7 @@ describe("askScoutQuestion", () => {
           conversation: {
             id: `dm.operator.${configuredAgentId}`,
             kind: "direct",
-            title: "Scoutbot",
+            title: "Project Agent",
             visibility: "private",
             authorityNodeId: "node-1",
             participantIds: ["operator", configuredAgentId],

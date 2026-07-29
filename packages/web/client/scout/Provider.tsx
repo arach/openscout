@@ -18,6 +18,7 @@ import {
 import { api } from "../lib/api.ts";
 import { friendlyApiError, isOfflineApiError } from "../lib/api-errors.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
+import { isScoutSurfaceActive, onScoutSurfaceActivated } from "../lib/surface-activity.ts";
 import { isAgentOnline } from "../lib/agent-state.ts";
 import {
   forwardScoutbotUiActionToNativeHost,
@@ -533,17 +534,15 @@ export function ScoutProvider({
 
   useEffect(() => {
     const refreshIfVisible = () => {
-      if (document.visibilityState === "hidden") return;
+      if (!isScoutSurfaceActive()) return;
       void reload();
     };
 
     const interval = window.setInterval(refreshIfVisible, AGENT_REFRESH_POLL_MS);
-    window.addEventListener("focus", refreshIfVisible);
-    document.addEventListener("visibilitychange", refreshIfVisible);
+    const stopActivationListener = onScoutSurfaceActivated(refreshIfVisible);
     return () => {
       window.clearInterval(interval);
-      window.removeEventListener("focus", refreshIfVisible);
-      document.removeEventListener("visibilitychange", refreshIfVisible);
+      stopActivationListener();
     };
   }, [reload]);
 
@@ -583,6 +582,7 @@ export function ScoutProvider({
   scoutbotBridgeRef.current = { applyScoutbotUiAction };
 
   useBrokerEvents((event) => {
+    if (!isScoutSurfaceActive()) return;
     if (AGENT_REFRESH_EVENT_KIND_SET.has(event.kind)) {
       if (reloadEventTimerRef.current !== null) {
         window.clearTimeout(reloadEventTimerRef.current);

@@ -3,6 +3,7 @@ import type { ObserveCacheEntry } from "../../lib/observe.ts";
 // node-only history helpers (node:path) that crash the browser bundle.
 import { inferModelContextWindowTokens } from "@openscout/agent-sessions/client";
 import type { TerminalSessionRecord } from "@openscout/protocol";
+import { isRelayCapableTerminalBackend } from "../../lib/terminal-sessions.ts";
 import {
   filesFromObserveEvents,
   filterObserveDataForHorizonWithFill,
@@ -932,8 +933,8 @@ function projectFromPath(path: string | null | undefined): string | null {
 function terminalSurfaceDescriptor(
   session: TerminalSessionRecord,
 ): Agent["terminalSurface"] {
-  const surface = session.surfaces[0];
-  if (!surface) return null;
+  const surface = session.surfaces.find((candidate) => isRelayCapableTerminalBackend(candidate.backend));
+  if (!surface || !isRelayCapableTerminalBackend(surface.backend)) return null;
   return {
     backend: surface.backend,
     sessionName: surface.sessionName,
@@ -946,7 +947,7 @@ function isRegisteredHarnessTerminalSession(session: TerminalSessionRecord): boo
   const harness = session.harness?.trim();
   if (!harness || TERMINAL_BACKEND_HARNESSES.has(harness.toLowerCase())) return false;
   if (!session.sourceSessionId?.trim()) return false;
-  if (session.metadata?.registryState === "discovered") return false;
+  if (session.origin === "discovered" || session.metadata?.registryState === "discovered") return false;
   return session.surfaces.length > 0;
 }
 
@@ -2139,7 +2140,12 @@ export function buildAgentLanes(input: {
       lastActiveAt,
       current,
     };
-    const present = providerPresenceAt > 0 || brokerActivityAt > 0;
+    // Provider registration proves that the card is bound, not that it is
+    // active forever. Only let presence bypass trace-based admission while the
+    // registration itself is inside the selected lane horizon. Broker activity
+    // is already horizon-filtered by recentBrokerActivity above.
+    const providerPresent = providerPresenceAt > 0 && now - providerPresenceAt <= windowMs;
+    const present = providerPresent || brokerActivityAt > 0;
     if (workingOnly && !present && !isAgentLaneWorking(lane, now, windowMs, sessionSubstantiveAt)) {
       continue;
     }

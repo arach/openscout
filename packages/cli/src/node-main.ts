@@ -18,7 +18,6 @@ import {
   saveOpenScoutOnboardingIdentity,
 } from "@openscout/runtime/onboarding";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
-import { loadResolvedRelayAgents } from "@openscout/runtime/setup";
 import {
   SCOUT_LAUNCHABLE_HARNESSES,
   SCOUT_RUNTIME_EFFORT_CATALOG,
@@ -401,7 +400,6 @@ async function runDoctorCommand(args: string[]): Promise<void> {
     catalog,
   });
   const support = resolveOpenScoutSupportPaths();
-  const setup = await loadResolvedRelayAgents({ currentDirectory: options.currentDirectory });
   const report = {
     currentDirectory: options.currentDirectory,
     support,
@@ -419,8 +417,7 @@ async function runDoctorCommand(args: string[]): Promise<void> {
     writeJson(report);
     return;
   }
-  const lines = [formatDoctor(report)];
-  process.stdout.write(`${lines.join("\n")}\n`);
+  process.stdout.write(`${formatDoctor(report)}\n`);
 }
 
 async function runRuntimesCommand(args: string[]): Promise<void> {

@@ -281,6 +281,47 @@ describe("SQLiteControlPlaneStore", () => {
     }
   });
 
+  test("advances endpoint recency from lifecycle evidence without refreshing projection replay", () => {
+    const { store, dbPath } = createStoreWithPath();
+    const db = new Database(dbPath, { readonly: true });
+    const endpoint = {
+      id: "endpoint-recency",
+      agentId: "agent-1",
+      nodeId: "node-1",
+      harness: "codex" as const,
+      transport: "codex_app_server" as const,
+      state: "active" as const,
+      sessionId: "session-recency",
+      metadata: { lastStartedAt: 1_000 },
+    };
+    const updatedAt = () => (db.query(
+      "SELECT updated_at FROM agent_endpoints WHERE id = ?1",
+    ).get(endpoint.id) as { updated_at: number }).updated_at;
+
+    try {
+      seedAgent(store);
+      store.upsertEndpoint(endpoint);
+      expect(updatedAt()).toBe(1_000);
+
+      store.upsertEndpoint({
+        ...endpoint,
+        state: "idle",
+        metadata: { ...endpoint.metadata, lastCompletedAt: 2_000 },
+      });
+      expect(updatedAt()).toBe(2_000);
+
+      store.upsertEndpoint({
+        ...endpoint,
+        state: "waiting",
+        metadata: {},
+      });
+      expect(updatedAt()).toBe(2_000);
+    } finally {
+      db.close();
+      store.close();
+    }
+  });
+
   test("creates dashboard read indexes on fresh databases", () => {
     const { store, dbPath } = createStoreWithPath();
     const db = new Database(dbPath, { readonly: true });
@@ -2031,6 +2072,186 @@ describe("terminal session registry", () => {
       expect(store.listTerminalSessions({ harness: "codex" }).map((r) => r.sourceSessionId)).toEqual(["codex-1"]);
       expect(store.listTerminalSessions({ backend: "zellij" }).map((r) => r.sourceSessionId)).toEqual(["claude-1"]);
       expect(store.listTerminalSessions()).toHaveLength(2);
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("terminal workspaces", () => {
+  const cells = [
+    {
+      id: "cell-1",
+      surfaceId: "srf1.abc",
+      terminalSessionId: "ts.1",
+      intent: {
+        hostId: "tmux",
+        sessionName: "scout-tmux-cell-1",
+        cwd: "/home/u/project",
+        harness: "claude",
+        resumeCommand: "claude --resume abc-123",
+      },
+    },
+    { id: "cell-2", intent: { hostId: "zellij", sessionName: "scout-zellij-cell-2" } },
+  ];
+
+  test("round-trips a named workspace and the intent each cell needs to be rebuilt", () => {
+    const store = createStore();
+    try {
+      const record = store.upsertTerminalWorkspace({
+        name: "Release desk",
+        purpose: "Cross-project release monitoring",
+        columns: 3,
+        cells,
+      });
+
+      expect(record.id).toMatch(/^tw\./);
+      expect(record.columns).toBe(3);
+      expect(record.cells).toEqual(cells);
+      // The point of the record: the revive plan survives the write.
+      expect(record.cells[0]?.intent.resumeCommand).toBe("claude --resume abc-123");
+
+      expect(store.getTerminalWorkspace(record.id)).toEqual(record);
+      expect(store.listTerminalWorkspaces()).toEqual([record]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("round-trips the authored layout, not just the resolved column count", () => {
+    const store = createStore();
+    try {
+      // "dynamic" is the case the resolved count cannot carry: it comes back
+      // pinned to whatever number the tile count produced.
+      const created = store.upsertTerminalWorkspace({
+        name: "Lanes desk",
+        layout: { mode: "lanes", columns: "dynamic" },
+        cells,
+      });
+
+      expect(created.layout).toEqual({ mode: "lanes", columns: "dynamic" });
+      expect(store.getTerminalWorkspace(created.id)?.layout).toEqual({ mode: "lanes", columns: "dynamic" });
+      expect(store.listTerminalWorkspaces()[0]?.layout).toEqual({ mode: "lanes", columns: "dynamic" });
+
+      // An update rewrites the layout rather than leaving the first one behind.
+      const updated = store.upsertTerminalWorkspace({
+        id: created.id,
+        name: "Lanes desk",
+        layout: { mode: "grid", columns: 3 },
+        cells,
+      });
+      expect(updated.layout).toEqual({ mode: "grid", columns: 3 });
+      expect(store.getTerminalWorkspace(created.id)?.layout).toEqual({ mode: "grid", columns: 3 });
+    } finally {
+      store.close();
+    }
+  });
+
+  test("a workspace saved without a layout, or with an unreadable one, reports none", () => {
+    const store = createStore();
+    try {
+      const none = store.upsertTerminalWorkspace({ name: "No layout", cells });
+      expect(none.layout).toBeUndefined();
+      expect(store.getTerminalWorkspace(none.id)?.layout).toBeUndefined();
+
+      // A mode nothing can render must fold back to "no stored layout" rather
+      // than reach the client's grid resolver.
+      const db = getWritableDb(store);
+      db.query("UPDATE terminal_workspaces SET layout_json = ?1 WHERE id = ?2")
+        .run(JSON.stringify({ mode: "hexagons", columns: 2 }), none.id);
+      expect(store.getTerminalWorkspace(none.id)?.layout).toBeUndefined();
+
+      db.query("UPDATE terminal_workspaces SET layout_json = ?1 WHERE id = ?2").run("{not json", none.id);
+      expect(store.getTerminalWorkspace(none.id)?.layout).toBeUndefined();
+    } finally {
+      store.close();
+    }
+  });
+
+  test("a row from a table that predates layout_json still loads", () => {
+    const store = createStore();
+    try {
+      // The shape a machine that ran the earlier build actually has: the table
+      // exists without the column, so `SELECT *` returns no `layout_json` at
+      // all — not a null one.
+      const db = getWritableDb(store);
+      db.exec("DROP TABLE terminal_workspaces");
+      db.exec(`CREATE TABLE terminal_workspaces (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        purpose TEXT NOT NULL DEFAULT '',
+        columns_count INTEGER NOT NULL DEFAULT 2,
+        cells_json TEXT NOT NULL DEFAULT '[]',
+        metadata_json TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )`);
+      db.query(
+        `INSERT INTO terminal_workspaces (id, name, purpose, columns_count, cells_json, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+      ).run("tw.legacy", "Old desk", "", 3, JSON.stringify(cells), 1000, 1000);
+
+      const record = store.getTerminalWorkspace("tw.legacy");
+      expect(record?.name).toBe("Old desk");
+      expect(record?.columns).toBe(3);
+      expect(record?.cells).toEqual(cells);
+      expect(record?.layout).toBeUndefined();
+    } finally {
+      store.close();
+    }
+  });
+
+  test("updating a workspace keeps its identity and creation time", () => {
+    const store = createStore();
+    try {
+      const first = store.upsertTerminalWorkspace({ name: "Desk", cells });
+      const second = store.upsertTerminalWorkspace({
+        id: first.id,
+        name: "Desk renamed",
+        columns: 1,
+        cells: [cells[0]!],
+      });
+
+      expect(second.id).toBe(first.id);
+      expect(second.createdAt).toBe(first.createdAt);
+      expect(second.name).toBe("Desk renamed");
+      expect(second.cells).toHaveLength(1);
+      expect(store.listTerminalWorkspaces()).toHaveLength(1);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("clamps an out-of-range column count instead of storing it", () => {
+    const store = createStore();
+    try {
+      expect(store.upsertTerminalWorkspace({ name: "Wide", columns: 99 }).columns).toBe(6);
+      expect(store.upsertTerminalWorkspace({ name: "Thin", columns: 0 }).columns).toBe(1);
+      expect(store.upsertTerminalWorkspace({ name: "Default" }).columns).toBe(2);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("deletes a workspace and reports whether anything was removed", () => {
+    const store = createStore();
+    try {
+      const record = store.upsertTerminalWorkspace({ name: "Desk", cells });
+      expect(store.deleteTerminalWorkspace(record.id)).toBe(true);
+      expect(store.deleteTerminalWorkspace(record.id)).toBe(false);
+      expect(store.getTerminalWorkspace(record.id)).toBeNull();
+      expect(store.listTerminalWorkspaces()).toEqual([]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("a workspace with no cells is a real workspace, not a missing one", () => {
+    const store = createStore();
+    try {
+      const record = store.upsertTerminalWorkspace({ name: "Empty" });
+      expect(record.cells).toEqual([]);
+      expect(store.getTerminalWorkspace(record.id)?.cells).toEqual([]);
     } finally {
       store.close();
     }

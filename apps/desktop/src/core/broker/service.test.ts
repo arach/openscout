@@ -684,7 +684,7 @@ describe("scoutAskHandler", () => {
       error: {
         code: "invalid_request",
         message:
-          "provide exactly one of to, projectPath, runtimeProfile, or existingHandle",
+          "provide one existing target, or a project/runtime launch target",
       },
     });
   });

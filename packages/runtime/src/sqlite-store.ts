@@ -4,7 +4,12 @@ import { dirname } from "node:path";
 
 import { and, asc, eq } from "drizzle-orm";
 
-import { epochMs, nowMs } from "@openscout/protocol";
+import {
+  epochMs,
+  normalizeTerminalWorkspaceColumns,
+  nowMs,
+  parseTerminalWorkspaceLayoutJson,
+} from "@openscout/protocol";
 import type {
   ActorIdentity,
   AgentDefinition,
@@ -42,6 +47,9 @@ import type {
   TerminalSessionRecord,
   TerminalSessionRecordInput,
   TerminalSurface,
+  TerminalWorkspaceCell,
+  TerminalWorkspaceRecord,
+  TerminalWorkspaceRecordInput,
   ThreadCollaborationEventSummary,
   ThreadCollaborationSummary,
   ThreadEventEnvelope,
@@ -382,6 +390,19 @@ interface TerminalSessionRow {
   updated_at: number;
 }
 
+interface TerminalWorkspaceRow {
+  id: string;
+  name: string;
+  purpose: string;
+  columns_count: number;
+  /** Absent, not just null, on a row read from a table that predates the column. */
+  layout_json?: string | null;
+  cells_json: string | null;
+  metadata_json: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
 interface BudgetUsageRow {
   id: string;
   scope: BudgetUsageRecord["scope"];
@@ -562,6 +583,25 @@ function terminalSessionRegistryId(harness: string, sourceSessionId: string): st
   return `ts.${stableHash(`${harness}${sourceSessionId}`)}`;
 }
 
+function terminalWorkspaceFromRow(row: TerminalWorkspaceRow): TerminalWorkspaceRecord {
+  const layout = parseTerminalWorkspaceLayoutJson(row.layout_json);
+  return {
+    id: row.id,
+    name: row.name,
+    purpose: row.purpose,
+    columns: normalizeTerminalWorkspaceColumns(row.columns_count),
+    // Absent for a row written before layouts were stored, and for a row from a
+    // table that predates the column. The record then carries only the resolved
+    // column count and `terminalWorkspaceLayoutOf` infers a shape from it — a
+    // fold-forward, not a substitute, which is why the column exists.
+    ...(layout ? { layout } : {}),
+    cells: parseJson<TerminalWorkspaceCell[]>(row.cells_json, []),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
+  };
+}
+
 function terminalSessionFromRow(row: TerminalSessionRow): TerminalSessionRecord {
   return {
     id: row.id,
@@ -645,10 +685,16 @@ function endpointRuntimeSessionStartedAt(endpoint: AgentEndpoint, fallback: numb
 
 function endpointRuntimeSessionLastSeenAt(endpoint: AgentEndpoint, fallback: number): number {
   const metadata = runtimeSessionMetadata(endpoint);
-  return metadataTimestampValue(metadata, "lastSeenAt")
-    ?? metadataTimestampValue(metadata, "lastEnsuredAt")
-    ?? metadataTimestampValue(metadata, "lastStartedAt")
-    ?? fallback;
+  return Math.max(
+    metadataTimestampValue(metadata, "lastSeenAt") ?? 0,
+    metadataTimestampValue(metadata, "lastEnsuredAt") ?? 0,
+    metadataTimestampValue(metadata, "lastStartedAt") ?? 0,
+    metadataTimestampValue(metadata, "lastCompletedAt") ?? 0,
+    metadataTimestampValue(metadata, "lastFailedAt") ?? 0,
+    metadataTimestampValue(metadata, "lastResumedAt") ?? 0,
+    metadataTimestampValue(metadata, "lastInterruptedAt") ?? 0,
+    fallback,
+  );
 }
 
 function endpointRuntimeSessionIsTerminal(endpoint: AgentEndpoint): boolean {
@@ -1305,6 +1351,75 @@ export class SQLiteControlPlaneStore {
     );
   }
 
+  // Durable terminal workspaces.
+  // A named arrangement of agent-CLI tiles. Cells carry the intent needed to
+  // re-materialize them, so a workspace can be rebuilt after a reboot rather
+  // than reopening onto a grid of dead session names.
+
+  upsertTerminalWorkspace(input: TerminalWorkspaceRecordInput): TerminalWorkspaceRecord {
+    const id = input.id?.trim() || `tw.${stableHash(`${input.name}${currentTimestampMs()}`)}`;
+    const now = currentTimestampMs();
+    this.db.query(
+      `INSERT INTO terminal_workspaces (
+         id, name, purpose, columns_count, layout_json, cells_json, metadata_json, created_at, updated_at
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         purpose = excluded.purpose,
+         columns_count = excluded.columns_count,
+         layout_json = excluded.layout_json,
+         cells_json = excluded.cells_json,
+         metadata_json = excluded.metadata_json,
+         updated_at = excluded.updated_at`,
+    ).run(
+      id,
+      input.name,
+      input.purpose ?? "",
+      normalizeTerminalWorkspaceColumns(input.columns),
+      // The authored shape, which the resolved column count cannot stand in
+      // for: "dynamic" comes back pinned to a number, and a lanes workspace
+      // wider than the column clamp comes back a grid.
+      input.layout === undefined ? null : JSON.stringify(input.layout),
+      JSON.stringify(input.cells ?? []),
+      stringify(input.metadata),
+      now,
+      now,
+    );
+    const record = this.getTerminalWorkspace(id);
+    if (!record) {
+      throw new Error(`failed to persist terminal workspace ${id}`);
+    }
+    return record;
+  }
+
+  getTerminalWorkspace(id: string): TerminalWorkspaceRecord | null {
+    const row = queryGet<TerminalWorkspaceRow, [string]>(
+      this.readDb,
+      "SELECT * FROM terminal_workspaces WHERE id = ?1",
+      id,
+    );
+    return row ? terminalWorkspaceFromRow(row) : null;
+  }
+
+  listTerminalWorkspaces(options: { limit?: number } = {}): TerminalWorkspaceRecord[] {
+    const limit = normalizedListLimit(options.limit, 100, 1000);
+    return queryAllDynamic<TerminalWorkspaceRow>(
+      this.readDb,
+      `SELECT *
+       FROM terminal_workspaces
+       ORDER BY updated_at DESC, id ASC
+       LIMIT ?`,
+      [limit],
+    ).map(terminalWorkspaceFromRow);
+  }
+
+  deleteTerminalWorkspace(id: string): boolean {
+    const result = this.db.query("DELETE FROM terminal_workspaces WHERE id = ?1").run(id) as {
+      changes?: number;
+    };
+    return (result.changes ?? 0) > 0;
+  }
+
   pruneExpiredRuntimeSessions(now = currentTimestampMs()): { aliasesDeleted: number; sessionsDeleted: number } {
     const aliasesResult = this.db.query(
       "DELETE FROM runtime_session_aliases WHERE expires_at IS NOT NULL AND expires_at <= ?1",
@@ -1798,21 +1913,19 @@ export class SQLiteControlPlaneStore {
   }
 
   upsertEndpoint(endpoint: AgentEndpoint): void {
-    const existingTimestamp = this.db.query(
-      "SELECT updated_at FROM agent_endpoints WHERE id = ?1",
-    ).get(endpoint.id) as { updated_at: number } | null;
     // Projection replay is not a fresh observation. Prefer harness-owned
     // timestamps and preserve the prior projection time when the endpoint
     // record carries no observation evidence.
-    const observedAt = endpointRuntimeSessionLastSeenAt(
-      endpoint,
-      existingTimestamp?.updated_at ?? currentTimestampMs(),
-    );
-    this.db.query(
+    const observedAt = endpointRuntimeSessionLastSeenAt(endpoint, 0);
+    const insertedAt = currentTimestampMs();
+    const persisted = this.db.query(
       `INSERT INTO agent_endpoints (
         id, agent_id, node_id, harness, transport, state, address, session_id, pane, cwd,
         project_root, metadata_json, updated_at
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+      ) VALUES (
+        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
+        CASE WHEN ?13 > 0 THEN ?13 ELSE ?14 END
+      )
       ON CONFLICT(id) DO UPDATE SET
         agent_id = excluded.agent_id,
         node_id = excluded.node_id,
@@ -1825,8 +1938,12 @@ export class SQLiteControlPlaneStore {
         cwd = excluded.cwd,
         project_root = excluded.project_root,
         metadata_json = excluded.metadata_json,
-        updated_at = excluded.updated_at`,
-    ).run(
+        updated_at = CASE
+          WHEN ?13 > agent_endpoints.updated_at THEN ?13
+          ELSE agent_endpoints.updated_at
+        END
+      RETURNING updated_at`,
+    ).get(
       endpoint.id,
       endpoint.agentId,
       endpoint.nodeId,
@@ -1840,9 +1957,11 @@ export class SQLiteControlPlaneStore {
       endpoint.projectRoot ?? null,
       stringify(endpoint.metadata),
       observedAt,
-    );
+      insertedAt,
+    ) as { updated_at: number } | null;
+    const persistedAt = persisted?.updated_at ?? (observedAt || insertedAt);
 
-    this.projectRuntimeSessionForEndpoint(endpoint, observedAt);
+    this.projectRuntimeSessionForEndpoint(endpoint, persistedAt);
     this.recordEndpointBudgetObservations(endpoint);
   }
 

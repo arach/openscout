@@ -3,14 +3,12 @@ import type { TerminalSessionRecord } from "@openscout/protocol";
 import {
   compactTerminalPath,
   resolveRegisteredTerminalTarget,
-  surfaceKeyFromParts,
-  terminalAttachCommandFromSurface,
   terminalListItems,
 } from "./terminal-sessions.ts";
 
 function terminalSession(
   id: string,
-  backend: "tmux" | "zellij" | "herdr",
+  backend: "tmux" | "zellij",
   sessionName: string,
 ): TerminalSessionRecord {
   return {
@@ -86,27 +84,5 @@ describe("terminal list metadata", () => {
 
   test("derives compact cwd labels", () => {
     expect(compactTerminalPath("/Users/art/dev/openscout/")).toBe("dev/openscout");
-  });
-
-  test("formats herdr attach commands from registry argv", () => {
-    expect(surfaceKeyFromParts("herdr", "default")).toBe("herdr:default");
-    expect(terminalAttachCommandFromSurface({
-      backend: "herdr",
-      sessionName: "default",
-      socketDir: null,
-      attachCommand: ["herdr"],
-    })).toBe("herdr");
-    expect(terminalAttachCommandFromSurface({
-      backend: "herdr",
-      sessionName: "scout-local-1",
-      socketDir: null,
-      attachCommand: ["herdr", "session", "attach", "scout-local-1"],
-    })).toBe("herdr session attach scout-local-1");
-    // Fallback when registry argv is absent.
-    expect(terminalAttachCommandFromSurface({
-      backend: "herdr",
-      sessionName: "scout-main-2",
-      socketDir: null,
-    })).toBe("herdr session attach scout-main-2");
   });
 });

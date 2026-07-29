@@ -3,14 +3,17 @@ import { describe, expect, test } from "bun:test";
 import type {
   AgentDefinition,
   AgentEndpoint,
+  DeliveryAttempt,
   DeliveryIntent,
   FlightRecord,
   InvocationRequest,
+  MessageRecord,
 } from "@openscout/protocol";
 
 import {
   BrokerFlightLifecycleService,
   deliveryStatusForFlight,
+  STALE_LOCAL_DELIVERY_GRACE_MS,
   shouldIgnoreFlightUpdate,
   staleLocalDeliveryReason,
 } from "./broker-flight-lifecycle-service.js";
@@ -71,6 +74,19 @@ function testInvocation(input: Partial<InvocationRequest> = {}): InvocationReque
   };
 }
 
+function testMessage(input: Partial<MessageRecord> = {}): MessageRecord {
+  return {
+    id: "message-1",
+    conversationId: "conversation-1",
+    actorId: "operator",
+    originNodeId: "node-1",
+    class: "agent",
+    body: "hello",
+    createdAt: 1_000,
+    ...input,
+  };
+}
+
 function testFlight(input: Partial<FlightRecord> = {}): FlightRecord {
   return {
     id: "flight-1",
@@ -100,10 +116,22 @@ function testDelivery(input: Partial<DeliveryIntent> = {}): DeliveryIntent {
   };
 }
 
+function testDeliveryAttempt(input: Partial<DeliveryAttempt> = {}): DeliveryAttempt {
+  return {
+    id: "attempt-1",
+    deliveryId: "delivery-1",
+    attempt: 1,
+    status: "sent",
+    createdAt: 1_000,
+    ...input,
+  };
+}
+
 function testSnapshot(input: {
   agents?: Record<string, AgentDefinition>;
   endpoints?: Record<string, AgentEndpoint>;
   invocations?: Record<string, InvocationRequest>;
+  messages?: Record<string, MessageRecord>;
   flights?: Record<string, FlightRecord>;
 } = {}): RuntimeSnapshot {
   return {
@@ -113,7 +141,7 @@ function testSnapshot(input: {
     endpoints: input.endpoints ?? {},
     conversations: {},
     bindings: {},
-    messages: {},
+    messages: input.messages ?? {},
     readCursors: {},
     invocations: input.invocations ?? {},
     flights: input.flights ?? {},
@@ -124,6 +152,7 @@ function testSnapshot(input: {
 function createHarness(input: {
   snapshot?: RuntimeSnapshot;
   deliveries?: DeliveryIntent[];
+  deliveryAttempts?: Record<string, DeliveryAttempt[]>;
   invocation?: InvocationRequest;
   activeInvocationIds?: string[];
   now?: number;
@@ -162,6 +191,7 @@ function createHarness(input: {
     },
     journal: {
       listDeliveries: () => input.deliveries ?? [],
+      listDeliveryAttempts: (deliveryId) => input.deliveryAttempts?.[deliveryId] ?? [],
     },
     durableStore: {
       async runWrite(work) {
@@ -360,6 +390,110 @@ describe("broker flight lifecycle helpers", () => {
           staleLocalRegistration: true,
           reconciledStaleDelivery: true,
           reconciledAt: 30_000,
+        }),
+      }),
+    ]);
+  });
+
+  test("does not fail a new delivery while its wake-on-demand endpoint is starting", async () => {
+    const endpoint = testEndpoint({
+      metadata: {},
+      state: "offline",
+    });
+    const now = 30_000;
+    const delivery = testDelivery({
+      invocationId: undefined,
+    });
+    const snapshot = testSnapshot({
+      agents: { "agent-1": testAgent() },
+      endpoints: { [endpoint.id]: endpoint },
+      messages: { "message-1": testMessage({ createdAt: now - 50 }) },
+    });
+    const harness = createHarness({
+      snapshot,
+      deliveries: [delivery],
+      now,
+    });
+
+    expect(staleLocalDeliveryReason(snapshot, delivery, { now })).toBeNull();
+    expect(staleLocalDeliveryReason(snapshot, delivery, {
+      now: now + STALE_LOCAL_DELIVERY_GRACE_MS,
+    })).toBe("endpoint endpoint-1 is offline");
+
+    await harness.service.reconcileStaleLocalDeliveries();
+    expect(harness.updatedDeliveries).toEqual([]);
+  });
+
+  test("uses the fresh invocation age when an old message is dispatched again", () => {
+    const endpoint = testEndpoint({ metadata: {}, state: "offline" });
+    const now = 500_000;
+    const delivery = testDelivery();
+    const snapshot = testSnapshot({
+      agents: { "agent-1": testAgent() },
+      endpoints: { [endpoint.id]: endpoint },
+      messages: {
+        "message-1": testMessage({ createdAt: now - STALE_LOCAL_DELIVERY_GRACE_MS - 1 }),
+      },
+      invocations: {
+        "invocation-1": testInvocation({ createdAt: now - 50 }),
+      },
+    });
+
+    expect(staleLocalDeliveryReason(snapshot, delivery, { now })).toBeNull();
+    expect(staleLocalDeliveryReason(snapshot, delivery, {
+      now: now + STALE_LOCAL_DELIVERY_GRACE_MS,
+    })).toBe("endpoint endpoint-1 is offline");
+  });
+
+  test("uses the latest delivery attempt when source records are absent from the snapshot", async () => {
+    const endpoint = testEndpoint({ metadata: {}, state: "offline" });
+    const now = 600_000;
+    const delivery = testDelivery({ messageId: undefined, invocationId: undefined });
+    const attempt = testDeliveryAttempt({ createdAt: now - 50 });
+    const snapshot = testSnapshot({
+      agents: { "agent-1": testAgent() },
+      endpoints: { [endpoint.id]: endpoint },
+    });
+    const harness = createHarness({
+      snapshot,
+      deliveries: [delivery],
+      deliveryAttempts: { [delivery.id]: [attempt] },
+      now,
+    });
+
+    expect(staleLocalDeliveryReason(snapshot, delivery, {
+      now,
+      latestAttemptAt: attempt.createdAt,
+    })).toBeNull();
+    await harness.service.reconcileStaleLocalDeliveries();
+    expect(harness.updatedDeliveries).toEqual([]);
+  });
+
+  test("a running flight recovers a delivery falsely failed by stale reconciliation", async () => {
+    const delivery = testDelivery({
+      status: "failed",
+      metadata: {
+        failureReason: "agent_offline",
+        reconciledStaleDelivery: true,
+      },
+    });
+    const invocation = testInvocation();
+    const harness = createHarness({
+      deliveries: [delivery],
+      invocation,
+      now: 40_000,
+    });
+
+    await harness.service.recordFlight(testFlight({ state: "running" }));
+
+    expect(harness.updatedDeliveries).toEqual([
+      expect.objectContaining({
+        deliveryId: "delivery-1",
+        status: "running",
+        metadata: expect.objectContaining({
+          failureReason: null,
+          failureDetail: null,
+          recoveredFromStaleReconciliation: true,
         }),
       }),
     ]);

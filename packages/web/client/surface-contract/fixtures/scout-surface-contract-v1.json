@@ -690,7 +690,7 @@
         "appliedDeadlineMs": 15000
       },
       "result": {
-        "adapter": "codex_app_server",
+        "adapter": "codex_desktop",
         "agentId": "agent-codex",
         "threadId": "thread-codex",
         "turnId": null,
@@ -732,7 +732,7 @@
         "appliedDeadlineMs": 15000
       },
       "result": {
-        "adapter": "codex_app_server",
+        "adapter": "codex_desktop",
         "agentId": "agent-codex",
         "threadId": "thread-codex",
         "turnId": null,

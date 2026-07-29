@@ -16,6 +16,8 @@ const {
 } = await import("../scope/paths.ts");
 const { clearRouteMachineScope, canonicalHrefForRoute, routeFromUrl, routePath, setRouteMachineScope } = await import("./router.ts");
 const { normalizeRoute } = await import("./synthetic-agent-routing.ts");
+const { formatTerminalSurfaceId } = await import("@openscout/protocol");
+const surfaceId = (backend: string, hostSession: string) => formatTerminalSurfaceId({ backend, hostSession });
 const { resolveRoutedSessionId, resolveSelectedSessionId, sortSessionsByRecency } = await import("./session-catalog.ts");
 
 describe("scope route parsing", () => {
@@ -311,6 +313,7 @@ describe("agents route parsing", () => {
       agentId: "hudson.main",
     });
     expect(routePath(route)).toBe("/sessions/codex-thread-1?agentId=hudson.main");
+    if (route.view !== "sessions") throw new Error("expected a sessions route");
     expect(routePath({ ...route, machineId: "node-b" })).toBe(
       "/sessions/codex-thread-1?agentId=hudson.main&machineId=node-b",
     );
@@ -370,7 +373,7 @@ describe("agents route parsing", () => {
     expect(route).toEqual({
       view: "terminal",
       terminalSessionId: "ts.123",
-      terminalSurfaceKey: "zellij:scout-zj",
+      terminalSurfaceKey: surfaceId("zellij", "scout-zj"),
       mode: "observe",
     });
     expect(routePath(route)).toBe("/terminal/zellij/scout-zj?mode=observe");
@@ -383,7 +386,7 @@ describe("agents route parsing", () => {
 
     expect(route).toEqual({
       view: "terminal",
-      terminalSurfaceKey: "tmux:relay-atelier-card-w-eury8m-master-arts-mac-mini-local-claude",
+      terminalSurfaceKey: surfaceId("tmux", "relay-atelier-card-w-eury8m-master-arts-mac-mini-local-claude"),
       mode: "takeover",
     });
     expect(routePath(route)).toBe(
@@ -587,9 +590,9 @@ describe("agents route parsing", () => {
     expect(routePath({ view: "terminal", agentId: "hero.master" })).toBe("/terminal/hero.master");
     expect(routeFromUrl("http://127.0.0.1:43120/terminal/tmux/scout-zj")).toEqual({
       view: "terminal",
-      terminalSurfaceKey: "tmux:scout-zj",
+      terminalSurfaceKey: surfaceId("tmux", "scout-zj"),
     });
-    expect(routePath({ view: "terminal", terminalSurfaceKey: "tmux:scout-zj" })).toBe(
+    expect(routePath({ view: "terminal", terminalSurfaceKey: surfaceId("tmux", "scout-zj") })).toBe(
       "/terminal/tmux/scout-zj",
     );
 

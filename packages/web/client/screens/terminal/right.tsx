@@ -9,7 +9,6 @@ import { copyTextToClipboard } from "../../lib/clipboard.ts";
 import {
   fetchTerminalSessions,
   resolveRegisteredTerminalTarget,
-  terminalAttachCommandFromSurface,
   terminalSurfaceDescriptorFromRegisteredSurface,
   type RegisteredTerminalTarget,
 } from "../../lib/terminal-sessions.ts";
@@ -53,7 +52,7 @@ export function TerminalInspector() {
   const agentSurface = agent ? agentTerminalSurface(agent) : null;
   const terminalSurface = agentSurface ?? registeredSurface;
   const attachCommand = useMemo(
-    () => terminalSurface ? terminalAttachCommandFromSurface(terminalSurface) : null,
+    () => terminalSurface ? terminalAttachCommand(terminalSurface) : null,
     [terminalSurface],
   );
 
@@ -66,7 +65,7 @@ export function TerminalInspector() {
           {terminalSurface && <Row label="Backend" value={terminalSurface.backend} />}
           {terminalSurface && <Row label="Session" value={terminalSurface.sessionName} />}
         </Section>
-        {attachCommand && <CommandBox label="Attach command" command={attachCommand} />}
+        {attachCommand && <CommandDisclosure label="Open in your own terminal" command={attachCommand} />}
       </div>
     );
   }
@@ -83,7 +82,7 @@ export function TerminalInspector() {
         <Row label="State" value={agentStateLabel(agent.state)} />
       </Section>
 
-      {attachCommand && <CommandBox label="Attach command" command={attachCommand} />}
+      {attachCommand && <CommandDisclosure label="Open in your own terminal" command={attachCommand} />}
 
       <div className="grid grid-cols-2 gap-1.5">
         {terminalSurface && (
@@ -126,6 +125,21 @@ export function TerminalInspector() {
       )}
     </div>
   );
+}
+
+function shellQuote(value: string): string {
+  if (/^[A-Za-z0-9_./:@%+=,-]+$/u.test(value)) return value;
+  return `'${value.replace(/'/gu, `'\\''`)}'`;
+}
+
+function terminalAttachCommand(surface: TerminalSurfaceDescriptor): string {
+  if (surface.backend === "tmux") {
+    return `tmux attach -t ${shellQuote(surface.sessionName)}`;
+  }
+  const socketPrefix = surface.socketDir
+    ? `ZELLIJ_SOCKET_DIR=${shellQuote(surface.socketDir)} `
+    : "";
+  return `${socketPrefix}zellij attach ${shellQuote(surface.sessionName)}`;
 }
 
 function terminalRoute(agentId: string, mode: "observe" | "takeover"): Route {
@@ -193,14 +207,22 @@ function ModeButton({
   );
 }
 
-function CommandBox({ label, command }: { label: string; command: string }) {
+/**
+ * The raw multiplexer invocation, behind a disclosure.
+ *
+ * It used to lead the inspector under the label "Attach command", which taught
+ * every operator that Scout is a tmux wrapper. Scout manages the multiplexer;
+ * the argv is an escape hatch for the operator who wants their own terminal,
+ * and it is labelled by what it does rather than by which tool it drives.
+ */
+function CommandDisclosure({ label, command }: { label: string; command: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] p-2">
-      <div className="mb-1.5 flex items-center justify-between gap-2">
-        <span className="font-mono text-2xs uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
-          {label}
-        </span>
+    <details className="rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] p-2">
+      <summary className="cursor-pointer select-none font-mono text-2xs uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
+        {label}
+      </summary>
+      <div className="mb-1.5 mt-2 flex items-center justify-end gap-2">
         <button
           type="button"
           className="rounded border border-cyan-400/20 bg-cyan-400/[0.08] px-2 py-1 font-mono text-2xs uppercase tracking-[0.1em] text-cyan-100/80 hover:bg-cyan-400/[0.14]"
@@ -218,7 +240,7 @@ function CommandBox({ label, command }: { label: string; command: string }) {
       <code className="block select-text break-all rounded bg-black/25 p-2 font-mono text-xs leading-relaxed text-[var(--scout-chrome-ink)]">
         {command}
       </code>
-    </div>
+    </details>
   );
 }
 

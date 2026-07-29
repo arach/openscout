@@ -65,6 +65,7 @@ export function renderAskCommandHelp(): string {
     "  inline message                    -> primary prompt body",
     "  --prompt-file <path>              -> read the primary prompt body from a UTF-8 file",
     "  --body-file <path>                -> alias for --prompt-file",
+    "  --label <label>                   -> attach a durable work label; repeatable",
     "",
     "Examples:",
     '  scout ask --to hudson "review the parser"',

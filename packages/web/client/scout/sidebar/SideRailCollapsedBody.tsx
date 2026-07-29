@@ -25,7 +25,11 @@ import { bucketAgentsByMachine } from "../../lib/mesh-buckets.ts";
 import { useMeshViewStore } from "../../lib/mesh-view-store.ts";
 import { routeMachineId } from "../../lib/router.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
-import { fetchTerminalSessions, terminalListItems } from "../../lib/terminal-sessions.ts";
+import {
+  fetchTerminalSessions,
+  terminalListItems,
+  terminalSurfaceIdsEqual,
+} from "../../lib/terminal-sessions.ts";
 import type { Agent, FleetState, Route } from "../../lib/types.ts";
 import { useScout } from "../Provider.tsx";
 import { openAgent } from "../slots/openAgent.ts";
@@ -284,7 +288,7 @@ function TerminalCollapsedStrip() {
         <CollapsedChip
           key={item.key}
           title={item.title}
-          active={item.key === activeKey}
+          active={terminalSurfaceIdsEqual(item.key, activeKey)}
           tone="neutral"
           ava={chipInitial(item.title)}
           avaColor={actorColor(item.title)}

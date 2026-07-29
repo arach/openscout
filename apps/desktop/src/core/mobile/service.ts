@@ -8,7 +8,14 @@ import type {
   FlightRecord,
   MessageRecord,
 } from "@openscout/protocol";
-import { channelNaturalKeyFromMetadata, epochMs } from "@openscout/protocol";
+import {
+  channelNaturalKeyFromMetadata,
+  epochMs,
+  isScoutLaunchableHarness,
+  SCOUT_LAUNCHABLE_HARNESSES,
+  SCOUT_RUNTIME_EFFORT_CATALOG,
+  SCOUT_RUNTIME_MODEL_CATALOG,
+} from "@openscout/protocol";
 import { loadHarnessCatalogSnapshot } from "@openscout/runtime/harness-catalog";
 import {
   collectOccupiedDefinitionIdsFromBrokerSnapshot,
@@ -21,7 +28,7 @@ import {
 import { createAgentWorkspace } from "@openscout/runtime/agent-workspace";
 
 import { upScoutAgent } from "../agents/service.ts";
-import { queryFleet } from "../../server/db-queries.ts";
+import { queryAgents, queryFleet } from "../../server/db-queries.ts";
 import {
   loadScoutBrokerContext,
   readScoutBrokerHome,
@@ -43,6 +50,46 @@ const SCOUTBOT_AGENT_ID = "scoutbot";
 const SCOUTBOT_DEFAULT_THREAD_ID = "thr-default";
 const SCOUTBOT_DEFAULT_CONVERSATION_ID = "dm.operator.scoutbot.default";
 const SCOUTBOT_LEGACY_CONVERSATION_ID = "dm.operator.scoutbot";
+
+export async function getScoutMobileRuntimeCapabilities(projectRoot?: string) {
+  const catalog = await loadHarnessCatalogSnapshot().catch(() => null);
+  const labels = new Map((catalog?.entries ?? []).map((entry) => [entry.harness, entry.label]));
+  const normalizedProjectRoot = projectRoot?.trim() ? resolve(projectRoot) : null;
+  const models = SCOUT_RUNTIME_MODEL_CATALOG.map((model) => ({
+    ...model,
+    harnesses: [...model.harnesses],
+  }));
+  const seenModels = new Set(models.flatMap((model) => (
+    model.harnesses.map((harness) => `${harness}:${model.id.toLowerCase()}`)
+  )));
+  if (normalizedProjectRoot) {
+    for (const agent of queryAgents(100)) {
+      const root = agent.projectRoot ?? agent.cwd;
+      const harness = agent.harness?.trim().toLowerCase();
+      const model = agent.model?.trim();
+      if (!root || resolve(root) !== normalizedProjectRoot || !isScoutLaunchableHarness(harness) || !model) continue;
+      const key = `${harness}:${model.toLowerCase()}`;
+      if (!seenModels.add(key)) continue;
+      models.push({ id: model, label: model, harnesses: [harness], source: "observed" });
+    }
+  }
+  return {
+    schemaVersion: "openscout.runtime-capabilities.v1" as const,
+    generatedAt: Date.now(),
+    scope: projectRoot ? "global+project" as const : "global" as const,
+    ...(normalizedProjectRoot ? { projectRoot: normalizedProjectRoot } : {}),
+    harnesses: SCOUT_LAUNCHABLE_HARNESSES.map((id) => ({
+      id,
+      label: labels.get(id) ?? id,
+    })),
+    models,
+    efforts: SCOUT_RUNTIME_EFFORT_CATALOG.map((effort) => ({
+      ...effort,
+      harnesses: [...effort.harnesses],
+      ...(effort.models ? { models: [...effort.models] } : {}),
+    })),
+  };
+}
 
 export type ScoutMobileListFilters = {
   query?: string;

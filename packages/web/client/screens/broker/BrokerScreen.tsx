@@ -1011,6 +1011,7 @@ export function BrokerAttemptInspector({
   const defaultForwardAgentId = routableAgents.some((agent) => agent.id === scoutbotAgentId)
     ? scoutbotAgentId
     : routableAgents[0]?.id ?? "";
+  const firstRoutableAgentId = routableAgents[0]?.id ?? "";
   const defaultForwardAgent = routableAgents.find((agent) => agent.id === defaultForwardAgentId) ?? null;
   const projectOptions = useMemo(() => {
     const options = new Map<string, string>();
@@ -1025,19 +1026,21 @@ export function BrokerAttemptInspector({
 
   // Everything the composer is seeded from is derived from the fleet snapshot,
   // and that snapshot churns constantly: `routableAgents` is re-sorted by
-  // `updatedAt` on every agents poll, so recipient defaults can change whenever
-  // any agent does anything. Those values are read
+  // `updatedAt` on every agents poll, so `firstRoutableAgentId` and friends
+  // change identity whenever any agent does anything. Those values are read
   // through a ref so a *reset* can be driven by one thing only — the operator
   // selecting a different dispatch. Depending on them directly meant a busy
   // fleet wiped the half-typed request and re-pointed the recipient mid-compose.
   const composerDefaultsRef = useRef({
     originalTargetAgentId,
+    firstRoutableAgentId,
     defaultForwardAgentId,
     defaultForwardAgent,
     effort: "medium",
   });
   composerDefaultsRef.current = {
     originalTargetAgentId,
+    firstRoutableAgentId,
     defaultForwardAgentId,
     defaultForwardAgent,
     effort: metadataText(attempt, "reasoningEffort", "effort") || "medium",
@@ -1054,7 +1057,7 @@ export function BrokerAttemptInspector({
     setReviewMessage(null);
     setReviewConversationId(null);
     setMessageDraft("");
-    setRedispatchAgentId(defaults.originalTargetAgentId);
+    setRedispatchAgentId(defaults.originalTargetAgentId || defaults.firstRoutableAgentId);
     setRedispatchStatus("idle");
     setRedispatchMessage(null);
     setForwardAgentId(defaults.defaultForwardAgentId);
@@ -1076,7 +1079,7 @@ export function BrokerAttemptInspector({
   // set are left alone: seeding must never overwrite an operator's choice.
   useEffect(() => {
     if (routingTouchedRef.current) return;
-    setRedispatchAgentId((current) => current || originalTargetAgentId);
+    setRedispatchAgentId((current) => current || originalTargetAgentId || firstRoutableAgentId);
     setForwardAgentId((current) => current || defaultForwardAgentId);
     setForwardProjectPath((current) => current
       || defaultForwardAgent?.projectRoot?.trim()
@@ -1084,7 +1087,7 @@ export function BrokerAttemptInspector({
       || "");
     setForwardHarness((current) => current || defaultForwardAgent?.harness?.trim() || "");
     setForwardModel((current) => current || defaultForwardAgent?.model?.trim() || "");
-  }, [defaultForwardAgent, defaultForwardAgentId, originalTargetAgentId]);
+  }, [defaultForwardAgent, defaultForwardAgentId, firstRoutableAgentId, originalTargetAgentId]);
 
   useEffect(() => {
     const query = new URLSearchParams({ scope: "global+project" });

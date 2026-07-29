@@ -168,7 +168,11 @@ const routedReceipt = {
 } as const;
 
 const codexThread = {
-  adapter: "codex_app_server",
+  // The contract, the deck controller, and the server route all say
+  // `codex_desktop`; `codex_app_server` is the harness id from
+  // protocol/common.ts, which is a different axis. A golden fixture naming a
+  // value the contract cannot hold is not a golden fixture.
+  adapter: "codex_desktop",
   agentId: "agent-codex",
   threadId: "thread-codex",
   turnId: null,

@@ -15,6 +15,7 @@ export type TmuxSessionInfo = {
   windows: number;
   attached: number;
   createdAt: number | null;
+  activityAt: number | null;
   currentCommand: string | null;
   currentPath: string | null;
 };
@@ -121,15 +122,16 @@ export function parseTmuxSessionList(output: string): TmuxSessionInfo[] {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const [name, windows, attached, createdAt, currentCommand, currentPath] = line.includes("|")
-        ? splitDelimitedLine(line, "|", 6)
-        : splitDelimitedLine(line, "\t", 6);
+      const [name, windows, attached, createdAt, activityAt, currentCommand, currentPath] = line.includes("|")
+        ? splitDelimitedLine(line, "|", 7)
+        : splitDelimitedLine(line, "\t", 7);
       if (!name) return null;
       return {
         name,
         windows: parsePositiveInteger(windows, 1),
         attached: parsePositiveInteger(attached, 0),
         createdAt: createdAt ? Number.parseInt(createdAt, 10) || null : null,
+        activityAt: activityAt ? Number.parseInt(activityAt, 10) || null : null,
         currentCommand: cleanOptionalString(currentCommand),
         currentPath: cleanOptionalString(currentPath),
       };
@@ -164,7 +166,7 @@ async function readTmuxSessionsLocal(key: string, ctx: ProbeCtx): Promise<TmuxSe
       ...tmuxSocketArgs(key),
       "list-sessions",
       "-F",
-      "#{session_name}|#{session_windows}|#{session_attached}|#{session_created}|#{pane_current_command}|#{pane_current_path}",
+      "#{session_name}|#{session_windows}|#{session_attached}|#{session_created}|#{session_activity}|#{pane_current_command}|#{pane_current_path}",
     ], {
       maxStdoutBytes: 512 * 1024,
       maxStderrBytes: 64 * 1024,

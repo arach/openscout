@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api.ts";
 import { useTailEvents } from "./tail-events.ts";
 import { appendLiveTailEvent, mergeHydratedTailEvents } from "./tail-event-merge.ts";
+import { isScoutSurfaceActive, onScoutSurfaceActivated } from "./surface-activity.ts";
 import type { TailDiscoverySnapshot, TailEvent } from "./types.ts";
 
 const DEFAULT_RECENT_LIMIT = 500;
@@ -56,10 +57,6 @@ function tailDiscoveryPath(scope?: TailDiscoveryScope, limit?: number): string {
   return query ? `/api/tail/discover?${query}` : "/api/tail/discover";
 }
 
-function documentIsHidden(): boolean {
-  return typeof document !== "undefined" && document.visibilityState === "hidden";
-}
-
 export function useTailFeed(options?: {
   enabled?: boolean;
   recentLimit?: number;
@@ -100,7 +97,7 @@ export function useTailFeed(options?: {
 
   const refreshRecent = useCallback((showLoading = false): Promise<void> => {
     if (!enabled) return Promise.resolve();
-    if (pauseWhenHidden && documentIsHidden()) return Promise.resolve();
+    if (pauseWhenHidden && !isScoutSurfaceActive()) return Promise.resolve();
     if (showLoading) {
       setLoadState((previous) => ({ ...previous, recent: "loading" }));
     }
@@ -133,7 +130,7 @@ export function useTailFeed(options?: {
 
   const refreshDiscovery = useCallback(async (showLoading = false) => {
     if (!enabled) return;
-    if (pauseWhenHidden && documentIsHidden()) return;
+    if (pauseWhenHidden && !isScoutSurfaceActive()) return;
     if (showLoading) {
       setLoadState((previous) => ({ ...previous, discovery: "loading" }));
     }
@@ -163,20 +160,13 @@ export function useTailFeed(options?: {
     const tick = () => {
       if (!cancelled) void refreshDiscovery();
     };
-    const handleVisibilityChange = () => {
-      if (!documentIsHidden()) tick();
-    };
     tick();
     const timer = setInterval(tick, discoveryIntervalMs);
-    if (pauseWhenHidden && typeof document !== "undefined") {
-      document.addEventListener("visibilitychange", handleVisibilityChange);
-    }
+    const stopActivationListener = pauseWhenHidden ? onScoutSurfaceActivated(tick) : null;
     return () => {
       cancelled = true;
       clearInterval(timer);
-      if (pauseWhenHidden && typeof document !== "undefined") {
-        document.removeEventListener("visibilitychange", handleVisibilityChange);
-      }
+      stopActivationListener?.();
     };
   }, [discoveryIntervalMs, enabled, pauseWhenHidden, refreshDiscovery]);
 
@@ -185,20 +175,15 @@ export function useTailFeed(options?: {
     let cancelled = false;
     let started = false;
     const hydrate = () => {
-      if (cancelled || started || (pauseWhenHidden && documentIsHidden())) return;
+      if (cancelled || started || (pauseWhenHidden && !isScoutSurfaceActive())) return;
       started = true;
       void refreshRecent(true);
     };
-    const handleVisibilityChange = () => hydrate();
     hydrate();
-    if (pauseWhenHidden && typeof document !== "undefined") {
-      document.addEventListener("visibilitychange", handleVisibilityChange);
-    }
+    const stopActivationListener = pauseWhenHidden ? onScoutSurfaceActivated(hydrate) : null;
     return () => {
       cancelled = true;
-      if (pauseWhenHidden && typeof document !== "undefined") {
-        document.removeEventListener("visibilitychange", handleVisibilityChange);
-      }
+      stopActivationListener?.();
     };
   }, [enabled, pauseWhenHidden, refreshRecent]);
 

@@ -175,13 +175,6 @@
     "owner": "runtime"
   },
   {
-    "path": "packages/runtime/src/base-daemon.ts",
-    "symbol": "spawnSync",
-    "category": "boot",
-    "reason": "daemon startup port ownership check before spawning broker",
-    "owner": "runtime"
-  },
-  {
     "path": "packages/runtime/src/broker-process-manager.ts",
     "symbol": "node:child_process",
     "category": "process-lifecycle",
@@ -441,6 +434,13 @@
     "owner": "web"
   },
   {
+    "path": "packages/web/server/pairing-pair-requests.test.ts",
+    "symbol": "Bun.spawn",
+    "category": "test",
+    "reason": "spawns two real processes to race over one shared pair-request file; in-process stores cannot interleave a read-modify-write",
+    "owner": "tests"
+  },
+  {
     "path": "packages/web/server/pairing.ts",
     "symbol": "node:child_process",
     "category": "process-lifecycle",
@@ -460,6 +460,20 @@
     "category": "test",
     "reason": "git fixture setup",
     "owner": "tests"
+  },
+  {
+    "path": "packages/runtime/src/codex-desktop-deck.ts",
+    "symbol": "node:child_process",
+    "category": "probe-exec",
+    "reason": "reads the Codex Desktop thread list with a one-shot `sqlite3 -readonly -json`; the deck must not open a writable handle on another app's database",
+    "owner": "runtime"
+  },
+  {
+    "path": "packages/web/server/terminal-hosts/herdr.ts",
+    "symbol": "node:child_process",
+    "category": "process-lifecycle",
+    "reason": "spawns a detached herdr session server, which outlives the request by design and cannot be awaited",
+    "owner": "web"
   },
   {
     "path": "packages/web/vite.config.ts",

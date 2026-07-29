@@ -148,9 +148,9 @@ describe("broker daemon local agent routing", () => {
         harness: "claude",
         projectRoot,
         metadata: expect.objectContaining({
-          model: "opus",
+          model: "claude-opus-5",
           reasoningEffort: "high",
-          launchArgs: ["--model", "opus", "--effort", "high"],
+          launchArgs: ["--model", "claude-opus-5", "--effort", "high"],
         }),
       }),
     ]));

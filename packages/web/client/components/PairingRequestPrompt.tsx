@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api.ts";
+import { isScoutSurfaceActive, onScoutSurfaceActivated } from "../lib/surface-activity.ts";
 import "./pairing-request-prompt.css";
 
 /** Mirror of the server's `PairRequest` (pairing-pair-requests.ts). */
@@ -74,26 +75,20 @@ export function PairingRequestPrompt() {
 
     const runPoll = async () => {
       clearPollTimer();
+      if (!isScoutSurfaceActive()) return;
       const ok = await refreshNotifications();
       if (disposed || !mounted.current) return;
       scheduleNextPoll(ok ? NOTIFICATION_POLL_MS : ERROR_POLL_MS);
     };
 
-    const refreshVisibleWindow = () => {
-      if (document.visibilityState === "hidden") return;
-      void runPoll();
-    };
-
     void runPoll();
-    window.addEventListener("focus", refreshVisibleWindow);
-    document.addEventListener("visibilitychange", refreshVisibleWindow);
+    const stopActivationListener = onScoutSurfaceActivated(() => void runPoll());
 
     return () => {
       disposed = true;
       mounted.current = false;
       clearPollTimer();
-      window.removeEventListener("focus", refreshVisibleWindow);
-      document.removeEventListener("visibilitychange", refreshVisibleWindow);
+      stopActivationListener();
     };
   }, [refreshNotifications]);
 

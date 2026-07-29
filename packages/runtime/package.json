@@ -235,6 +235,12 @@
       "import": "./dist/knowledge/index.js",
       "default": "./dist/knowledge/index.js"
     },
+    "./schema": {
+      "bun": "./src/schema.ts",
+      "types": "./dist/schema.d.ts",
+      "import": "./dist/schema.js",
+      "default": "./dist/schema.js"
+    },
     "./drizzle": {
       "bun": "./src/drizzle.ts",
       "types": "./dist/drizzle.d.ts",

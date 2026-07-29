@@ -8,7 +8,10 @@ import type {
 } from "@openscout/protocol";
 
 import { createInMemoryControlRuntime } from "./broker.js";
-import { BrokerLocalEndpointResolver } from "./broker-local-endpoint-resolver.js";
+import {
+  BrokerLocalEndpointResolver,
+  PENDING_PROVISIONED_RUNTIME_TRUST_MS,
+} from "./broker-local-endpoint-resolver.js";
 import type { LocalAgentBinding } from "./local-agents.js";
 
 function testActor(input: Partial<ActorIdentity> = {}): ActorIdentity {
@@ -321,9 +324,11 @@ describe("BrokerLocalEndpointResolver", () => {
       harness: "claude",
       sessionId: "session-cardless",
       metadata: {
+        source: "scout-cardless-session",
         cardless: true,
         sessionBacked: true,
         pendingExternalSession: true,
+        pendingExternalSessionAt: 9_000,
       },
     });
     await harness.runtime.upsertEndpoint(endpoint);
@@ -382,6 +387,41 @@ describe("BrokerLocalEndpointResolver", () => {
     expect(harness.ensuredBindings).toEqual([]);
   });
 
+  test("fails closed instead of reusing an unobserved exact runtime when wake is disabled", async () => {
+    const harness = createResolver();
+    await harness.runtime.upsertEndpoint(testEndpoint({
+      id: "unobserved-no-wake",
+      metadata: { alive: true },
+    }));
+
+    await expect(harness.resolver.resolveLocalEndpointForInvocation(testInvocation({
+      ensureAwake: false,
+      execution: { harness: "codex", model: "gpt-5.6-sol", reasoningEffort: "xhigh" },
+    }))).rejects.toThrow("session_runtime_unobserved");
+    expect(harness.isolatedInvocations).toEqual([]);
+  });
+
+  test("reuses an observed exact runtime when wake is disabled", async () => {
+    const harness = createResolver();
+    const endpoint = testEndpoint({
+      id: "observed-no-wake",
+      metadata: {
+        alive: true,
+        observedRuntime: {
+          harness: "codex",
+          model: "gpt-5.6-sol",
+          reasoningEffort: "xhigh",
+        },
+      },
+    });
+    await harness.runtime.upsertEndpoint(endpoint);
+
+    await expect(harness.resolver.resolveLocalEndpointForInvocation(testInvocation({
+      ensureAwake: false,
+      execution: { harness: "codex", model: "gpt-5.6-sol", reasoningEffort: "xhigh" },
+    }))).resolves.toEqual(endpoint);
+  });
+
   test("allows an exact existing session only when every requested dimension was observed to match", async () => {
     const harness = createResolver();
     const endpoint = testEndpoint({
@@ -408,6 +448,83 @@ describe("BrokerLocalEndpointResolver", () => {
       },
     }))).resolves.toEqual(endpoint);
     expect(harness.isolatedInvocations).toEqual([]);
+  });
+
+  test("allows the first exact invocation into a matching Scout-provisioned pending session", async () => {
+    const harness = createResolver();
+    const endpoint = testEndpoint({
+      id: "pending-endpoint",
+      sessionId: "pending-session",
+      metadata: {
+        alive: true,
+        source: "scout-cardless-session",
+        sessionBacked: true,
+        pendingExternalSession: true,
+        pendingExternalSessionAt: 9_000,
+        model: "gpt-5.6-sol",
+        reasoningEffort: "high",
+      },
+    });
+    await harness.runtime.upsertEndpoint(endpoint);
+
+    await expect(harness.resolver.resolveLocalEndpointForInvocation(testInvocation({
+      ensureAwake: true,
+      execution: {
+        harness: "codex",
+        model: "gpt-5.6-sol",
+        reasoningEffort: "high",
+        targetSessionId: "pending-session",
+      },
+    }))).resolves.toEqual(endpoint);
+  });
+
+  test("still rejects a pending session whose provisioned runtime does not match", async () => {
+    const harness = createResolver();
+    await harness.runtime.upsertEndpoint(testEndpoint({
+      id: "pending-mismatch",
+      sessionId: "pending-mismatch-session",
+      metadata: {
+        alive: true,
+        source: "scout-cardless-session",
+        sessionBacked: true,
+        pendingExternalSession: true,
+        pendingExternalSessionAt: 9_000,
+        model: "gpt-5.6-terra",
+      },
+    }));
+
+    await expect(harness.resolver.resolveLocalEndpointForInvocation(testInvocation({
+      execution: {
+        harness: "codex",
+        model: "gpt-5.6-sol",
+        targetSessionId: "pending-mismatch-session",
+      },
+    }))).rejects.toThrow("session_runtime_mismatch");
+  });
+
+  test("expires provisioned runtime trust when a pending session never attaches", async () => {
+    const now = PENDING_PROVISIONED_RUNTIME_TRUST_MS + 20_000;
+    const harness = createResolver({ now });
+    await harness.runtime.upsertEndpoint(testEndpoint({
+      id: "expired-pending",
+      sessionId: "expired-pending-session",
+      metadata: {
+        alive: true,
+        source: "scout-isolated-agent-session",
+        sessionBacked: true,
+        pendingExternalSession: true,
+        pendingExternalSessionAt: 10_000,
+        model: "gpt-5.6-sol",
+      },
+    }));
+
+    await expect(harness.resolver.resolveLocalEndpointForInvocation(testInvocation({
+      execution: {
+        harness: "codex",
+        model: "gpt-5.6-sol",
+        targetSessionId: "expired-pending-session",
+      },
+    }))).rejects.toThrow("session_runtime_unobserved");
   });
 
   test("fails closed when an exact existing session is unobserved or mismatched", async () => {

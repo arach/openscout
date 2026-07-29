@@ -237,8 +237,7 @@ function sessionMatchesSurface(
 ): boolean {
   if (!backend || !sessionName || session.backend !== backend) return false;
   return session.tmuxSession === sessionName
-    || session.zellijSession === sessionName
-    || session.herdrSession === sessionName;
+    || session.zellijSession === sessionName;
 }
 
 let pendingCommand: PendingCommand | null = null;

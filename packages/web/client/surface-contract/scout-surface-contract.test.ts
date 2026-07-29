@@ -74,9 +74,13 @@ describe("Scout surface v1 contract", () => {
 
   test("keeps the signed native-surface manifest aligned with the contract", () => {
     for (const surface of ["lanes", "deck", "dispatch"] as const) {
-      const expectedMethods = SCOUT_SURFACE_METHODS.filter((method) =>
-        SCOUT_SURFACE_METHOD_POLICY[method].surfaces.includes(surface),
-      );
+      const expectedMethods = SCOUT_SURFACE_METHODS.filter((method) => {
+        // Widen before asking. Each policy entry's `surfaces` is a distinct
+        // readonly tuple, so indexing by a method union gives `includes` a
+        // parameter type of `never` and the call cannot be written at all.
+        const allowed: readonly string[] = SCOUT_SURFACE_METHOD_POLICY[method].surfaces;
+        return allowed.includes(surface);
+      });
       expect(nativeSurfaceManifest.surfaces[surface].capabilities).toEqual(expectedMethods);
       expect(nativeSurfaceManifest.surfaces[surface].preferences)
         .toEqual([...SURFACE_PREFERENCE_KEYS[surface]]);

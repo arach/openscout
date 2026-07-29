@@ -84,6 +84,13 @@ function worktreeContainerFamilyRoot(root: string): string | null {
   return nestedContainer?.[1] ?? null;
 }
 
+function numberedCloneFamilyRoot(root: string): string | null {
+  const leaf = basename(root);
+  const match = leaf?.match(/^(.+)-\d+$/u);
+  const parent = dirname(root);
+  return match?.[1] && parent ? `${parent}/${match[1]}` : null;
+}
+
 export function workspaceRootFromObservedPath(path: string | null | undefined): string | null {
   const value = path?.trim();
   if (!value) return null;
@@ -122,7 +129,7 @@ export function canonicalProjectRoot(root: string | null | undefined): string | 
   const normalized = normalizeProjectRoot(root);
   if (!normalized) return null;
   const family = worktreeFamilyFromRoot(normalized);
-  const base = family?.root ?? normalized;
+  const base = family?.root ?? numberedCloneFamilyRoot(normalized) ?? normalized;
   const observed = collapseHomePrefix(workspaceRootFromObservedPath(base) ?? base);
   const canonical = observed;
   if (

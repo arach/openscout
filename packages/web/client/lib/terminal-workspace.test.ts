@@ -3,17 +3,26 @@ import {
   addTerminalWorkspace,
   closeTerminalWorkspace,
   createTerminalWorkspaceDeck,
+  emptyTerminalWorkspaceDeck,
   moveTerminalWorkspaceItem,
   normalizeTerminalWorkspaceDeck,
+  normalizeTerminalWorkspaceColumns,
   renameTerminalWorkspace,
   resolveTerminalProjectDestinations,
   selectTerminalWorkspace,
+  TERMINAL_WORKSPACE_MAX_COLUMNS,
   terminalProjectCdCommand,
   terminalWorkspaceDropPlacement,
   updateActiveTerminalWorkspaceTiles,
+  updateTerminalWorkspace,
+  upsertTerminalWorkspace,
 } from "./terminal-workspace.ts";
 
 const items = [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }];
+
+const isTile = (value: unknown): value is { id: string } => (
+  Boolean(value) && typeof value === "object" && typeof (value as { id?: unknown }).id === "string"
+);
 
 describe("terminal workspace decks", () => {
   test("creates, selects, renames, and closes named workspaces", () => {
@@ -49,6 +58,77 @@ describe("terminal workspace decks", () => {
       activeWorkspaceId: "main",
       workspaces: [{ id: "main", name: "Main", tiles: [{ id: "ok" }] }],
     });
+  });
+
+  test("carries workspace purpose, columns, and updatedAt through normalization", () => {
+    const deck = normalizeTerminalWorkspaceDeck({
+      version: 1,
+      activeWorkspaceId: "desk",
+      workspaces: [
+        { id: "desk", name: "Release desk", purpose: "  Watch the train  ", columns: 3, updatedAt: 42, tiles: [] },
+        { id: "junk", name: "Junk", purpose: "   ", columns: 0, updatedAt: -1, tiles: [] },
+        { id: "wide", name: "Wide", columns: 99, tiles: [] },
+      ],
+    }, isTile);
+
+    expect(deck.workspaces).toEqual([
+      { id: "desk", name: "Release desk", purpose: "Watch the train", columns: 3, updatedAt: 42, tiles: [] },
+      { id: "junk", name: "Junk", tiles: [] },
+      { id: "wide", name: "Wide", columns: TERMINAL_WORKSPACE_MAX_COLUMNS, tiles: [] },
+    ]);
+  });
+
+  test("returns an empty deck instead of inventing a workspace when asked", () => {
+    expect(normalizeTerminalWorkspaceDeck(null, isTile, { allowEmpty: true }))
+      .toEqual(emptyTerminalWorkspaceDeck());
+    expect(normalizeTerminalWorkspaceDeck(null, isTile))
+      .toEqual(createTerminalWorkspaceDeck());
+  });
+
+  test("closes the last workspace only when an empty deck is allowed", () => {
+    const deck = createTerminalWorkspaceDeck<{ id: string }>();
+    expect(closeTerminalWorkspace(deck, "main")).toBe(deck);
+    expect(closeTerminalWorkspace(deck, "other", { allowEmpty: true })).toBe(deck);
+    expect(closeTerminalWorkspace(deck, "main", { allowEmpty: true })).toEqual(emptyTerminalWorkspaceDeck());
+  });
+
+  test("upsert replaces in place, inserts at the front, and always activates", () => {
+    let deck = emptyTerminalWorkspaceDeck<{ id: string }>();
+    deck = upsertTerminalWorkspace(deck, { id: "one", name: "One", tiles: [] });
+    deck = upsertTerminalWorkspace(deck, { id: "two", name: "Two", tiles: [] });
+    expect(deck.workspaces.map((workspace) => workspace.id)).toEqual(["two", "one"]);
+    expect(deck.activeWorkspaceId).toBe("two");
+
+    deck = upsertTerminalWorkspace(deck, { id: "one", name: "One renamed", columns: 3, tiles: [{ id: "a" }] });
+    expect(deck.workspaces.map((workspace) => workspace.id)).toEqual(["two", "one"]);
+    expect(deck.activeWorkspaceId).toBe("one");
+    expect(deck.workspaces[1]).toEqual({ id: "one", name: "One renamed", columns: 3, tiles: [{ id: "a" }] });
+  });
+
+  test("patching a workspace is identity-stable when nothing changes", () => {
+    const deck = upsertTerminalWorkspace(
+      emptyTerminalWorkspaceDeck<{ id: string }>(),
+      { id: "one", name: "One", columns: 2, tiles: [] },
+    );
+    expect(updateTerminalWorkspace(deck, "one", { columns: 2 })).toBe(deck);
+    expect(updateTerminalWorkspace(deck, "missing", { columns: 4 })).toBe(deck);
+    expect(updateTerminalWorkspace(deck, "one", { columns: 4 }).workspaces[0]?.columns).toBe(4);
+  });
+
+  test("names a new workspace explicitly when a name is given", () => {
+    const deck = addTerminalWorkspace(createTerminalWorkspaceDeck<{ id: string }>(), "second", "  Infra  ");
+    expect(deck.workspaces.map((workspace) => workspace.name)).toEqual(["Main", "Infra"]);
+  });
+});
+
+describe("normalizeTerminalWorkspaceColumns", () => {
+  test("clamps to a usable range and rejects non-counts", () => {
+    expect(normalizeTerminalWorkspaceColumns(3)).toBe(3);
+    expect(normalizeTerminalWorkspaceColumns(2.7)).toBe(2);
+    expect(normalizeTerminalWorkspaceColumns(0)).toBeNull();
+    expect(normalizeTerminalWorkspaceColumns(Number.NaN)).toBeNull();
+    expect(normalizeTerminalWorkspaceColumns("3")).toBeNull();
+    expect(normalizeTerminalWorkspaceColumns(99)).toBe(TERMINAL_WORKSPACE_MAX_COLUMNS);
   });
 });
 

@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { namedChannelNaturalKey } from "@openscout/protocol";
 
+import { STALE_LOCAL_DELIVERY_GRACE_MS } from "./broker-flight-lifecycle-service.js";
 import { createBrokerDaemonTestHarness } from "./test-helpers/broker-daemon-harness.test";
 
 const broker = createBrokerDaemonTestHarness();
@@ -440,7 +441,7 @@ describe("broker daemon reconciliation", () => {
         OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
       },
     });
-    const staleAt = Date.now() - 5_000;
+    const staleAt = Date.now() - STALE_LOCAL_DELIVERY_GRACE_MS - 5_000;
     const messageCreatedAt = staleAt + 1_000;
 
     await broker.postJson(firstHarness.baseUrl, "/v1/actors", {

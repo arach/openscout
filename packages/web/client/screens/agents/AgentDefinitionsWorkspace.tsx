@@ -139,7 +139,7 @@ function ConfigInspector({
   onConfigSaved: (config: LocalAgentConfigState) => void;
   sessionCatalog: SessionCatalogWithResume | null;
   navigate: (route: Route) => void;
-  homeView: "agents" | "agents-v2";
+  homeView: "agents-v2";
 }) {
   const spec = agentSpecialization(agent, config);
   const handle = agent.handle?.replace(/^@+/, "") || agent.name;
@@ -313,7 +313,7 @@ export function AgentDefinitionsWorkspace({
 }: {
   agent: Agent;
   navigate: (route: Route) => void;
-  homeView?: "agents" | "agents-v2";
+  homeView?: "agents-v2";
 }) {
   const { openFilePreview } = useScout();
   const [payload, setPayload] = useState<AgentDefinitionsPayload | null>(null);

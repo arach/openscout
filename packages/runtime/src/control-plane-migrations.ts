@@ -10,6 +10,7 @@ import {
   CONTROL_PLANE_SCHEMA_VERSION,
   CONTROL_PLANE_SQLITE_SCHEMA,
   CONTROL_PLANE_TERMINAL_SESSION_SQLITE_SCHEMA,
+  CONTROL_PLANE_TERMINAL_WORKSPACE_SQLITE_SCHEMA,
 } from "./schema.js";
 import { resolveOpenScoutSupportPaths } from "./support-paths.js";
 
@@ -72,6 +73,34 @@ export const CONTROL_PLANE_SCHEMA_MIGRATIONS: ControlPlaneSchemaMigration[] = [
     description: "Creates the Scout-owned terminal session registry (harness session + surfaces).",
     apply(database) {
       database.exec(CONTROL_PLANE_TERMINAL_SESSION_SQLITE_SCHEMA);
+    },
+  },
+  {
+    // Purely additive, and deliberately not accompanied by a
+    // CONTROL_PLANE_SCHEMA_VERSION bump: bumping would make every older build
+    // sharing this control home refuse to open the database
+    // (assertControlPlaneSchemaNotNewer), and a new table an older build never
+    // reads costs it nothing. Bump when an existing shape changes.
+    id: "terminal-workspaces",
+    description: "Creates the Scout-owned durable terminal workspace table (named tile arrangements + revive intent).",
+    apply(database) {
+      database.exec(CONTROL_PLANE_TERMINAL_WORKSPACE_SQLITE_SCHEMA);
+    },
+  },
+  {
+    // The table above is created with layout_json, but it already exists
+    // without it on machines that ran the branch that introduced it, and
+    // `CREATE TABLE IF NOT EXISTS` is a no-op on those — the whole reason the
+    // workspace layout silently failed to persist there. A shape change needs
+    // a real guarded ALTER, exactly like briefings.markdown below. Still
+    // additive, so still no CONTROL_PLANE_SCHEMA_VERSION bump: an older build
+    // that never reads this table cannot be hurt by a column on it.
+    id: "terminal-workspaces-layout-column",
+    description: "Adds terminal_workspaces.layout_json to databases whose table predates authored layouts.",
+    apply(database) {
+      if (!hasColumn(database, "terminal_workspaces", "layout_json")) {
+        database.exec("ALTER TABLE terminal_workspaces ADD COLUMN layout_json TEXT");
+      }
     },
   },
   {

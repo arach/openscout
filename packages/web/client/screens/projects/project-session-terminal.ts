@@ -1,3 +1,4 @@
+import { legacyTerminalSurfaceKey, parseTerminalSurfaceId } from "@openscout/protocol";
 import type { TerminalSessionRecord, TerminalSurface } from "@openscout/protocol";
 import { surfaceKey } from "../../lib/terminal-sessions.ts";
 
@@ -41,13 +42,9 @@ export function resolveProjectSessionTmuxTarget(
   const definitionId = agentId?.split(".", 1)[0] ?? null;
   if (definitionId?.startsWith("session-")) refs.add(definitionId);
 
-  if (agentId) {
-    for (const session of sessions) {
-      const surface = tmuxSurfaces(session)[0];
-      if (surface && session.agentId === agentId) return target(session, surface);
-    }
-  }
-
+  // Nothing binds a registry record to an agent id yet, so matching happens on
+  // session refs alone. Restore a direct agent lookup once the workspace record
+  // carries that binding.
   for (const session of sessions) {
     const surface = tmuxSurfaces(session).find((candidate) => refs.has(candidate.sessionName));
     if (surface) return target(session, surface);
@@ -56,10 +53,31 @@ export function resolveProjectSessionTmuxTarget(
   return null;
 }
 
-export function nativeTerminalDeepLink(target: ProjectSessionTmuxTarget, mode: "observe" | "takeover"): string {
+/**
+ * `scout://terminal` link for the native app, or null when this target cannot
+ * be expressed in a form that app understands.
+ *
+ * The surface travels as the LEGACY `backend:sessionName` key, not the opaque
+ * handle the rest of the web now carries. This is the one boundary where the
+ * two must differ: macOS's handler accepts only the legacy prefixes
+ * (`ScoutTerminalDeepLink.swift`) and returns nil for anything else, so an
+ * opaque handle here is a link that silently does nothing — and macOS is not
+ * something a web release can update in step. `legacyTerminalSurfaceKey` exists
+ * for exactly this and had no callers.
+ *
+ * The legacy form addresses a session, not a pane, which is all the native
+ * handler routes on anyway. Null when the handle will not parse, so a caller
+ * hides the link rather than rendering an href that goes nowhere.
+ */
+export function nativeTerminalDeepLink(
+  target: ProjectSessionTmuxTarget,
+  mode: "observe" | "takeover",
+): string | null {
+  const address = parseTerminalSurfaceId(target.terminalSurfaceKey);
+  if (!address) return null;
   const params = new URLSearchParams({
     session: target.terminalSessionId,
-    surface: target.terminalSurfaceKey,
+    surface: legacyTerminalSurfaceKey(address),
     mode,
   });
   return `scout://terminal?${params.toString()}`;
