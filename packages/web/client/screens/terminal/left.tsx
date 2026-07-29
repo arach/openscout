@@ -12,10 +12,17 @@ import { useScout } from "../../scout/Provider.tsx";
 import { agentStateLabel } from "../../lib/agent-state.ts";
 import { resolveAgentTerminalSurface } from "../../lib/terminal-relay.ts";
 import type { Agent } from "../../lib/types.ts";
+import { sortTerminalSessionItems } from "./session-table.ts";
 import "../../scout/slots/ctx-panel.css";
 import "../../scout/slots/terminal-left-panel.css";
 
 const TERMINAL_NAV_REFRESH_MS = 8_000;
+type TerminalNavSort = "recent" | "name";
+
+const TERMINAL_NAV_SORTS: ReadonlyArray<{ id: TerminalNavSort; label: string }> = [
+  { id: "recent", label: "Recent" },
+  { id: "name", label: "A–Z" },
+];
 
 export function TerminalLeft() {
   const { route, navigate, agents } = useScout();
@@ -25,6 +32,7 @@ export function TerminalLeft() {
     | { state: "failed"; sessions: TerminalSessionRecord[]; error: string }
   >({ state: "loading", sessions: [] });
   const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<TerminalNavSort>("recent");
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const onListKeyDown = useListArrowNav();
@@ -69,8 +77,16 @@ export function TerminalLeft() {
     };
   }, [load]);
 
-  const items = useMemo(() => terminalListItems(state.sessions), [state.sessions]);
-  const agentTargets = useMemo(() => sortTerminalAgentsForNav(agents), [agents]);
+  const items = useMemo(
+    () => sortTerminalSessionItems(
+      terminalListItems(state.sessions),
+      sort === "recent"
+        ? { column: "activity", direction: "desc" }
+        : { column: "name", direction: "asc" },
+    ),
+    [sort, state.sessions],
+  );
+  const agentTargets = useMemo(() => sortTerminalAgentsForNav(agents, sort), [agents, sort]);
   const normalizedQuery = query.trim().toLowerCase();
   const visibleItems = normalizedQuery
     ? items.filter((item) => item.searchable.includes(normalizedQuery))
@@ -132,11 +148,25 @@ export function TerminalLeft() {
           ref={inputRef}
           type="text"
           className="ctx-panel-search-input"
-          placeholder="Search terminals"
+          placeholder="Search…  (/)"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={onSearchKeyDown}
         />
+        <div className="ctx-panel-sort" role="group" aria-label="Sort terminals">
+          {TERMINAL_NAV_SORTS.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              title={option.id === "recent" ? "Sort by most recent" : "Sort alphabetically"}
+              aria-pressed={sort === option.id}
+              className={`ctx-panel-sort-option${sort === option.id ? " ctx-panel-sort-option--active" : ""}`}
+              onClick={() => setSort(option.id)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
       </div>
       {state.state === "failed" && (
         <div className="terminal-nav-error">{state.error}</div>
@@ -284,15 +314,14 @@ export function TerminalLeft() {
   );
 }
 
-function sortTerminalAgentsForNav(agents: Agent[]): Agent[] {
+function sortTerminalAgentsForNav(agents: Agent[], sort: TerminalNavSort): Agent[] {
   return [...agents]
-    .filter((agent) => !agent.retiredFromFleet)
+    .filter((agent) => !agent.retiredFromFleet && !agent.staleLocalRegistration)
     .sort((a, b) => {
-      const surfaceRank = Number(Boolean(resolveAgentTerminalSurface(b))) - Number(Boolean(resolveAgentTerminalSurface(a)));
-      if (surfaceRank !== 0) return surfaceRank;
+      const nameRank = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+      if (sort === "name") return nameRank || a.id.localeCompare(b.id);
       const updatedRank = (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
-      if (updatedRank !== 0) return updatedRank;
-      return a.name.localeCompare(b.name);
+      return updatedRank || nameRank || a.id.localeCompare(b.id);
     });
 }
 
