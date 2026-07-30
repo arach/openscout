@@ -571,7 +571,7 @@
 
 .scope-lane.is-stack-compact .scope-lane__trace .s-observe--lane .s-observe-tool-cmd,
 .scope-lane.is-stack-compact .scope-lane__trace .s-observe--lane .s-observe-message-text,
-.scope-lane.is-stack-compact .scope-lane__trace .s-observe--lane .s-observe-think-text {
+.scope-lane.is-stack-compact .scope-lane__trace .s-observe--lane .s-observe-reasoning-text {
   font-size: var(--text-xs);
   line-height: 1.35;
 }
