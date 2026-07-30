@@ -2832,9 +2832,11 @@ struct ScoutRootView: View {
                     }
                 }
         }
-        .padding(.horizontal, HudSpacing.xxl)
-        .padding(.top, HudSpacing.xxl)
-        .padding(.bottom, HudSpacing.lg)
+        // Match the shared web thread composer's 20pt side gutters and compact
+        // footer spacing while retaining native paste, drop, voice and key input.
+        .padding(.horizontal, HudSpacing.xxxl)
+        .padding(.top, HudSpacing.lg)
+        .padding(.bottom, HudSpacing.xxl)
         .background(ScoutDesign.bg)
         .overlay(alignment: .topLeading) {
             if !suggestions.isEmpty {
@@ -2884,12 +2886,9 @@ struct ScoutRootView: View {
         )
     }
 
-    // Studio `.composerBox` — a single rounded box with an internal toolbar.
-    // The field rides the top; a hairline-separated bar below (`.composerBar`)
-    // carries the hint/status on the left and the harmonized attach · mic · send
-    // controls on the right. The buttons live *inside* the box rather than
-    // floating beside it. Focus is carried by the well's border, fill, and
-    // shadow — no left-edge accent rule (banned styleguide treatment).
+    // Native counterpart to the shared web MessageComposer sandwich: writing
+    // area above, hairline-separated toolbar below. Native owns behavior; the
+    // web component owns the visual proportions both surfaces converge on.
     private var composerInputWell: some View {
         VStack(spacing: 0) {
             if let replyTarget = store.replyTarget {
@@ -2907,14 +2906,6 @@ struct ScoutRootView: View {
         .overlay(
             RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
                 .stroke(composerWellBorder, lineWidth: HudStrokeWidth.thin)
-        )
-        // The composer sits on the same page background as the transcript; this
-        // modest lift is the separator instead of a full-width footer band.
-        .shadow(
-            color: composerFocused ? ScoutPalette.accent.opacity(0.12) : ScoutSurface.shadow(0.18),
-            radius: composerFocused ? 8 : 6,
-            x: 0,
-            y: -1
         )
         .background {
             ScoutAttachmentDropCatcher(
@@ -3027,11 +3018,10 @@ struct ScoutRootView: View {
                     .transition(.opacity)
             }
         }
-        .padding(.leading, HudSpacing.xl)
-        .padding(.trailing, HudSpacing.xl)
-        .padding(.top, HudSpacing.lg)
-        .padding(.bottom, HudSpacing.md)
-        .frame(maxWidth: .infinity, minHeight: 38, alignment: .topLeading)
+        .padding(.horizontal, HudSpacing.lg)
+        .padding(.top, HudSpacing.sm)
+        .padding(.bottom, HudSpacing.xs)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     // Studio `.composerBar` — the internal toolbar: hint/status on the left,
@@ -3039,6 +3029,7 @@ struct ScoutRootView: View {
     // top hairline over a faintly recessed plane (the canvas bg, like the web).
     private var composerToolbarBar: some View {
         HStack(spacing: HudSpacing.sm) {
+            composerAttachButton
             if let status = composerStatusText {
                 Text(status)
                     .font(HudFont.mono(HudTextSize.micro))
@@ -3047,17 +3038,16 @@ struct ScoutRootView: View {
                     .truncationMode(.tail)
             }
             Spacer(minLength: HudSpacing.sm)
-            composerAttachButton
-            ScoutMicButton(box: 26, glyph: 13, action: toggleDictation)
+            ScoutMicButton(box: ScoutComposerControl.box, glyph: 13, action: toggleDictation)
             ScoutSendButton(
-                isEnabled: composerReady,
+                isEnabled: composerCanSend || isDictating,
                 isSending: store.isSending,
                 action: requestSend
             )
         }
-        .padding(.leading, HudSpacing.xl)
-        .padding(.trailing, HudSpacing.md)
-        .padding(.vertical, HudSpacing.sm)
+        .padding(.horizontal, HudSpacing.sm)
+        .padding(.top, HudSpacing.sm)
+        .padding(.bottom, HudSpacing.md)
         .frame(maxWidth: .infinity)
         .background(composerBarFill)
         .overlay(alignment: .top) {
@@ -3167,14 +3157,14 @@ struct ScoutRootView: View {
         if store.selectedCId == nil {
             return ScoutSurface.inset
         }
-        return composerFocused ? ScoutSurface.controlFocused : ScoutSurface.control
+        return ScoutDesign.surface
     }
 
     private var composerWellBorder: Color {
         if store.selectedCId == nil {
             return ScoutDesign.hairline
         }
-        return composerFocused ? ScoutPalette.accent.opacity(0.6) : ScoutDesign.hairlineStrong
+        return composerFocused ? ScoutPalette.border : ScoutDesign.hairlineStrong
     }
 
     // The internal toolbar plane sits a step below the field — the canvas bg
@@ -5404,14 +5394,10 @@ struct ScoutVoiceIssueRow: View {
     }
 }
 
-/// Composer control footprint — a 26pt rounded-square shared by every button
-/// in the toolbar (attach · mic · send) so they read as one harmonized cluster
-/// instead of three mismatched shapes. The ghost variant (attach/mic) is
-/// transparent at rest and warms to a faint fill on hover; Send is the only
-/// filled one. Keep this in sync with `ScoutSendButton` / `ScoutMicButton`.
+/// Composer control footprint shared with the web MessageComposer toolbar.
+/// Circular 32pt controls keep attach, mic and Send on one baseline.
 private enum ScoutComposerControl {
-    static let box: CGFloat = 26
-    static let radius: CGFloat = HudRadius.standard
+    static let box: CGFloat = 32
 }
 
 /// Ghost icon button for the composer toolbar (attach, and the visual base for
@@ -5427,19 +5413,25 @@ private struct ScoutComposerIconButton: View {
     var body: some View {
         Button(action: action) {
             ZStack {
-                RoundedRectangle(cornerRadius: ScoutComposerControl.radius, style: .continuous)
+                Circle()
                     .fill(hovering && isEnabled ? ScoutSurface.hover : Color.clear)
+                Circle()
+                    .stroke(
+                        hovering && isEnabled ? ScoutPalette.ink.opacity(0.35) : ScoutPalette.border,
+                        lineWidth: HudStrokeWidth.thin
+                    )
                 Image(systemName: systemImage)
                     .font(.system(size: glyph, weight: .medium))
                     .foregroundStyle(hovering && isEnabled ? ScoutPalette.ink : ScoutPalette.muted)
             }
             .frame(width: ScoutComposerControl.box, height: ScoutComposerControl.box)
-            .contentShape(RoundedRectangle(cornerRadius: ScoutComposerControl.radius, style: .continuous))
+            .contentShape(Circle())
         }
         .buttonStyle(.plain).scoutPointerCursor()
         .onHover { hovering = $0 }
         .help(help)
         .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.4)
     }
 }
 
@@ -5453,22 +5445,20 @@ private struct ScoutSendButton: View {
     var body: some View {
         Button(action: action) {
             ZStack {
-                RoundedRectangle(cornerRadius: ScoutComposerControl.radius, style: .continuous)
+                Circle()
                     .fill(fillColor)
-
-                RoundedRectangle(cornerRadius: ScoutComposerControl.radius, style: .continuous)
-                    .stroke(borderColor, lineWidth: HudStrokeWidth.thin)
-
                 content
             }
             .frame(width: ScoutComposerControl.box, height: ScoutComposerControl.box)
-            .contentShape(RoundedRectangle(cornerRadius: ScoutComposerControl.radius, style: .continuous))
+            .contentShape(Circle())
         }
         .buttonStyle(.plain).scoutPointerCursor()
         .disabled(!isEnabled || isSending)
         .keyboardShortcut(.return, modifiers: .command)
         .onHover { hovering = $0 }
         .help(isEnabled && !isSending ? "Send message (⌘↵)" : "")
+        .scaleEffect(hovering && isEnabled && !isSending ? 1.05 : 1)
+        .animation(.easeOut(duration: 0.12), value: hovering)
     }
 
     @ViewBuilder
@@ -5487,21 +5477,14 @@ private struct ScoutSendButton: View {
 
     private var fillColor: Color {
         if !isEnabled || isSending {
-            return ScoutSurface.inset
+            return ScoutPalette.ink.opacity(0.25)
         }
-        return hovering ? ScoutPalette.ink : ScoutPalette.accent
-    }
-
-    private var borderColor: Color {
-        if !isEnabled || isSending {
-            return ScoutDesign.hairlineStrong
-        }
-        return hovering ? ScoutPalette.ink.opacity(0.72) : ScoutPalette.accent.opacity(0.46)
+        return ScoutPalette.ink
     }
 
     private var iconColor: Color {
         if !isEnabled || isSending {
-            return ScoutPalette.dim
+            return ScoutDesign.bg.opacity(0.72)
         }
         return ScoutDesign.bg
     }
@@ -5577,13 +5560,13 @@ struct ScoutMicButton: View {
         // lights with an accent fill + ring while actively recording.
         Button(action: action) {
             ZStack {
-                RoundedRectangle(cornerRadius: ScoutComposerControl.radius, style: .continuous)
+                Circle()
                     .fill(micFillColor)
                     .frame(width: box, height: box)
 
-                RoundedRectangle(cornerRadius: ScoutComposerControl.radius, style: .continuous)
+                Circle()
                     .stroke(
-                        isRecording ? ScoutPalette.accent.opacity(0.5) : Color.clear,
+                        micBorderColor,
                         lineWidth: HudStrokeWidth.thin
                     )
                     .frame(width: box, height: box)
@@ -5601,7 +5584,7 @@ struct ScoutMicButton: View {
                     .frame(width: glyph, height: glyph)
             }
             .frame(width: box, height: box)
-            .contentShape(RoundedRectangle(cornerRadius: ScoutComposerControl.radius, style: .continuous))
+            .contentShape(Circle())
         }
         .buttonStyle(.plain).scoutPointerCursor()
         .help(tooltip)
@@ -5620,6 +5603,12 @@ struct ScoutMicButton: View {
             return ScoutSurface.hover
         }
         return Color.clear
+    }
+
+    private var micBorderColor: Color {
+        if isRecording { return ScoutPalette.accent.opacity(0.5) }
+        if hovering { return ScoutPalette.ink.opacity(0.35) }
+        return ScoutPalette.border
     }
 }
 
