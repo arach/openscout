@@ -14,14 +14,24 @@
  *   blind      — discovery still in flight; nothing predicts the count, so we
  *                draw a small fixed number of anonymous cells.
  *   identified — discovery landed; both the count and the identities come from
- *                the transcripts that were active inside the current horizon,
- *                which is the same evidence `buildAgentLanes` uses to decide a
- *                lane exists at all.
+ *                the transcripts that were active inside the current horizon.
  *
- * Sizing by anything looser would over-promise. `totals.transcripts` counts
- * every transcript on disk (hundreds), and `processes` can list several entries
- * per session; either would leave the hand-off revealing far fewer lanes than
- * the skeleton advertised.
+ * Sizing by anything looser would over-promise badly. `totals.transcripts`
+ * counts every transcript on disk (hundreds), and `processes` can list several
+ * entries per session; either would leave the hand-off revealing far fewer
+ * lanes than the skeleton advertised.
+ *
+ * This is a prediction, not a promise, and the residual is worth naming.
+ * `buildAgentLanes` admits a lane on the newest *substantive* tail event
+ * (`isLaneAdmissionTailEvent`), and those events do not exist yet while
+ * discovery is the only thing that has returned — so the best evidence
+ * available here is when the transcript was last written. The two disagree
+ * when a transcript is touched inside the horizon but yields nothing
+ * admissible: records the parser discards, rotation, or a replay budget that
+ * returned no lines for that session. The error is therefore bounded and
+ * one-directional — a cell or two more than the deck ends up with — which is
+ * why `max` exists and why the correction lands under a retracting sheet
+ * rather than as a visible collapse.
  */
 import type { TailDiscoverySnapshot, TailDiscoveredTranscript } from "../../lib/types.ts";
 import type { TailFeedLoadPhase } from "../../lib/use-tail-feed.ts";
@@ -88,6 +98,13 @@ export function buildLanePreflightDeck(input: {
   now: number;
   max?: number;
   blindCells?: number;
+  /**
+   * Embed scoping, when the surface is filtered. An embed that shows one
+   * project's lanes must not pre-draw cells for every other project, so the
+   * caller passes the same predicate the deck filters lanes with rather than
+   * this module re-deriving it and drifting from it.
+   */
+  matchTranscript?: (transcript: TailDiscoveredTranscript) => boolean;
 }): LanePreflightDeck {
   const max = input.max ?? PREFLIGHT_MAX_CELLS;
 
@@ -105,6 +122,7 @@ export function buildLanePreflightDeck(input: {
 
   for (const transcript of transcripts
     .filter((transcript) => {
+      if (input.matchTranscript && !input.matchTranscript(transcript)) return false;
       const age = input.now - transcriptActivityAt(transcript);
       // A transcript that has been quiet longer than the horizon will not
       // produce a lane, so promising a cell for it would be a lie.

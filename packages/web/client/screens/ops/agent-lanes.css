@@ -2103,7 +2103,9 @@
     gap: var(--space-sm);
   }
 
-  .s-lane-boot-count:nth-of-type(n + 2),
+  /* Every child of the head is a span, so `nth-of-type` would count them all
+   * and drop the first counter too. Sibling chaining keeps exactly one. */
+  .s-lane-boot-count + .s-lane-boot-count,
   .s-lane-boot-meta {
     display: none;
   }

@@ -184,6 +184,39 @@ describe("lane pre-flight deck", () => {
     expect(a).toBe("019fae90-2cb7");
   });
 
+  it("pre-draws only what a scoped embed will show", () => {
+    const deck = buildLanePreflightDeck({
+      discovery: snapshot([
+        transcript({ sessionId: "here", project: "openscout" }),
+        transcript({ sessionId: "elsewhere", project: "other-repo", cwd: "/Users/dev/other-repo" }),
+      ]),
+      discoveryPhase: "ready",
+      windowMs: WINDOW_MS,
+      now: NOW,
+      matchTranscript: (candidate) => candidate.project === "openscout",
+    });
+    expect(deck.cells.map((cell) => cell.key)).toEqual(["here"]);
+  });
+
+  it("applies embed scoping before the cap, not after", () => {
+    const wanted = Array.from({ length: 4 }, (_, index) =>
+      transcript({ sessionId: `keep-${index}`, project: "openscout", mtimeMs: NOW - 900 - index }));
+    const noise = Array.from({ length: 20 }, (_, index) =>
+      transcript({ sessionId: `drop-${index}`, project: "other-repo", mtimeMs: NOW - 100 - index }));
+    const deck = buildLanePreflightDeck({
+      // Noise is more recent, so a cap applied before scoping would eat every
+      // cell the embed actually wants.
+      discovery: snapshot([...noise, ...wanted]),
+      discoveryPhase: "ready",
+      windowMs: WINDOW_MS,
+      now: NOW,
+      max: 12,
+      matchTranscript: (candidate) => candidate.project === "openscout",
+    });
+    expect(deck.cells).toHaveLength(4);
+    expect(deck.cells.every((cell) => cell.project === "openscout")).toBe(true);
+  });
+
   it("treats clock skew from the future as active rather than stale", () => {
     const deck = buildLanePreflightDeck({
       discovery: snapshot([transcript({ sessionId: "ahead", mtimeMs: NOW + 5_000 })]),

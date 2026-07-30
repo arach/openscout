@@ -19,7 +19,14 @@ import type { ObserveCache } from "../../lib/observe.ts";
 import { fetchTerminalSessions } from "../../lib/terminal-sessions.ts";
 import { normalizeAgentState } from "../../lib/agent-state.ts";
 import { isScoutSurfaceActive, onScoutSurfaceActivated } from "../../lib/surface-activity.ts";
-import type { Agent, ObserveEvent, Route, TailDiscoverySnapshot, TailEvent } from "../../lib/types.ts";
+import type {
+  Agent,
+  ObserveEvent,
+  Route,
+  TailDiscoveredTranscript,
+  TailDiscoverySnapshot,
+  TailEvent,
+} from "../../lib/types.ts";
 import { ScoutContext } from "../../scout/Provider.tsx";
 import { defineSurface } from "../../surfaces/types.ts";
 import type { TerminalSessionRecord } from "@openscout/protocol";
@@ -727,6 +734,14 @@ export function AgentLanesView({
     () => lanes.filter((lane) => laneMatchesEmbedFilters(lane, { harnessFilter, projectFilter })),
     [lanes, harnessFilter, projectFilter],
   );
+  // The pre-flight deck has to be scoped the same way, or a single-project embed
+  // pre-draws a cell for every project on the machine and then hands over one
+  // lane. Matched on the transcript fields that survive into the lane.
+  const matchPreflightTranscript = useCallback(
+    (transcript: TailDiscoveredTranscript) =>
+      transcriptMatchesEmbedFilters(transcript, { harnessFilter, projectFilter }),
+    [harnessFilter, projectFilter],
+  );
   const {
     deck,
     layout,
@@ -1072,6 +1087,7 @@ export function AgentLanesView({
             layout={floorMode ? "none" : gridMode ? "grid" : "scroll"}
             gridColumns={gridColumns}
             laneWidthPx={resolveLaneWidthPx(deck.defaultLaneWidth, deck.defaultLaneWidth)}
+            matchTranscript={matchPreflightTranscript}
           />
         ) : tailUnavailable ? (
           <AgentLanesUnavailableState
@@ -1243,6 +1259,26 @@ function laneMatchesEmbedFilters(lane: AgentLane, filters: AgentLaneEmbedFilters
       lanePrimaryLabel(agent, source),
     ],
     projectFilter,
+  );
+}
+
+/**
+ * The same scoping applied to a discovery transcript, for the pre-flight deck.
+ * Only the fields a transcript actually carries are matched — a lane's richer
+ * attribution does not exist yet at discovery, so this is deliberately the
+ * subset, which can admit a cell the lane filter later rejects but never the
+ * reverse.
+ */
+function transcriptMatchesEmbedFilters(
+  transcript: TailDiscoveredTranscript,
+  filters: AgentLaneEmbedFilters,
+): boolean {
+  return matchesAnyFilter(
+    [transcript.harness, transcript.source],
+    normalizeEmbedFilter(filters.harnessFilter),
+  ) && matchesAnyFilter(
+    [transcript.project, transcript.cwd],
+    normalizeEmbedFilter(filters.projectFilter),
   );
 }
 
