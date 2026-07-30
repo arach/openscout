@@ -25,7 +25,7 @@ export const SCOUTBOT_WEB_DESTINATIONS: ScoutbotNavigationDestination[] = [
   { id: "search", label: "Search", description: "Knowledge and indexed workspace search.", route: { view: "search" } },
   { id: "operations", label: "Operations", description: "Mission Control, live activity, agent lanes, runtime, and mesh health.", route: { view: "ops", mode: "mission" } },
   { id: "repositories", label: "Repositories", description: "Repository and worktree status, including diffs.", route: { view: "repos" }, deepActions: ["Open a repository by absolute root."] },
-  { id: "code-browser", label: "Code Browser", description: "Read files in a project or worktree.", route: { view: "code" }, deepActions: ["Select a project with the project field; it accepts the displayed project name or slug.", "Open a file inside it with path and optional wt.", "Alternatively use absolute root and file fields.", "Focus a line with line and optional endLine."] },
+  { id: "code-browser", label: "Code Browser", description: "Read files in a project or worktree.", route: { view: "code" }, deepActions: ["Select a project with the project field; it accepts the displayed project name or slug.", "Open a file inside it with path and optional wt.", "Alternatively use absolute root and file fields.", "Focus a line with line and optional endLine.", "Deep links: scout://{project}/{path}, scout:///{absolute/path}, or legacy scout://code/{project}/{path}."] },
   { id: "terminals", label: "Terminals", description: "Observe or take over terminal sessions.", route: { view: "terminal" } },
   { id: "settings", label: "Settings", description: "Connections, agents, communications, credentials, voice, and devices.", route: { view: "settings" } },
 ];
@@ -40,7 +40,7 @@ export const SCOUTBOT_MACOS_DESTINATIONS: ScoutbotNavigationDestination[] = [
   { id: "dispatch", label: "Dispatch", description: "Dispatch and coordination overview.", route: { view: "broker" } },
   { id: "agent-lanes", label: "Agent Lanes", description: "Native lane overview for active agents.", route: { view: "ops", mode: "lanes" } },
   { id: "repositories", label: "Repositories", description: "Native repository and worktree status.", route: { view: "repos" } },
-  { id: "code-browser", label: "Code Browser", description: "Embedded read-only project browser.", route: { view: "code" }, deepActions: ["Select a project with the project field; it accepts the displayed project name or slug.", "Open a file inside it with path and optional wt.", "Alternatively use absolute root and file fields.", "Focus a line with line and optional endLine."] },
+  { id: "code-browser", label: "Code Browser", description: "Embedded read-only project browser.", route: { view: "code" }, deepActions: ["Select a project with the project field; it accepts the displayed project name or slug.", "Open a file inside it with path and optional wt.", "Alternatively use absolute root and file fields.", "Focus a line with line and optional endLine.", "Deep links: scout://{project}/{path}, scout:///{absolute/path}, or legacy scout://code/{project}/{path}."] },
   { id: "settings", label: "Settings", description: "Native app settings; Voice is directly addressable.", route: { view: "settings" }, deepActions: ["Open Voice settings with section=voice."] },
 ];
 

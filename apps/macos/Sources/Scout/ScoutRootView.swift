@@ -539,6 +539,11 @@ struct ScoutRootView: View {
 
     /// Handles native code links plus exact terminal-surface links emitted by
     /// the web UI. Code query params pass through to the embedded code browser.
+    ///
+    /// Code forms (see `ScoutCodeDeepLink`):
+    /// - `scout://openscout/path/to/file.ts`  (primary)
+    /// - `scout:///absolute/path`
+    /// - `scout://code/openscout/...`        (legacy)
     private func handleScoutDeepLink(_ url: URL) {
         guard url.scheme?.lowercased() == "scout" else { return }
         if url.host?.lowercased() == "terminal" {
@@ -548,22 +553,8 @@ struct ScoutRootView: View {
             section = .terminals
             return
         }
-        guard url.host?.lowercased() == "code" else { return }
-        var items: [URLQueryItem] = []
-        let segments = url.pathComponents.filter { $0 != "/" }
-        if let project = segments.first {
-            items.append(URLQueryItem(name: "project", value: project))
-            let rest = segments.dropFirst().joined(separator: "/")
-            if !rest.isEmpty {
-                items.append(URLQueryItem(name: "path", value: rest))
-            }
-        }
-        if let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems {
-            for item in query where !items.contains(where: { $0.name == item.name }) {
-                items.append(item)
-            }
-        }
-        codeLinkQueryItems = items
+        guard let target = ScoutCodeDeepLink.parse(url) else { return }
+        codeLinkQueryItems = ScoutCodeDeepLink.queryItems(for: target)
         section = .code
     }
 

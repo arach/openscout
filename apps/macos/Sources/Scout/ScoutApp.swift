@@ -211,13 +211,14 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
         if handleOpenScoutNetworkAuth(url) {
             return
         }
-        if url.host?.lowercased() == "code" {
-            ScoutExternalCommand.openCodeLink(url)
+        if url.host?.lowercased() == "terminal" {
+            ScoutExternalCommand.openTerminalLink(url)
             showMainWindows()
             return
         }
-        if url.host?.lowercased() == "terminal" {
-            ScoutExternalCommand.openTerminalLink(url)
+        // scout://{path}, scout:///abs, scout://code/... — any parseable code link.
+        if ScoutCodeDeepLink.parse(url) != nil {
+            ScoutExternalCommand.openCodeLink(url)
             showMainWindows()
             return
         }

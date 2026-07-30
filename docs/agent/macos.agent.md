@@ -56,6 +56,7 @@ Both bundles register `scout` (Info.plist + ScoutInfo.plist); routing is bidirec
 |---|---|---|
 | `scout://hud/{show,hide,toggle,tail[/size],tab/<name>,size/<name>,task[/corner]}` | OS → either bundle | Scout handles directly (`ScoutHUDRouter`); helper persists commands to the acknowledged inbox, then wakes or launches Scout. `hud/tail` selects HUD tab 3; `hud/task` opens the fresh-task composer and optionally anchors it to a screen corner. |
 | `scout://tail/{show,hide,toggle,attach,float,size/<name>,collapse,expand}` | OS → either bundle | Scout handles directly; helper forwards as Tail mode commands. Tail mode is the persistent attach/free overlay. |
+| `scout://{project}/[path]?wt=&line=&endLine=` · `scout:///{abs/path}` · `scout://code/...` | OS → Scout | Code browser deep links (`ScoutCodeDeepLink`). Project form is preferred; absolute form uses an empty host; `code/` is the legacy host. Opens the Code section and passes query items into the embed. |
 | `scout://services/restart/{broker,relay,web,all}` | OS → either bundle | helper executes after HMAC verify; Scout forwards via `app.openscout.scout.service-url` notification |
 | `app.openscout.scout.hud` (distributed notif) | helper → Scout | Wake signal for the acknowledged HUD command inbox; direct `command` + `value` remains compatible. Scout also accepts `channel`/`open-channel`. |
 | temp `openscout-hud-command-inbox/` | helper → Scout | Atomic per-command files survive the process-visible/observer-ready launch gap; Scout acknowledges after dispatch. |
