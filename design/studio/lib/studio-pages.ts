@@ -259,6 +259,21 @@ export const STUDIO_PAGES: StudioPage[] = [
       "The beat between New-task send and the conversation opening, redesigned from a spinner + Queued placeholder into a launch ledger: the real submit-pipeline vocabulary (message.posted → invocation.requested → flight waking → dispatch job → endpoint active → running via spawn → tmux ready → first tokens) logged as it completes — mono type, true tabular timings on a ≥70ms render cadence, one emerald pulse on the active line. Fast path, cold spawn, and queued_until_online scenarios; every line grounded file:line, the two missing control events named. Studio only until ported.",
   },
   {
+    href: "/studies/lanes-loader",
+    label: "Agent Lanes · loader",
+    bucket: "studies",
+    surface: "web",
+    status: "concept",
+    source: [
+      "design/studio/views/lanes-loader.tsx",
+      "design/studio/app/studies/lanes-loader/page.tsx",
+      "packages/web/client/screens/ops/AgentLanesView.tsx",
+      "packages/web/client/lib/use-tail-feed.ts",
+    ],
+    blurb:
+      "The wait before the lane deck exists. Today: a console card whose three rows read identically at 80ms and at 2.4s. Five takes played against real load timelines (warm · cold · just-one · replay-fails · quiet) — shipped baseline · the same card made to report (measured phase ms, counters that flash on change, one sweep on the row actually working, a meter of phases resolved rather than a fake percentage) · the deck drawn first, where each cell takes its real header at discovery (~230ms) instead of staying a grey box until replay lands, with the readout docked bottom as an ops checklist · the reserved-rail version that costs a displacement · the centred overlay. The sheet retracts straight down at full width in 260ms — no collapse in place, since the deck was never becoming the readout; the centred variant keeps the 340ms signal cut (content out, surface squeezed to a bright hairline, line pulled to a point). Both gestures are clock-driven so they can be scrubbed, and the deck under them never moves. Every count grounded in useTailFeed; the places no progress signal exists are named, not filled. Studio only until ported.",
+  },
+  {
     href: "/studies/messages-home",
     label: "Messages · landing",
     bucket: "studies",
