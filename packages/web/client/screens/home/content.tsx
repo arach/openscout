@@ -1042,10 +1042,10 @@ function MovingSkeleton() {
       <div className="s-moving-signal-list">
         {[0, 1, 2, 3, 4].map((i) => (
           <div key={i} className="s-moving-signal-row s-moving-signal-row--skeleton">
-            <span className="s-moving-signal-dot" />
-            <span className="s-moving-signal-skeleton-action" />
-            <span className="s-moving-signal-skeleton-who" />
             <span className="s-moving-signal-skeleton-age" />
+            <span />
+            <span className="s-moving-signal-skeleton-where" />
+            <span className="s-moving-signal-skeleton-action" />
           </div>
         ))}
       </div>
