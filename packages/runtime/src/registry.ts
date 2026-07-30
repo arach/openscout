@@ -146,7 +146,11 @@ export function queryRuntimeRegistrySnapshot(
     if (record.conversationId) conversationIds.add(record.conversationId);
   }
   for (const conversation of Object.values(snapshot.conversations)) {
-    if (recordTimestamp(conversation) >= since) conversationIds.add(conversation.id);
+    // Records written before timestamps were stamped carry no timestamp at
+    // all; treating them as "unknown age" keeps them visible instead of
+    // silently dropping them from every incremental snapshot.
+    const timestamp = recordTimestamp(conversation);
+    if (timestamp === 0 || timestamp >= since) conversationIds.add(conversation.id);
   }
 
   const conversations: ConversationDefinition[] = [];

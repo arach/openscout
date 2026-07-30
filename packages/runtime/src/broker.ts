@@ -482,6 +482,21 @@ export class InMemoryControlRuntime implements ControlRuntime {
   }
 
   async upsertConversation(conversation: ConversationDefinition): Promise<void> {
+    // Conversations predate timestamp stamping; backfill createdAt/updatedAt
+    // (via metadata, which the snapshot incremental filter reads) so every
+    // stored record stays visible to `?since=` snapshot queries.
+    const metadata = conversation.metadata as Record<string, unknown> | undefined;
+    if (typeof metadata?.createdAt !== "number" || typeof metadata?.updatedAt !== "number") {
+      const now = Date.now();
+      conversation = {
+        ...conversation,
+        metadata: {
+          ...metadata,
+          createdAt: typeof metadata?.createdAt === "number" ? metadata.createdAt : now,
+          updatedAt: now,
+        },
+      };
+    }
     this.registry.conversations[conversation.id] = conversation;
     this.emit({
       id: createRuntimeId("evt"),
