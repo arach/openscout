@@ -107,6 +107,7 @@ enum HUDTailTreatment: String, CaseIterable, Identifiable {
     static let storageKey = "scout.hud.tail.treatment.v1"
 
     case firehose
+    case broker
     case agentLatest
 
     var id: String { rawValue }
@@ -114,6 +115,7 @@ enum HUDTailTreatment: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .firehose: return "Logs"
+        case .broker: return "Broker"
         case .agentLatest: return "Agents"
         }
     }
@@ -121,6 +123,7 @@ enum HUDTailTreatment: String, CaseIterable, Identifiable {
     var shortLabel: String {
         switch self {
         case .firehose: return "LOGS"
+        case .broker: return "BROKER"
         case .agentLatest: return "AGENTS"
         }
     }
@@ -128,13 +131,15 @@ enum HUDTailTreatment: String, CaseIterable, Identifiable {
     var systemName: String {
         switch self {
         case .firehose: return "list.bullet"
+        case .broker: return "server.rack"
         case .agentLatest: return "person.2"
         }
     }
 
     var next: HUDTailTreatment {
         switch self {
-        case .firehose: return .agentLatest
+        case .firehose: return .broker
+        case .broker: return .agentLatest
         case .agentLatest: return .firehose
         }
     }
@@ -178,6 +183,8 @@ struct HUDTailView: View {
             switch treatment {
             case .firehose:
                 nativeTailContent
+            case .broker:
+                HUDBrokerLogView(size: size)
             case .agentLatest:
                 HUDTailEmbedContent(url: hudTailEmbedURL(colorScheme: colorScheme, hudSize: size))
             }
@@ -611,6 +618,249 @@ private enum TailStreamCadence {
         if revealedCount == 0 { return 22_000_000 }
         if revealedCount < 6 { return 42_000_000 }
         return 24_000_000
+    }
+}
+
+// MARK: - Broker server log
+
+private struct HUDBrokerLogView: View {
+    let size: HUDSize
+
+    @StateObject private var logs = ScoutServerLogStore()
+    @AppStorage("scout.hud.tail.broker-stream.v1") private var streamRaw = ScoutServerLogStream.output.rawValue
+
+    var body: some View {
+        VStack(spacing: 0) {
+            meter
+            content
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(HUDChrome.canvas)
+        .onAppear {
+            logs.select(ScoutServerLogStream(rawValue: streamRaw) ?? .output)
+            logs.start()
+        }
+        .onDisappear { logs.stop() }
+    }
+
+    private var horizontalPad: CGFloat { size == .large ? 20 : 16 }
+
+    private var meter: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(logs.lastError == nil ? HUDChrome.accent : brokerErrorColor)
+                    .frame(width: 5, height: 5)
+                Text(logs.lastError == nil ? "LOCAL · BROKER" : "BROKER · UNAVAILABLE")
+                    .font(HUDType.mono(8.5, weight: .bold))
+                    .tracking(HUDType.eyebrowTracking)
+                    .foregroundStyle(logs.lastError == nil ? HUDChrome.inkMuted : brokerErrorColor)
+            }
+
+            Spacer(minLength: 8)
+
+            BrokerLogStreamToggle(
+                selection: Binding(
+                    get: { logs.selectedStream },
+                    set: {
+                        streamRaw = $0.rawValue
+                        logs.select($0)
+                    }
+                )
+            )
+
+            Text("\(logs.lines.count) lines")
+                .font(HUDType.mono(8.5))
+                .monospacedDigit()
+                .foregroundStyle(HUDChrome.inkMuted)
+        }
+        .padding(.horizontal, horizontalPad)
+        .padding(.vertical, 4)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(HUDChrome.borderSoft).frame(height: 0.5)
+        }
+        .contextMenu {
+            Button("Copy log path") {
+                copyToPasteboard(logs.fileURL.path)
+            }
+            Button("Reveal log in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([logs.fileURL])
+            }
+        }
+        .help(logs.fileURL.path)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if logs.isLoading && logs.lines.isEmpty {
+            TailLoadingView()
+        } else if let error = logs.lastError, logs.lines.isEmpty {
+            BrokerLogProblemView(message: error, fileURL: logs.fileURL) {
+                logs.refresh()
+            }
+        } else if logs.lines.isEmpty {
+            BrokerLogEmptyView(stream: logs.selectedStream)
+        } else {
+            logRows
+        }
+    }
+
+    private var logRows: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(spacing: 0) {
+                    ForEach(logs.lines) { line in
+                        BrokerLogRow(line: line, size: size)
+                            .id(line.id)
+                    }
+                }
+                .padding(.bottom, size == .large ? 14 : 8)
+            }
+            .onAppear {
+                if let last = logs.lines.last?.id {
+                    proxy.scrollTo(last, anchor: .bottom)
+                }
+            }
+            .onChange(of: logs.lines.last?.id) { _, last in
+                guard let last else { return }
+                proxy.scrollTo(last, anchor: .bottom)
+            }
+        }
+        .help("Following the latest broker log line")
+    }
+
+    private var brokerErrorColor: Color {
+        Color(red: 0.910, green: 0.450, blue: 0.395).opacity(0.84)
+    }
+}
+
+private struct BrokerLogStreamToggle: View {
+    @Binding var selection: ScoutServerLogStream
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(ScoutServerLogStream.allCases) { stream in
+                Button {
+                    selection = stream
+                } label: {
+                    Text(stream.shortLabel)
+                        .font(HUDType.mono(8, weight: .bold))
+                        .tracking(HUDType.eyebrowMicro)
+                        .foregroundStyle(selection == stream ? HUDChrome.accent : HUDChrome.inkFaint)
+                        .frame(width: 29, height: 14)
+                        .background(
+                            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                                .fill(selection == stream ? HUDChrome.canvasLift.opacity(0.50) : Color.clear)
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(stream.fileName)
+            }
+        }
+        .padding(1.5)
+        .background(
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(HUDChrome.canvasAlt.opacity(0.62))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .stroke(HUDChrome.border.opacity(0.92), lineWidth: 0.5)
+        )
+    }
+}
+
+private struct BrokerLogRow: View {
+    let line: ScoutServerLogLine
+    let size: HUDSize
+
+    @State private var hovered = false
+
+    private var tint: Color {
+        switch line.level {
+        case .normal: return hovered ? HUDChrome.ink : HUDChrome.inkMuted
+        case .warning: return Color(red: 0.90, green: 0.68, blue: 0.32).opacity(hovered ? 0.95 : 0.74)
+        case .error: return Color(red: 0.91, green: 0.45, blue: 0.395).opacity(hovered ? 0.98 : 0.82)
+        }
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(line.level == .error ? "ERR" : (line.level == .warning ? "WRN" : "OUT"))
+                .font(HUDType.mono(size == .compact ? 8 : 8.5, weight: .bold))
+                .foregroundStyle(tint.opacity(0.82))
+                .frame(width: 25, alignment: .leading)
+
+            Text(line.text)
+                .font(HUDType.mono(size == .compact ? 8.5 : 9))
+                .foregroundStyle(tint)
+                .lineLimit(hovered ? 8 : 1)
+                .truncationMode(.tail)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, size == .large ? 14 : 11)
+        .padding(.vertical, hovered ? 4 : 2)
+        .background(hovered ? HUDChrome.canvasLift.opacity(0.24) : Color.clear)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(HUDChrome.borderSoft.opacity(0.72)).frame(height: 0.5)
+        }
+        .contentShape(Rectangle())
+        .onHover { hovered = $0 }
+        .contextMenu {
+            Button("Copy line") { copyToPasteboard(line.text) }
+        }
+    }
+}
+
+private struct BrokerLogProblemView: View {
+    let message: String
+    let fileURL: URL
+    let retry: () -> Void
+
+    var body: some View {
+        VStack(spacing: 7) {
+            Spacer(minLength: 24)
+            Text("Broker log unavailable")
+                .font(HUDType.body(14, weight: .semibold))
+                .foregroundStyle(HUDChrome.ink)
+            Text(message)
+                .font(HUDType.body(11))
+                .foregroundStyle(HUDChrome.inkMuted)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+            Text(fileURL.path)
+                .font(HUDType.mono(8.5))
+                .foregroundStyle(HUDChrome.inkFaint)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.horizontal, 24)
+            Button("Refresh", action: retry)
+                .buttonStyle(.plain)
+                .font(HUDType.mono(9, weight: .bold))
+                .foregroundStyle(HUDChrome.accent)
+                .padding(.top, 2)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct BrokerLogEmptyView: View {
+    let stream: ScoutServerLogStream
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Spacer(minLength: 24)
+            Text("No broker \(stream.title.lowercased()) yet.")
+                .font(HUDType.body(14, weight: .semibold))
+                .foregroundStyle(HUDChrome.ink)
+            Text("New server lines will appear here as they are written.")
+                .font(HUDType.body(11))
+                .foregroundStyle(HUDChrome.inkMuted)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

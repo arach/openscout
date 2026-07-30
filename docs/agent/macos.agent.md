@@ -54,7 +54,8 @@ Both bundles register `scout` (Info.plist + ScoutInfo.plist); routing is bidirec
 
 | Channel | Direction | Semantics |
 |---|---|---|
-| `scout://hud/{show,hide,toggle,tail[/size],tab/<name>,size/<name>,task[/corner]}` | OS → either bundle | Scout handles directly (`ScoutHUDRouter`); helper persists commands to the acknowledged inbox, then wakes or launches Scout. `hud/tail` selects HUD tab 3; `hud/task` opens the fresh-task composer and optionally anchors it to a screen corner. |
+| `scout://asks[/new][?anchor=<corner>]` | OS → either bundle | Canonical product-level route for a fresh ask. The helper persists an `ask` command to the acknowledged inbox, then wakes or launches Scout; the HUD ask composer is the current renderer. |
+| `scout://hud/{show,hide,toggle,tail[/size],tab/<name>,size/<name>,task[/corner]}` | OS → either bundle | HUD implementation controls. `hud/task` remains a backward-compatible alias for the canonical `scout://asks/new` route. |
 | `scout://tail/{show,hide,toggle,attach,float,size/<name>,collapse,expand}` | OS → either bundle | Scout handles directly; helper forwards as Tail mode commands. Tail mode is the persistent attach/free overlay. |
 | `scout://{project}/[path]?wt=&line=&endLine=` · `scout:///{abs/path}` · `scout://code/...` | OS → Scout | Code browser deep links (`ScoutCodeDeepLink`). Project form is preferred; absolute form uses an empty host; `code/` is the legacy host. Opens the Code section and passes query items into the embed. |
 | `scout://services/restart/{broker,relay,web,all}` | OS → either bundle | helper executes after HMAC verify; Scout forwards via `app.openscout.scout.service-url` notification |
@@ -65,6 +66,11 @@ Both bundles register `scout` (Info.plist + ScoutInfo.plist); routing is bidirec
 | `/tmp/openscout-tail-state.json` | Scout → external | `TailModeStateFile` mirror: visible/size/collapsed/placement/windowId/ts |
 | `/tmp/openscout-hud-window.txt` | Scout → external | window id for `screencapture -l` |
 | `/tmp/openscout-tail-window.txt` | Scout → external | Tail mode window id for `screencapture -l` |
+
+The development control CLI targets Scout's exact embedded `ScoutMenu.app`
+path when it exists. Do not route HUD/Tail commands by bundle identifier alone:
+standalone packaging artifacts intentionally share that identifier and can make
+LaunchServices select the wrong helper process.
 
 Services-link HMAC: query `expires`+`nonce`+`sig`; SHA256 HMAC over `v1\nservices\n<action>\n<target>\n<expires>\n<nonce>`, key = base64url file `~/Library/Application Support/OpenScout/service-link-signing.key` (`OPENSCOUT_SUPPORT_DIRECTORY` override); expiry must be within +120s; timing-safe compare.
 
@@ -94,6 +100,7 @@ Services-link HMAC: query `expires`+`nonce`+`sig`; SHA256 HMAC over `v1\nservice
 | Store | Target | Cadence | Notes |
 |---|---|---|---|
 | `ScoutTailStore` | ScoutAppCore | 1.4s poll; discovery sub-fetch ≤ 1/30s | merge-by-id, 700-event cap; feeds Tail surface + HUD tail |
+| `ScoutServerLogStore` | ScoutAppCore | 1.2s while Broker treatment is visible | bounded, read-only tail of canonical `logs/broker/{stdout,stderr}.log`; no arbitrary path input |
 | `ScoutAgentsStore` | ScoutAppCore | push stream; 2.0s reconnect/fallback | Summary mode uses scoutd NDJSON over UDS; rich mode remains web-backed |
 | `ScoutActivityStore` | ScoutAppCore | 2.0s | HUD focus (RECENT section) |
 | `ScoutComposeService` | ScoutAppCore | SSE reply stream | shared compose/route/assistant thread |
