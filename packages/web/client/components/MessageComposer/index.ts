@@ -12,6 +12,11 @@ export {
   type MessageComposerToolSelectProps,
 } from "./MessageComposerToolSelect.tsx";
 export {
+  MessageComposerSuggestions,
+  type MessageComposerSuggestion,
+  type MessageComposerSuggestionsProps,
+} from "./MessageComposerSuggestions.tsx";
+export {
   ComposerAttachmentStrip,
   useComposerAttachments,
   type ComposerAttachmentsState,

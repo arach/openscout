@@ -98,7 +98,7 @@ export type MessageComposerProps = {
   /** Send receipt or other feedback rendered below the toolbar. */
   status?: ReactNode;
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
-  /** Extra key handling after the built-in send shortcut. Return true to stop. */
+  /** Extra key handling before the send shortcut. Return true to stop. */
   onKeyDown?: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => boolean | void;
   /** Use Enter to send while preserving Shift+Enter for a line break. */
   sendOnEnter?: boolean;
@@ -285,13 +285,16 @@ export function MessageComposer({
   };
 
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    // Suggestion menus must get first refusal on plain Enter / Tab. Modified
+    // send shortcuts still fall through when the menu handler returns false.
+    if (onKeyDown?.(event)) {
+      event.preventDefault();
+      return;
+    }
     if (isComposerSendShortcut(event, sendOnEnter)) {
       event.preventDefault();
       trySend();
       return;
-    }
-    if (onKeyDown?.(event)) {
-      event.preventDefault();
     }
   };
 

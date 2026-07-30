@@ -12,11 +12,15 @@ import {
 import { ChevronDown, FileText, Loader2, Search, X } from "lucide-react";
 import {
   MessageComposer,
+  MessageComposerSuggestions,
   RuntimePicker,
   runtimeCatalogFromRunnerOptions,
+  type MessageComposerChangeMeta,
   type RuntimeValue,
 } from "../../components/MessageComposer/index.ts";
+import { compactAgentId } from "../../lib/agent-labels.ts";
 import { api } from "../../lib/api.ts";
+import { actorColor } from "../../lib/colors.ts";
 import { RUNTIME_CAPABILITY_SEED } from "../../lib/runtime-capabilities.ts";
 import {
   createClientMessageId,
@@ -43,6 +47,15 @@ import {
   type ProjectLaunchTarget,
 } from "../../lib/session-start.ts";
 import type { Agent, AgentConfigurationState, Route } from "../../lib/types.ts";
+import {
+  SLASH_COMMANDS,
+  matchMentionTrigger,
+  matchSlashTrigger,
+  type MentionCandidate,
+  type MentionSuggestState,
+  type SlashCommand,
+  type SlashSuggestState,
+} from "../chat/conversation-model.ts";
 import "./agents-rail.css";
 
 type Navigate = (route: Route) => void;
@@ -284,6 +297,18 @@ export function NewChatComposer({
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const [projectReminder, setProjectReminder] = useState<string | null>(null);
   const [message, setMessage] = useState(() => initialMessage ?? "");
+  const [slashState, setSlashState] = useState<SlashSuggestState>({
+    open: false,
+    query: "",
+    triggerStart: -1,
+    index: 0,
+  });
+  const [mentionState, setMentionState] = useState<MentionSuggestState>({
+    open: false,
+    query: "",
+    triggerStart: -1,
+    index: 0,
+  });
   const [files, setFiles] = useState<File[]>(() => [...(initialFiles ?? [])]);
   const [mode, setMode] = useState<CaptureDeliveryMode>(() => {
     if (defaultMode) return defaultMode;
@@ -335,6 +360,35 @@ export function NewChatComposer({
         registrationKind: null,
       }
     : null);
+  const mentionCandidates = useMemo<MentionCandidate[]>(() => {
+    const seen = new Set<string>();
+    const scopedAgents = selectedProject
+      ? sorted.filter((agent) => (
+          agent.projectRoot?.trim() === selectedProject.root
+          || agent.cwd?.trim() === selectedProject.root
+        ))
+      : [];
+    // Worktree sessions often report their worktree as cwd rather than the
+    // canonical project root. Keep project-local results first when available,
+    // but never turn @ into an empty affordance because those paths differ.
+    const projectAgents = scopedAgents.length > 0 ? scopedAgents : sorted;
+
+    return projectAgents.flatMap((agent) => {
+      if (agent.retiredFromFleet) return [];
+      const handle = agent.handle?.trim().replace(/^@+/, "")
+        || compactAgentId(agent.id)
+        || "";
+      const key = handle.toLowerCase();
+      if (!handle || seen.has(key)) return [];
+      seen.add(key);
+      return [{
+        id: agent.id,
+        label: handle,
+        name: agent.name || handle,
+        handle,
+      }];
+    });
+  }, [selectedProject, sorted]);
   const harnesses = runnerOptions?.harnesses ?? FALLBACK_HARNESSES;
   const selectedHarness = harnesses.find((candidate) => candidate.id === harness) ?? null;
   const runnerLoading = !runnerOptions && !runnerLoadError;
@@ -413,6 +467,184 @@ export function NewChatComposer({
   const showRuntimeStatus = usesNewWorker
     && (runnerLoading || Boolean(runnerLoadError) || selectedHarness?.ready === false);
   const showConfig = showDeliveryMode || showRuntimeStatus;
+  const filteredSlashCommands = useMemo(() => {
+    if (!slashState.open) return [];
+    const query = slashState.query.toLowerCase();
+    if (!query) return SLASH_COMMANDS;
+    return SLASH_COMMANDS.filter((command) => (
+      command.command.toLowerCase().startsWith(`/${query}`)
+      || command.command.toLowerCase().includes(query)
+    ));
+  }, [slashState.open, slashState.query]);
+  const filteredMentions = useMemo(() => {
+    if (!mentionState.open) return [];
+    const query = mentionState.query.toLowerCase();
+    if (!query) return mentionCandidates.slice(0, 8);
+    return mentionCandidates.filter((candidate) => (
+      candidate.handle.toLowerCase().includes(query)
+      || candidate.name.toLowerCase().includes(query)
+      || candidate.label.toLowerCase().includes(query)
+    )).slice(0, 8);
+  }, [mentionCandidates, mentionState.open, mentionState.query]);
+
+  const closeSuggestions = useCallback(() => {
+    setSlashState((current) => (current.open ? { ...current, open: false } : current));
+    setMentionState((current) => (current.open ? { ...current, open: false } : current));
+  }, []);
+
+  const updateMessageTriggers = useCallback((value: string, caret: number) => {
+    const slashMatch = matchSlashTrigger(value, caret);
+    setSlashState((current) => slashMatch
+      ? {
+          open: true,
+          query: slashMatch.query,
+          triggerStart: slashMatch.start,
+          index: current.open && current.triggerStart === slashMatch.start ? current.index : 0,
+        }
+      : current.open
+        ? { ...current, open: false }
+        : current);
+
+    const mentionMatch = matchMentionTrigger(value, caret);
+    setMentionState((current) => mentionMatch
+      ? {
+          open: true,
+          query: mentionMatch.query,
+          triggerStart: mentionMatch.start,
+          index: current.open && current.triggerStart === mentionMatch.start ? current.index : 0,
+        }
+      : current.open
+        ? { ...current, open: false }
+        : current);
+  }, []);
+
+  const handleMessageChange = useCallback((next: string, meta?: MessageComposerChangeMeta) => {
+    setMessage(next);
+    updateMessageTriggers(next, meta?.caret ?? next.length);
+  }, [updateMessageTriggers]);
+
+  const applySlashCommand = useCallback((command: SlashCommand) => {
+    const start = slashState.triggerStart;
+    if (start < 0) return;
+    const caret = textRef.current?.selectionStart ?? message.length;
+    const before = message.slice(0, start);
+    const after = message.slice(caret);
+    const next = `${before}${command.insert}${after}`;
+    setMessage(next);
+    setSlashState((current) => ({ ...current, open: false }));
+    requestAnimationFrame(() => {
+      const field = textRef.current;
+      if (!field) return;
+      const position = before.length + command.insert.length;
+      field.focus();
+      field.setSelectionRange(position, position);
+    });
+  }, [message, slashState.triggerStart]);
+
+  const applyMention = useCallback((candidate: MentionCandidate) => {
+    const start = mentionState.triggerStart;
+    if (start < 0) return;
+    const caret = textRef.current?.selectionStart ?? message.length;
+    const before = message.slice(0, start);
+    const after = message.slice(caret);
+    const insert = `@${candidate.handle}${after.length === 0 || !after.startsWith(" ") ? " " : ""}`;
+    const next = `${before}${insert}${after}`;
+    setMessage(next);
+    setMentionState((current) => ({ ...current, open: false }));
+    requestAnimationFrame(() => {
+      const field = textRef.current;
+      if (!field) return;
+      const position = before.length + insert.length;
+      field.focus();
+      field.setSelectionRange(position, position);
+    });
+  }, [mentionState.triggerStart, message]);
+
+  const insertComposerTrigger = useCallback((trigger: "/" | "@") => {
+    if (isStarting) return;
+    const field = textRef.current;
+    const caret = field?.selectionStart ?? message.length;
+    const before = message.slice(0, caret);
+    const after = message.slice(caret);
+    const spacer = before && !/\s$/.test(before) ? " " : "";
+    const insertion = `${spacer}${trigger}`;
+    const next = `${before}${insertion}${after}`;
+    const position = before.length + insertion.length;
+    setMessage(next);
+    updateMessageTriggers(next, position);
+    requestAnimationFrame(() => {
+      const nextField = textRef.current;
+      if (!nextField) return;
+      nextField.focus();
+      nextField.setSelectionRange(position, position);
+    });
+  }, [isStarting, message, updateMessageTriggers]);
+
+  const handleMessageKeyDown = useCallback((event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    const slashOpen = slashState.open && filteredSlashCommands.length > 0;
+    const mentionOpen = mentionState.open && filteredMentions.length > 0;
+    if (!slashOpen && !mentionOpen) return false;
+
+    if (event.key === "ArrowDown") {
+      if (slashOpen) {
+        setSlashState((current) => ({
+          ...current,
+          index: (current.index + 1) % filteredSlashCommands.length,
+        }));
+      } else {
+        setMentionState((current) => ({
+          ...current,
+          index: (current.index + 1) % filteredMentions.length,
+        }));
+      }
+      return true;
+    }
+    if (event.key === "ArrowUp") {
+      if (slashOpen) {
+        setSlashState((current) => ({
+          ...current,
+          index: (current.index - 1 + filteredSlashCommands.length) % filteredSlashCommands.length,
+        }));
+      } else {
+        setMentionState((current) => ({
+          ...current,
+          index: (current.index - 1 + filteredMentions.length) % filteredMentions.length,
+        }));
+      }
+      return true;
+    }
+    if (event.key === "Escape") {
+      closeSuggestions();
+      return true;
+    }
+    if (
+      (event.key === "Enter" || event.key === "Tab")
+      && !event.shiftKey
+      && !event.metaKey
+      && !event.ctrlKey
+      && !event.altKey
+    ) {
+      if (slashOpen) {
+        const command = filteredSlashCommands[slashState.index] ?? filteredSlashCommands[0];
+        if (command) applySlashCommand(command);
+      } else {
+        const mention = filteredMentions[mentionState.index] ?? filteredMentions[0];
+        if (mention) applyMention(mention);
+      }
+      return true;
+    }
+    return false;
+  }, [
+    applyMention,
+    applySlashCommand,
+    closeSuggestions,
+    filteredMentions,
+    filteredSlashCommands,
+    mentionState.index,
+    mentionState.open,
+    slashState.index,
+    slashState.open,
+  ]);
 
   const requestClose = useCallback(() => {
     if (isStarting) return;
@@ -693,12 +925,6 @@ export function NewChatComposer({
     setModel(next.model);
     setReasoningEffort(next.effort);
   };
-
-  const insertSlashCommand = useCallback(() => {
-    if (isStarting) return;
-    setMessage((current) => `${current}${current && !current.endsWith("\n") ? "\n" : ""}/`);
-    requestAnimationFrame(() => textRef.current?.focus());
-  }, [isStarting]);
 
   const start = async () => {
     if (isStarting) return;
@@ -981,7 +1207,7 @@ export function NewChatComposer({
             <MessageComposer
               density="panel"
               value={message}
-              onChange={setMessage}
+              onChange={handleMessageChange}
               onSend={() => void start()}
               sendOnEnter
               textareaRef={textRef}
@@ -991,20 +1217,78 @@ export function NewChatComposer({
               disabled={isStarting}
               sending={isStarting}
               canSend={!isStarting && !runtimeBlocked}
-              showDictation={false}
               rows={7}
               maxHeightPx={280}
               sendTitle={hasAttachments ? "Route (Enter)" : "Start task (Enter)"}
               sendAriaLabel={hasAttachments ? "Route capture" : "Start task"}
+              overlay={(
+                <>
+                  {slashState.open ? (
+                    <MessageComposerSuggestions
+                      label="Slash commands"
+                      placement="inside"
+                      items={filteredSlashCommands.map((command) => ({
+                        id: command.command,
+                        token: command.label,
+                        description: command.description,
+                      }))}
+                      activeIndex={slashState.index}
+                      onPick={(index) => {
+                        const command = filteredSlashCommands[index];
+                        if (command) applySlashCommand(command);
+                      }}
+                      onActiveIndexChange={(index) => setSlashState((current) => ({ ...current, index }))}
+                    />
+                  ) : null}
+                  {mentionState.open ? (
+                    <MessageComposerSuggestions
+                      label="Mention agent"
+                      placement="inside"
+                      items={filteredMentions.map((mention) => ({
+                        id: mention.id,
+                        token: `@${mention.handle}`,
+                        description: mention.name,
+                        avatar: {
+                          label: mention.name[0]?.toUpperCase() ?? "?",
+                          color: actorColor(mention.name),
+                        },
+                      }))}
+                      activeIndex={mentionState.index}
+                      onPick={(index) => {
+                        const mention = filteredMentions[index];
+                        if (mention) applyMention(mention);
+                      }}
+                      onActiveIndexChange={(index) => setMentionState((current) => ({ ...current, index }))}
+                    />
+                  ) : null}
+                </>
+              )}
+              onSelect={(event) => {
+                const field = event.currentTarget;
+                updateMessageTriggers(field.value, field.selectionStart);
+              }}
+              onBlur={() => window.setTimeout(closeSuggestions, 120)}
+              onKeyDown={handleMessageKeyDown}
               leadingTools={(
-                <button
-                  type="button"
-                  className="s-newchat-command-trigger"
-                  disabled={isStarting}
-                  onClick={insertSlashCommand}
-                >
-                  / Commands
-                </button>
+                <div className="s-newchat-compose-triggers" aria-label="Message shortcuts">
+                  <button
+                    type="button"
+                    className="s-newchat-command-trigger"
+                    disabled={isStarting}
+                    onClick={() => insertComposerTrigger("/")}
+                  >
+                    /Commands
+                  </button>
+                  <span aria-hidden="true">·</span>
+                  <button
+                    type="button"
+                    className="s-newchat-command-trigger"
+                    disabled={isStarting}
+                    onClick={() => insertComposerTrigger("@")}
+                  >
+                    @Agents
+                  </button>
+                </div>
               )}
               tools={(
                 <RuntimePicker
