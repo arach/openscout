@@ -67,7 +67,7 @@ describe("conversation composer product model", () => {
     })).toBe(false);
   });
 
-  test("keeps the macOS thread embed on the complete web conversation composer", () => {
+  test("lets the macOS host keep its native composer with the shared transcript", () => {
     const props = resolveThreadEmbedProps(
       new URLSearchParams("conversationId=c-1&composer=0&treatment=ledger"),
     );
@@ -76,8 +76,14 @@ describe("conversation composer product model", () => {
       conversationId: "c-1",
       embedded: true,
       showBackNav: false,
+      showComposer: false,
       treatment: "ledger",
     });
+  });
+
+  test("keeps standalone thread embeds complete by default", () => {
+    expect(resolveThreadEmbedProps(new URLSearchParams("conversationId=c-1")))
+      .toEqual(expect.objectContaining({ showComposer: true }));
   });
 });
 
