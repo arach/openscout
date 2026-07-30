@@ -927,10 +927,12 @@ struct TailModeView: View {
                 .tracking(HUDType.eyebrowTracking)
                 .foregroundStyle(HUDChrome.ink)
 
-            Text("\(tail.filteredEvents.count)")
-                .font(HUDType.mono(10, weight: .semibold))
-                .monospacedDigit()
-                .foregroundStyle(HUDChrome.inkMuted)
+            if tailTreatment == .firehose {
+                Text("\(tail.filteredEvents.count)")
+                    .font(HUDType.mono(10, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(HUDChrome.inkMuted)
+            }
 
             Spacer(minLength: 8)
 

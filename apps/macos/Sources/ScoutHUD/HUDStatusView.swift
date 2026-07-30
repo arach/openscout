@@ -437,10 +437,12 @@ struct HUDStatusView: View {
                 .tracking(HUDType.eyebrowTracking)
                 .foregroundStyle(HUDChrome.ink)
 
-            Text("\(tail.filteredEvents.count)")
-                .font(HUDType.mono(10, weight: .semibold))
-                .monospacedDigit()
-                .foregroundStyle(HUDChrome.inkMuted)
+            if tailTreatment == .firehose {
+                Text("\(tail.filteredEvents.count)")
+                    .font(HUDType.mono(10, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(HUDChrome.inkMuted)
+            }
 
             Spacer(minLength: 8)
 
@@ -934,7 +936,7 @@ struct HUDTailTreatmentToggle: View {
                             .tracking(0.45)
                     }
                     .foregroundStyle(selection == treatment ? HUDChrome.accent : HUDChrome.inkFaint)
-                    .frame(width: 48, height: 16)
+                    .frame(width: treatment == .broker ? 58 : 48, height: 16)
                     .background(
                         RoundedRectangle(cornerRadius: 2.5, style: .continuous)
                             .fill(selection == treatment ? HUDChrome.canvasLift.opacity(0.50) : Color.clear)

@@ -260,7 +260,7 @@ struct MainView: View {
                     label: "New Task",
                     help: "Create an agent task  ·  ⌃⌥⇧⌘A"
                 ) {
-                    ScoutAppBridge.openHUD(command: "task")
+                    ScoutAppBridge.openHUD(command: "ask")
                 }
                 LaunchTile(
                     glyph: "viewfinder",

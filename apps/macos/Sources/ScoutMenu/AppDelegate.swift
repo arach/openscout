@@ -89,7 +89,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             modifiers: CarbonModifier.hyper
         ) {
             Task { @MainActor in
-                ScoutAppBridge.openHUD(command: "task")
+                ScoutAppBridge.openHUD(command: "ask")
             }
         }
         if !taskHotkeyRegistered {
@@ -98,7 +98,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         contextMenu = buildContextMenu()
 
         captureHotZone.start { anchor in
-            ScoutAppBridge.openHUD(command: "task", value: anchor.argument)
+            ScoutAppBridge.openHUD(command: "ask", value: anchor.argument)
         } onDrop: { [weak self] anchor, drop in
             self?.forwardCaptureDrop(anchor: anchor, drop: drop) ?? false
         } onPromiseError: { [weak self] _, message in
@@ -427,7 +427,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     @objc
     private func newAgentTask() {
-        ScoutAppBridge.openHUD(command: "task")
+        ScoutAppBridge.openHUD(command: "ask")
     }
 
     @objc
