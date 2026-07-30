@@ -23,6 +23,7 @@ describe("context capture draft resilience", () => {
 
   test("reopens an unsent draft without losing its target, text, or files", () => {
     const first = mergeContextCaptureDraft(null, {
+      intent: "route-capture",
       agentId: "agent:one",
       conversationId: "chat:one",
       message: "Keep this thought",
@@ -35,6 +36,7 @@ describe("context capture draft resilience", () => {
     const reopened = mergeContextCaptureDraft(first, {});
 
     expect(reopened).toMatchObject({
+      intent: "route-capture",
       agentId: "agent:one",
       conversationId: "chat:one",
       message: "Keep this thought",
@@ -43,6 +45,28 @@ describe("context capture draft resilience", () => {
       projectQuery: "Project",
     });
     expect(reopened.files.map((file) => file.name)).toEqual(["notes.md"]);
+  });
+
+  test("a fresh task keeps the draft but drops every hidden agent or session route", () => {
+    const contextual = mergeContextCaptureDraft(null, {
+      intent: "route-capture",
+      agentId: "agent:old",
+      conversationId: "chat:old",
+      message: "Keep this thought",
+      preferExistingChat: true,
+    });
+    contextual.projectPath = "/work/openscout";
+
+    const fresh = mergeContextCaptureDraft(contextual, { intent: "new-task" });
+
+    expect(fresh).toEqual(expect.objectContaining({
+      intent: "new-task",
+      message: "Keep this thought",
+      projectPath: "/work/openscout",
+      mode: "new-session",
+    }));
+    expect(fresh).not.toHaveProperty("agentId");
+    expect(fresh).not.toHaveProperty("conversationId");
   });
 
   test("adds a new capture to the restored draft without duplicating existing files", () => {

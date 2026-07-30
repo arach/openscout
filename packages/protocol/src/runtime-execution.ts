@@ -31,12 +31,205 @@ export const SCOUT_REASONING_EFFORTS = [
 
 export type ScoutReasoningEffort = typeof SCOUT_REASONING_EFFORTS[number];
 
+/** Human labels shared by every picker; ids remain the harness wire values. */
+export const SCOUT_REASONING_EFFORT_LABELS: Readonly<Record<ScoutReasoningEffort, string>> = {
+  none: "None",
+  minimal: "Minimal",
+  low: "Light",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra High",
+  max: "Max",
+  ultra: "Ultra",
+};
+
+export interface ScoutOwnedRuntimeModel {
+  id: string;
+  label: string;
+  enabled: boolean;
+  default?: boolean;
+  description?: string;
+  family?: string;
+  version?: string;
+  reasoningEfforts?: readonly ScoutReasoningEffort[] | null;
+  defaultReasoningEffort?: ScoutReasoningEffort | null;
+}
+
+export interface ScoutOwnedRuntimeHarness {
+  id: ScoutLaunchableHarness;
+  label: string;
+  enabled: boolean;
+  default?: boolean;
+  reasoningEfforts: readonly ScoutReasoningEffort[] | null;
+  defaultReasoningEffort?: ScoutReasoningEffort | null;
+  models: readonly ScoutOwnedRuntimeModel[];
+}
+
+export interface ScoutOwnedRuntimeCatalog {
+  schemaVersion: "openscout.runtime-catalog.v1";
+  harnesses: readonly ScoutOwnedRuntimeHarness[];
+}
+
+export interface ScoutRuntimeHarnessDefaults {
+  model: string | null;
+  reasoningEffort: ScoutReasoningEffort | null;
+}
+
+/**
+ * Scout's versioned product catalog. Harness vendors are execution adapters,
+ * not catalog authorities: availability, ordering, labels, defaults, and the
+ * per-model effort ladder are changed here and projected to every surface.
+ */
+export const SCOUT_RUNTIME_CATALOG: ScoutOwnedRuntimeCatalog = {
+  schemaVersion: "openscout.runtime-catalog.v1",
+  harnesses: [{
+    id: "claude",
+    label: "Claude Code",
+    enabled: true,
+    default: true,
+    reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+    defaultReasoningEffort: "medium",
+    models: [
+      { id: "claude-opus-5", label: "Opus 5", enabled: true, default: true, family: "Opus", version: "5" },
+      { id: "claude-sonnet-4-6", label: "Sonnet 4.6", enabled: true, family: "Sonnet", version: "4.6" },
+      { id: "claude-haiku-4-5", label: "Haiku 4.5", enabled: true, family: "Haiku", version: "4.5" },
+      { id: "claude-opus-4-8", label: "Opus 4.8", enabled: true, family: "Opus", version: "4.8" },
+      { id: "claude-opus-4-7", label: "Opus 4.7", enabled: true, family: "Opus", version: "4.7" },
+      { id: "claude-sonnet-4-5", label: "Sonnet 4.5", enabled: true, family: "Sonnet", version: "4.5" },
+    ],
+  },
+  {
+    id: "codex",
+    label: "Codex",
+    enabled: true,
+    reasoningEfforts: ["low", "medium", "high", "xhigh"],
+    defaultReasoningEffort: "medium",
+    models: [
+      {
+        id: "gpt-5.6-sol",
+        label: "5.6 Sol",
+        enabled: true,
+        default: true,
+        family: "GPT",
+        version: "5.6 Sol",
+        reasoningEfforts: ["low", "medium", "high", "xhigh", "ultra"],
+      },
+      {
+        id: "gpt-5.6-terra",
+        label: "5.6 Terra",
+        enabled: true,
+        family: "GPT",
+        version: "5.6 Terra",
+        reasoningEfforts: ["low", "medium", "high", "xhigh", "ultra"],
+      },
+      { id: "gpt-5.6-luna", label: "5.6 Luna", enabled: true, family: "GPT", version: "5.6 Luna" },
+      { id: "gpt-5.5", label: "5.5", enabled: true, family: "GPT", version: "5.5" },
+      { id: "gpt-5.5-mini", label: "5.5 mini", enabled: true, family: "GPT", version: "5.5 mini" },
+    ],
+  },
+  {
+    id: "grok",
+    label: "Grok CLI",
+    enabled: true,
+    reasoningEfforts: ["low", "medium", "high", "xhigh"],
+    defaultReasoningEffort: "medium",
+    models: [
+      { id: "grok-4.5", label: "Grok 4.5", enabled: true, default: true, family: "Grok", version: "4.5" },
+      { id: "grok-4.3", label: "Grok 4.3", enabled: true, family: "Grok", version: "4.3" },
+    ],
+  },
+  {
+    id: "grok-acp",
+    label: "Grok ACP",
+    enabled: true,
+    reasoningEfforts: null,
+    models: [
+      { id: "grok-4.5", label: "Grok 4.5", enabled: true, default: true, family: "Grok", version: "4.5" },
+      { id: "grok-4.3", label: "Grok 4.3", enabled: true, family: "Grok", version: "4.3" },
+    ],
+  },
+  { id: "kimi", label: "Kimi Code", enabled: true, reasoningEfforts: null, models: [] },
+  { id: "flue", label: "Flue", enabled: true, reasoningEfforts: null, models: [] },
+  { id: "cursor", label: "Cursor CLI", enabled: true, reasoningEfforts: null, models: [] },
+  { id: "pi", label: "Pi", enabled: true, reasoningEfforts: null, models: [] },
+  ],
+};
+
+export function scoutRuntimeHarness(harness: string): ScoutOwnedRuntimeHarness | undefined {
+  return SCOUT_RUNTIME_CATALOG.harnesses.find((entry) => entry.id === harness);
+}
+
+export function isScoutRuntimeHarnessEnabled(harness: string): harness is ScoutLaunchableHarness {
+  return scoutRuntimeHarness(harness)?.enabled === true;
+}
+
+export function scoutRuntimeDefaultHarness(): ScoutLaunchableHarness | null {
+  return SCOUT_RUNTIME_CATALOG.harnesses.find((entry) => entry.enabled && entry.default)?.id
+    ?? SCOUT_RUNTIME_CATALOG.harnesses.find((entry) => entry.enabled)?.id
+    ?? null;
+}
+
+export function scoutRuntimeDefaultModel(harness: string): string | null {
+  const entry = scoutRuntimeHarness(harness);
+  return entry?.models.find((model) => model.enabled && model.default)?.id
+    ?? entry?.models.find((model) => model.enabled)?.id
+    ?? null;
+}
+
+export function scoutRuntimeReasoningEfforts(
+  harness: string,
+  model?: string | null,
+): readonly ScoutReasoningEffort[] | null {
+  const entry = scoutRuntimeHarness(harness);
+  if (!entry || !entry.enabled) return null;
+  const selected = model
+    ? entry.models.find((candidate) => candidate.enabled && candidate.id === model)
+    : undefined;
+  return selected?.reasoningEfforts === null
+    ? null
+    : selected?.reasoningEfforts ?? entry.reasoningEfforts;
+}
+
+export function scoutRuntimeDefaultReasoningEffort(
+  harness: string,
+  model?: string | null,
+): ScoutReasoningEffort | null {
+  const entry = scoutRuntimeHarness(harness);
+  const selected = model
+    ? entry?.models.find((candidate) => candidate.enabled && candidate.id === model)
+    : undefined;
+  const efforts = scoutRuntimeReasoningEfforts(harness, model);
+  const preferred = selected?.defaultReasoningEffort ?? entry?.defaultReasoningEffort ?? null;
+  return preferred && efforts?.includes(preferred) ? preferred : efforts?.[0] ?? null;
+}
+
+export const SCOUT_RUNTIME_DEFAULTS_BY_HARNESS: Readonly<
+  Partial<Record<ScoutLaunchableHarness, ScoutRuntimeHarnessDefaults>>
+> = Object.fromEntries(
+  SCOUT_RUNTIME_CATALOG.harnesses
+    .filter((entry) => entry.enabled)
+    .map((entry) => {
+      const model = scoutRuntimeDefaultModel(entry.id);
+      return [entry.id, {
+        model,
+        reasoningEffort: scoutRuntimeDefaultReasoningEffort(entry.id, model),
+      }];
+    }),
+) as Partial<Record<ScoutLaunchableHarness, ScoutRuntimeHarnessDefaults>>;
+
 export const SCOUT_REASONING_EFFORTS_BY_HARNESS: Readonly<
   Partial<Record<ScoutLaunchableHarness, readonly ScoutReasoningEffort[]>>
-> = {
-  codex: SCOUT_REASONING_EFFORTS,
-  claude: ["low", "medium", "high", "xhigh", "max"],
-};
+> = Object.fromEntries(
+  SCOUT_RUNTIME_CATALOG.harnesses
+    .filter((entry) => entry.enabled)
+    .map((entry) => {
+      const supported = SCOUT_REASONING_EFFORTS.filter((effort) =>
+        entry.reasoningEfforts?.includes(effort)
+        || entry.models.some((model) => model.enabled && model.reasoningEfforts?.includes(effort))
+      );
+      return [entry.id, supported];
+    }),
+) as Partial<Record<ScoutLaunchableHarness, readonly ScoutReasoningEffort[]>>;
 
 export type ScoutRuntimeResolutionSource =
   | "flag"
@@ -78,6 +271,7 @@ export interface ScoutExecutionResolution {
 export interface ScoutRuntimeModelOption {
   id: string;
   label: string;
+  description?: string;
   harnesses: ScoutLaunchableHarness[];
   source: "catalog" | "observed" | "configured" | "default";
   family?: string;
@@ -89,6 +283,13 @@ export interface ScoutRuntimeEffortOption {
   label: string;
   description?: string;
   harnesses: ScoutLaunchableHarness[];
+  /**
+   * Model-scoped restriction, interpreted per harness: the rung is withheld
+   * only from catalog models of a harness that has at least one model named
+   * here. `max` naming `gpt-5.6-*` ids restricts Codex models but leaves
+   * Claude's ladder untouched. Empty/absent means every model of every listed
+   * harness supports the rung.
+   */
   models?: string[];
 }
 
@@ -104,6 +305,7 @@ export interface ScoutRuntimeHarnessOption {
 
 export interface ScoutRuntimeCapabilityCatalog {
   schemaVersion: "openscout.runtime-capabilities.v1";
+  catalogVersion?: ScoutOwnedRuntimeCatalog["schemaVersion"];
   generatedAt: number;
   scope: "global" | "project" | "global+project";
   projectRoot?: string;
@@ -115,36 +317,73 @@ export interface ScoutRuntimeCapabilityCatalog {
     model?: string | null;
     reasoningEffort?: ScoutReasoningEffort | null;
   };
+  defaultsByHarness?: Partial<Record<ScoutLaunchableHarness, ScoutRuntimeHarnessDefaults>>;
   warnings?: string[];
 }
 
-/** Stable built-in seed. Fleet-observed models are appended by capability providers. */
-export const SCOUT_RUNTIME_MODEL_CATALOG: readonly ScoutRuntimeModelOption[] = [
-  { id: "claude-opus-5", label: "Opus 5", harnesses: ["claude"], source: "default", family: "Opus", version: "5" },
-  { id: "claude-sonnet-4-6", label: "Sonnet 4.6", harnesses: ["claude"], source: "default", family: "Sonnet", version: "4.6" },
-  { id: "claude-haiku-4-5", label: "Haiku 4.5", harnesses: ["claude"], source: "default", family: "Haiku", version: "4.5" },
-  { id: "gpt-5.6-sol", label: "GPT-5.6 Sol", harnesses: ["codex"], source: "default", family: "GPT", version: "5.6 Sol" },
-  { id: "gpt-5.6-terra", label: "GPT-5.6 Terra", harnesses: ["codex"], source: "default", family: "GPT", version: "5.6 Terra" },
-  { id: "gpt-5.6-luna", label: "GPT-5.6 Luna", harnesses: ["codex"], source: "default", family: "GPT", version: "5.6 Luna" },
-  { id: "gpt-5.5", label: "GPT-5.5", harnesses: ["codex"], source: "default", family: "GPT", version: "5.5" },
-  { id: "gpt-5.5-mini", label: "GPT-5.5 mini", harnesses: ["codex"], source: "default", family: "GPT", version: "5.5 mini" },
-  { id: "claude-opus-4-8", label: "Opus 4.8", harnesses: ["claude"], source: "default", family: "Opus", version: "4.8" },
-  { id: "claude-opus-4-7", label: "Opus 4.7", harnesses: ["claude"], source: "default", family: "Opus", version: "4.7" },
-  { id: "claude-sonnet-4-5", label: "Sonnet 4.5", harnesses: ["claude"], source: "default", family: "Sonnet", version: "4.5" },
-  { id: "grok-4.5", label: "Grok 4.5", harnesses: ["grok", "grok-acp"], source: "default", family: "Grok", version: "4.5" },
-  { id: "grok-4.3", label: "Grok 4.3", harnesses: ["grok", "grok-acp"], source: "default", family: "Grok", version: "4.3" },
-];
+/** Projections retained for API compatibility; SCOUT_RUNTIME_CATALOG owns them. */
+export const SCOUT_RUNTIME_MODEL_CATALOG: readonly ScoutRuntimeModelOption[] = (() => {
+  const models = new Map<string, ScoutRuntimeModelOption>();
+  for (const harness of SCOUT_RUNTIME_CATALOG.harnesses) {
+    if (!harness.enabled) continue;
+    for (const model of harness.models) {
+      if (!model.enabled) continue;
+      const existing = models.get(model.id);
+      if (existing) {
+        if (!existing.harnesses.includes(harness.id)) existing.harnesses.push(harness.id);
+        continue;
+      }
+      models.set(model.id, {
+        id: model.id,
+        label: model.label,
+        ...(model.description ? { description: model.description } : {}),
+        harnesses: [harness.id],
+        source: "default",
+        ...(model.family ? { family: model.family } : {}),
+        ...(model.version ? { version: model.version } : {}),
+      });
+    }
+  }
+  return Array.from(models.values());
+})();
 
-export const SCOUT_RUNTIME_EFFORT_CATALOG: readonly ScoutRuntimeEffortOption[] = [
-  { id: "none", label: "None", description: "No extra thinking", harnesses: ["codex"] },
-  { id: "minimal", label: "Minimal", description: "Smallest reasoning budget", harnesses: ["codex"] },
-  { id: "low", label: "Low", description: "Quick pass", harnesses: ["claude", "codex"] },
-  { id: "medium", label: "Medium", description: "Balanced default", harnesses: ["claude", "codex"] },
-  { id: "high", label: "High", description: "Deeper pass", harnesses: ["claude", "codex"] },
-  { id: "xhigh", label: "XHigh", description: "Highest supported", harnesses: ["claude", "codex"] },
-  { id: "max", label: "Max", description: "Maximum reasoning depth", harnesses: ["claude", "codex"] },
-  { id: "ultra", label: "Ultra", description: "Maximum with delegation", harnesses: ["codex"] },
-];
+const SCOUT_RUNTIME_EFFORT_DESCRIPTIONS: Readonly<Record<ScoutReasoningEffort, string>> = {
+  none: "No extra thinking",
+  minimal: "Smallest reasoning budget",
+  low: "Fast responses with lighter reasoning",
+  medium: "Balanced speed and reasoning depth",
+  high: "Greater reasoning depth for complex work",
+  xhigh: "Extra high reasoning depth",
+  max: "Maximum reasoning depth",
+  ultra: "Maximum reasoning with delegation",
+};
+
+export const SCOUT_RUNTIME_EFFORT_CATALOG: readonly ScoutRuntimeEffortOption[] =
+  SCOUT_REASONING_EFFORTS.flatMap((id): ScoutRuntimeEffortOption[] => {
+    const harnesses: ScoutLaunchableHarness[] = [];
+    const restrictedModels: string[] = [];
+    for (const harness of SCOUT_RUNTIME_CATALOG.harnesses) {
+      if (!harness.enabled) continue;
+      const enabledModels = harness.models.filter((model) => model.enabled);
+      const supportingModels = enabledModels.filter((model) =>
+        (model.reasoningEfforts ?? harness.reasoningEfforts)?.includes(id)
+      );
+      const supportedWithoutModel = enabledModels.length === 0 && harness.reasoningEfforts?.includes(id);
+      if (supportingModels.length === 0 && !supportedWithoutModel) continue;
+      harnesses.push(harness.id);
+      if (enabledModels.length > 0 && supportingModels.length < enabledModels.length) {
+        restrictedModels.push(...supportingModels.map((model) => model.id));
+      }
+    }
+    if (harnesses.length === 0) return [];
+    return [{
+      id,
+      label: SCOUT_REASONING_EFFORT_LABELS[id],
+      description: SCOUT_RUNTIME_EFFORT_DESCRIPTIONS[id],
+      harnesses,
+      ...(restrictedModels.length > 0 ? { models: restrictedModels } : {}),
+    }];
+  });
 
 export type ScoutRuntimeTuple = {
   harness?: string | null;
@@ -351,9 +590,22 @@ export function validateScoutRuntimeTuple(
     });
   } else if (effort && harness) {
     const catalogEffort = catalog?.efforts.find((candidate) => candidate.id === effort);
-    const supported = catalogEffort
+    let supported = catalogEffort
       ? catalogEffort.harnesses.includes(harness as ScoutLaunchableHarness)
-      : (SCOUT_REASONING_EFFORTS_BY_HARNESS[harness as ScoutLaunchableHarness] ?? []).includes(effort);
+      : (scoutRuntimeReasoningEfforts(harness, model) ?? []).includes(effort);
+    if (supported && catalogEffort?.models?.length && model) {
+      const harnessModels = new Set(
+        catalog?.models
+          .filter((candidate) => candidate.harnesses.includes(harness as ScoutLaunchableHarness))
+          .map((candidate) => candidate.id.toLowerCase()) ?? [],
+      );
+      const scopedModels = catalogEffort.models.filter((candidate) => (
+        harnessModels.has(candidate.toLowerCase())
+      ));
+      if (harnessModels.has(model.toLowerCase()) && scopedModels.length > 0) {
+        supported = scopedModels.some((candidate) => candidate.toLowerCase() === model.toLowerCase());
+      }
+    }
     if (!supported) {
       issues.push({
         code: "reasoning_effort_harness_mismatch",

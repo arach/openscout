@@ -23,10 +23,13 @@ import { ensureAgentChat } from "../../lib/agent-chat.ts";
 import { usePersistentNumber, usePersistentString } from "../../lib/persistent-state.ts";
 import {
   RUNTIME_CAPABILITY_SEED,
-  runtimeEffortsForSelection,
-  runtimeModelsForHarness,
+  runtimeCatalogFromCapabilities,
   type RuntimeCapabilityCatalog,
 } from "../../lib/runtime-capabilities.ts";
+import {
+  effortsFor,
+  type RuntimeValue,
+} from "../../lib/runtime-catalog.ts";
 import {
   MessageComposer,
   RuntimePicker,
@@ -1185,31 +1188,36 @@ function QuietStartPanel({
   }, [selectedAgent?.cwd, selectedAgent?.projectRoot]);
 
   const effectiveHarness = harness || selectedAgent?.harness?.trim() || "";
-  const harnessOptions = useMemo(() => {
-    const values = new Set(effectiveCapabilities.harnesses.map((candidate) => candidate.id));
-    if (selectedAgent?.harness?.trim()) values.add(selectedAgent.harness.trim());
-    return [...values];
-  }, [effectiveCapabilities, selectedAgent?.harness]);
-  const modelOptions = useMemo(() => {
-    const values = runtimeModelsForHarness(effectiveCapabilities, effectiveHarness);
-    const observed = selectedAgent?.model?.trim();
-    if (observed && selectedAgent?.harness?.trim() === effectiveHarness && !values.includes(observed)) {
-      values.unshift(observed);
+  // The picker runs on a nested catalog. The selected agent's observed runtime
+  // may predate the capability snapshot, so an unlisted harness is appended —
+  // the offline fallback the old flat option lists provided.
+  const runtimeCatalog = useMemo(() => {
+    const catalog = runtimeCatalogFromCapabilities(effectiveCapabilities);
+    if (effectiveHarness && !catalog.harnesses.some((entry) => entry.value === effectiveHarness)) {
+      return {
+        ...catalog,
+        harnesses: [
+          ...catalog.harnesses,
+          {
+            value: effectiveHarness,
+            label: effectiveHarness,
+            models: [{ value: "", label: "Default", note: "harness picks" }],
+          },
+        ],
+      };
     }
-    return values;
-  }, [effectiveCapabilities, effectiveHarness, selectedAgent?.harness, selectedAgent?.model]);
-  const effortOptions = useMemo(() => runtimeEffortsForSelection(
-    effectiveCapabilities,
-    effectiveHarness,
-    model,
-  ), [effectiveCapabilities, effectiveHarness, model]);
+    return catalog;
+  }, [effectiveCapabilities, effectiveHarness]);
 
+  // Outside user interaction (capabilities arriving, agent switching) the
+  // picker never sees a change event, so the effort clamp lives here.
   useEffect(() => {
-    if (effortOptions.some((candidate) => candidate.value === reasoningEffort)) return;
-    setReasoningEffort(effortOptions.find((candidate) => candidate.value === "medium")?.value
-      ?? effortOptions[0]?.value
+    const efforts = effortsFor(runtimeCatalog, effectiveHarness, model);
+    if (!efforts || efforts.some((candidate) => candidate.value === reasoningEffort)) return;
+    setReasoningEffort(efforts.find((candidate) => candidate.value === "medium")?.value
+      ?? efforts[0]?.value
       ?? "");
-  }, [effortOptions, reasoningEffort]);
+  }, [runtimeCatalog, effectiveHarness, model, reasoningEffort]);
 
   const submitMessage = async (event?: React.FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
@@ -1300,23 +1308,16 @@ function QuietStartPanel({
               /* Right cluster: runtime · mic · Send. One chip replaces the
                  harness and model selects — the harness reads as its mark. */
               <RuntimePicker
-                harness={harness}
-                model={model}
-                effort={reasoningEffort}
-                onHarnessChange={(nextHarness) => {
-                  setHarness(nextHarness);
-                  const resolvedHarness = nextHarness || selectedAgent?.harness?.trim() || "";
-                  const nextModel = effectiveCapabilities.models.find((candidate) => (
-                    candidate.harnesses.includes(resolvedHarness)
-                  ))?.id ?? "";
-                  setModel(nextModel);
+                catalog={runtimeCatalog}
+                value={{ harness: effectiveHarness, model, effort: reasoningEffort }}
+                onChange={(next: RuntimeValue) => {
+                  // "" keeps its meaning: run on the agent's own runtime.
+                  setHarness(next.harness === (selectedAgent?.harness?.trim() ?? "")
+                    ? ""
+                    : next.harness);
+                  setModel(next.model);
+                  setReasoningEffort(next.effort);
                 }}
-                onModelChange={setModel}
-                onEffortChange={setReasoningEffort}
-                harnessOptions={harnessOptions}
-                modelOptions={modelOptions}
-                effortOptions={effortOptions}
-                showEffort
                 disabled={submitting || !selectedAgent}
               />
             )}

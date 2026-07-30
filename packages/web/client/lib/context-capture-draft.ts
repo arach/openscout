@@ -1,15 +1,20 @@
 import type { CaptureDeliveryMode } from "./session-start.ts";
 
 export type ContextCaptureDraftSeed = {
+  intent?: ContextCaptureIntent;
   agentId?: string;
   conversationId?: string;
+  projectPath?: string;
   message?: string;
   files?: File[];
   attachmentFeedback?: string;
   preferExistingChat?: boolean;
 };
 
+export type ContextCaptureIntent = "new-task" | "route-capture";
+
 export type ContextCaptureDraft = {
+  intent: ContextCaptureIntent;
   agentId?: string;
   conversationId?: string;
   message: string;
@@ -49,20 +54,27 @@ export function mergeContextCaptureDraft(
   current: ContextCaptureDraft | null,
   seed: ContextCaptureDraftSeed,
 ): ContextCaptureDraft {
+  const intent = seed.intent ?? current?.intent ?? "new-task";
+  const preserveRoute = intent === "route-capture";
   return {
-    ...(seed.agentId ?? current?.agentId ? { agentId: seed.agentId ?? current?.agentId } : {}),
-    ...(seed.conversationId ?? current?.conversationId
+    intent,
+    ...(preserveRoute && (seed.agentId ?? current?.agentId)
+      ? { agentId: seed.agentId ?? current?.agentId }
+      : {}),
+    ...(preserveRoute && (seed.conversationId ?? current?.conversationId)
       ? { conversationId: seed.conversationId ?? current?.conversationId }
       : {}),
     message: seed.message ?? current?.message ?? "",
     files: mergeFiles(current?.files ?? [], seed.files ?? []),
     attachmentFeedback: seed.attachmentFeedback ?? current?.attachmentFeedback ?? null,
-    mode: seed.preferExistingChat === undefined
+    mode: !preserveRoute
+      ? "new-session"
+      : seed.preferExistingChat === undefined
       ? current?.mode ?? "new-session"
       : seed.preferExistingChat
         ? "existing-chat"
         : "new-session",
-    projectPath: current?.projectPath ?? "",
+    projectPath: seed.projectPath ?? current?.projectPath ?? "",
     projectQuery: current?.projectQuery ?? "",
   };
 }

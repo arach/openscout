@@ -3794,6 +3794,7 @@ describe("createOpenScoutWebServer", () => {
     const response = await server.app.request("http://localhost/api/terminal-hosts");
     expect(response.status).toBe(200);
     const payload = await response.json() as {
+      catalogVersion: string;
       ok: boolean;
       hosts: Array<{
         id: string;
@@ -4997,10 +4998,11 @@ describe("createOpenScoutWebServer", () => {
         reasoningEffort: string;
         persistence: string;
       };
+      defaultsByHarness: Record<string, { model: string | null; reasoningEffort: string | null }>;
       runners: Array<{ id: string; supports: string[] }>;
       harnesses: Array<{ id: string; label: string }>;
-      models: Array<{ id: string; family?: string; version?: string; harnesses: string[] }>;
-      efforts: Array<{ id: string; harnesses: string[] }>;
+      models: Array<{ id: string; label: string; family?: string; version?: string; harnesses: string[] }>;
+      efforts: Array<{ id: string; label: string; harnesses: string[]; models?: string[] }>;
       projects: Array<{ title: string; root: string }>;
       agents: Array<{ id: string; projectRoot: string | null; harnessSessionId: string | null }>;
     };
@@ -5011,6 +5013,11 @@ describe("createOpenScoutWebServer", () => {
       reasoningEffort: "medium",
       persistence: "sticky",
     }));
+    expect(payload.catalogVersion).toBe("openscout.runtime-catalog.v1");
+    expect(payload.defaultsByHarness.codex).toEqual({
+      model: "gpt-5.6-sol",
+      reasoningEffort: "medium",
+    });
     expect(payload.runners).toContainEqual(expect.objectContaining({
       id: "scout",
       supports: expect.arrayContaining(["claude", "codex"]),
@@ -5024,18 +5031,28 @@ describe("createOpenScoutWebServer", () => {
     }));
     expect(payload.models).toContainEqual(expect.objectContaining({
       id: "gpt-5.6-sol",
+      label: "5.6 Sol",
       family: "GPT",
       version: "5.6 Sol",
       harnesses: ["codex"],
     }));
-    expect(payload.models).toContainEqual(expect.objectContaining({
-      id: "gpt-custom",
-      harnesses: ["codex"],
-    }));
+    expect(payload.models.some((entry) => entry.id === "gpt-custom")).toBe(false);
     expect(new Set(payload.models.map((entry) => `${entry.harnesses.join(",")}:${entry.id}`)).size)
       .toBe(payload.models.length);
     expect(payload.models.some((entry) => entry.id.startsWith("gpt-5.4"))).toBe(false);
     expect(payload.efforts.map((entry) => entry.id)).toEqual(expect.arrayContaining(["medium", "high", "xhigh"]));
+    expect(payload.efforts).toContainEqual(expect.objectContaining({
+      id: "low",
+      label: "Light",
+    }));
+    expect(payload.efforts).toContainEqual(expect.objectContaining({
+      id: "xhigh",
+      label: "Extra High",
+    }));
+    expect(payload.efforts).toContainEqual(expect.objectContaining({
+      id: "ultra",
+      models: ["gpt-5.6-sol", "gpt-5.6-terra"],
+    }));
     expect(payload.projects).toContainEqual(expect.objectContaining({ root: projectRoot }));
     expect(payload.agents).toContainEqual(expect.objectContaining({
       id: "agent-1",

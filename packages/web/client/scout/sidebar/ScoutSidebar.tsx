@@ -48,7 +48,6 @@ import {
   NEW_CHAT_SHORTCUT_LABEL,
   NEW_TASK_ACTION_LABEL,
 } from "../../lib/new-chat-shortcut.ts";
-import { resolveCaptureRouteContext } from "../../lib/media-route.ts";
 import { cn } from "../../lib/utils.ts";
 import type { Route } from "../../lib/types.ts";
 import { useScout } from "../Provider.tsx";
@@ -182,7 +181,7 @@ export function ScoutSidebar({
    */
   brandLabel?: string;
 }) {
-  const { route, navigate, openSettings, openContextCapture, agents } = useScout();
+  const { route, navigate, openSettings, openContextCapture } = useScout();
   const { titleBarInset, dragRegionProps, onInteractiveMouseDown } = usePlatform();
   const opsControlEnabled = useOptionalFlag("ops.control", true);
   const model = useSidebarModel(route);
@@ -198,10 +197,7 @@ export function ScoutSidebar({
   const settingsActive = activeAreaId === "settings";
 
   const goHome = () => navigate({ view: "inbox" });
-  const startNewTask = () => {
-    const context = resolveCaptureRouteContext(route, agents);
-    openContextCapture({ agentId: context.agentId ?? undefined });
-  };
+  const startNewTask = () => openContextCapture();
   const goArea = (id: PrimaryAreaId) => {
     // Stay put if already in the area (preserve deep links).
     if (primaryAreaForRoute(route) === id) return;

@@ -23,7 +23,6 @@ import {
 } from "./lib/scout-flags.ts";
 import { useScopeShellChrome } from "./scope/index.ts";
 import { type ScoutStatusBarState, useScoutStatusBarState } from "./scout/hooks.ts";
-import { resolveCaptureRouteContext } from "./lib/media-route.ts";
 import { useScout } from "./scout/Provider.tsx";
 import { useBrowserLocation } from "./lib/router.ts";
 import { KeyboardHelpOverlay, useKeyboardHelp } from "./components/KeyboardHelpOverlay.tsx";
@@ -343,7 +342,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const { titleBarInset, dragRegionProps, onInteractiveMouseDown } = usePlatform();
   const keyboardHelp = useKeyboardHelp();
   usePaneNav();
-  const { route, agents, openContextCapture, apiConnection, navigate, selectedBrokerAttempt } = useScout();
+  const { route, openContextCapture, apiConnection, navigate, selectedBrokerAttempt } = useScout();
   const browserLocation = useBrowserLocation();
   // SCO-083: exactly one chrome tree — sidebar experiment vs legacy left panel.
   const sidebarChrome = useOptionalFlag("nav.sidebar", false);
@@ -797,10 +796,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
         id: "shell:new-session",
         label: NEW_TASK_ACTION_LABEL,
         shortcut: NEW_CHAT_SHORTCUT_LABEL,
-        action: () => {
-          const context = resolveCaptureRouteContext(route, agents);
-          openContextCapture({ agentId: context.agentId ?? undefined });
-        },
+        action: () => openContextCapture(),
       },
       {
         id: "shell:toggle-terminal",
@@ -828,11 +824,9 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     }
     return commands;
   }, [
-    agents,
     assistantEnabled,
     activeTab,
     openContextCapture,
-    route,
     setActiveTab,
     setLeftCollapsed,
     setRightCollapsed,
@@ -879,8 +873,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
       }
       if (isNewChatShortcut(e)) {
         e.preventDefault();
-        const context = resolveCaptureRouteContext(route, agents);
-        openContextCapture({ agentId: context.agentId ?? undefined });
+        openContextCapture();
       }
       if ((e.metaKey || e.ctrlKey) && (e.key === "[" || e.key.toLowerCase() === "b")) {
         // Cmd+[ and Cmd+B retarget the primary left chrome (sidebar or legacy panel).
@@ -926,7 +919,6 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
   }, [
-    agents,
     assistantEnabled,
     clearGoShortcut,
     keyboardHelp.open,

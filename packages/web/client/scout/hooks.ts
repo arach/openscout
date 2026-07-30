@@ -9,7 +9,6 @@ import { useScout } from "./Provider.tsx";
 import { localMachineLabel } from "../lib/mesh-buckets.ts";
 import type { MeshStatus, Route } from "../lib/types.ts";
 import { MachineScopeControl } from "../components/MachineScopeControl.tsx";
-import { resolveCaptureRouteContext } from "../lib/media-route.ts";
 import {
   NEW_CHAT_SHORTCUT_LABEL,
   NEW_TASK_ACTION_LABEL,
@@ -41,7 +40,7 @@ type BuildInfo = {
 
 /* ── useCommands — nav + agent operations ─────────────────────────────── */
 export function useScoutCommands(): CommandOption[] {
-  const { navigate, agents, reload, openSettings, applyScoutbotUiAction, openContextCapture, route } = useScout();
+  const { navigate, agents, reload, applyScoutbotUiAction, openContextCapture } = useScout();
   const opsEnabled = useOptionalFlag("ops.control", true);
   const scoutbotEnabled = useOptionalFlag("surface.scoutbot", true);
 
@@ -59,10 +58,7 @@ export function useScoutCommands(): CommandOption[] {
       {
         id: "session:new",
         label: NEW_TASK_ACTION_LABEL,
-        action: () => {
-          const context = resolveCaptureRouteContext(route, agents);
-          openContextCapture({ agentId: context.agentId ?? undefined });
-        },
+        action: () => openContextCapture(),
         shortcut: NEW_CHAT_SHORTCUT_LABEL,
       },
       // Static nav destinations projected from the catalog.
@@ -125,7 +121,7 @@ export function useScoutCommands(): CommandOption[] {
     }
 
     return commands;
-  }, [agents, applyScoutbotUiAction, askScoutbotForState, navigate, openContextCapture, opsEnabled, route, scoutbotEnabled, reload, openSettings]);
+  }, [agents, applyScoutbotUiAction, askScoutbotForState, navigate, openContextCapture, opsEnabled, scoutbotEnabled, reload]);
 }
 
 export function useScoutStatusBarState(): ScoutStatusBarState {

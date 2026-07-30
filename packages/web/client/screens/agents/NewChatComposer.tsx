@@ -13,13 +13,17 @@ import { ChevronDown, FileText, Loader2, Search, X } from "lucide-react";
 import {
   MessageComposer,
   RuntimePicker,
+  runtimeCatalogFromRunnerOptions,
+  type RuntimeValue,
 } from "../../components/MessageComposer/index.ts";
 import { api } from "../../lib/api.ts";
+import { RUNTIME_CAPABILITY_SEED } from "../../lib/runtime-capabilities.ts";
 import {
   createClientMessageId,
   stageAcceptedConversationTurn,
 } from "../../lib/client-turn-transition.ts";
 import type { ContextCaptureDraft } from "../../lib/context-capture-draft.ts";
+import type { ContextCaptureIntent } from "../../lib/context-capture-draft.ts";
 import { useFocusTrap } from "../../lib/keyboard-nav.ts";
 import {
   dataTransferMayContainFiles,
@@ -56,6 +60,7 @@ type RunnerHarnessOption = {
 type RunnerModelOption = {
   id: string;
   label: string;
+  description?: string | null;
   harnesses: string[];
   source: string;
 };
@@ -63,32 +68,70 @@ type RunnerModelOption = {
 type RunnerEffortOption = {
   id: string;
   label: string;
-  description: string;
+  description?: string | null;
   harnesses: string[];
+  models?: string[];
 };
 
 type RunnerOptionsState = {
   defaults: {
     harness: string;
     model: string | null;
-    reasoningEffort: string;
+    reasoningEffort: string | null;
   };
+  defaultsByHarness?: Partial<Record<string, {
+    model?: string | null;
+    reasoningEffort?: string | null;
+  }>>;
   harnesses: RunnerHarnessOption[];
   models: RunnerModelOption[];
   efforts: RunnerEffortOption[];
 };
 
-const FALLBACK_HARNESSES: RunnerHarnessOption[] = [
-  { id: "claude", label: "Claude Code", description: null, state: null, ready: null, detail: null },
-  { id: "codex", label: "Codex", description: null, state: null, ready: null, detail: null },
-];
+const FALLBACK_HARNESSES: RunnerHarnessOption[] = RUNTIME_CAPABILITY_SEED.harnesses.map((entry) => ({
+  id: entry.id,
+  label: entry.label ?? entry.id,
+  description: null,
+  state: null,
+  ready: null,
+  detail: null,
+}));
 
-const FALLBACK_EFFORTS: RunnerEffortOption[] = [
-  { id: "low", label: "Low", description: "Quick pass", harnesses: ["claude", "codex"] },
-  { id: "medium", label: "Medium", description: "Balanced default", harnesses: ["claude", "codex"] },
-  { id: "high", label: "High", description: "Deeper pass", harnesses: ["claude", "codex"] },
-  { id: "xhigh", label: "XHigh", description: "Highest supported", harnesses: ["claude", "codex"] },
-];
+const FALLBACK_MODELS: RunnerModelOption[] = RUNTIME_CAPABILITY_SEED.models.map((entry) => ({
+  id: entry.id,
+  label: entry.label ?? entry.id,
+  description: entry.description ?? null,
+  harnesses: [...entry.harnesses],
+  source: "catalog",
+}));
+
+const FALLBACK_EFFORTS: RunnerEffortOption[] = RUNTIME_CAPABILITY_SEED.efforts.map((entry) => ({
+  ...entry,
+  harnesses: [...entry.harnesses],
+  ...(entry.models ? { models: [...entry.models] } : {}),
+}));
+
+/** Cold-start catalog: two harnesses, no models, the default ladder. */
+const FALLBACK_RUNNER_OPTIONS: RunnerOptionsState = {
+  defaults: {
+    harness: RUNTIME_CAPABILITY_SEED.defaults?.harness ?? "claude",
+    model: RUNTIME_CAPABILITY_SEED.defaults?.model ?? null,
+    reasoningEffort: RUNTIME_CAPABILITY_SEED.defaults?.reasoningEffort ?? "medium",
+  },
+  defaultsByHarness: RUNTIME_CAPABILITY_SEED.defaultsByHarness,
+  harnesses: FALLBACK_HARNESSES,
+  models: FALLBACK_MODELS,
+  efforts: FALLBACK_EFFORTS,
+};
+
+/**
+ * The catalog only changes when the installed harness fleet does, so the last
+ * good snapshot survives the dialog: reopening New task renders it instantly
+ * and revalidates in the background, instead of showing "Loading the model
+ * catalog…" on every open. Kept at module scope because the dialog unmounts
+ * on close.
+ */
+let cachedRunnerOptions: RunnerOptionsState | null = null;
 
 /** Rows the standing project list keeps on screen; the rest live behind the foot. */
 const PROJECT_STANDING_ROWS = 5;
@@ -186,6 +229,7 @@ export function NewChatComposer({
   initialMessage,
   initialFiles,
   initialAttachmentFeedback,
+  initialIntent = "new-task",
   initialProjectPath,
   defaultMode,
   draftRestored = false,
@@ -201,6 +245,7 @@ export function NewChatComposer({
   initialMessage?: string;
   initialFiles?: File[];
   initialAttachmentFeedback?: string;
+  initialIntent?: ContextCaptureIntent;
   initialProjectPath?: string;
   initialProjectQuery?: string;
   defaultMode?: CaptureDeliveryMode;
@@ -213,11 +258,19 @@ export function NewChatComposer({
     () => [...agents].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)),
     [agents],
   );
-  const routeAgentId = initialAgentId ?? routeContext.agentId ?? null;
+  // A fresh task is project-routed. Ambient page/session context must never
+  // become an invisible continuation target; contextual routing is reserved
+  // for the explicit file-capture flow.
+  const routeAgentId = initialIntent === "route-capture"
+    ? initialAgentId ?? routeContext.agentId ?? null
+    : null;
+  const routeConversationId = initialIntent === "route-capture"
+    ? initialConversationId ?? routeContext.conversationId
+    : null;
   const routeAgent = sorted.find((candidate) => candidate.id === routeAgentId) ?? null;
   const preferredProjectRoot = routeAgent?.projectRoot ?? routeAgent?.cwd ?? null;
   const [configuration, setConfiguration] = useState<AgentConfigurationState | null>(null);
-  const [runnerOptions, setRunnerOptions] = useState<RunnerOptionsState | null>(null);
+  const [runnerOptions, setRunnerOptions] = useState<RunnerOptionsState | null>(cachedRunnerOptions);
   const [projectLoadError, setProjectLoadError] = useState<string | null>(null);
   const [runnerLoadError, setRunnerLoadError] = useState<string | null>(null);
   const [projectPath, setProjectPath] = useState(() => initialProjectPath || preferredProjectRoot || "");
@@ -234,7 +287,7 @@ export function NewChatComposer({
   const [files, setFiles] = useState<File[]>(() => [...(initialFiles ?? [])]);
   const [mode, setMode] = useState<CaptureDeliveryMode>(() => {
     if (defaultMode) return defaultMode;
-    if (initialConversationId || routeContext.canUseExistingChat) return "existing-chat";
+    if (routeConversationId) return "existing-chat";
     return "new-session";
   });
   const [state, setState] = useState<"idle" | "starting">("idle");
@@ -243,9 +296,15 @@ export function NewChatComposer({
   const [attachmentFeedback, setAttachmentFeedback] = useState<string | null>(
     () => initialAttachmentFeedback ?? null,
   );
-  const [harness, setHarness] = useState(() => routeAgent?.harness?.trim() || "claude");
-  const [model, setModel] = useState(() => routeAgent?.model?.trim() || "");
-  const [reasoningEffort, setReasoningEffort] = useState("medium");
+  const [harness, setHarness] = useState(() => (
+    routeAgent?.harness?.trim() || FALLBACK_RUNNER_OPTIONS.defaults.harness
+  ));
+  const [model, setModel] = useState(() => (
+    routeAgent?.model?.trim() || FALLBACK_RUNNER_OPTIONS.defaults.model || ""
+  ));
+  const [reasoningEffort, setReasoningEffort] = useState(
+    FALLBACK_RUNNER_OPTIONS.defaults.reasoningEffort || "",
+  );
   const [preservationNotice, setPreservationNotice] = useState<string | null>(
     () => draftRestored ? "Restored your unsent draft." : null,
   );
@@ -277,39 +336,30 @@ export function NewChatComposer({
       }
     : null);
   const harnesses = runnerOptions?.harnesses ?? FALLBACK_HARNESSES;
-  const models = runnerOptions?.models.filter((candidate) => candidate.harnesses.includes(harness)) ?? [];
-  const efforts = (runnerOptions?.efforts ?? FALLBACK_EFFORTS)
-    .filter((candidate) => candidate.harnesses.includes(harness));
   const selectedHarness = harnesses.find((candidate) => candidate.id === harness) ?? null;
   const runnerLoading = !runnerOptions && !runnerLoadError;
-  // RuntimePicker takes flat id lists and prepends its own "Default" entry, so
-  // the harness reads as its mark rather than a repeated word. A current value
-  // the catalog doesn't know (route agent pinned to something unlisted) is
-  // appended so selecting it stays possible instead of silently resetting.
-  const harnessOptions = [
-    // Unready harnesses stay listed but unselectable — the old select disabled
-    // them, and dropping that would let the operator pick a dead runtime.
-    ...harnesses.map((candidate) => ({
-      value: candidate.id,
-      label: candidate.label,
-      disabled: candidate.ready === false,
-    })),
-    ...(harness && !harnesses.some((candidate) => candidate.id === harness)
-      ? [{ value: harness, label: harness }]
-      : []),
-  ];
-  const modelOptions = [
-    ...models.map((candidate) => ({ value: candidate.id, label: candidate.label })),
-    ...(model && !models.some((candidate) => candidate.id === model)
-      ? [{ value: model, label: model }]
-      : []),
-  ];
-  const effortOptions = [
-    ...efforts.map((candidate) => ({ value: candidate.id, label: candidate.label })),
-    ...(reasoningEffort && !efforts.some((candidate) => candidate.id === reasoningEffort)
-      ? [{ value: reasoningEffort, label: reasoningEffort }]
-      : []),
-  ];
+  // The picker runs on a nested catalog — harnesses with their models and
+  // effort ladders folded in, unready harnesses listed but unselectable. A
+  // harness the catalog doesn't know (route agent pinned to something
+  // unlisted) is appended so it stays selectable instead of silently
+  // resetting; an unknown model is the picker's own "custom" row.
+  const runtimeCatalog = useMemo(() => {
+    const catalog = runtimeCatalogFromRunnerOptions(runnerOptions ?? FALLBACK_RUNNER_OPTIONS);
+    if (harness && !catalog.harnesses.some((entry) => entry.value === harness)) {
+      return {
+        ...catalog,
+        harnesses: [
+          ...catalog.harnesses,
+          {
+            value: harness,
+            label: harness,
+            models: [{ value: "", label: "Default", note: "harness picks" }],
+          },
+        ],
+      };
+    }
+    return catalog;
+  }, [runnerOptions, harness]);
   // Uncapped: only PROJECT_STANDING_ROWS are ever rendered, and the foot needs a
   // truthful match count to report what it is holding back.
   const filteredProjects = useMemo(
@@ -344,7 +394,7 @@ export function NewChatComposer({
   const isStarting = state === "starting";
   const isDraggingFiles = dragDepth > 0;
   const canUseExistingChat = projectMatchesRouteAgent
-    && Boolean(routeAgent?.conversationId || initialConversationId || routeContext.conversationId);
+    && Boolean(routeAgent?.conversationId || routeConversationId);
   const usesNewWorker = !hasAttachments || !canUseExistingChat || mode === "new-session";
   const runtimeBlocked = usesNewWorker && (runnerLoading || selectedHarness?.ready === false);
   const title = hasAttachments ? "Route capture" : "New task";
@@ -412,22 +462,27 @@ export function NewChatComposer({
     };
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
+  // Callable so the picker's error state can offer a real retry.
+  const loadRunnerOptions = useCallback(() => {
     void api<RunnerOptionsState>("/api/runner/options")
       .then((snapshot) => {
-        if (cancelled) return;
+        cachedRunnerOptions = snapshot;
         setRunnerOptions(snapshot);
         setRunnerLoadError(null);
       })
       .catch(() => {
-        if (cancelled) return;
-        setRunnerLoadError("Model catalog unavailable. Harness defaults are still available.");
+        // With a cached catalog already on screen a failed background
+        // revalidation changes nothing the operator can act on — the error
+        // state is reserved for having no catalog at all.
+        if (!cachedRunnerOptions) {
+          setRunnerLoadError("Model catalog unavailable. Harness defaults are still available.");
+        }
       });
-    return () => {
-      cancelled = true;
-    };
   }, []);
+
+  useEffect(() => {
+    loadRunnerOptions();
+  }, [loadRunnerOptions]);
 
   useEffect(() => {
     if (projectSelectionTouchedRef.current || projectTargets.length === 0) return;
@@ -461,9 +516,10 @@ export function NewChatComposer({
 
   useLayoutEffect(() => {
     onDraftChange?.({
+      intent: initialIntent,
       ...(routeAgentId ? { agentId: routeAgentId } : {}),
-      ...(initialConversationId ?? routeContext.conversationId
-        ? { conversationId: initialConversationId ?? routeContext.conversationId ?? undefined }
+      ...(routeConversationId
+        ? { conversationId: routeConversationId }
         : {}),
       message,
       files,
@@ -479,14 +535,14 @@ export function NewChatComposer({
   }, [
     attachmentFeedback,
     files,
-    initialConversationId,
+    initialIntent,
     message,
     mode,
     onDraftChange,
     projectPath,
     projectQuery,
     routeAgentId,
-    routeContext.conversationId,
+    routeConversationId,
     selectedProject?.title,
   ]);
 
@@ -629,25 +685,13 @@ export function NewChatComposer({
     }
   };
 
-  const selectHarness = (nextHarness: string) => {
+  // Reconciliation (model reset on harness change, effort clamping) is the
+  // picker's catalog logic — the picker hands back an already-repaired value.
+  const handleRuntimeChange = (next: RuntimeValue) => {
     runtimeSelectionTouchedRef.current = true;
-    setHarness(nextHarness);
-    if (!runnerOptions) {
-      setModel("");
-      return;
-    }
-    const currentModelSupported = runnerOptions.models.some((candidate) => (
-      candidate.id === model && candidate.harnesses.includes(nextHarness)
-    ));
-    if (!currentModelSupported) {
-      setModel(firstModelForHarness(runnerOptions, nextHarness));
-    }
-    const currentEffortSupported = runnerOptions.efforts.some((candidate) => (
-      candidate.id === reasoningEffort && candidate.harnesses.includes(nextHarness)
-    ));
-    if (!currentEffortSupported) {
-      setReasoningEffort(firstEffortForHarness(runnerOptions, nextHarness));
-    }
+    setHarness(next.harness);
+    setModel(next.model);
+    setReasoningEffort(next.effort);
   };
 
   const insertSlashCommand = useCallback(() => {
@@ -964,23 +1008,13 @@ export function NewChatComposer({
               )}
               tools={(
                 <RuntimePicker
-                  harness={harness}
-                  model={model}
-                  effort={reasoningEffort}
-                  onHarnessChange={selectHarness}
-                  onModelChange={(nextModel) => {
-                    runtimeSelectionTouchedRef.current = true;
-                    setModel(nextModel);
-                  }}
-                  onEffortChange={(nextEffort) => {
-                    runtimeSelectionTouchedRef.current = true;
-                    setReasoningEffort(nextEffort);
-                  }}
-                  harnessOptions={harnessOptions}
-                  modelOptions={modelOptions}
-                  effortOptions={effortOptions}
-                  showEffort
-                  disabled={isStarting || runnerLoading || !usesNewWorker}
+                  catalog={runtimeCatalog}
+                  value={{ harness, model, effort: reasoningEffort }}
+                  onChange={handleRuntimeChange}
+                  status={runnerLoading ? "loading" : runnerLoadError ? "error" : "ready"}
+                  statusMessage={runnerLoadError ?? undefined}
+                  onRetry={loadRunnerOptions}
+                  disabled={isStarting || !usesNewWorker}
                 />
               )}
             />

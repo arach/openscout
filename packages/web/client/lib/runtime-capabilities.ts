@@ -1,49 +1,106 @@
+import {
+  SCOUT_RUNTIME_CATALOG,
+  SCOUT_RUNTIME_DEFAULTS_BY_HARNESS,
+  SCOUT_RUNTIME_EFFORT_CATALOG,
+  SCOUT_RUNTIME_MODEL_CATALOG,
+  scoutRuntimeDefaultHarness,
+  scoutRuntimeDefaultModel,
+  scoutRuntimeDefaultReasoningEffort,
+} from "@openscout/protocol";
+import {
+  runtimeCatalogFromRunnerOptions,
+  type RuntimeCatalog,
+} from "./runtime-catalog.ts";
+
 export type RuntimeCapabilityCatalog = {
   schemaVersion: "openscout.runtime-capabilities.v1";
+  catalogVersion?: "openscout.runtime-catalog.v1";
   generatedAt?: number;
   scope?: "global" | "project" | "global+project";
   projectRoot?: string;
+  defaults?: {
+    harness?: string;
+    model?: string | null;
+    reasoningEffort?: string | null;
+  };
+  defaultsByHarness?: Partial<Record<string, {
+    model?: string | null;
+    reasoningEffort?: string | null;
+  }>>;
   harnesses: Array<{ id: string; label?: string }>;
-  models: Array<{ id: string; label?: string; harnesses: string[] }>;
+  models: Array<{ id: string; label?: string; description?: string; harnesses: string[] }>;
   efforts: Array<{
     id: string;
     label: string;
+    description?: string;
     harnesses: string[];
     models?: string[];
   }>;
 };
 
+const SEED_DEFAULT_HARNESS = scoutRuntimeDefaultHarness() ?? "";
+const SEED_DEFAULT_MODEL = scoutRuntimeDefaultModel(SEED_DEFAULT_HARNESS);
+
 /** Cold-start seed only; a fetched versioned catalog replaces it. */
 export const RUNTIME_CAPABILITY_SEED: RuntimeCapabilityCatalog = {
   schemaVersion: "openscout.runtime-capabilities.v1",
-  harnesses: ["claude", "codex", "grok", "grok-acp", "kimi", "flue", "cursor", "pi"]
-    .map((id) => ({ id })),
-  models: [
-    { id: "claude-opus-5", harnesses: ["claude"] },
-    { id: "claude-sonnet-4-6", harnesses: ["claude"] },
-    { id: "claude-haiku-4-5", harnesses: ["claude"] },
-    { id: "gpt-5.6-sol", harnesses: ["codex"] },
-    { id: "gpt-5.6-terra", harnesses: ["codex"] },
-    { id: "gpt-5.6-luna", harnesses: ["codex"] },
-    { id: "gpt-5.5", harnesses: ["codex"] },
-    { id: "gpt-5.5-mini", harnesses: ["codex"] },
-    { id: "claude-opus-4-8", harnesses: ["claude"] },
-    { id: "claude-opus-4-7", harnesses: ["claude"] },
-    { id: "claude-sonnet-4-5", harnesses: ["claude"] },
-    { id: "grok-4.5", harnesses: ["grok", "grok-acp"] },
-    { id: "grok-4.3", harnesses: ["grok", "grok-acp"] },
-  ],
-  efforts: [
-    { id: "none", label: "None", harnesses: ["codex"] },
-    { id: "minimal", label: "Minimal", harnesses: ["codex"] },
-    { id: "low", label: "Low", harnesses: ["claude", "codex"] },
-    { id: "medium", label: "Medium", harnesses: ["claude", "codex"] },
-    { id: "high", label: "High", harnesses: ["claude", "codex"] },
-    { id: "xhigh", label: "XHigh", harnesses: ["claude", "codex"] },
-    { id: "max", label: "Max", harnesses: ["claude", "codex"] },
-    { id: "ultra", label: "Ultra", harnesses: ["codex"] },
-  ],
+  catalogVersion: SCOUT_RUNTIME_CATALOG.schemaVersion,
+  defaults: {
+    harness: SEED_DEFAULT_HARNESS,
+    model: SEED_DEFAULT_MODEL,
+    reasoningEffort: scoutRuntimeDefaultReasoningEffort(
+      SEED_DEFAULT_HARNESS,
+      SEED_DEFAULT_MODEL,
+    ),
+  },
+  defaultsByHarness: SCOUT_RUNTIME_DEFAULTS_BY_HARNESS,
+  harnesses: SCOUT_RUNTIME_CATALOG.harnesses
+    .filter((entry) => entry.enabled)
+    .map((entry) => ({ id: entry.id, label: entry.label })),
+  models: SCOUT_RUNTIME_MODEL_CATALOG.map((model) => ({
+    id: model.id,
+    label: model.label,
+    ...(model.description ? { description: model.description } : {}),
+    harnesses: [...model.harnesses],
+  })),
+  efforts: SCOUT_RUNTIME_EFFORT_CATALOG.map((effort) => ({
+    id: effort.id,
+    label: effort.label,
+    ...(effort.description ? { description: effort.description } : {}),
+    harnesses: [...effort.harnesses],
+    ...(effort.models ? { models: [...effort.models] } : {}),
+  })),
 };
+
+/**
+ * Fold the flat capability lists into the nested catalog the RuntimePicker
+ * runs on. Same mapping as `runtimeCatalogFromRunnerOptions` — the capability
+ * catalog simply has no readiness or description fields to carry over.
+ */
+export function runtimeCatalogFromCapabilities(
+  catalog: RuntimeCapabilityCatalog,
+): RuntimeCatalog {
+  return runtimeCatalogFromRunnerOptions({
+    defaultsByHarness: catalog.defaultsByHarness,
+    harnesses: catalog.harnesses.map((candidate) => ({
+      id: candidate.id,
+      label: candidate.label ?? candidate.id,
+    })),
+    models: catalog.models.map((candidate) => ({
+      id: candidate.id,
+      label: candidate.label ?? candidate.id,
+      description: candidate.description,
+      harnesses: candidate.harnesses,
+    })),
+    efforts: catalog.efforts.map((candidate) => ({
+      id: candidate.id,
+      label: candidate.label,
+      description: candidate.description,
+      harnesses: candidate.harnesses,
+      ...(candidate.models?.length ? { models: [...candidate.models] } : {}),
+    })),
+  });
+}
 
 export function runtimeModelsForHarness(
   catalog: RuntimeCapabilityCatalog,
@@ -52,17 +109,4 @@ export function runtimeModelsForHarness(
   return catalog.models
     .filter((candidate) => candidate.harnesses.includes(harness))
     .map((candidate) => candidate.id);
-}
-
-export function runtimeEffortsForSelection(
-  catalog: RuntimeCapabilityCatalog,
-  harness: string,
-  model: string,
-): Array<{ value: string; label: string }> {
-  return catalog.efforts
-    .filter((candidate) => (
-      candidate.harnesses.includes(harness)
-      && (!candidate.models || candidate.models.length === 0 || candidate.models.includes(model))
-    ))
-    .map((candidate) => ({ value: candidate.id, label: candidate.label }));
 }

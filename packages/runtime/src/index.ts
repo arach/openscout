@@ -56,9 +56,15 @@ export * from "./repo-diff/index.js";
 // runtime-only consumers (e.g. the CLI) can reach them without a new dependency.
 export {
   SCOUT_LAUNCHABLE_HARNESSES,
+  SCOUT_RUNTIME_CATALOG,
+  SCOUT_RUNTIME_DEFAULTS_BY_HARNESS,
   SCOUT_RUNTIME_EFFORT_CATALOG,
   SCOUT_RUNTIME_MODEL_CATALOG,
   type ScoutRuntimeCapabilityCatalog,
+  isScoutRuntimeHarnessEnabled,
+  scoutRuntimeDefaultHarness,
+  scoutRuntimeDefaultModel,
+  scoutRuntimeDefaultReasoningEffort,
   scoutBrokerPaths,
   scoutBrokerMessagesListPath,
   scoutBrokerMessagesPath,
