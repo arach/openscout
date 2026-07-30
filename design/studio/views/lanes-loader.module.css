@@ -1,0 +1,1002 @@
+/* Agent Lanes · loader — treatments for the pre-deck beat */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* ── take switcher ─────────────────────────────────────────────── */
+
+.takes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.take {
+  position: relative;
+  appearance: none;
+  border: 1px solid var(--studio-edge);
+  background: transparent;
+  color: var(--studio-ink-faint);
+  border-radius: 8px;
+  padding: 10px 12px;
+  text-align: left;
+  cursor: pointer;
+  min-width: 196px;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+
+.take:hover {
+  border-color: color-mix(in oklab, var(--studio-ink) 28%, var(--studio-edge));
+  color: var(--studio-ink);
+}
+
+.takeOn {
+  border-color: color-mix(in oklab, var(--studio-ink) 40%, var(--studio-edge));
+  background: color-mix(in oklab, var(--studio-ink) 5%, transparent);
+  color: var(--studio-ink);
+}
+
+.takeId {
+  display: block;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.takeNote {
+  display: block;
+  font-size: var(--text-md);
+  line-height: 1.35;
+  opacity: 0.82;
+}
+
+.takeBadge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-3xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.badgeRec {
+  color: var(--scout-accent);
+  background: color-mix(in oklab, var(--scout-accent) 12%, transparent);
+}
+
+.badgeFlag {
+  color: var(--studio-ink-faint);
+  background: color-mix(in oklab, var(--studio-ink) 8%, transparent);
+}
+
+/* ── transport ─────────────────────────────────────────────────── */
+
+.transport {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-xs);
+  color: var(--studio-ink-faint);
+}
+
+.segment {
+  display: flex;
+  border: 1px solid var(--studio-edge);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.seg {
+  appearance: none;
+  border: 0;
+  border-left: 1px solid var(--studio-edge);
+  background: transparent;
+  color: var(--studio-ink-faint);
+  font: inherit;
+  padding: 4px 9px;
+  cursor: pointer;
+}
+
+.seg:first-child {
+  border-left: 0;
+}
+
+.seg:hover {
+  color: var(--studio-ink);
+  background: color-mix(in oklab, var(--studio-ink) 5%, transparent);
+}
+
+.segOn {
+  color: var(--studio-ink);
+  background: color-mix(in oklab, var(--studio-ink) 9%, transparent);
+}
+
+.scrub {
+  flex: 1;
+  min-width: 160px;
+  accent-color: var(--scout-accent);
+}
+
+.clock {
+  font-variant-numeric: tabular-nums;
+  min-width: 92px;
+  color: var(--studio-ink);
+}
+
+/* ── frame: the lanes deck region ──────────────────────────────── */
+
+.frame {
+  border: 1px solid var(--studio-edge);
+  border-radius: 12px;
+  overflow: hidden;
+  background: color-mix(in oklab, var(--studio-canvas-alt) 72%, var(--studio-canvas));
+}
+
+/* Faint stand-in for the lanes toolbar. The loader never replaces it —
+ * it only fills the deck region below (AgentLanesView.tsx:1118). */
+.toolbarGhost {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--studio-edge);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-3xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in oklab, var(--studio-ink-faint) 70%, transparent);
+}
+
+.ghostChip {
+  padding: 2px 6px;
+  border: 1px solid color-mix(in oklab, var(--studio-edge) 70%, transparent);
+  border-radius: 4px;
+}
+
+.ghostSpacer {
+  flex: 1;
+}
+
+.stage {
+  position: relative;
+  height: 424px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.stageCenter {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 22px;
+}
+
+.exit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--studio-edge);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-3xs);
+  letter-spacing: 0.06em;
+  color: var(--studio-ink-faint);
+}
+
+.exitMark {
+  color: var(--scout-accent);
+}
+
+/* ── console (takes A + B share the shell) ─────────────────────── */
+
+.console {
+  width: min(44rem, 100%);
+  border: 1px solid color-mix(in oklab, var(--studio-ink) 9%, transparent);
+  border-radius: 10px;
+  overflow: hidden;
+  background: color-mix(in oklab, var(--studio-canvas) 62%, transparent);
+}
+
+.consoleHead {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 16px 16px 10px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.signal {
+  width: 7px;
+  height: 7px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--scout-accent);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--scout-accent) 10%, transparent);
+  animation: pulse 900ms ease-in-out infinite;
+}
+
+.signalDone {
+  animation: none;
+  background: var(--status-ok-fg);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--status-ok-fg) 10%, transparent);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.86); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+.kicker {
+  display: block;
+  margin-bottom: 3px;
+  font-size: var(--text-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--studio-ink-faint);
+}
+
+.headline {
+  margin: 0;
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: var(--text-2xl);
+  line-height: 1.25;
+  font-weight: 550;
+  color: var(--studio-ink);
+}
+
+.headMeta {
+  padding-top: 2px;
+  font-size: var(--text-xs);
+  color: color-mix(in oklab, var(--studio-ink-faint) 78%, transparent);
+}
+
+.intro {
+  margin: 0;
+  padding: 0 16px 14px;
+  font-size: var(--text-md);
+  line-height: 1.5;
+  color: var(--studio-ink-faint);
+}
+
+.log {
+  padding: 4px 0;
+  border-top: 1px solid color-mix(in oklab, var(--studio-ink) 7%, transparent);
+  background: color-mix(in oklab, var(--studio-canvas) 55%, transparent);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+/* Take A — shipped: three fixed columns, no timing, no motion. */
+.stepA {
+  display: grid;
+  grid-template-columns: 3.2rem minmax(8.5rem, 0.55fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  min-height: 30px;
+  padding: 6px 16px;
+  font-size: var(--text-xs);
+}
+
+.stepState {
+  color: var(--scout-accent);
+}
+
+.stateOk {
+  color: var(--status-ok-fg);
+}
+
+.stateWarn {
+  color: var(--status-warn-fg);
+}
+
+.stepName {
+  font-weight: 600;
+  color: color-mix(in oklab, var(--studio-ink) 78%, transparent);
+}
+
+.stepDetail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--studio-ink-faint);
+}
+
+/* ── take B: the ledger ────────────────────────────────────────── */
+
+/* One hairline meter, filled by phases actually resolved — not a
+ * percentage, because no phase reports partial progress. */
+.meter {
+  height: 1px;
+  background: color-mix(in oklab, var(--studio-ink) 10%, transparent);
+}
+
+.meterFill {
+  height: 100%;
+  background: var(--scout-accent);
+  transition: width 260ms cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+.stepB {
+  position: relative;
+  display: grid;
+  grid-template-columns: 2.6rem minmax(8.5rem, 0.5fr) minmax(0, 1fr) 3.6rem;
+  gap: 10px;
+  align-items: baseline;
+  min-height: 30px;
+  padding: 6px 16px;
+  font-size: var(--text-xs);
+  overflow: hidden;
+}
+
+.stepPending .stepState,
+.stepPending .stepName,
+.stepPending .stepDetail {
+  opacity: 0.42;
+}
+
+/* Sweep marks the one row currently doing work. Never more than one. */
+.stepRunning::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--scout-accent) 13%, transparent),
+    transparent
+  );
+  animation: sweep 1150ms linear infinite;
+  pointer-events: none;
+}
+
+@keyframes sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(340%); }
+}
+
+.stepDone .stepName {
+  color: var(--studio-ink);
+}
+
+.timing {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in oklab, var(--studio-ink-faint) 80%, transparent);
+}
+
+/* Counters flash once when the number actually changes. Remounted by
+ * key, so the animation replays on each new value. */
+.num {
+  display: inline-block;
+  font-variant-numeric: tabular-nums;
+  color: var(--studio-ink);
+  animation: numIn 180ms ease-out;
+}
+
+@keyframes numIn {
+  from { color: var(--scout-accent); }
+  to { color: var(--studio-ink); }
+}
+
+/* Elapsed counter while loading — moves, never flashes. */
+.tick {
+  display: inline-block;
+  font-variant-numeric: tabular-nums;
+  color: var(--studio-ink);
+}
+
+/* Identities streaming in under the resolve step — real transcript
+ * rows from the discovery snapshot, not decoration. */
+.found {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 2px 16px 8px;
+}
+
+.foundChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 6px;
+  border: 1px solid color-mix(in oklab, var(--studio-ink) 10%, transparent);
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--studio-ink) 4%, transparent);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-3xs);
+  color: var(--studio-ink-faint);
+  animation: chipIn 200ms ease-out both;
+}
+
+@keyframes chipIn {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+
+.chipDot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--scout-accent);
+}
+
+.foundMore {
+  align-self: center;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-3xs);
+  color: color-mix(in oklab, var(--studio-ink-faint) 70%, transparent);
+}
+
+/* ── takes C + D: the deck arrives first ───────────────────────── */
+
+.deck {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  grid-auto-rows: minmax(150px, 1fr);
+  gap: 10px;
+  padding: 10px 12px 12px;
+  overflow: hidden;
+}
+
+/* Single status line above the deck. Everything on it is a count the
+ * client already holds. */
+.strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--studio-edge);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-xs);
+  color: var(--studio-ink-faint);
+  overflow: hidden;
+}
+
+.stripDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--scout-accent);
+  animation: pulse 900ms ease-in-out infinite;
+  flex: none;
+}
+
+.stripDotDone {
+  animation: none;
+  background: var(--status-ok-fg);
+}
+
+.stripLead {
+  color: var(--studio-ink);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: var(--text-3xs);
+  flex: none;
+}
+
+.stripItem {
+  display: inline-flex;
+  gap: 5px;
+  flex: none;
+}
+
+.stripSpacer {
+  flex: 1;
+}
+
+.stripWarn {
+  color: var(--status-warn-fg);
+}
+
+/* Take D packs the ledger into the strip's own row stack. */
+.railLog {
+  border-bottom: 1px solid var(--studio-edge);
+  background: color-mix(in oklab, var(--studio-canvas) 45%, transparent);
+}
+
+.railStep {
+  position: relative;
+  display: grid;
+  grid-template-columns: 2.4rem minmax(7rem, auto) minmax(0, 1fr) 3.4rem;
+  gap: 10px;
+  align-items: baseline;
+  /* Hold the four columns in one readable block instead of stranding the
+   * timing at the far edge of a full-width deck. */
+  max-width: 54rem;
+  padding: 4px 12px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-3xs);
+  overflow: hidden;
+}
+
+/* ── take E: overlay + signal cut ──────────────────────────────── */
+
+/* No reserved slice. The ledger floats over the full skeleton deck, so the
+ * deck is at its final size from the first frame and nothing below ever
+ * moves. A readout, not a control — it never takes the pointer. */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.overlayScrim {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in oklab, var(--studio-canvas) 66%, transparent);
+  opacity: var(--scrim, 1);
+}
+
+/* Two nested transforms: the wrap owns the horizontal squeeze so the
+ * phosphor line inside it never scales vertically to nothing. */
+.plateWrap {
+  position: relative;
+  width: min(40rem, 92%);
+  transform: scaleX(var(--cut-x, 1));
+  transform-origin: center;
+}
+
+.plate {
+  border: 1px solid color-mix(in oklab, var(--studio-ink) 12%, transparent);
+  border-radius: 10px;
+  overflow: hidden;
+  background: color-mix(in oklab, var(--studio-canvas) 88%, transparent);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
+  transform: scaleY(var(--cut-y, 1));
+  transform-origin: center;
+  /* The surface dissolves during the squeeze, leaving only the accent line. */
+  opacity: var(--plate-o, 1);
+}
+
+.plateBody {
+  opacity: var(--body-o, 1);
+}
+
+.plateHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-xs);
+  color: var(--studio-ink-faint);
+}
+
+/* The signal collapsing to a line, then to a point. One accent beat. */
+.cutLine {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--scout-accent);
+  box-shadow: 0 0 10px color-mix(in oklab, var(--scout-accent) 60%, transparent);
+  opacity: var(--line-o, 0);
+  pointer-events: none;
+}
+
+/* ── take F: bottom sheet, ops checklist ───────────────────────── */
+
+/* Docked instead of centred: the deck stays uncovered, the readout rides
+ * the bottom edge. No scrim — the trade named in the notes. */
+.sheetLayer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Just enough separation from the deck above without dimming it. */
+.sheetVeil {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 190px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in oklab, var(--studio-canvas) 72%, transparent) 62%
+  );
+  opacity: var(--scrim, 1);
+}
+
+/* Exits downward, full width, in one piece. Nothing here scales — the deck
+ * behind it is already final, so the sheet just gets out of the way. */
+.sheetWrap {
+  position: relative;
+  width: 100%;
+  transform: translateY(calc(var(--sheet-y, 0) * 100%));
+  opacity: var(--sheet-o, 1);
+}
+
+/* Entry lives on its own layer so it can't fight the cut transform. */
+.sheetRise {
+  animation: sheetIn 220ms cubic-bezier(0.2, 0.75, 0.3, 1) both;
+}
+
+@keyframes sheetIn {
+  from { transform: translateY(100%); }
+  to { transform: none; }
+}
+
+.sheet {
+  border-top: 1px solid color-mix(in oklab, var(--studio-ink) 14%, transparent);
+  background: color-mix(in oklab, var(--studio-canvas) 92%, transparent);
+  overflow: hidden;
+}
+
+.sheetBody {
+  opacity: var(--body-o, 1);
+  padding: 8px 0 10px;
+}
+
+.sheetHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px 7px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-xs);
+  color: var(--studio-ink-faint);
+}
+
+/* The checklist spine. */
+.sheetLog {
+  position: relative;
+}
+
+.sheetLog::before {
+  content: "";
+  position: absolute;
+  left: 16px;
+  top: 9px;
+  bottom: 9px;
+  width: 1px;
+  background: color-mix(in oklab, var(--studio-ink) 12%, transparent);
+}
+
+.sheetStep {
+  position: relative;
+  display: grid;
+  grid-template-columns: 2.6rem minmax(8rem, auto) minmax(0, 1fr) 3.6rem;
+  gap: 10px;
+  align-items: baseline;
+  max-width: 54rem;
+  padding: 4px 12px 4px 30px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-xs);
+  overflow: hidden;
+}
+
+/* One box per item on the spine: empty, then filled when the phase lands. */
+.sheetStep::before {
+  content: "";
+  position: absolute;
+  left: 13px;
+  top: 0.55em;
+  width: 7px;
+  height: 7px;
+  border: 1px solid color-mix(in oklab, var(--studio-ink) 22%, transparent);
+  background: var(--studio-canvas);
+}
+
+.sheetStep.stepDone::before {
+  border-color: color-mix(in oklab, var(--status-ok-fg) 60%, transparent);
+  background: var(--status-ok-fg);
+}
+
+.sheetStep.stepRunning::before {
+  border-color: color-mix(in oklab, var(--scout-accent) 65%, transparent);
+  background: color-mix(in oklab, var(--scout-accent) 30%, transparent);
+  animation: pulse 900ms ease-in-out infinite;
+}
+
+/* ── skeleton lane ─────────────────────────────────────────────── */
+
+.skel {
+  border: 1px solid color-mix(in oklab, var(--studio-ink) 8%, transparent);
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--studio-canvas) 40%, transparent);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.skelHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.skelDot,
+.skelName,
+.skelBar {
+  background: color-mix(in oklab, var(--studio-ink) 9%, transparent);
+  border-radius: 3px;
+  animation: shimmer 1600ms ease-in-out infinite;
+}
+
+.skelDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.skelName {
+  height: 7px;
+  width: 42%;
+}
+
+.skelMeta {
+  height: 7px;
+  width: 18%;
+  margin-left: auto;
+  background: color-mix(in oklab, var(--studio-ink) 6%, transparent);
+  border-radius: 3px;
+}
+
+.skelBars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.skelBar {
+  height: 6px;
+}
+
+@keyframes shimmer {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* Identified but not yet streaming: the real header lands at discovery, the
+ * body keeps shimmering until there are lines to put in it. */
+.cardIdentified {
+  background: color-mix(in oklab, var(--studio-canvas) 52%, transparent);
+}
+
+.cardIdentified .cardTitle {
+  color: color-mix(in oklab, var(--studio-ink) 82%, transparent);
+}
+
+.cardIdentified .cardDot {
+  background: color-mix(in oklab, var(--studio-ink) 26%, transparent);
+}
+
+/* ── resolved lane (simplified stand-in for AgentLaneCard) ─────── */
+
+.card {
+  border: 1px solid color-mix(in oklab, var(--studio-ink) 11%, transparent);
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--studio-canvas) 66%, transparent);
+  padding: 9px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: hidden;
+  animation: settle 180ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+@keyframes settle {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: none; }
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-3xs);
+}
+
+.cardDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--scout-accent);
+  flex: none;
+}
+
+.cardTitle {
+  flex: none;
+  color: var(--studio-ink);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.cardWhere {
+  color: color-mix(in oklab, var(--studio-ink-faint) 80%, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cardSpacer {
+  flex: 1;
+}
+
+.cardAge {
+  color: color-mix(in oklab, var(--studio-ink-faint) 70%, transparent);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+
+.cardRows {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-3xs);
+  line-height: 1.4;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.cardRow {
+  display: flex;
+  gap: 6px;
+  color: var(--studio-ink-faint);
+}
+
+.cardGlyph {
+  color: color-mix(in oklab, var(--studio-ink-faint) 62%, transparent);
+  flex: none;
+}
+
+.cardText {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── notes / signals table ─────────────────────────────────────── */
+
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.noteHead {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--studio-ink-faint);
+}
+
+.sig {
+  border: 1px solid var(--studio-edge);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.sigRow {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 12px;
+  padding: 7px 12px;
+  border-top: 1px solid color-mix(in oklab, var(--studio-edge) 60%, transparent);
+  font-size: var(--text-md);
+  color: var(--studio-ink-faint);
+}
+
+.sigRow:first-child {
+  border-top: 0;
+}
+
+.sigWhat {
+  color: var(--studio-ink);
+}
+
+.sigFrom {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-xs);
+  word-break: break-word;
+}
+
+.gaps {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gap {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  gap: 8px;
+  font-size: var(--text-md);
+  line-height: 1.5;
+  color: var(--studio-ink-faint);
+}
+
+.gapMark {
+  color: var(--status-warn-fg);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.gap code,
+.sigFrom code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-xs);
+}
+
+/* ── reduced motion: states still change, nothing moves ────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  /* No collapse — the overlay just goes. */
+  .plateWrap,
+  .plate {
+    transform: none;
+  }
+
+  .plateWrap {
+    opacity: calc(1 - var(--cut-p, 0));
+  }
+
+  .cutLine {
+    display: none;
+  }
+
+  /* The sheet fades where it stands instead of sliding. */
+  .sheetWrap {
+    transform: none;
+  }
+
+  .sheetRise {
+    animation: none;
+  }
+
+  .signal,
+  .stripDot,
+  .skelDot,
+  .skelName,
+  .skelBar,
+  .num,
+  .foundChip,
+  .card {
+    animation: none;
+  }
+
+  .stepRunning::after {
+    animation: none;
+    opacity: 0.5;
+  }
+
+  .meterFill {
+    transition: none;
+  }
+}
