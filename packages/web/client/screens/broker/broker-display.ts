@@ -116,6 +116,32 @@ export function brokerAttemptIsFailure(attempt: BrokerRouteAttempt): boolean {
     || attempt.status === "error";
 }
 
+export function brokerAttemptFailureTitle(attempt: BrokerRouteAttempt): string {
+  if (attempt.kind === "failed_query") {
+    switch (metadataString(attempt.metadata, "dispatchKind")) {
+      case "unknown":
+        return "Target not found";
+      case "ambiguous":
+        return "Target is ambiguous";
+      case "unparseable":
+        return "Invalid target";
+      default:
+        return "Route not resolved";
+    }
+  }
+
+  const reason = metadataString(
+    attempt.metadata,
+    "failureReason",
+    "reconciledReason",
+    "reason",
+  );
+  if (reason === "agent_offline" || reason === "agent_unreachable") return "Agent unavailable";
+  if (reason === "peer_unreachable" || reason === "local_socket_unreachable") return "Route unavailable";
+  if (reason === "peer_rejected") return "Delivery rejected";
+  return "Delivery failed";
+}
+
 /**
  * Turn the broker's attempt-oriented diagnostics into a message-oriented feed.
  * A routed message is the primary row; a linked terminal delivery failure is
@@ -181,6 +207,10 @@ export function brokerAttemptDetailLimit(attempt: BrokerRouteAttempt): number {
 export function brokerAttemptErrorSummary(attempt: BrokerRouteAttempt): string | null {
   if (!brokerAttemptIsFailure(attempt)) return null;
 
+  if (attempt.kind === "failed_query") {
+    return brokerAttemptFailureTitle(attempt);
+  }
+
   const metadata = attempt.metadata ?? {};
   const transportReason = readString(metadata.reason);
   const reason = readString(metadata.failureDetail)
@@ -189,11 +219,9 @@ export function brokerAttemptErrorSummary(attempt: BrokerRouteAttempt): string |
       ? null
       : transportReason)
     ?? readString(metadata.error);
-  const dispatchKind = readString(metadata.dispatchKind);
   const requestedLabel = readString(metadata.requestedLabel);
 
   const parts: string[] = [];
-  if (dispatchKind) parts.push(dispatchKind);
   if (attempt.status && attempt.status !== "failed" && attempt.status !== "error") {
     parts.push(attempt.status);
   }
