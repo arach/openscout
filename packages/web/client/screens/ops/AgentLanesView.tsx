@@ -13,7 +13,7 @@ import {
   type UIEvent as ReactUIEvent,
 } from "react";
 import { useTailFeed } from "../../lib/use-tail-feed.ts";
-import type { TailFeedLoadPhase, TailFeedLoadState } from "../../lib/use-tail-feed.ts";
+import type { TailFeedLoadState } from "../../lib/use-tail-feed.ts";
 import { useObservePolling } from "../../lib/observe.ts";
 import type { ObserveCache } from "../../lib/observe.ts";
 import { fetchTerminalSessions } from "../../lib/terminal-sessions.ts";
@@ -27,6 +27,12 @@ import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { SessionObserve } from "../sessions/SessionObserve.tsx";
 import { type AgentLaneSize, readAgentLaneSize } from "./agent-lane-size.ts";
 import { AgentFloorView } from "./AgentFloorView.tsx";
+import {
+  AgentLanesLoadingSheet,
+  AgentLanesPreflightDeck,
+  LANE_BOOT_EXIT_MS,
+  useLaneBootVisibility,
+} from "./AgentLanesPreflight.tsx";
 import { AgentLaneChrome } from "./AgentLaneChrome.tsx";
 import { AgentLaneCard } from "./AgentLaneCard.tsx";
 import { agentLaneToCardModel } from "./agent-lane-card-model.ts";
@@ -66,6 +72,7 @@ import {
 } from "./lane-deck-layout.ts";
 import {
   readLaneDeckProfileId,
+  resolveLaneWidthPx,
   snapLaneWidthPx,
   type AgentLaneWidthTier,
   type LaneDeckProfileId,
@@ -247,70 +254,6 @@ function AgentLaneIssueRow({ issue }: { issue: AgentLaneRosterIssue }) {
       <span className="s-agent-lanes-issues-message">{issue.message}</span>
       {detail ? <span className="s-agent-lanes-issues-detail">{detail}</span> : null}
     </li>
-  );
-}
-
-function loadingStepState(phase: TailFeedLoadPhase): "RUN" | "OK" | "WARN" {
-  if (phase === "ready") return "OK";
-  if (phase === "error") return "WARN";
-  return "RUN";
-}
-
-function AgentLanesLoadingState({
-  eventCount,
-  horizonLabel,
-  loadState,
-  sourceCount,
-}: {
-  eventCount: number;
-  horizonLabel: string;
-  loadState: TailFeedLoadState;
-  sourceCount: number;
-}) {
-  const discoveryDetail = loadState.discovery === "ready"
-    ? `${sourceCount.toLocaleString()} session source${sourceCount === 1 ? "" : "s"} indexed`
-    : loadState.discovery === "error"
-      ? "session source scan unavailable"
-      : "scanning local transcripts and harness processes";
-  const recentDetail = loadState.recent === "ready"
-    ? `${eventCount.toLocaleString()} recent event${eventCount === 1 ? "" : "s"} merged`
-    : loadState.recent === "error"
-      ? "history replay unavailable; live signals remain enabled"
-      : `reading turns and tool output for the ${horizonLabel} view`;
-
-  return (
-    <div className="s-agent-lanes-loading" role="status" aria-live="polite" aria-busy="true">
-      <div className="s-agent-lanes-loading-console">
-        <div className="s-agent-lanes-loading-head">
-          <span className="s-agent-lanes-loading-signal" aria-hidden="true" />
-          <div>
-            <span className="s-agent-lanes-loading-kicker">Starting agent tail</span>
-            <h2>Loading live lanes</h2>
-          </div>
-          <span className="s-agent-lanes-loading-meta">lookback {horizonLabel}</span>
-        </div>
-        <p className="s-agent-lanes-loading-intro">
-          Scout is collecting recent local agent signals before it draws the lane deck.
-        </p>
-        <div className="s-agent-lanes-loading-log" aria-label="Agent tail loading progress">
-          <div className={`s-agent-lanes-loading-step s-agent-lanes-loading-step--${loadState.discovery}`}>
-            <span>{loadingStepState(loadState.discovery)}</span>
-            <strong>discover sessions</strong>
-            <code>{discoveryDetail}</code>
-          </div>
-          <div className={`s-agent-lanes-loading-step s-agent-lanes-loading-step--${loadState.recent}`}>
-            <span>{loadingStepState(loadState.recent)}</span>
-            <strong>replay recent tail</strong>
-            <code>{recentDetail}</code>
-          </div>
-          <div className="s-agent-lanes-loading-step s-agent-lanes-loading-step--assembling">
-            <span>LIVE</span>
-            <strong>assemble lanes</strong>
-            <code>building the roster as signals arrive</code>
-          </div>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -721,6 +664,10 @@ export function AgentLanesView({
   const tailLoading = loadState.discovery === "loading" || loadState.recent === "loading";
   const tailUnavailable = loadState.discovery === "error" || loadState.recent === "error";
   const tailSourceCount = discovery?.totals.transcripts ?? discovery?.transcripts?.length ?? 0;
+  // The status sheet outlives the load by its retract, so the exit plays over
+  // the finished deck instead of vanishing on unmount. A failed scan gets no
+  // exit animation — the unavailable card should take the region immediately.
+  const laneBoot = useLaneBootVisibility(tailLoading, tailUnavailable ? 0 : LANE_BOOT_EXIT_MS);
 
   useEffect(() => {
     if (newLaneIds.size === 0) return;
@@ -1116,12 +1063,15 @@ export function AgentLanesView({
         </div>
       ) : null}
       {(floorMode ? filteredLanes.length : visibleColumns.length) === 0 ? (
-        tailLoading ? (
-          <AgentLanesLoadingState
-            eventCount={tailEvents.length}
-            horizonLabel={horizonLabel}
-            loadState={loadState}
-            sourceCount={tailSourceCount}
+        laneBoot.visible ? (
+          <AgentLanesPreflightDeck
+            discovery={discovery}
+            discoveryPhase={loadState.discovery}
+            windowMs={traceWindowMs}
+            nowMs={now}
+            layout={floorMode ? "none" : gridMode ? "grid" : "scroll"}
+            gridColumns={gridColumns}
+            laneWidthPx={resolveLaneWidthPx(deck.defaultLaneWidth, deck.defaultLaneWidth)}
           />
         ) : tailUnavailable ? (
           <AgentLanesUnavailableState
@@ -1201,6 +1151,18 @@ export function AgentLanesView({
           ) : null}
         </div>
       )}
+      {laneBoot.visible ? (
+        <AgentLanesLoadingSheet
+          loadState={loadState}
+          sourceCount={tailSourceCount}
+          processCount={discovery?.processes.length ?? 0}
+          eventCount={tailEvents.length}
+          laneCount={floorMode ? filteredLanes.length : visibleColumns.length}
+          horizonLabel={horizonLabel}
+          handedOff={laneBoot.exiting}
+          exiting={laneBoot.exiting}
+        />
+      ) : null}
       {inspectedLane && (
         <AgentLaneDetailSheet
           lane={inspectedLane}
