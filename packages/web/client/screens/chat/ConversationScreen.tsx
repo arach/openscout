@@ -185,6 +185,7 @@ export function ConversationScreen({
   navigate,
   embedded,
   showBackNav = true,
+  showComposer = true,
   treatment = "standard",
 }: {
   conversationId: string;
@@ -192,6 +193,7 @@ export function ConversationScreen({
   navigate: (r: Route) => void;
   embedded?: boolean;
   showBackNav?: boolean;
+  showComposer?: boolean;
   /// How the thread is presented — see the "Presentations" block in
   /// conversation-screen.css. "standard" is the shipping bordered card;
   /// ledger/rail/document come from the readability study.
@@ -2350,40 +2352,42 @@ export function ConversationScreen({
           </div>
         )}
 
-        <ConversationComposer
-          composeRef={composeRef}
-          draft={draft}
-          setDraft={setDraft}
-          composePlaceholder={composePlaceholder}
-          slashState={slashState}
-          setSlashState={setSlashState}
-          filteredSlashCommands={filteredSlashCommands}
-          applySlashCommand={applySlashCommand}
-          mentionState={mentionState}
-          setMentionState={setMentionState}
-          filteredMentions={filteredMentions}
-          applyMention={applyMention}
-          updateTriggersFromDraft={updateTriggersFromDraft}
-          closeSuggestions={closeSuggestions}
-          isStopMode={isStopMode}
-          sending={sending}
-          composeAction={composeAction}
-          onSend={() => void send()}
-          onInterrupt={() => void interrupt()}
-          sendReceipt={sendReceipt}
-          attachments={attachments}
-          isAgentBusy={isAgentBusy}
-          busyIntent={busyIntent}
-          onBusyIntentChange={setBusyIntent}
-          queued={queued}
-          queueNote={queueNote}
-          onEditQueued={editQueued}
-          editingQueuedId={editingQueued?.id ?? null}
-          editingAttachmentCount={carriedAttachments.length}
-          onCancelEdit={cancelEdit}
-          onUnqueue={unqueue}
-          onSendQueuedNow={(id) => void sendQueuedNow(id)}
-        />
+        {showComposer ? (
+          <ConversationComposer
+            composeRef={composeRef}
+            draft={draft}
+            setDraft={setDraft}
+            composePlaceholder={composePlaceholder}
+            slashState={slashState}
+            setSlashState={setSlashState}
+            filteredSlashCommands={filteredSlashCommands}
+            applySlashCommand={applySlashCommand}
+            mentionState={mentionState}
+            setMentionState={setMentionState}
+            filteredMentions={filteredMentions}
+            applyMention={applyMention}
+            updateTriggersFromDraft={updateTriggersFromDraft}
+            closeSuggestions={closeSuggestions}
+            isStopMode={isStopMode}
+            sending={sending}
+            composeAction={composeAction}
+            onSend={() => void send()}
+            onInterrupt={() => void interrupt()}
+            sendReceipt={sendReceipt}
+            attachments={attachments}
+            isAgentBusy={isAgentBusy}
+            busyIntent={busyIntent}
+            onBusyIntentChange={setBusyIntent}
+            queued={queued}
+            queueNote={queueNote}
+            onEditQueued={editQueued}
+            editingQueuedId={editingQueued?.id ?? null}
+            editingAttachmentCount={carriedAttachments.length}
+            onCancelEdit={cancelEdit}
+            onUnqueue={unqueue}
+            onSendQueuedNow={(id) => void sendQueuedNow(id)}
+          />
+        ) : null}
       </div>
 
     </div>
@@ -2412,13 +2416,9 @@ function ReplyGlyph() {
 /**
  * Thread — the conversation surface, embeddable.
  *
- * Native hosts render THIS complete component, not an embed-only transcript.
- * The feed and composer stay together so message presentation, draft behavior,
- * attachments, shortcuts, and dictation do not drift between web and macOS.
- * A purpose-built embed screen would only have made it three.
- *
- * So there is nothing to keep in sync: whatever lands on the conversation
- * lands on every surface, and any regression here is a regression everywhere.
+ * Native hosts render this same conversation component. A host may suppress
+ * the web composer when it provides a platform-native input with stronger local
+ * affordances; the transcript remains the canonical shared implementation.
  */
 export const scoutSurface = defineSurface({
   id: "thread",
@@ -2433,8 +2433,8 @@ export const scoutSurface = defineSurface({
     chrome: { showSecondaryNav: false, showPageStatusBar: false },
     hosts: { macos: true },
     // The host owns navigation; an in-embed back arrow would strand the user
-    // inside a pane that has nowhere to go back to. The resolver deliberately
-    // ignores the former `composer=0` escape hatch: embeds stay complete.
+    // inside a pane that has nowhere to go back to. Standalone embeds stay
+    // complete, while native hosts can request transcript-only with composer=0.
     resolveEmbedProps: resolveThreadEmbedProps,
   },
 });
