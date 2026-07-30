@@ -1,20 +1,22 @@
 /**
  * Home "What's moving" — signal-first list.
  *
- * One-line rows (action · who · age). Recent is a flat stream; Grouped wraps
- * the same rows under project bands. Selection opens a fixed centered glass
- * overlay (detail + actions) without reflowing the list.
+ * One-line rows (age · where · harness mark · action). Recent is a flat
+ * stream; Grouped wraps the same rows under project bands. Selection opens a
+ * fixed centered glass overlay (detail + actions) without reflowing the list.
  */
 
 import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { createPortal } from "react-dom";
+import { HarnessMark } from "../../components/HarnessMark.tsx";
 import type { ObserveCache } from "../../lib/observe.ts";
 import { useFocusTrap } from "../../lib/keyboard-nav.ts";
 import { normalizeTimestampMs } from "../../lib/time.ts";
@@ -318,6 +320,27 @@ export function HomeMovingSignalList({
   navigate: (route: Route) => void;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [hover, setHover] = useState<{ id: string; top: number; left: number } | null>(null);
+  const hoverTimer = useRef<number | null>(null);
+
+  const showHover = useCallback((id: string, rect: DOMRect) => {
+    if (hoverTimer.current !== null) window.clearTimeout(hoverTimer.current);
+    hoverTimer.current = window.setTimeout(() => {
+      const cardWidth = 380;
+      const cardHeightGuess = 240;
+      const left = Math.max(16, Math.min(rect.left + 96, window.innerWidth - cardWidth - 16));
+      const top = rect.bottom + 8 + cardHeightGuess > window.innerHeight
+        ? Math.max(16, rect.top - 8 - cardHeightGuess)
+        : rect.bottom + 8;
+      setHover({ id, top, left });
+    }, 180);
+  }, []);
+
+  const hideHover = useCallback(() => {
+    if (hoverTimer.current !== null) window.clearTimeout(hoverTimer.current);
+    hoverTimer.current = null;
+    setHover(null);
+  }, []);
 
   const signals = useMemo(() => {
     return cards.map((card) => {
@@ -340,10 +363,14 @@ export function HomeMovingSignalList({
 
   const groups = useMemo(() => groupByProject(signals), [signals]);
   const selected = signals.find((row) => row.id === selectedId) ?? null;
+  const hoverRow = !selectedId && hover
+    ? signals.find((row) => row.id === hover.id) ?? null
+    : null;
 
   const toggle = useCallback((id: string) => {
+    hideHover();
     setSelectedId((cur) => (cur === id ? null : id));
-  }, []);
+  }, [hideHover]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -360,6 +387,21 @@ export function HomeMovingSignalList({
       setSelectedId(null);
     }
   }, [selectedId, signals]);
+
+  // Drop the hover card if its row leaves the list.
+  useEffect(() => {
+    if (hover && !signals.some((row) => row.id === hover.id)) {
+      setHover(null);
+    }
+  }, [hover, signals]);
+
+  // A scroll detaches the fixed-position card from its row — just close it.
+  useEffect(() => {
+    if (!hover) return;
+    const onScroll = () => setHover(null);
+    window.addEventListener("scroll", onScroll, true);
+    return () => window.removeEventListener("scroll", onScroll, true);
+  }, [hover]);
 
   return (
     <div className="s-moving-signal-stage">
@@ -382,6 +424,8 @@ export function HomeMovingSignalList({
                     grouped
                     selected={selectedId === row.id}
                     onSelect={toggle}
+                    onHoverStart={showHover}
+                    onHoverEnd={hideHover}
                   />
                 ))}
               </div>
@@ -396,10 +440,19 @@ export function HomeMovingSignalList({
               row={row}
               selected={selectedId === row.id}
               onSelect={toggle}
+              onHoverStart={showHover}
+              onHoverEnd={hideHover}
             />
           ))}
         </div>
       )}
+
+      {hoverRow && hover && typeof document !== "undefined"
+        ? createPortal(
+            <SignalHoverCard row={hoverRow} top={hover.top} left={hover.left} />,
+            document.body,
+          )
+        : null}
 
       {selected && typeof document !== "undefined"
         ? createPortal(
@@ -420,15 +473,26 @@ function SignalRow({
   grouped,
   selected,
   onSelect,
+  onHoverStart,
+  onHoverEnd,
 }: {
   row: SignalRowModel;
   grouped?: boolean;
   selected: boolean;
   onSelect: (id: string) => void;
+  onHoverStart: (id: string, rect: DOMRect) => void;
+  onHoverEnd: () => void;
 }) {
-  const who = grouped
-    ? `${row.name}${row.harness ? ` · ${row.harness}` : ""}`
-    : `${row.name}${row.harness ? ` · ${row.harness}` : ""}${row.projectKey !== "other" ? ` · ${row.projectKey}` : ""}`;
+  // Where-column: flat mode leads with project · branch (agent name moves to
+  // the tooltip + overlay); grouped mode sits under a project band already,
+  // so the agent name takes the slot instead.
+  const hasProject = row.projectKey !== "other" && row.projectKey !== "observed";
+  const where = grouped || !hasProject
+    ? row.name
+    : `${row.projectKey}${row.branch ? ` · ${row.branch}` : ""}`;
+  const context = [row.name, row.harness, hasProject ? row.projectKey : null, row.branch]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <div className="s-moving-signal-item">
@@ -438,23 +502,92 @@ function SignalRow({
         aria-pressed={selected}
         aria-controls={selected ? "home-moving-signal-overlay" : undefined}
         onClick={() => onSelect(row.id)}
+        onMouseEnter={(event) => onHoverStart(row.id, event.currentTarget.getBoundingClientRect())}
+        onMouseLeave={onHoverEnd}
+        onFocus={(event) => onHoverStart(row.id, event.currentTarget.getBoundingClientRect())}
+        onBlur={onHoverEnd}
       >
-        <span
-          className={`s-moving-signal-dot${row.live ? " is-live" : ""}`}
-          aria-hidden="true"
-        />
+        <span className={`s-moving-signal-age${row.live ? " is-live" : ""}`}>
+          {row.lastAge}
+        </span>
+        <span className="s-moving-signal-mark">
+          {row.harness ? <HarnessMark harness={row.harness} size={11} /> : null}
+        </span>
+        <span className="s-moving-signal-where" title={context}>
+          {where}
+        </span>
         <span className="s-moving-signal-action" title={row.action}>
           {row.action}
         </span>
-        <span className="s-moving-signal-who" title={who}>
-          <strong>{row.name}</strong>
-          {row.harness ? ` · ${row.harness}` : ""}
-          {!grouped && row.projectKey !== "other" && row.projectKey !== "observed"
-            ? ` · ${row.projectKey}`
-            : ""}
-        </span>
-        <span className="s-moving-signal-age">{row.lastAge}</span>
       </button>
+    </div>
+  );
+}
+
+function SignalMeta({ row }: { row: SignalRowModel }) {
+  return (
+    <dl className="s-moving-signal-overlay-meta">
+      <div>
+        <dt>Agent</dt>
+        <dd>{row.name}</dd>
+      </div>
+      {row.harness ? (
+        <div>
+          <dt>Harness</dt>
+          <dd>{row.harness}</dd>
+        </div>
+      ) : null}
+      <div>
+        <dt>Project</dt>
+        <dd>{row.projectLabel}</dd>
+      </div>
+      {row.branch ? (
+        <div>
+          <dt>Branch</dt>
+          <dd>{row.branch}</dd>
+        </div>
+      ) : null}
+      {row.sessionAge ? (
+        <div>
+          <dt>Session</dt>
+          <dd>new {row.sessionAge}</dd>
+        </div>
+      ) : null}
+    </dl>
+  );
+}
+
+/** Non-interactive peek card — detail only; click still opens the overlay. */
+function SignalHoverCard({
+  row,
+  top,
+  left,
+}: {
+  row: SignalRowModel;
+  top: number;
+  left: number;
+}) {
+  return (
+    <div
+      className="s-moving-signal-hovercard"
+      style={{ top, left }}
+      role="presentation"
+      aria-hidden="true"
+    >
+      <div className="s-moving-signal-overlay-kicker">
+        {row.live ? <span className="s-moving-signal-overlay-live">Live</span> : null}
+        <span>{row.lastAge} ago</span>
+        {row.harness ? <HarnessMark harness={row.harness} size={11} /> : null}
+        <span>{row.name}</span>
+      </div>
+      <p className="s-moving-signal-overlay-action">{row.action}</p>
+      {row.nowLine ? (
+        <p className="s-moving-signal-overlay-now" title={row.nowLine}>
+          <span className="s-moving-signal-overlay-now-label">Now</span>
+          {row.nowLine}
+        </p>
+      ) : null}
+      <SignalMeta row={row} />
     </div>
   );
 }
@@ -524,34 +657,7 @@ function SignalOverlay({
               {row.nowLine}
             </p>
           ) : null}
-          <dl className="s-moving-signal-overlay-meta">
-            <div>
-              <dt>Agent</dt>
-              <dd>{row.name}</dd>
-            </div>
-            {row.harness ? (
-              <div>
-                <dt>Harness</dt>
-                <dd>{row.harness}</dd>
-              </div>
-            ) : null}
-            <div>
-              <dt>Project</dt>
-              <dd>{row.projectLabel}</dd>
-            </div>
-            {row.branch ? (
-              <div>
-                <dt>Branch</dt>
-                <dd>{row.branch}</dd>
-              </div>
-            ) : null}
-            {row.sessionAge ? (
-              <div>
-                <dt>Session</dt>
-                <dd>new {row.sessionAge}</dd>
-              </div>
-            ) : null}
-          </dl>
+          <SignalMeta row={row} />
         </div>
 
         <div className="s-moving-signal-overlay-actions">
