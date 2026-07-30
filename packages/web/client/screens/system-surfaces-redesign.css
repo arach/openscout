@@ -1064,6 +1064,50 @@
   gap: var(--space-sm);
 }
 
+.sys-broker-route-failure {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 28px;
+  align-items: start;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid color-mix(in srgb, var(--red) 28%, var(--sys-hairline));
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--red) 6%, var(--sys-well));
+}
+
+.sys-broker-route-failure-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+  color: var(--red);
+}
+
+.sys-broker-route-failure > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.sys-broker-route-failure strong {
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 620;
+}
+
+.sys-broker-route-failure p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+  overflow-wrap: anywhere;
+}
+
 .sys-broker-payload-head,
 .sys-broker-payload-dialog-head,
 .sys-broker-payload-dialog-head > div {
@@ -1479,6 +1523,48 @@
     color-mix(in srgb, var(--surface) 95%, transparent);
   box-shadow: 0 -20px 48px -42px rgba(0, 0, 0, 0.9);
   backdrop-filter: blur(18px) saturate(130%);
+}
+
+.sys-broker-forward-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sys-broker-forward-toggle:hover,
+.sys-broker-forward-toggle:focus-visible {
+  background: var(--sys-row-hover);
+  outline: none;
+}
+
+.sys-broker-forward-toggle .sys-broker-action-head {
+  flex: 1;
+}
+
+.sys-broker-forward-chevron {
+  flex: 0 0 auto;
+  color: var(--dim);
+  transition: transform 140ms ease;
+}
+
+.sys-broker-forward--expanded .sys-broker-forward-chevron {
+  transform: rotate(180deg);
+}
+
+.sys-broker-forward--expanded .sys-broker-forward-toggle {
+  border-bottom: 1px solid var(--sys-hairline);
+}
+
+.sys-broker-forward #dispatch-forward-content {
+  min-width: 0;
 }
 
 .sys-broker-forward .sys-broker-message-composer {

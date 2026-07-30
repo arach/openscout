@@ -1061,6 +1061,11 @@ describe("web db query broker diagnostics", () => {
       expect(first.attempts.map((attempt) => attempt.id)).toEqual(["message:msg-routed-newer"]);
       expect(first.ledger.hasMore.attempts).toBe(true);
       expect(second.attempts.map((attempt) => attempt.id)).toEqual(["dispatch:dispatch-cursor"]);
+      expect(second.attempts[0]).toMatchObject({
+        kind: "failed_query",
+        status: "failed",
+        metadata: { dispatchKind: "unknown" },
+      });
       expect(second.ledger.hasMore.attempts).toBe(true);
       expect(third.attempts.map((attempt) => attempt.id)).toEqual(["message:msg-routed-older"]);
       expect(third.ledger.hasMore.attempts).toBe(false);
