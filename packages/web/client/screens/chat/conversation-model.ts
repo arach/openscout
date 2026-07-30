@@ -261,7 +261,7 @@ export type TerminalTurnReceipt = {
   flightId: string;
   label: string;
   detail: string;
-  tone: "complete" | "failed" | "cancelled";
+  tone: "failed" | "cancelled";
   completedAt: number | null;
 };
 
@@ -270,15 +270,9 @@ export function terminalTurnReceiptForFlight(
 ): TerminalTurnReceipt | null {
   if (!flight || !TERMINAL_CONVERSATION_FLIGHT_STATES.has(flight.state)) return null;
   const state = flight.state.trim().toLowerCase();
-  if (state === "completed") {
-    return {
-      flightId: flight.id,
-      label: "Run completed",
-      detail: flight.summary?.trim() || "Execution ended successfully.",
-      tone: "complete",
-      completedAt: flight.completedAt,
-    };
-  }
+  // Successful execution is already expressed by the reply turn. It is not a
+  // second conversation event and does not earn a standalone feed receipt.
+  if (state === "completed") return null;
   if (state === "cancelled" || state === "canceled" || state === "interrupted") {
     return {
       flightId: flight.id,
