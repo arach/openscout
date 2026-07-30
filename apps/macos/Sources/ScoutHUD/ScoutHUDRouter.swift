@@ -12,11 +12,15 @@ public enum ScoutHUDRouter {
     public static func handle(url: URL) -> Bool {
         guard url.scheme?.lowercased() == "scout",
               let host = url.host?.lowercased(),
-              host == "hud" || host == "tail" else {
+              host == "hud" || host == "tail" || host == "asks" else {
             return false
         }
 
         let parts = url.pathComponents.filter { $0 != "/" }
+        if host == "asks" {
+            guard parts.isEmpty || parts.first?.lowercased() == "new" else { return false }
+            return handle(command: "ask", value: askAnchor(from: url, parts: parts))
+        }
         guard let head = parts.first?.lowercased() else { return false }
         let value = parts.dropFirst().first
         if host == "tail" {
@@ -96,7 +100,7 @@ public enum ScoutHUDRouter {
             guard let value, let size = parseSize(value) else { return false }
             HUDState.shared.setSize(size)
             return true
-        case "compose", "input", "command-box", "commandbox", "capture", "quick-capture", "task", "new-task":
+        case "ask", "new-ask", "compose", "input", "command-box", "commandbox", "capture", "quick-capture", "task", "new-task":
             prepareCommandBox(value: value)
             let runner = HUDRunnerState.shared
             let opensFreshDraft = !runner.isPresented
@@ -158,16 +162,33 @@ public enum ScoutHUDRouter {
     public static func distributedUserInfo(url: URL) -> [AnyHashable: Any]? {
         guard url.scheme?.lowercased() == "scout",
               let host = url.host?.lowercased(),
-              host == "hud" || host == "tail" else {
+              host == "hud" || host == "tail" || host == "asks" else {
             return nil
         }
 
         let parts = url.pathComponents.filter { $0 != "/" }
+        if host == "asks" {
+            guard parts.isEmpty || parts.first?.lowercased() == "new" else { return nil }
+            return distributedUserInfo(command: "ask", value: askAnchor(from: url, parts: parts))
+        }
         guard let command = parts.first?.lowercased() else { return nil }
         if host == "tail" {
             return distributedUserInfo(command: "tail-\(command)", value: parts.dropFirst().first)
         }
         return distributedUserInfo(command: command, value: parts.dropFirst().first)
+    }
+
+    private static func askAnchor(from url: URL, parts: [String]) -> String? {
+        if let queryAnchor = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name.lowercased() == "anchor" })?
+            .value?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !queryAnchor.isEmpty {
+            return queryAnchor
+        }
+        guard parts.first?.lowercased() == "new" else { return nil }
+        return parts.dropFirst().first
     }
 
     private static func prepareGenericHUD() {

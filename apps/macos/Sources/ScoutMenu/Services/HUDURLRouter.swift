@@ -13,7 +13,8 @@ import ScoutAppCore
 ///   scout://hud/tail[/size]   — select the embedded HUD Tail tab
 ///   scout://hud/tab/<name>    — agents | activity | tail | sessions | assistant
 ///   scout://hud/size/<name>   — compact | medium | large  (also accepts s | m | l)
-///   scout://hud/task[/corner] — create an agent task; optional screen corner anchor
+///   scout://asks/new[?anchor=<corner>] — create an ask; product-level canonical route
+///   scout://hud/task[/corner]          — backward-compatible implementation alias
 ///
 /// Supported paths (host = `tail`):
 ///   scout://tail/show[/size]  — present standalone Tail mode
@@ -45,6 +46,12 @@ enum HUDURLRouter {
         switch host {
         case "osn-auth":
             handleOpenScoutNetworkAuth(url: url)
+        case "asks":
+            guard parts.isEmpty || head == "new" else {
+                NSLog("[scout://] asks: unhandled action %@", head ?? "")
+                return
+            }
+            ScoutAppBridge.openHUD(command: "ask", value: askAnchor(from: url, parts: parts))
         case "hud":
             guard let head else { return }
             forwardHUD(head: head, tail: tail)
@@ -65,6 +72,19 @@ enum HUDURLRouter {
 
     private static func forwardTail(head: String, tail: [String]) {
         ScoutAppBridge.openHUD(command: "tail-\(head)", value: tail.first)
+    }
+
+    private static func askAnchor(from url: URL, parts: [String]) -> String? {
+        if let queryAnchor = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name.lowercased() == "anchor" })?
+            .value?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !queryAnchor.isEmpty {
+            return queryAnchor
+        }
+        guard parts.first?.lowercased() == "new" else { return nil }
+        return parts.dropFirst().first
     }
 
     private static func handleServices(url: URL, head: String, tail: [String]) {
