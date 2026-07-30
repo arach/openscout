@@ -24,7 +24,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { timeAgo } from "../../lib/time.ts";
-import type { TailDiscoverySnapshot } from "../../lib/types.ts";
+import type { TailDiscoveredTranscript, TailDiscoverySnapshot } from "../../lib/types.ts";
 import type { TailFeedLoadPhase, TailFeedLoadState } from "../../lib/use-tail-feed.ts";
 import type { AgentLanesGridColumns } from "./agent-lanes-layout.ts";
 import {
@@ -33,7 +33,7 @@ import {
   type LanePreflightCell,
 } from "./lanes-preflight.ts";
 
-/** Retract duration. Must match `--lane-boot-exit` in agent-lanes.css. */
+/** Retract duration. Must match the `s-lane-boot-retract` keyframe in agent-lanes.css. */
 export const LANE_BOOT_EXIT_MS = 260;
 /** Elapsed readout cadence. Whole milliseconds at frame rate would be noise. */
 const ELAPSED_TICK_MS = 100;
@@ -206,6 +206,7 @@ export function AgentLanesPreflightDeck({
   layout,
   gridColumns,
   laneWidthPx,
+  matchTranscript,
 }: {
   discovery: TailDiscoverySnapshot | null;
   discoveryPhase: TailFeedLoadPhase;
@@ -214,11 +215,13 @@ export function AgentLanesPreflightDeck({
   layout: LanePreflightLayout;
   gridColumns: AgentLanesGridColumns;
   laneWidthPx: number;
+  /** Embed scoping, so a filtered surface pre-draws only what it will show. */
+  matchTranscript?: (transcript: TailDiscoveredTranscript) => boolean;
 }) {
   const gridMode = layout === "grid";
   const deck = useMemo(
-    () => buildLanePreflightDeck({ discovery, discoveryPhase, windowMs, now: nowMs }),
-    [discovery, discoveryPhase, nowMs, windowMs],
+    () => buildLanePreflightDeck({ discovery, discoveryPhase, windowMs, now: nowMs, matchTranscript }),
+    [discovery, discoveryPhase, matchTranscript, nowMs, windowMs],
   );
 
   const cells: (LanePreflightCell | null)[] = deck.identified
@@ -385,7 +388,10 @@ export function AgentLanesLoadingSheet({
           ) : null}
           <span className="s-lane-boot-spacer" />
           <span className="s-lane-boot-meta">lookback {horizonLabel}</span>
-          <span className="s-lane-boot-elapsed">{elapsedLabel}</span>
+          {/* `role="status"` is atomic, so a readout ticking at 100ms would make
+            * a screen reader re-read the whole checklist ten times a second.
+            * The elapsed time is for the eye; the rows carry the meaning. */}
+          <span className="s-lane-boot-elapsed" aria-hidden="true">{elapsedLabel}</span>
         </div>
         <div className="s-lane-boot-log">
           <div className={stepClassName(discoveryState)}>
