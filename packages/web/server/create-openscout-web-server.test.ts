@@ -4252,6 +4252,10 @@ describe("createOpenScoutWebServer", () => {
     expect(body).toContain("https://openscout.app/docs");
     expect(body).toContain("https://github.com/arach/openscout");
     expect(body).toContain("served by this machine’s Scout broker");
+    // The review-pin regexes live inside a TS template literal; a single
+    // backslash would be cooked away and the emitted script would break.
+    expect(body).toContain("[?&]t=(-?[\\d.]+)");
+    expect(body).toContain("[?&]px=([\\d.]+)");
     expect(body).not.toContain("class=\"identity\"");
     expect(body).not.toContain("class=\"eyebrow\"");
     expect(body).not.toContain("class=\"meta\"");

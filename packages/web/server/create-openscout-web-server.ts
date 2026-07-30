@@ -4345,9 +4345,9 @@ function renderScoutLocalPortal(input: {
         render(STILL_T);
 
         var search = window.location.search;
-        var pinned = /[?&]t=(-?[\d.]+)/.exec(search);
-        var pinP = /[?&]px=([\d.]+)/.exec(search);
-        var pinQ = /[?&]py=([\d.]+)/.exec(search);
+        var pinned = /[?&]t=(-?[\\d.]+)/.exec(search);
+        var pinP = /[?&]px=([\\d.]+)/.exec(search);
+        var pinQ = /[?&]py=([\\d.]+)/.exec(search);
         if (pinned) {
           var pt = parseFloat(pinned[1]);
           if (pinP) {
@@ -4359,20 +4359,25 @@ function renderScoutLocalPortal(input: {
           }
           render(pt);
         } else {
-          window.addEventListener("pointermove", onPointerMove, { passive: true });
+          if (!reduce.matches) {
+            window.addEventListener("pointermove", onPointerMove, { passive: true });
+          }
           play();
+          document.addEventListener("visibilitychange", function () {
+            if (document.hidden) stop(); else play();
+          });
+          if (reduce.addEventListener) reduce.addEventListener("change", onMotionPreferenceChange);
+          else if (reduce.addListener) reduce.addListener(onMotionPreferenceChange);
         }
 
-        document.addEventListener("visibilitychange", function () {
-          if (document.hidden) stop(); else play();
-        });
         function onMotionPreferenceChange() {
           stop();
           if (reduce.matches) render(STILL_T);
-          else play();
+          else {
+            window.addEventListener("pointermove", onPointerMove, { passive: true });
+            play();
+          }
         }
-        if (reduce.addEventListener) reduce.addEventListener("change", onMotionPreferenceChange);
-        else if (reduce.addListener) reduce.addListener(onMotionPreferenceChange);
       })();
     </script>
   </body>
