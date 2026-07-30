@@ -11,10 +11,13 @@ import type {
 import {
   channelNaturalKeyFromMetadata,
   epochMs,
-  isScoutLaunchableHarness,
-  SCOUT_LAUNCHABLE_HARNESSES,
+  SCOUT_RUNTIME_CATALOG,
+  SCOUT_RUNTIME_DEFAULTS_BY_HARNESS,
   SCOUT_RUNTIME_EFFORT_CATALOG,
   SCOUT_RUNTIME_MODEL_CATALOG,
+  scoutRuntimeDefaultHarness,
+  scoutRuntimeDefaultModel,
+  scoutRuntimeDefaultReasoningEffort,
 } from "@openscout/protocol";
 import { loadHarnessCatalogSnapshot } from "@openscout/runtime/harness-catalog";
 import {
@@ -52,36 +55,28 @@ const SCOUTBOT_DEFAULT_CONVERSATION_ID = "dm.operator.scoutbot.default";
 const SCOUTBOT_LEGACY_CONVERSATION_ID = "dm.operator.scoutbot";
 
 export async function getScoutMobileRuntimeCapabilities(projectRoot?: string) {
-  const catalog = await loadHarnessCatalogSnapshot().catch(() => null);
-  const labels = new Map((catalog?.entries ?? []).map((entry) => [entry.harness, entry.label]));
   const normalizedProjectRoot = projectRoot?.trim() ? resolve(projectRoot) : null;
+  const defaultHarness = scoutRuntimeDefaultHarness();
+  const defaultModel = scoutRuntimeDefaultModel(defaultHarness ?? "");
   const models = SCOUT_RUNTIME_MODEL_CATALOG.map((model) => ({
     ...model,
     harnesses: [...model.harnesses],
   }));
-  const seenModels = new Set(models.flatMap((model) => (
-    model.harnesses.map((harness) => `${harness}:${model.id.toLowerCase()}`)
-  )));
-  if (normalizedProjectRoot) {
-    for (const agent of queryAgents(100)) {
-      const root = agent.projectRoot ?? agent.cwd;
-      const harness = agent.harness?.trim().toLowerCase();
-      const model = agent.model?.trim();
-      if (!root || resolve(root) !== normalizedProjectRoot || !isScoutLaunchableHarness(harness) || !model) continue;
-      const key = `${harness}:${model.toLowerCase()}`;
-      if (!seenModels.add(key)) continue;
-      models.push({ id: model, label: model, harnesses: [harness], source: "observed" });
-    }
-  }
   return {
     schemaVersion: "openscout.runtime-capabilities.v1" as const,
+    catalogVersion: SCOUT_RUNTIME_CATALOG.schemaVersion,
     generatedAt: Date.now(),
     scope: projectRoot ? "global+project" as const : "global" as const,
     ...(normalizedProjectRoot ? { projectRoot: normalizedProjectRoot } : {}),
-    harnesses: SCOUT_LAUNCHABLE_HARNESSES.map((id) => ({
-      id,
-      label: labels.get(id) ?? id,
-    })),
+    defaults: {
+      ...(defaultHarness ? { harness: defaultHarness } : {}),
+      model: defaultModel,
+      reasoningEffort: scoutRuntimeDefaultReasoningEffort(defaultHarness ?? "", defaultModel),
+    },
+    defaultsByHarness: SCOUT_RUNTIME_DEFAULTS_BY_HARNESS,
+    harnesses: SCOUT_RUNTIME_CATALOG.harnesses
+      .filter((entry) => entry.enabled)
+      .map((entry) => ({ id: entry.id, label: entry.label })),
     models,
     efforts: SCOUT_RUNTIME_EFFORT_CATALOG.map((effort) => ({
       ...effort,

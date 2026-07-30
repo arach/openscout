@@ -46,21 +46,10 @@ export function resolveCaptureRouteContext(
     };
   }
 
-  if (route.view === "agents-v2" && route.agentId) {
-    const agent = agentById(agents, route.agentId);
-    return {
-      agentId: route.agentId,
-      conversationId: agent?.conversationId ?? null,
-      label: agent?.name ?? route.agentId,
-      canUseExistingChat: Boolean(agent?.conversationId),
-    };
-  }
-
-  const recent = [...agents].sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0))[0] ?? null;
   return {
-    agentId: recent?.id ?? null,
-    conversationId: recent?.conversationId ?? null,
-    label: recent?.name ?? "Pick an agent",
-    canUseExistingChat: Boolean(recent?.conversationId),
+    agentId: null,
+    conversationId: null,
+    label: "Pick a project",
+    canUseExistingChat: false,
   };
 }

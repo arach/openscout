@@ -1,8 +1,5 @@
-import { useMemo } from "react";
 import "../../scout/slots/ctx-panel.css";
 import "./agents-rail.css";
-import { filterAgentsByMachineScope } from "../../lib/machine-scope.ts";
-import { routeMachineId } from "../../lib/router.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { useAgentDirectory } from "./useAgentDirectory.ts";
@@ -15,12 +12,7 @@ import { dirProjectNeeds, dirProjectWorking } from "./model.ts";
  * `projectSlug`. The roster lives inside a project now, not in this lane.
  */
 export function AgentsLeft() {
-  const { agents, route, navigate, openContextCapture } = useScout();
-  const machineId = routeMachineId(route);
-  const scopedAgents = useMemo(
-    () => filterAgentsByMachineScope(agents, machineId),
-    [agents, machineId],
-  );
+  const { route, navigate, openContextCapture } = useScout();
   const { projects } = useAgentDirectory();
   const selectedProjectSlug = route.view === "agents-v2" ? route.projectSlug : undefined;
   const selectedAgentId = route.view === "agents-v2" ? route.agentId : undefined;
@@ -80,7 +72,7 @@ export function AgentsLeft() {
           className="s-rail-icon"
           title="New chat (⌘⌥N)"
           aria-label="New chat"
-          onClick={() => openContextCapture({ agentId: selectedAgentId })}
+          onClick={() => openContextCapture()}
         >
           <IcoPlus />
         </button>

@@ -13,14 +13,19 @@ import {
   epochMs,
   extractAgentSelectors,
   flightSessionTrace,
+  isScoutRuntimeHarnessEnabled,
   isOpaqueChannelId,
-  isScoutLaunchableHarness,
   reconcileTerminalWorkspace,
   resolveAgentIdentity,
   SCOUT_LAUNCHABLE_HARNESSES,
   SCOUT_RUNTIME_EFFORT_CATALOG,
+  SCOUT_RUNTIME_CATALOG,
+  SCOUT_RUNTIME_DEFAULTS_BY_HARNESS,
   SCOUT_RUNTIME_MODEL_CATALOG,
   SCOUT_ROLE_CATALOG,
+  scoutRuntimeDefaultHarness,
+  scoutRuntimeDefaultModel,
+  scoutRuntimeDefaultReasoningEffort,
   type AgentEndpoint,
   type AgentHarness,
   type CollaborationEvent,
@@ -4505,41 +4510,21 @@ const HUD_PROJECT_MARKERS = [
   "go.mod",
 ] as const;
 
-function isRetiredHudRunnerModel(model: string, harness: string): boolean {
-  const normalized = model.trim().toLowerCase();
-  return harness === "codex"
-    && (normalized === "gpt-5.3-codex-spark" || normalized.startsWith("gpt-5.4"));
-}
-
-function hudRunnerModels(agents: WebAgent[]): HudRunnerModelOption[] {
-  const models = SCOUT_RUNTIME_MODEL_CATALOG.map((model) => ({
+function hudRunnerModels(): HudRunnerModelOption[] {
+  return SCOUT_RUNTIME_MODEL_CATALOG.map((model) => ({
     ...model,
     harnesses: [...model.harnesses],
   }));
-  const seen = new Set(models.map((model) => `${model.harnesses[0] ?? ""}:${model.id.toLowerCase()}`));
-
-  for (const agent of agents) {
-    const harness = agent.harness?.trim().toLowerCase() ?? "";
-    const model = agent.model?.trim() ?? "";
-    if (!isScoutLaunchableHarness(harness) || !model || isRetiredHudRunnerModel(model, harness)) continue;
-    const key = `${harness}:${model.toLowerCase()}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    models.push({
-      id: model,
-      label: model,
-      harnesses: [harness],
-      source: "observed",
-    });
-  }
-
-  return models;
 }
 
 function defaultHudRunnerModel(
   harness: string | null | undefined,
   models: HudRunnerModelOption[],
 ): string | null {
+  const catalogDefault = scoutRuntimeDefaultModel(harness ?? "");
+  if (catalogDefault && models.some((model) => (
+    model.id === catalogDefault && model.harnesses.includes(harness ?? "")
+  ))) return catalogDefault;
   return models.find((model) => model.harnesses.includes(harness ?? ""))?.id ?? null;
 }
 
@@ -4607,44 +4592,24 @@ async function buildHudRunnerOptions(
     const root = agent.projectRoot ?? agent.cwd;
     return Boolean(root) && normalizeHudRunnerRoot(root!) === scopedProjectRoot;
   });
-  const observedAgents = scope === "global" ? [] : projectAgents;
-  const defaultHarness = settings?.agents.defaultHarness ?? "claude";
+  const configuredDefaultHarness = settings?.agents.defaultHarness?.trim() ?? "";
+  const defaultHarness = isScoutRuntimeHarnessEnabled(configuredDefaultHarness)
+    ? configuredDefaultHarness
+    : scoutRuntimeDefaultHarness() ?? "claude";
 
   const harnessesById = new Map<string, HudRunnerHarnessOption>();
-  for (const entry of catalog?.entries ?? []) {
-    const id = String(entry.harness || entry.name || "").trim();
-    if (!SCOUT_LAUNCHABLE_HARNESSES.includes(id as (typeof SCOUT_LAUNCHABLE_HARNESSES)[number])) continue;
-    harnessesById.set(id, {
-      id,
-      name: entry.name,
-      label: entry.label || id,
-      description: entry.description || null,
-      state: entry.readinessReport.state,
-      ready: entry.readinessReport.ready,
-      detail: entry.readinessReport.detail,
-    });
-  }
-  const fallbackLabels: Record<string, string> = {
-    claude: "Claude Code",
-    codex: "Codex",
-    grok: "Grok",
-    "grok-acp": "Grok ACP",
-    kimi: "Kimi",
-    flue: "Flue",
-    cursor: "Cursor",
-    pi: "Pi",
-  };
-  for (const id of SCOUT_LAUNCHABLE_HARNESSES) {
-    const fallback = { id, label: fallbackLabels[id] ?? id };
-    if (harnessesById.has(fallback.id)) continue;
-    harnessesById.set(fallback.id, {
-      id: fallback.id,
-      name: fallback.id,
-      label: fallback.label,
+  const readinessByHarness = new Map((catalog?.entries ?? []).map((entry) => [entry.harness, entry]));
+  for (const entry of SCOUT_RUNTIME_CATALOG.harnesses) {
+    if (!entry.enabled) continue;
+    const readiness = readinessByHarness.get(entry.id);
+    harnessesById.set(entry.id, {
+      id: entry.id,
+      name: entry.id,
+      label: entry.label,
       description: null,
-      state: null,
-      ready: null,
-      detail: null,
+      state: readiness?.readinessReport.state ?? null,
+      ready: readiness?.readinessReport.ready ?? null,
+      detail: readiness?.readinessReport.detail ?? null,
     });
   }
 
@@ -4666,14 +4631,13 @@ async function buildHudRunnerOptions(
   if (currentProject) projectOptions.unshift(currentProject);
   const projects = dedupeHudRunnerProjects(projectOptions);
   const defaultDirectory = projects[0]?.root ?? normalizeHudRunnerRoot(currentDirectory);
-  const models = hudRunnerModels(observedAgents);
-  const harnesses = Array.from(harnessesById.values()).sort((left, right) => {
-    const rank = (id: string) => id === defaultHarness ? 0 : id === "claude" ? 1 : id === "codex" ? 2 : 3;
-    return rank(left.id) - rank(right.id) || left.label.localeCompare(right.label);
-  });
+  const models = hudRunnerModels();
+  const harnesses = Array.from(harnessesById.values());
+  const defaultModel = defaultHudRunnerModel(defaultHarness, models);
 
   return {
     schemaVersion: "openscout.runtime-capabilities.v1" as const,
+    catalogVersion: SCOUT_RUNTIME_CATALOG.schemaVersion,
     generatedAt: Date.now(),
     scope,
     ...(scope !== "global" ? { projectRoot: scopedProjectRoot } : {}),
@@ -4681,10 +4645,14 @@ async function buildHudRunnerOptions(
       runner: "scout",
       directory: defaultDirectory,
       harness: defaultHarness,
-      model: defaultHudRunnerModel(defaultHarness, models),
-      reasoningEffort: "medium",
+      model: defaultModel,
+      reasoningEffort: scoutRuntimeDefaultReasoningEffort(
+        defaultHarness,
+        defaultModel,
+      ) ?? "",
       persistence: "sticky",
     },
+    defaultsByHarness: SCOUT_RUNTIME_DEFAULTS_BY_HARNESS,
     runners: [{
       id: "scout",
       label: "Scout",

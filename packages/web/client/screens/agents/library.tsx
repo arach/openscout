@@ -133,7 +133,10 @@ export function AgentsLibrary({
       }),
     openAgentPage: (row) =>
       navigate({ view: "agents-v2", agentId: row.agent.id, tab: "profile" }),
-    startSession: (row) => openContextCapture({ agentId: row.agent.id }),
+    startSession: (row) => openContextCapture({
+      intent: "new-task",
+      projectPath: row.agent.projectRoot ?? row.agent.cwd ?? undefined,
+    }),
     openSession: (sessionRoute) => navigate(sessionRoute),
     // Retarget reuses the existing agent config editor (model/cwd/harness/…).
     configureAgent: (row) =>

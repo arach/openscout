@@ -19,9 +19,13 @@ import {
 } from "@openscout/runtime/onboarding";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 import {
-  SCOUT_LAUNCHABLE_HARNESSES,
+  SCOUT_RUNTIME_CATALOG,
+  SCOUT_RUNTIME_DEFAULTS_BY_HARNESS,
   SCOUT_RUNTIME_EFFORT_CATALOG,
   SCOUT_RUNTIME_MODEL_CATALOG,
+  scoutRuntimeDefaultHarness,
+  scoutRuntimeDefaultModel,
+  scoutRuntimeDefaultReasoningEffort,
   type ScoutRuntimeCapabilityCatalog,
 } from "@openscout/runtime";
 import { resolveOperatorName } from "@openscout/runtime/user-config";
@@ -365,21 +369,33 @@ async function runSetupCommand(args: string[]): Promise<void> {
 function runtimeCapabilitiesForCatalog(
   catalog: Awaited<ReturnType<typeof loadHarnessCatalogSnapshot>>,
 ): ScoutRuntimeCapabilityCatalog {
+  const defaultHarness = scoutRuntimeDefaultHarness();
+  const defaultModel = scoutRuntimeDefaultModel(defaultHarness ?? "");
   return {
     schemaVersion: "openscout.runtime-capabilities.v1",
+    catalogVersion: SCOUT_RUNTIME_CATALOG.schemaVersion,
     generatedAt: Date.now(),
     scope: "global",
-    harnesses: catalog.entries
-      .filter((entry) => SCOUT_LAUNCHABLE_HARNESSES.includes(entry.harness as (typeof SCOUT_LAUNCHABLE_HARNESSES)[number]))
-      .map((entry) => ({
-        id: entry.harness as (typeof SCOUT_LAUNCHABLE_HARNESSES)[number],
-        name: entry.name,
-        label: entry.label,
-        description: entry.description,
-        state: entry.readinessReport.state,
-        ready: entry.readinessReport.ready,
-        detail: entry.readinessReport.detail,
-      })),
+    defaults: {
+      ...(defaultHarness ? { harness: defaultHarness } : {}),
+      model: defaultModel,
+      reasoningEffort: scoutRuntimeDefaultReasoningEffort(defaultHarness ?? "", defaultModel),
+    },
+    defaultsByHarness: SCOUT_RUNTIME_DEFAULTS_BY_HARNESS,
+    harnesses: SCOUT_RUNTIME_CATALOG.harnesses
+      .filter((entry) => entry.enabled)
+      .map((entry) => {
+        const readiness = catalog.entries.find((candidate) => candidate.harness === entry.id);
+        return {
+          id: entry.id,
+          name: readiness?.name,
+          label: entry.label,
+          description: readiness?.description,
+          state: readiness?.readinessReport.state,
+          ready: readiness?.readinessReport.ready,
+          detail: readiness?.readinessReport.detail,
+        };
+      }),
     models: SCOUT_RUNTIME_MODEL_CATALOG.map((model) => ({ ...model, harnesses: [...model.harnesses] })),
     efforts: SCOUT_RUNTIME_EFFORT_CATALOG.map((effort) => ({
       ...effort,

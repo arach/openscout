@@ -89,6 +89,10 @@ peers of the main project.
   `/api/agent-config/snapshot`.
 - Vocabulary: "conversation" is the user-facing noun; "session" is reserved for
   the harness execution layer.
+- A fresh task is project-routed. Ambient page state and restored drafts must not
+  carry an undisclosed agent, conversation, session, or continuation ref into
+  submission. Contextual agent routing belongs only to the explicit Route capture
+  flow.
 - Keyboard operability is a functional requirement, not only an accessibility
   one. The project picker is a `role="combobox"` with arrow-key navigation and
   `aria-activedescendant`; whatever replaces it keeps equivalent keyboard access.
@@ -146,6 +150,13 @@ Verified in the running app at `:43120`.
 2. With the runtime card gone, where does harness readiness ("● Ready" /
    "Unavailable" / the model-catalog load error) live so it is still noticed
    without reintroducing a status band?
+
+   Resolved in the converged `RuntimePicker` (rail panel, 2026-07): readiness
+   lives inside the picker, not the dialog. An unready harness stays listed in
+   the rail, aria-disabled, with its reason as a note and `title` tooltip. A
+   catalog load failure renders as an error slot in the model list with a
+   retry action. The closed chip carries no status at all — nothing wrong,
+   nothing shown.
 3. The curated project list needs a curation rule for web. iOS uses
    device-recent-first with worktree/scratch/folder rows labelled and pushed
    behind a foot. What is the right web equivalent given route context already

@@ -40,7 +40,9 @@ export function ContextCaptureHost({
 
   const openCapture = useCallback((files: File[], attachmentFeedback?: string) => {
     if (files.length === 0) return;
+    const hasExplicitRoute = Boolean(routeContext.agentId || routeContext.conversationId);
     onOpenCapture({
+      intent: hasExplicitRoute ? "route-capture" : "new-task",
       files,
       attachmentFeedback,
       agentId: routeContext.agentId ?? undefined,
@@ -163,6 +165,7 @@ export function ContextCaptureHost({
           initialMessage={restoredDraft?.message}
           initialFiles={restoredDraft?.files}
           initialAttachmentFeedback={restoredDraft?.attachmentFeedback ?? undefined}
+          initialIntent={restoredDraft?.intent}
           initialProjectPath={restoredDraft?.projectPath}
           initialProjectQuery={restoredDraft?.projectQuery}
           defaultMode={restoredDraft?.mode}

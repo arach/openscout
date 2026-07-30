@@ -6,6 +6,13 @@ import {
   formatScoutRuntimeSpec,
   normalizeScoutRuntimeModel,
   SCOUT_LAUNCHABLE_HARNESSES,
+  SCOUT_REASONING_EFFORT_LABELS,
+  SCOUT_RUNTIME_CATALOG,
+  SCOUT_RUNTIME_EFFORT_CATALOG,
+  scoutRuntimeDefaultHarness,
+  scoutRuntimeDefaultModel,
+  scoutRuntimeDefaultReasoningEffort,
+  scoutRuntimeReasoningEfforts,
   validateScoutRuntimeTuple,
 } from "./runtime-execution.js";
 
@@ -16,6 +23,30 @@ describe("runtime execution contracts", () => {
     expect(SCOUT_LAUNCHABLE_HARNESSES).not.toContain("bridge" as never);
   });
 
+  test("uses the Scout-owned catalog for product defaults and display labels", () => {
+    expect(SCOUT_RUNTIME_CATALOG.schemaVersion).toBe("openscout.runtime-catalog.v1");
+    expect(scoutRuntimeDefaultHarness()).toBe("claude");
+    expect(scoutRuntimeDefaultModel("claude")).toBe("claude-opus-5");
+    expect(scoutRuntimeDefaultReasoningEffort("claude", "claude-opus-5")).toBe("medium");
+    expect(SCOUT_REASONING_EFFORT_LABELS.low).toBe("Light");
+    expect(SCOUT_REASONING_EFFORT_LABELS.xhigh).toBe("Extra High");
+  });
+
+  test("lets Scout define a different effort ladder for each model", () => {
+    expect(scoutRuntimeReasoningEfforts("codex", "gpt-5.6-sol")).toEqual([
+      "low", "medium", "high", "xhigh", "ultra",
+    ]);
+    expect(scoutRuntimeReasoningEfforts("codex", "gpt-5.6-luna")).toEqual([
+      "low", "medium", "high", "xhigh",
+    ]);
+    expect(SCOUT_RUNTIME_EFFORT_CATALOG.find((entry) => entry.id === "ultra")).toEqual(
+      expect.objectContaining({
+        harnesses: ["codex"],
+        models: ["gpt-5.6-sol", "gpt-5.6-terra"],
+      }),
+    );
+  });
+
   test("rejects effort values that are valid globally but illegal for the harness", () => {
     expect(validateScoutRuntimeTuple({
       harness: "claude",
@@ -24,6 +55,13 @@ describe("runtime execution contracts", () => {
       code: "reasoning_effort_harness_mismatch",
       dimension: "reasoningEffort",
     })]);
+  });
+
+  test("rejects effort values that Scout disabled for the selected model", () => {
+    expect(parseScoutRuntimeSpec("codex/gpt-5.6-luna/ultra")).toEqual({
+      ok: false,
+      error: 'reasoning effort "ultra" is not supported by harness "codex"',
+    });
   });
 
   test("records requested, resolved, observed, and drift independently", () => {

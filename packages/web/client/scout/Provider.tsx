@@ -122,8 +122,10 @@ export interface ScoutContextValue {
 }
 
 export type ContextCaptureRequest = {
+  intent: "new-task" | "route-capture";
   agentId?: string;
   conversationId?: string;
+  projectPath?: string;
   message?: string;
   files?: File[];
   attachmentFeedback?: string;
@@ -365,8 +367,8 @@ export function ScoutProvider({
     if (route.view !== "settings") return;
     navigate({ view: "inbox" });
   }, [navigate, route.view]);
-  const openContextCapture = useCallback((request: ContextCaptureRequest = {}) => {
-    setContextCaptureRequest(request);
+  const openContextCapture = useCallback((request?: ContextCaptureRequest) => {
+    setContextCaptureRequest(request ?? { intent: "new-task" });
   }, []);
   const closeContextCapture = useCallback(() => setContextCaptureRequest(null), []);
   const inspectBrokerAttempt = useCallback((attempt: BrokerRouteAttempt) => {
