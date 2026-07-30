@@ -3957,179 +3957,6 @@ async function buildOperatorAttentionState(
 }
 
 
-/**
- * ASCII mark for the scout.local portal masthead.
- *
- * The mark is a RENDER of the real logo artwork, not a shape constructed in
- * ASCII. `design/logo-attempts/focused-03-wire-cube-mark.svg` — the outer
- * hexagon plus its inner echo — was rasterised, sampled once per character
- * cell, and the resulting coverage field baked in below. Rasterising is what
- * frees the 30 degree edges: placed by hand they staircase into dashed
- * circles, sampled they antialias.
- *
- * The field is quantised HERE, on the server, so first paint is correct and
- * the mark survives with JavaScript disabled. The inline script in the page
- * only drives the shimmer, and it re-quantises the same field rather than
- * animating opacity — modulating coverage before quantisation is what makes
- * structure travel; modulating brightness afterwards just eats holes in it.
- *
- * Regenerate with design/studio `/studies/ascii-render-lab` (the params are
- * in the hash) if the artwork or the grid changes.
- */
-const ORB_COLS = 60;
-const ORB_ROWS = 47;
-/** Row-major coverage, one base64-alphabet character per cell, 64 levels. */
-const ORB_FIELD =
-  "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";
-
-/** Locked render settings — see the lab link above. */
-const ORB_CEIL = 0.83;
-const ORB_GAMMA = 0.7;
-const ORB_GAIN = 1.65;
-const ORB_TONES = 4;
-const ORB_GLYPH = "\u2591";
-/** Bayer 2x2. Ordered, never random: a regular threshold lattice keeps the
- *  dots on their grid while the field moves under them, where random
- *  thresholding boils. */
-const ORB_BAYER = [
-  [0.125, 0.625],
-  [0.875, 0.375],
-];
-/** The frame rendered server-side, and the one reduced-motion pins to. */
-const ORB_STILL = 0.42;
-
-const ORB_ALPHABET =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-/** Shimmer: a sweep band travelling across the field. Mirrors the lab. */
-function orbShimmer(x: number, y: number, t: number): number {
-  const nx = (x / (ORB_COLS - 1)) * 2 - 1;
-  const ny = (y / (ORB_ROWS - 1)) * 2 - 1;
-  const a = (120 * Math.PI) / 180;
-  const u = nx * Math.cos(a) + ny * Math.sin(a) - t;
-  const c = Math.pow(Math.cos(u * Math.PI * 2) * 0.5 + 0.5, 2.5);
-  return 1 - 0.46 + 0.46 * c * 2;
-}
-
-/** One frame, as five tone layers of text. Pure — no canvas, no DOM. */
-function renderAsciiOrbFrame(t: number): string[] {
-  const layers: string[][] = [[], [], [], [], []];
-  for (let y = 0; y < ORB_ROWS; y += 1) {
-    const rows = ["", "", "", "", ""];
-    for (let x = 0; x < ORB_COLS; x += 1) {
-      const raw = ORB_ALPHABET.indexOf(ORB_FIELD[y * ORB_COLS + x]) / 63;
-      let v = raw * orbShimmer(x, y, t);
-      v = Math.max(0, Math.min(1, v)) / ORB_CEIL;
-      v = Math.pow(Math.max(0, Math.min(1, v)), ORB_GAMMA);
-      const lit = v * ORB_GAIN > ORB_BAYER[y % 2][x % 2];
-      const step = Math.min(ORB_TONES - 1, Math.floor(v * ORB_TONES));
-      const tone = Math.round((step * 4) / (ORB_TONES - 1));
-      for (let i = 0; i < 5; i += 1) {
-        rows[i] += lit && i === tone ? ORB_GLYPH : " ";
-      }
-    }
-    for (let i = 0; i < 5; i += 1) layers[i].push(rows[i]);
-  }
-  return layers.map((rows) => rows.join("\n"));
-}
-
-/** The five stacked <pre> layers, with the still frame already in the markup. */
-function renderAsciiOrbHtml(): string {
-  return renderAsciiOrbFrame(ORB_STILL)
-    .map((text, i) => `<pre class="orb-l" data-t="${i}">${escapeHtml(text)}</pre>`)
-    .join("");
-}
-
-/**
- * The shimmer, as inline script. Progressive enhancement only — the still
- * frame is already in the markup, so this page is complete without it.
- *
- * It re-quantises the same coverage field per frame. Nothing here animates
- * opacity or colour: modulating coverage before quantisation makes the
- * structure travel through the dither lattice, where modulating the rendered
- * output would just pulse holes in it.
- */
-function renderAsciiOrbScript(): string {
-  return `<script>
-(function () {
-  var els = document.querySelectorAll(".orb-l");
-  if (els.length !== 5 || !window.requestAnimationFrame) return;
-  var mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-  var F = "${ORB_FIELD}";
-  var A = "${ORB_ALPHABET}";
-  var COLS = ${ORB_COLS}, ROWS = ${ORB_ROWS};
-  var BAYER = [[0.125, 0.625], [0.875, 0.375]];
-  var raf = 0, last = 0;
-
-  function frame(t) {
-    var out = ["", "", "", "", ""];
-    for (var y = 0; y < ROWS; y++) {
-      var ny = (y / (ROWS - 1)) * 2 - 1;
-      for (var x = 0; x < COLS; x++) {
-        var nx = (x / (COLS - 1)) * 2 - 1;
-        var u = nx * Math.cos(2.0943951) + ny * Math.sin(2.0943951) - t;
-        var c = Math.pow(Math.cos(u * Math.PI * 2) * 0.5 + 0.5, 2.5);
-        var v = (A.indexOf(F.charAt(y * COLS + x)) / 63) * (0.54 + 0.46 * c * 2);
-        v = Math.max(0, Math.min(1, v)) / ${ORB_CEIL};
-        v = Math.pow(Math.max(0, Math.min(1, v)), ${ORB_GAMMA});
-        var lit = v * ${ORB_GAIN} > BAYER[y % 2][x % 2];
-        var tone = Math.round(Math.min(${ORB_TONES} - 1, Math.floor(v * ${ORB_TONES})) * 4 / (${ORB_TONES} - 1));
-        for (var i = 0; i < 5; i++) out[i] += lit && i === tone ? "\\u2591" : " ";
-      }
-      if (y < ROWS - 1) for (var j = 0; j < 5; j++) out[j] += "\\n";
-    }
-    for (var k = 0; k < 5; k++) els[k].textContent = out[k];
-  }
-
-  function loop(ts) {
-    raf = requestAnimationFrame(loop);
-    if (ts - last < 41) return;          // ~24fps
-    last = ts;
-    frame(${ORB_STILL} + (ts / 1000) * 0.6);
-  }
-  function sync() {
-    cancelAnimationFrame(raf);
-    raf = 0;
-    if (mq.matches || document.hidden) frame(${ORB_STILL});
-    else raf = requestAnimationFrame(loop);
-  }
-  if (mq.addEventListener) mq.addEventListener("change", sync);
-  document.addEventListener("visibilitychange", sync);
-  sync();
-})();
-</script>`;
-}
-
 function renderScoutLocalPortal(input: {
   requestUrl: string;
   portalHost: string;
@@ -4138,11 +3965,13 @@ function renderScoutLocalPortal(input: {
   const url = new URL(input.requestUrl);
   const port = url.port ? `:${url.port}` : "";
   const nodeUrl = `${url.protocol}//${input.nodeHost}${port}/`;
-  const portalHost = escapeHtml(input.portalHost);
   const nodeHost = escapeHtml(input.nodeHost);
+  const portalHost = escapeHtml(input.portalHost);
   const escapedNodeUrl = escapeHtml(nodeUrl);
-  // Wire-cube mark + density orb: identity for the bare mesh portal.
-  // Keep this page self-contained (inline CSS only) — it is served before
+  // Quiet ledger doorway (design study: design/portal-studies/scout-local-quiet-ledger.html).
+  // One identity cluster, one live wavefront instrument, one ledger line per
+  // node, one trust line. No accent hue: ink plus stepped warm greys only.
+  // Keep this page self-contained (inline CSS/JS only) — it is served before
   // the SPA shell and must not depend on client assets.
   return `<!doctype html>
 <html lang="en">
@@ -4152,203 +3981,405 @@ function renderScoutLocalPortal(input: {
     <title>Scout Local</title>
     <style>
       :root {
-        color-scheme: dark;
-        --bg: #080a07;
-        --surface: #10130e;
-        --surface-2: #141810;
-        --ink: #f5f1e8;
-        --muted: #aaa69b;
-        --edge: #303729;
-        --accent: #a6e15e;
-        --accent-soft: color-mix(in srgb, #a6e15e 18%, transparent);
-        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: var(--bg);
-        color: var(--ink);
+        color-scheme: light dark;
+        --bg: #0a0a09;
+        --ink: #f1ece1;
+        --ink-2: #a49d90;
+        --ink-3: #6f6960;
+        --edge: #23221f;
+        --edge-2: #3d3a34;
+        --hover: color-mix(in srgb, var(--ink) 3.5%, transparent);
+        --t0: #2e2b27;
+        --t1: #474339;
+        --t2: #6b6558;
+        --t3: #968e7f;
+        --t4: #d5cdbd;
+        --sans: "Inter Tight", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          color-scheme: light;
+          --bg: #f3f1ea;
+          --ink: #171914;
+          --ink-2: #5f5d52;
+          --ink-3: #6b685c;
+          --edge: #dcd9cb;
+          --edge-2: #b9b5a4;
+          --t0: #d2cec2;
+          --t1: #a6a08d;
+          --t2: #757061;
+          --t3: #49463d;
+          --t4: #1f211b;
+        }
       }
       * { box-sizing: border-box; }
       body {
         margin: 0;
         min-height: 100vh;
         display: grid;
-        place-items: center;
-        padding: 32px;
-        background:
-          radial-gradient(ellipse 70% 50% at 50% 42%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 62%),
-          radial-gradient(circle at 50% 100%, color-mix(in srgb, var(--accent) 4%, transparent), transparent 42%),
-          var(--bg);
+        align-content: center;
+        justify-items: stretch;
+        padding: 40px 32px;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--sans);
+        -webkit-font-smoothing: antialiased;
       }
-      main {
-        width: min(760px, 100%);
-        position: relative;
+      main { width: 100%; max-width: 720px; min-width: 0; margin-inline: auto; }
+      @keyframes settle {
+        from { opacity: 0; transform: translateY(10px); }
+      }
+      .rise { animation: settle 640ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+      .rise-2 { animation-delay: 90ms; }
+      .rise-3 { animation-delay: 170ms; }
+      @media (prefers-reduced-motion: reduce) {
+        .rise { animation: none; }
       }
       .hero {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
-        gap: 28px 36px;
-        align-items: end;
-        margin-bottom: 32px;
+        gap: 32px 48px;
+        align-items: center;
+        margin-bottom: 48px;
       }
       .brand {
         display: flex;
         align-items: center;
-        gap: 14px;
-        margin-bottom: 18px;
+        gap: 9px;
+        margin-bottom: 26px;
       }
-      .mark {
-        width: 44px;
-        height: 44px;
-        border-radius: 11px;
-        border: 1px solid var(--edge);
-        background:
-          radial-gradient(circle at 50% 40%, var(--accent-soft), transparent 68%),
-          var(--surface);
-        display: grid;
-        place-items: center;
-        color: var(--ink);
-        flex-shrink: 0;
-      }
-      .mark svg { display: block; }
-      .eyebrow {
-        color: var(--accent);
-        font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace;
-        text-transform: uppercase;
-        letter-spacing: .12em;
+      .sigil { display: block; color: var(--ink-2); }
+      .host {
+        font-family: var(--mono);
+        font-size: 12px;
+        letter-spacing: 0.02em;
+        color: var(--ink-2);
       }
       h1 {
-        margin: 0 0 12px;
-        font-size: clamp(34px, 7vw, 58px);
-        line-height: .98;
-        font-weight: 650;
-        letter-spacing: -0.02em;
+        margin: 0 0 14px;
+        font-size: clamp(36px, 4.6vw, 46px);
+        font-weight: 560;
+        letter-spacing: -0.03em;
+        line-height: 1.05;
       }
       .lede {
-        max-width: 520px;
         margin: 0;
-        color: var(--muted);
-        line-height: 1.55;
-        font-size: 16px;
+        max-width: 44ch;
+        font-size: 15px;
+        line-height: 1.6;
+        color: var(--ink-2);
       }
-      .meta {
+      .field {
+        position: relative;
+        user-select: none;
+        -webkit-mask-image: radial-gradient(ellipse 70% 72% at 50% 50%, #000 55%, transparent 100%);
+        mask-image: radial-gradient(ellipse 70% 72% at 50% 50%, #000 55%, transparent 100%);
+      }
+      .field__layer {
+        margin: 0;
+        font-family: var(--mono);
+        font-size: 10px;
+        line-height: 1.1;
+        white-space: pre;
+        letter-spacing: 0;
+      }
+      .field__layer + .field__layer { position: absolute; inset: 0; }
+      .field__layer[data-t="0"] { color: var(--t0); }
+      .field__layer[data-t="1"] { color: var(--t1); }
+      .field__layer[data-t="2"] { color: var(--t2); }
+      .field__layer[data-t="3"] { color: var(--t3); }
+      .field__layer[data-t="4"] { color: var(--t4); }
+      .node {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+        padding: 18px 6px;
+        border-top: 1px solid var(--edge);
+        border-bottom: 1px solid var(--edge);
+        text-decoration: none;
+        color: inherit;
+        transition: background-color 140ms ease;
+      }
+      .node:hover { background: var(--hover); }
+      .node:focus-visible {
+        outline: 1px solid var(--ink-2);
+        outline-offset: 3px;
+      }
+      .node__id { display: grid; gap: 4px; min-width: 0; }
+      .node__host {
+        font-family: var(--mono);
+        font-size: 14px;
+        letter-spacing: -0.01em;
+        color: var(--ink);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .node__sub { font-size: 12px; color: var(--ink-3); }
+      .node__open {
+        flex: none;
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--ink-3);
+        transition: color 140ms ease;
+      }
+      .node:hover .node__open,
+      .node:focus-visible .node__open { color: var(--ink); }
+      .trust {
         display: flex;
         flex-wrap: wrap;
-        gap: 10px 14px;
-        margin-top: 18px;
-        font: 500 11px ui-monospace, SFMono-Regular, Menlo, monospace;
-        text-transform: uppercase;
-        letter-spacing: .1em;
-        color: color-mix(in srgb, var(--muted) 88%, transparent);
-      }
-      .meta .dot {
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        background: var(--accent);
-        box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 55%, transparent);
-        display: inline-block;
-        vertical-align: middle;
-        margin-right: 2px;
-      }
-      .meta span[aria-hidden] { opacity: .45; }
-      /* The mark is five stacked layers of the same grid, one per tone step.
-         The cell metrics are load-bearing: the coverage field was sampled at
-         8px/1.1 in this exact stack, so changing the family or the line-height
-         shears the render. Font-size alone is safe — it scales width and height
-         together, which is how the mobile rule below works. */
-      .orb {
-        position: relative;
-        justify-self: end;
-        align-self: center;
-        user-select: none;
-        pointer-events: none;
-      }
-      .orb-l {
-        margin: 0;
-        font: 200 8px/1.1 ui-monospace, SFMono-Regular, Menlo, monospace;
-        letter-spacing: 0;
-        white-space: pre;
-      }
-      .orb-l + .orb-l { position: absolute; inset: 0; }
-      /* Warm neutral ramp. The mark carries no hue at all now — the one accent
-         stays rationed to state and action (mesh dot, eyebrow, Open). */
-      .orb-l[data-t="0"] { color: #2e2b27; }
-      .orb-l[data-t="1"] { color: #474339; }
-      .orb-l[data-t="2"] { color: #6b6558; }
-      .orb-l[data-t="3"] { color: #968e7f; }
-      .orb-l[data-t="4"] { color: #d5cdbd; }
-      .node {
-        display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 18px;
         align-items: center;
-        border: 1px solid var(--edge);
-        color: var(--ink);
+        gap: 8px 14px;
+        margin-top: 20px;
+        padding-inline: 6px;
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 0.03em;
+        color: var(--ink-3);
+      }
+      .trust a {
+        color: var(--ink-2);
         text-decoration: none;
-        padding: 18px 20px;
-        background: color-mix(in srgb, var(--surface) 92%, transparent);
-        border-radius: 10px;
-        transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+        border-bottom: 1px solid transparent;
+        transition: color 140ms ease, border-color 140ms ease;
       }
-      .node:hover {
-        border-color: color-mix(in srgb, var(--accent) 55%, var(--edge));
-        background: var(--surface-2);
-        box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent),
-          0 12px 40px color-mix(in srgb, #000 35%, transparent);
+      .trust a:hover,
+      .trust a:focus-visible { color: var(--ink); border-bottom-color: var(--edge-2); }
+      .trust .sep { color: var(--edge-2); }
+      .trust .note { margin-left: auto; }
+      @media (max-width: 680px) {
+        .hero { grid-template-columns: minmax(0, 1fr); gap: 28px; margin-bottom: 36px; }
+        .field { justify-self: start; }
+        h1 { font-size: 32px; }
+        .trust .note { margin-left: 0; flex-basis: 100%; }
       }
-      .node strong { display: block; font-size: 17px; font-weight: 620; letter-spacing: 0; }
-      .node .sub { color: var(--muted); font-size: 13px; margin-top: 3px; }
-      .open {
-        color: var(--accent);
-        font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace;
-        text-transform: uppercase;
-        letter-spacing: .08em;
-      }
-      @media (max-width: 620px) {
-        body { padding: 22px; place-items: start center; }
-        .hero { grid-template-columns: 1fr; gap: 18px; }
-        .orb { justify-self: start; order: -1; }
-        .orb-l { font-size: 6px; }
-        .node { grid-template-columns: 1fr; }
-      }
-      /* No reduced-motion rule is needed for the mark: the shimmer is driven by
-         the inline script, which never starts when reduced motion is set,
-         leaving the server-rendered still frame in place. */
     </style>
   </head>
   <body>
     <main>
-      <div class="hero">
+      <div class="hero rise">
         <div>
           <div class="brand">
-            <span class="mark" aria-hidden="true">
-              <svg width="26" height="26" viewBox="0 0 32 32" fill="none">
-                <polygon points="16,4.8 26.2,10.7 26.2,21.9 16,27.8 5.8,21.9 5.8,10.7" stroke="currentColor" stroke-width="1.55" stroke-linejoin="round" fill="currentColor" fill-opacity="0.08"/>
-                <path d="M16 4.8v23M5.8 10.7 16 16.6 26.2 10.7" stroke="currentColor" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round" opacity="0.45"/>
-                <polygon points="16,11 21.1,14 21.1,19.6 16,22.6 10.9,19.6 10.9,14" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round" fill="currentColor" fill-opacity="0.16" opacity="0.92"/>
+            <span class="sigil" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 32 32" fill="none">
+                <polygon points="16,4.8 26.2,10.7 26.2,21.9 16,27.8 5.8,21.9 5.8,10.7" stroke="currentColor" stroke-width="1.55" stroke-linejoin="round" fill="currentColor" fill-opacity="0.06"/>
+                <path d="M16 4.8v23M5.8 10.7 16 16.6 26.2 10.7" stroke="currentColor" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round" opacity="0.42"/>
+                <polygon points="16,11 21.1,14 21.1,19.6 16,22.6 10.9,19.6 10.9,14" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round" fill="currentColor" fill-opacity="0.14" opacity="0.9"/>
               </svg>
             </span>
-            <div class="eyebrow">${portalHost}</div>
+            <span class="host">${portalHost}</span>
           </div>
           <h1>Scout local</h1>
           <p class="lede">Registered machines on this local Scout mesh. Open a node to inspect agents, sessions, activity, and settings.</p>
-          <div class="meta" aria-hidden="true">
-            <span><span class="dot"></span> mesh</span>
-            <span aria-hidden>·</span>
-            <span>local-first</span>
-            <span aria-hidden>·</span>
-            <span>nothing leaves this network</span>
-          </div>
         </div>
-        <div class="orb" aria-hidden="true">${renderAsciiOrbHtml()}</div>
+        <div class="field" aria-hidden="true">
+          <pre class="field__layer" data-t="0"></pre>
+          <pre class="field__layer" data-t="1"></pre>
+          <pre class="field__layer" data-t="2"></pre>
+          <pre class="field__layer" data-t="3"></pre>
+          <pre class="field__layer" data-t="4"></pre>
+        </div>
       </div>
-      <a class="node" href="${escapedNodeUrl}">
-        <span>
-          <strong>${nodeHost}</strong>
-          <span class="sub">Local web node</span>
+      <a class="node rise rise-2" href="${escapedNodeUrl}">
+        <span class="node__id">
+          <span class="node__host">${nodeHost}</span>
+          <span class="node__sub">Local web node</span>
         </span>
-        <span class="open">Open</span>
+        <span class="node__open">Open</span>
       </a>
+      <div class="trust rise rise-3">
+        <a href="https://openscout.app/docs" target="_blank" rel="noopener noreferrer">Docs</a>
+        <span class="sep" aria-hidden="true">/</span>
+        <a href="https://github.com/arach/openscout" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <span class="note">served by this machine’s Scout broker</span>
+      </div>
     </main>
-    ${renderAsciiOrbScript()}
+    <script>
+      // Instrument field — pointer-aware wavefronts. Rings emanate on a
+      // 6.5s period with a 17s angular phase wobble; one density value
+      // drives a 2-step glyph dither and a 5-step tone ramp. The epicenter
+      // eases toward the pointer (capped, so it leans rather than jumps),
+      // pointer movement sheds decaying ripples, and without a pointer the
+      // epicenter wanders a slow lissajous — never a fixed circle. Block
+      // glyphs are avoided: they tile seamlessly and collapse into bars.
+      // Reduced motion gets the still frame; ?t=<s> pins a phase for
+      // review, ?px=0..1&py=0..1 pins a synthetic pointer.
+      (function () {
+        var W = 42, H = 21;
+        var CX = (W - 1) / 2, CY = (H - 1) / 2;
+        var ASPECT = 0.545;
+        var GLYPH = ["·", "░"];
+        var GCUT = [0.12, 0.45];
+        var TCUT = [0.24, 0.42, 0.6, 0.8];
+        var TONES = 5;
+        var TAU = Math.PI * 2;
+        var STILL_T = 2.6;
+        var LEAN = 0.34;
+        var RIPPLE_LIFE = 1.6;
+
+        var field = document.querySelector(".field");
+        var layers = [].slice.call(document.querySelectorAll(".field__layer"));
+        if (!field || layers.length !== TONES) return;
+
+        var N = W * H;
+        var G = new Float32Array(N);
+        for (var y = 0; y < H; y++) {
+          for (var x = 0; x < W; x++) {
+            var n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+            G[y * W + x] = (n - Math.floor(n)) * 2 - 1;
+          }
+        }
+
+        var STRIDE = W + 1;
+        var bufs = [];
+        for (var b = 0; b < TONES; b++) {
+          var buf = new Array(H * STRIDE);
+          for (var j = 0; j < buf.length; j++) buf[j] = " ";
+          for (var r = 0; r < H; r++) buf[r * STRIDE + W] = "\\n";
+          bufs.push(buf);
+        }
+
+        var ox = 0, oy = 0;
+        var tx = 0, ty = 0;
+        var pointerT = -1e9;
+        var ripples = [];
+        var lastRippleT = -1e9, lastRippleX = 0, lastRippleY = 0;
+        var start = -1;
+
+        function fieldClock() {
+          return STILL_T + (start < 0 ? 0 : (performance.now() - start) / 1000);
+        }
+
+        function onPointerMove(e) {
+          var rect = field.getBoundingClientRect();
+          if (rect.width < 1 || rect.height < 1) return;
+          var px = ((e.clientX - rect.left) / rect.width) * W - CX;
+          var py = ((e.clientY - rect.top) / rect.height) * H - CY;
+          tx = Math.max(-CX, Math.min(CX, px)) * LEAN;
+          ty = Math.max(-CY, Math.min(CY, py)) * LEAN;
+          pointerT = fieldClock();
+          var moved = Math.abs(px - lastRippleX) + Math.abs(py - lastRippleY);
+          if (pointerT - lastRippleT > 0.14 && (moved > 2.5 || pointerT - lastRippleT > 0.6)) {
+            ripples.push({
+              x: Math.max(-CX, Math.min(CX, px)),
+              y: Math.max(-CY, Math.min(CY, py)),
+              t0: pointerT,
+              amp: 0.5,
+            });
+            if (ripples.length > 4) ripples.shift();
+            lastRippleT = pointerT;
+            lastRippleX = px;
+            lastRippleY = py;
+          }
+        }
+
+        function render(t) {
+          if (t - pointerT > 2.5) {
+            tx = Math.sin(t * 0.19) * CX * 0.22;
+            ty = Math.cos(t * 0.14) * CY * 0.22;
+          }
+          ox += (tx - ox) * 0.07;
+          oy += (ty - oy) * 0.07;
+          var cx = CX + ox, cy = CY + oy;
+
+          var p1 = (t * TAU) / 6.5;
+          var p2 = (t * TAU) / 17;
+          for (var y = 0; y < H; y++) {
+            var o = y * STRIDE;
+            for (var x = 0; x < W; x++) {
+              var i = y * W + x;
+              var ax = ((x - cx) * ASPECT) / CY;
+              var ay = (y - cy) / CY;
+              var r = Math.sqrt(ax * ax + ay * ay);
+              var a = Math.atan2(ay, ax);
+              var e = Math.exp(-Math.pow(r / 0.9, 3.2));
+              var u = r * 11 - p1 + 0.35 * Math.sin(a * 2 + p2);
+              var c = 0.5 + 0.5 * Math.cos(u);
+              var rings = c * c * c * Math.sqrt(c);
+              var d = e * (0.16 + 0.78 * rings) + G[i] * 0.03;
+              for (var k = 0; k < ripples.length; k++) {
+                var rp = ripples[k];
+                var age = t - rp.t0;
+                if (age < 0 || age > RIPPLE_LIFE) continue;
+                var rx = ((x - (CX + rp.x)) * ASPECT) / CY;
+                var ry = (y - (CY + rp.y)) / CY;
+                var rd = Math.sqrt(rx * rx + ry * ry);
+                var wave = Math.cos(rd * 9 - age * 8);
+                if (wave > 0) d += wave * Math.exp(-rd * 1.9) * Math.exp(-age * 2.2) * rp.amp;
+              }
+
+              var glyph = d >= GCUT[1] ? GLYPH[1] : d >= GCUT[0] ? GLYPH[0] : " ";
+              var tone =
+                d >= TCUT[3] ? 4 : d >= TCUT[2] ? 3 : d >= TCUT[1] ? 2 : d >= TCUT[0] ? 1 : 0;
+
+              for (var m = 0; m < TONES; m++) bufs[m][o + x] = m === tone ? glyph : " ";
+            }
+          }
+          for (var s = 0; s < TONES; s++) layers[s].textContent = bufs[s].join("");
+        }
+
+        var reduce = window.matchMedia("(prefers-reduced-motion: reduce)");
+        var raf = 0, last = -1;
+        var STEP = 1000 / 24;
+
+        function loop(ts) {
+          raf = requestAnimationFrame(loop);
+          if (start < 0) start = ts;
+          if (last >= 0 && ts - last < STEP) return;
+          last = ts;
+          render(STILL_T + (ts - start) / 1000);
+        }
+        function stop() {
+          if (raf) { cancelAnimationFrame(raf); raf = 0; }
+        }
+        function play() {
+          if (reduce.matches || document.hidden || raf) return;
+          last = -1;
+          raf = requestAnimationFrame(loop);
+        }
+
+        render(STILL_T);
+
+        var search = window.location.search;
+        var pinned = /[?&]t=(-?[\\d.]+)/.exec(search);
+        var pinP = /[?&]px=([\\d.]+)/.exec(search);
+        var pinQ = /[?&]py=([\\d.]+)/.exec(search);
+        if (pinned) {
+          var pt = parseFloat(pinned[1]);
+          if (pinP) {
+            var fx = parseFloat(pinP[1]) * W - CX;
+            var fy = (pinQ ? parseFloat(pinQ[1]) : 0.5) * H - CY;
+            ox = tx = Math.max(-CX, Math.min(CX, fx)) * LEAN;
+            oy = ty = Math.max(-CY, Math.min(CY, fy)) * LEAN;
+            ripples.push({ x: fx, y: fy, t0: pt - 0.4, amp: 0.5 });
+          }
+          render(pt);
+        } else {
+          if (!reduce.matches) {
+            window.addEventListener("pointermove", onPointerMove, { passive: true });
+          }
+          play();
+          document.addEventListener("visibilitychange", function () {
+            if (document.hidden) stop(); else play();
+          });
+          if (reduce.addEventListener) reduce.addEventListener("change", onMotionPreferenceChange);
+          else if (reduce.addListener) reduce.addListener(onMotionPreferenceChange);
+        }
+
+        function onMotionPreferenceChange() {
+          stop();
+          if (reduce.matches) render(STILL_T);
+          else {
+            window.addEventListener("pointermove", onPointerMove, { passive: true });
+            play();
+          }
+        }
+      })();
+    </script>
   </body>
 </html>`;
 }
