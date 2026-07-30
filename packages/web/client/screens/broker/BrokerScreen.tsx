@@ -15,10 +15,10 @@ import { useScout } from "../../scout/Provider.tsx";
 import { openContent } from "../../scout/slots/openContent.ts";
 import {
   RUNTIME_CAPABILITY_SEED,
-  runtimeEffortsForSelection,
-  runtimeModelsForHarness,
+  runtimeCatalogFromCapabilities,
   type RuntimeCapabilityCatalog,
 } from "../../lib/runtime-capabilities.ts";
+import { effortsFor, type RuntimeValue } from "../../lib/runtime-catalog.ts";
 
 import {
   brokerAttemptDetailLimit,
@@ -1217,30 +1217,52 @@ export function BrokerAttemptInspector({
     return (agent.projectRoot?.trim() || agent.cwd?.trim()) === forwardProjectPath;
   });
   const effectiveCapabilities = runtimeCapabilities ?? RUNTIME_CAPABILITY_SEED;
-  const forwardHarnessOptions = effectiveCapabilities.harnesses.map((candidate) => candidate.id);
-  const forwardModelOptions = [...new Set(
-    [
+  // The picker runs on a nested catalog. Models observed on live agents but
+  // missing from the capability snapshot stay selectable as "observed" rows,
+  // and "" keeps its meaning: no override — the broker picks the runtime.
+  const forwardCatalog = useMemo(() => {
+    const base = runtimeCatalogFromCapabilities(effectiveCapabilities);
+    const observed = [
       forwardModel,
-      ...runtimeModelsForHarness(effectiveCapabilities, forwardHarness),
       forwardAgent?.harness === forwardHarness ? forwardAgent.model : null,
       ...forwardProjectAgents
         .filter((agent) => agent.harness === forwardHarness)
         .map((agent) => agent.model),
     ]
       .map((model) => model?.trim())
-      .filter((model): model is string => Boolean(model)),
-  )];
-  const forwardEffortOptions = useMemo(
-    () => runtimeEffortsForSelection(effectiveCapabilities, forwardHarness, forwardModel),
-    [effectiveCapabilities, forwardHarness, forwardModel],
-  );
+      .filter((model): model is string => Boolean(model));
+    let harnesses = base.harnesses;
+    if (!harnesses.some((entry) => entry.value === forwardHarness)) {
+      harnesses = [
+        { value: forwardHarness, label: forwardHarness || "default", models: [] },
+        ...harnesses,
+      ];
+    }
+    harnesses = harnesses.map((entry) => {
+      if (entry.value !== forwardHarness) return entry;
+      const withDefault = entry.models.some((model) => model.value === "")
+        ? entry.models
+        : [{ value: "", label: "Default", note: "harness picks" }, ...entry.models];
+      const known = new Set(withDefault.map((model) => model.value));
+      const extras = observed
+        .filter((model) => !known.has(model))
+        .map((model) => ({ value: model, label: model, note: "observed" }));
+      return extras.length === 0 && withDefault === entry.models
+        ? entry
+        : { ...entry, models: [...withDefault, ...extras] };
+    });
+    return { ...base, harnesses };
+  }, [effectiveCapabilities, forwardAgent, forwardHarness, forwardModel, forwardProjectAgents]);
 
+  // Outside user interaction (capabilities arriving, target switching) the
+  // picker never sees a change event, so the effort clamp lives here.
   useEffect(() => {
-    if (forwardEffortOptions.some((candidate) => candidate.value === forwardEffort)) return;
-    setForwardEffort(forwardEffortOptions.find((candidate) => candidate.value === "medium")?.value
-      ?? forwardEffortOptions[0]?.value
+    const efforts = effortsFor(forwardCatalog, forwardHarness);
+    if (!efforts || efforts.some((candidate) => candidate.value === forwardEffort)) return;
+    setForwardEffort(efforts.find((candidate) => candidate.value === "medium")?.value
+      ?? efforts[0]?.value
       ?? "");
-  }, [forwardEffort, forwardEffortOptions]);
+  }, [forwardCatalog, forwardHarness, forwardEffort]);
 
   const invokeCodex = useCallback(async () => {
     setReviewStatus("running");
@@ -1628,23 +1650,14 @@ export function BrokerAttemptInspector({
                 </select>
               </label>
               <RuntimePicker
-                harness={forwardHarness}
-                model={forwardModel}
-                effort={forwardEffort}
-                onHarnessChange={(nextHarness) => {
+                catalog={forwardCatalog}
+                value={{ harness: forwardHarness, model: forwardModel, effort: forwardEffort }}
+                onChange={(next: RuntimeValue) => {
                   routingTouchedRef.current = true;
-                  setForwardHarness(nextHarness);
-                  setForwardModel(runtimeModelsForHarness(effectiveCapabilities, nextHarness)[0] ?? "");
+                  setForwardHarness(next.harness);
+                  setForwardModel(next.model);
+                  setForwardEffort(next.effort);
                 }}
-                onModelChange={(nextModel) => {
-                  routingTouchedRef.current = true;
-                  setForwardModel(nextModel);
-                }}
-                onEffortChange={setForwardEffort}
-                harnessOptions={forwardHarnessOptions}
-                modelOptions={forwardModelOptions}
-                effortOptions={forwardEffortOptions}
-                showEffort
                 disabled={forwardStatus === "sending"}
               />
               <DictationMic
