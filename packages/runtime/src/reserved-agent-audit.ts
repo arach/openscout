@@ -6,8 +6,17 @@ import {
 
 export function assertNoReservedStoredAgentNames(
   agents: Record<string, AgentDefinition>,
+  options: { localNodeId?: string } = {},
 ): void {
   for (const agent of Object.values(agents)) {
+    const authorityNodeId = agent.authorityNodeId || agent.homeNodeId;
+    if (
+      options.localNodeId
+      && authorityNodeId
+      && authorityNodeId !== options.localNodeId
+    ) {
+      continue;
+    }
     const metadataDefinitionId = typeof agent.metadata?.definitionId === "string"
       ? agent.metadata.definitionId
       : undefined;

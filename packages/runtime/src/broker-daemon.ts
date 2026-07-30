@@ -284,7 +284,7 @@ if (existingBroker) {
 const journal = new FileBackedBrokerJournal(journalPath);
 await journal.load();
 const initialSnapshot = journal.snapshot();
-assertNoReservedStoredAgentNames(initialSnapshot.agents);
+assertNoReservedStoredAgentNames(initialSnapshot.agents, { localNodeId: nodeId });
 
 const sqliteDisabled = process.env.OPENSCOUT_DISABLE_SQLITE === "1";
 const runtime = createInMemoryControlRuntime(initialSnapshot, { localNodeId: nodeId });
