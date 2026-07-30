@@ -3244,8 +3244,8 @@ button.s-thread-sidebar-participant:focus-visible {
   color: var(--muted);
 }
 
-/* A terminal run is execution truth, not proof that a reply settled. Keep the
-   receipt quiet and neutral for success; reserve status color for interruption. */
+/* Successful completion belongs to the reply turn. Only interruption earns a
+   separate feed receipt because it needs operator attention. */
 .s-thread-feed-block--terminal {
   justify-content: flex-start;
 }
