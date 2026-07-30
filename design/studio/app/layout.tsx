@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { HudsonThemeScript, ThemeProvider } from "hudsonkit/theme";
+import { ThemeProvider } from "hudsonkit/theme";
+import { getHudsonThemeScript } from "hudsonkit/theme-script";
 // Token sheet only — full `hudsonkit/styles` is a prebuilt Tailwind bundle
 // that collides with this app's `@tailwind base` pipeline. Tokens give us
 // --hud-* + theme/template attribute rules without re-injecting base CSS.
@@ -41,10 +42,14 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <head>
         {/* Pre-paint: sets data-hudson-theme before CSS evaluates (no FOUC). */}
-        <HudsonThemeScript
-          defaultTheme="dark"
-          defaultTemplate="hudson"
-          storageKey={THEME_STORAGE_KEY}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: getHudsonThemeScript({
+              defaultTheme: "dark",
+              defaultTemplate: "hudson",
+              storageKey: THEME_STORAGE_KEY,
+            }),
+          }}
         />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
@@ -52,10 +57,11 @@ export default function RootLayout({
           href="https://fonts.gstatic.com"
           crossOrigin=""
         />
-        {/* Workmanlike stack — Inter Tight for display + body, JetBrains Mono
-         *  for chrome. No display/futuristic face. */}
+        {/* Workmanlike stack — Inter Tight for display (headings only: it is
+         *  the display cut), Inter for reading body, JetBrains Mono for
+         *  chrome. No display/futuristic face. */}
         <link
-          href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Inter+Tight:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
           rel="stylesheet"
         />
       </head>
