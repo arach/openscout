@@ -193,6 +193,12 @@
       "import": "./dist/local-edge.js",
       "default": "./dist/local-edge.js"
     },
+    "./scout-ascii-mark": {
+      "bun": "./src/scout-ascii-mark.ts",
+      "types": "./dist/scout-ascii-mark.d.ts",
+      "import": "./dist/scout-ascii-mark.js",
+      "default": "./dist/scout-ascii-mark.js"
+    },
     "./mobile-push": {
       "bun": "./src/mobile-push.ts",
       "types": "./dist/mobile-push.d.ts",
