@@ -4243,7 +4243,21 @@ describe("createOpenScoutWebServer", () => {
     const body = await response.text();
     expect(body).toContain("Scout local");
     expect(body).toContain("m1.scout.local");
+    expect(body).toContain('class="field__layer" data-t="4"');
+    expect(body).toContain('class="hero rise"');
     expect(body).toContain('href="http://m1.scout.local:4321/"');
+    expect(body).toContain("max-width: 720px");
+    expect(body).toContain("align-content: center");
+    expect(body).toContain("prefers-color-scheme: light");
+    expect(body).toContain("https://openscout.app/docs");
+    expect(body).toContain("https://github.com/arach/openscout");
+    expect(body).toContain("served by this machine’s Scout broker");
+    expect(body).not.toContain("class=\"identity\"");
+    expect(body).not.toContain("class=\"eyebrow\"");
+    expect(body).not.toContain("class=\"meta\"");
+    expect(body).not.toContain("class=\"orb-l\"");
+    expect(body).not.toContain("--accent");
+    expect(body).not.toContain("nothing leaves this network");
   });
 
   test("serves the web app directly for the node host without a portal redirect", async () => {

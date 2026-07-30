@@ -8,7 +8,40 @@ production**: the shipping page is `renderScoutLocalPortal` in
 Each file is self-contained (inline CSS/JS, no external assets, no build step).
 
 ```
-open design/portal-studies/scout-local-sober-ascii.html
+open design/portal-studies/scout-local-quiet-ledger.html
+```
+
+## `scout-local-quiet-ledger.html`
+
+The production candidate. Evolves `scout-local-sober-ascii` — same wavefront
+engine family, now pointer-aware; what changes around it:
+
+- **The field notices you.** The wavefront epicenter eases toward the pointer
+  (capped at 34%, so it leans rather than jumps), pointer movement sheds
+  ripples that decay over ~1.6s, and when the pointer has been absent for
+  2.5s the epicenter wanders a slow lissajous — it never rests as a fixed
+  circle. Radius, angle, and rim dissolve are recomputed per frame against
+  the live center; at 42×21 cells and 24fps that is cheap.
+- **Ledger, not card.** The node is a hairline ledger line (border top/bottom,
+  no box). Hover is a 3.5% ink tint plus `OPEN` brightening; the focus ring is
+  a 1px ink outline offset 3px.
+- **Typographic elevation.** Title goes to `clamp(36px, 4.6vw, 46px)` at
+  weight 560, tracking −0.03em; lede 15px/1.6.
+- **Full light theme.** Warm paper field with an inverted, one-notch-darker
+  tone ramp — the straight inversion of the dark ramp reads washed out, each
+  stop is shifted down.
+- **One authored entrance.** The page settles in once (hero → ledger → trust,
+  640ms exponential ease-out, 90ms staggers), then never moves again.
+  `prefers-reduced-motion` skips it and gets the still frame, no pointer
+  listener.
+
+Review pins: `?t=<seconds>` freezes the instrument phase, `?px=0..1&py=0..1`
+places a synthetic pointer (offset epicenter + one mid-life ripple),
+`?light` / `?dark` pins the theme.
+
+```
+open "design/portal-studies/scout-local-quiet-ledger.html?t=2.6&light"
+open "design/portal-studies/scout-local-quiet-ledger.html?t=2.6&px=0.85&py=0.25&dark"
 ```
 
 ## `scout-local-sober-ascii.html`
