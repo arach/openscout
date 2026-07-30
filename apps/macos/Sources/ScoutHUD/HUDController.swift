@@ -41,6 +41,12 @@ public final class HUDController {
         HUDRunnerState.shared.isPresented
     }
 
+    /// The main Scout window must not run its own bare-key navigation after
+    /// the HUD has yielded an event to the focused message editor.
+    public var isMessageComposerFocused: Bool {
+        isDockFocused
+    }
+
     /// CGWindowID of the panel when visible; nil when dismissed. Consumed
     /// by HUDStateFile + external screencapture loops (scout:// IPC).
     public var currentWindowId: Int? {
@@ -50,13 +56,16 @@ public final class HUDController {
 
     private init() {}
 
-    /// True when the dock's TextField is firstResponder — used to gate
-    /// global-style nav hotkeys (j, k, 1-5, etc.) so they don't fire
-    /// while the operator is typing in the dock. Esc is the only key
-    /// that bypasses this guard (it cascades regardless).
+    /// True while SwiftUI says the dock field is focused, with AppKit's field
+    /// editor as a fallback — used to gate global-style nav hotkeys (j, k,
+    /// 1-5, etc.) so they don't fire while the operator is typing. Esc is the
+    /// only key that bypasses this guard (it cascades regardless).
     private var isDockFocused: Bool {
         guard let panel else { return false }
-        return HUDKeyboardInput.isTextEditing(panel.firstResponder)
+        return HUDKeyboardInput.isTextEditing(
+            panel.firstResponder,
+            logicalFocus: HUDDockState.shared.textInputFocused
+        )
     }
 
     /// Toggle voice dictation; if native voice capture is unavailable,
@@ -486,6 +495,9 @@ public final class HUDController {
     }
 
     private func shouldHandleGlobalKey(_ event: NSEvent) -> Bool {
+        if isDockFocused {
+            return false
+        }
         if event.keyCode == 53 {
             return true
         }
@@ -498,6 +510,12 @@ public final class HUDController {
     }
 
     private func shouldClaimHostKey(_ event: NSEvent) -> Bool {
+        // The shared composer field owns its entire stream, including its
+        // explicit suggestion and escape controls. Host/window monitors must
+        // not preflight or duplicate any key once the editor has focus.
+        if isDockFocused {
+            return false
+        }
         if event.keyCode == 53 {
             return true
         }
@@ -761,13 +779,6 @@ public final class HUDController {
     private func shouldSuppressNavHotkeys(for event: NSEvent) -> Bool {
         guard isDockFocused else { return false }
         guard !HUDDockState.shared.suggestionsVisible else { return false }
-        let kc = event.keyCode
-        let dockIsIdle = HUDDockState.shared.text
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .isEmpty
-        if HUDState.shared.view == .focus && dockIsIdle && (kc == 125 || kc == 126) {
-            return false
-        }
         return true
     }
 

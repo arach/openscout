@@ -1,6 +1,6 @@
 # macOS App Agent Notes
 
-Verified: 2026-07-14
+Verified: 2026-07-30
 
 Source: `apps/macos/**`, `packages/scout-native-core/**`.
 
@@ -15,7 +15,7 @@ One SwiftPM package, two executables. **Scout** is the product: main window (com
 | Target | Kind | Depends on | Owns |
 |---|---|---|---|
 | `ScoutAppCore` | lib | ScoutNativeCore | endpoints (`ScoutWeb`/`ScoutBroker`), comms/tail/activity models + clients, `ScoutTailStore`, `ScoutAgentsStore`, `ScoutActivityStore`, `ScoutComposeService`, `ScoutRunnerService`, `ScoutHTTP`, `ScoutServiceURLRelay` |
-| `ScoutSharedUI` | lib | HudsonVoice, ScoutNativeCore | markup parser, message/code-block atoms, suggestions, `ScoutVoiceService` (wraps `HudDictation`) |
+| `ScoutSharedUI` | lib | HudsonVoice, ScoutNativeCore | markup parser, message/code-block atoms, suggestions, shared `MessageComposerField` editing contract, `ScoutVoiceService` (SpeechAnalyzer on macOS 26+, Hudson compatibility on macOS 14–15) |
 | `ScoutHUD` | lib | ScoutAppCore, ScoutSharedUI | `HUDController`, `TailModeController`, `OverlayPanelShell`, `HotkeyManager`, `ScoutHUDRouter`, `HUDStateFile`, `TailModeStateFile`, HUD tab views + dock, Tail mode surface |
 | `Scout` | exe (`app.openscout.scout`) | all above + HudsonShell, HudsonUI | main window (`ScoutRootView`), `ScoutCommsStore`, `ScoutRepoStore`, HUD hosting, scout:// handler |
 | `OpenScoutMenu` | exe (`app.openscout.scout.menu`) | ScoutAppCore, ScoutHUD, ScoutSharedUI (declared; HUD used for input ingress + routing) | `BrokerService`, `PairingService`, `TailscaleService`, `CommandRunner`, `OpenScoutToolchain`, `HUDURLRouter`, `ScoutAppBridge`, task hotkey/hot-corner ingress |
@@ -43,7 +43,7 @@ Tail hits broker `v1/tail/*`.
 ```plaintext
 ScoutNativeCore ← ScoutAppCore ← ScoutHUD ← Scout (+ ScoutSharedUI, HudsonShell/UI)
                   ScoutAppCore ←──────────── OpenScoutMenu (+ ScoutHUD for hotkey/router)
-HudsonVoice ← ScoutSharedUI ← {ScoutHUD, Scout}
+SpeechAnalyzer/SpeechTranscriber + HudsonVoice ← ScoutSharedUI ← {ScoutHUD, Scout}
 Scout.app  — embeds + autolaunches → Contents/Library/LoginItems/ScoutMenu.app
 helper     — wakes/launches Scout via ScoutAppBridge (NSWorkspace + launch args)
 ```
@@ -78,9 +78,16 @@ Services-link HMAC: query `expires`+`nonce`+`sig`; SHA256 HMAC over `v1\nservice
 | Quick task confirmation | A fresh task opened directly from the menu helper requires an explicit project choice; capture drops may still infer their project from the captured files. After the broker accepts the task, the composer stays open on a durable receipt showing project, runtime/model, effort, and a broker reference, with **Open task** and **Done** actions. |
 | Realtime Scoutbot voice | The microphone/WebRTC call is disposable transport over the selected durable Scoutbot assistant chat. Stopping or minimizing voice preserves the chat; **New** and the recent-chat picker change it explicitly, ending an active call before switching. An operator-requested `ask-agent` action dispatches immediately through the broker and reports its receipt or failure without a second voice-surface confirmation. |
 | HUD panel | `HUDController` singleton; non-activating `OverlayPanel`, mouse-screen centered, fade in/out, outside-click dismiss (220ms), Esc cascade (cheatsheet → dock text → chip → blur → unengage → dismiss) |
-| HUD keys | one shared `handleKeyDown` for panel `onKeyDown` + global monitor; global path gated by `shouldHandleGlobalKey` (Esc always; else panel key / app active). Tabs 1-5 = focus/threads/tail/scout/scoutbot; sizes compact/medium/large via `[`/`]`/⌘-arrows |
+| HUD keys | one shared `handleKeyDown` for panel `onKeyDown` + global monitor. The message composer's SwiftUI focus state is authoritative, with AppKit `firstResponder` as fallback; while focused, panel/host/global shortcut layers yield the complete keyboard stream to the field. Tabs 1-5 = focus/threads/tail/scout/scoutbot; sizes compact/medium/large via `[`/`]`/⌘-arrows |
 | Tail mode | `TailModeController` singleton; separate non-activating `OverlayPanel` using the shared `HUDTailView` tail logic with the overlay skin/wrapper. Persistent by default, no outside-click dismiss. Placement can be attached to the nearest edge or free-floating. |
-| Main-window keys | `ScoutKeyboardEventMonitor` (local NSEvent monitor) offers Esc + bare keys to `HUDController.handleHostKeyDown` first while HUD visible; only unclaimed events drive window navigation |
+| Main-window keys | `ScoutKeyboardEventMonitor` (local NSEvent monitor) offers Esc + bare keys to `HUDController.handleHostKeyDown` first while HUD visible. A focused HUD message composer bypasses main-window bare-key navigation entirely; otherwise only unclaimed events drive window navigation. |
+
+## Message composition and voice
+
+- `ScoutSharedUI/MessageComposerField.swift` owns native field focus, Return policy, suggestion controls, live dictation preview, and post-dictation caret placement. The HUD dock, conversation composer, and new-chat composer supply their own visual shells and density tokens to that same field.
+- HUD compact density remains a one-line inline treatment where Return sends. Full conversation/new-chat composers use native multiline Return editing and Command-Return or Control-Return to send.
+- Focused fields own every keystroke before panel, host-window, or bare-key navigation layers. Shared field code only claims explicit Return/Tab/arrow/Escape controls; it never installs handlers for printable shortcut letters.
+- New installs default to Apple. On macOS 26+, Apple and Auto resolve to `SpeechAnalyzer` + `SpeechTranscriber` with system-managed assets and volatile live results; this path requests microphone access only. Parakeet is explicit opt-in. macOS 14–15 retain Hudson's legacy Apple/Parakeet compatibility path and its separate Speech Recognition permission.
 
 ## Data flow
 
@@ -114,7 +121,7 @@ Discipline: every store publishes through `setIfChanged`/`scoutSetIfChanged` (no
 3. One data layer: any store/client/model used by more than one target lives in `ScoutAppCore`. The HUD is a presentation of those stores, never a parallel implementation.
 4. Stores publish via `setIfChanged` and are visibility-gated — every `start()` has a `stop()` tied to a surface being on screen.
 5. Scout hosts the HUD and Tail mode panels. Scout owns Hyper+H; the helper owns Hyper+A/C/T plus the task hot-corner ingress. Helper commands first enter the durable, acknowledged inbox; notifications wake warm Scout and launch args wake cold Scout. The helper may receive a drop but never hosts the task UI.
-6. Main-window keyboard yields to a visible HUD before handling bare-key navigation.
+6. Main-window keyboard yields to a visible HUD before handling bare-key navigation; every shortcut layer yields the complete stream while a message field is focused.
 7. `scout://services/*` executes only in the helper and only with a valid, unexpired HMAC signature; Scout forwards, never executes.
 8. Scout never terminates on last-window close — it flips `.regular` ↔ `.accessory`.
 9. The helper stays supervision-only: service lights, restarts, pairing, Tailscale, wake-Scout.
@@ -140,6 +147,7 @@ Discipline: every store publishes through `setIfChanged`/`scoutSetIfChanged` (no
 | Native agent read stream | `Sources/ScoutAppCore/ScoutNativeReadClient.swift`, `ScoutdProbeClient.swift` |
 | App entry, scheme + lifecycle | `Sources/Scout/ScoutApp.swift` |
 | Window shell + feeds box + key yield | `Sources/Scout/ScoutRootView.swift`, `ScoutCommands.swift` |
+| Shared message field + voice engine | `Sources/ScoutSharedUI/MessageComposerField.swift`, `ScoutVoiceService.swift`, `ScoutSpeechAnalyzerDictation.swift` |
 | HUD panel + keys | `Sources/ScoutHUD/HUDController.swift`, `OverlayPanelShell.swift`, `HotkeyManager.swift` |
 | Quick task + hot corner | `Sources/ScoutHUD/HUDRunner{State,View}.swift`, `HUDCaptureHotZone.swift`, `Sources/ScoutAppCore/ScoutCapturePayload.swift` |
 | Tail mode panel | `Sources/ScoutHUD/TailModeController.swift`, `HUDTailView.swift` |

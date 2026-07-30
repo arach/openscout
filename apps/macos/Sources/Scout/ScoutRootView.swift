@@ -907,6 +907,13 @@ struct ScoutRootView: View {
         if event.keyCode == 53, HUDController.shared.handleHostKeyDown(event) {
             return true
         }
+        // A focused HUD composer owns the complete text-entry stream. Give
+        // composer controls (suggestions and explicit command shortcuts) one
+        // chance to handle the event, then pass everything else through to the
+        // field editor without falling into this window's h/j/k/l/g navigation.
+        if HUDController.shared.isMessageComposerFocused {
+            return HUDController.shared.handleHostKeyDown(event)
+        }
         if HUDController.shared.isVisible,
            bareKeysAvailable,
            HUDController.shared.handleHostKeyDown(event) {
@@ -969,6 +976,7 @@ struct ScoutRootView: View {
         !composerFocused
             && !searchFocused
             && !repoAskFocused
+            && !HUDController.shared.isMessageComposerFocused
             && !HUDController.shared.isTaskComposerPresented
     }
 
@@ -2981,63 +2989,28 @@ struct ScoutRootView: View {
     // intact (the suggestions popover anchors off it).
     private var composerFieldRow: some View {
         HStack(alignment: .top, spacing: HudSpacing.sm) {
-            ZStack(alignment: .topLeading) {
-                TextField(showDictationPreview ? "" : composerPlaceholder, text: $draft, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(HudFont.mono(HudTextSize.xs))
-                    .foregroundStyle(ScoutPalette.ink)
-                    // Accent caret to match the HUD (not the system blue), and
-                    // hidden while dictating so the waveform is the only cue.
-                    .tint(showDictationPreview ? Color.clear : ScoutPalette.accent)
-                    .lineLimit(1...5)
-                    .focused($composerFocused)
-                    .disabled(store.selectedCId == nil || store.isSending)
-                    .onKeyPress(phases: .down) { press in
-                        // ⌘V image paste is handled by ImagePasteCatcher at the
-                        // AppKit level — the field editor swallows it here.
-                        if press.key == .return {
-                            if press.modifiers.contains(.command) || press.modifiers.contains(.control) {
-                                requestSend()
-                                return .handled
-                            }
-                            if !press.modifiers.contains(.shift), applySelectedSuggestion() { return .handled }
-                            draft.append("\n")
-                            return .handled
-                        }
-                        return .ignored
-                    }
-                    .onKeyPress(.upArrow) {
-                        guard !suggestions.isEmpty else { return .ignored }
-                        stepSuggestion(-1)
-                        return .handled
-                    }
-                    .onKeyPress(.downArrow) {
-                        guard !suggestions.isEmpty else { return .ignored }
-                        stepSuggestion(1)
-                        return .handled
-                    }
-                    .onKeyPress(.escape) {
-                        if store.replyTarget != nil {
-                            withAnimation(.easeOut(duration: 0.14)) {
-                                store.clearReplyTarget()
-                            }
-                            return .handled
-                        }
-                        if !suggestions.isEmpty {
-                            dismissSuggestions()
-                            return .handled
-                        }
-                        // Blur so the bare vim keys (h/j/k/l, g/G, ?) become
-                        // live for list navigation.
-                        composerFocused = false
-                        return .handled
-                    }
-
-                if showDictationPreview {
-                    ScoutDictationPreview(text: voice.partial)
-                        .allowsHitTesting(false)
-                }
-            }
+            MessageComposerField(
+                text: $draft,
+                focused: $composerFocused,
+                placeholder: composerPlaceholder,
+                partialText: voice.partial,
+                dictationActive: isDictating,
+                isEnabled: store.selectedCId != nil && !store.isSending,
+                suggestionsVisible: !suggestions.isEmpty,
+                submitBehavior: .commandReturn,
+                style: MessageComposerFieldStyle(
+                    font: HudFont.ui(HudTextSize.base),
+                    textColor: ScoutPalette.ink,
+                    caretColor: ScoutPalette.accent,
+                    partialColor: ScoutPalette.muted,
+                    maximumLines: 5,
+                    minimumHeight: 44
+                ),
+                onSubmit: requestSend,
+                onAcceptSuggestion: applySelectedSuggestion,
+                onMoveSuggestion: moveComposerSuggestion,
+                onEscape: handleComposerEscape
+            )
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 GeometryReader { proxy in
@@ -3300,10 +3273,6 @@ struct ScoutRootView: View {
         return "⌘↵ send · ↵ newline"
     }
 
-    private var showDictationPreview: Bool {
-        draft.isEmpty && (voice.state.isCaptureActive || voice.state.isProcessing)
-    }
-
     private var isDictating: Bool {
         switch voice.state {
         case .starting, .recording, .processing: return true
@@ -3384,21 +3353,7 @@ struct ScoutRootView: View {
         draft = ScoutDictationBuffer.appending(trimmed, to: draft)
         ScoutRemoteVoiceService.shared.consumeFinalText()
         composerFocused = true
-        moveComposerCaretToEnd()
-    }
-
-    /// After splicing dictated text, drop the field's selection and park the
-    /// caret at the very end so you can keep typing/editing cleanly instead of
-    /// landing on an all-selected or mid-string insertion point.
-    private func moveComposerCaretToEnd() {
-        #if os(macOS)
-        DispatchQueue.main.async {
-            guard let textView = NSApp.keyWindow?.firstResponder as? NSTextView else { return }
-            let end = (textView.string as NSString).length
-            textView.setSelectedRange(NSRange(location: end, length: 0))
-            textView.scrollRangeToVisible(NSRange(location: end, length: 0))
-        }
-        #endif
+        MessageComposerTextSelection.moveCaretToEndSoon()
     }
 
     private func refreshSuggestions() {
@@ -3445,6 +3400,29 @@ struct ScoutRootView: View {
     private func stepSuggestion(_ delta: Int) {
         guard !suggestions.isEmpty else { return }
         selectedSuggestionIndex = (selectedSuggestionIndex + delta + suggestions.count) % suggestions.count
+    }
+
+    private func moveComposerSuggestion(_ delta: Int) -> Bool {
+        guard !suggestions.isEmpty else { return false }
+        stepSuggestion(delta)
+        return true
+    }
+
+    private func handleComposerEscape() -> Bool {
+        if store.replyTarget != nil {
+            withAnimation(.easeOut(duration: 0.14)) {
+                store.clearReplyTarget()
+            }
+            return true
+        }
+        if !suggestions.isEmpty {
+            dismissSuggestions()
+            return true
+        }
+        // Blur so bare navigation becomes live only after the editor has
+        // explicitly yielded focus.
+        composerFocused = false
+        return true
     }
 
     @discardableResult
@@ -5377,26 +5355,6 @@ private extension MessageSuggestionAgent {
             workspaceRoot: agent.workspace,
             harnessSessionId: agent.harnessSessionId
         )
-    }
-}
-
-struct ScoutDictationPreview: View {
-    let text: String
-
-    private var displayText: String {
-        text.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    var body: some View {
-        // Live partial transcript only — no blinking caret. The recording cue
-        // is the waveform near the mic; the textual state lives in the status row.
-        Text(displayText)
-            .font(HudFont.mono(HudTextSize.xs))
-            .foregroundStyle(ScoutPalette.muted)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .opacity(displayText.isEmpty ? 0 : 1)
-            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

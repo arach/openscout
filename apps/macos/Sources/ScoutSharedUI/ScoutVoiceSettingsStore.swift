@@ -46,7 +46,10 @@ public enum ScoutVoiceSettingsStore {
     public static func loadPreference() -> HudDictation.Preference {
         guard let raw = UserDefaults.standard.string(forKey: preferenceKey),
               let pref = HudDictation.Preference(rawValue: raw) else {
-            return .auto
+            // New installs choose Apple's current system-managed stack. On
+            // macOS 26+ this resolves to SpeechAnalyzer/SpeechTranscriber;
+            // older systems retain the legacy Apple Speech backend.
+            return .apple
         }
         return pref
     }
