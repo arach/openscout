@@ -1,5 +1,4 @@
 import {
-  type CSSProperties,
   type Dispatch,
   type RefObject,
   type SetStateAction,
@@ -8,6 +7,7 @@ import { actorColor } from "../../lib/colors.ts";
 import {
   ComposerAttachmentStrip,
   MessageComposer,
+  MessageComposerSuggestions,
   type ComposerAttachmentsState,
 } from "../../components/MessageComposer/index.ts";
 import type {
@@ -96,78 +96,43 @@ export function ConversationComposer({
 }) {
   const overlay = (
     <>
-      {slashState.open && filteredSlashCommands.length > 0 && (
-        <div
-          className="s-thread-compose-suggest"
-          role="listbox"
-          aria-label="Slash commands"
-        >
-          <div className="s-thread-compose-suggest-label">Slash commands</div>
-          {filteredSlashCommands.map((cmd, i) => (
-            <button
-              key={cmd.command}
-              type="button"
-              role="option"
-              aria-selected={i === slashState.index}
-              className={[
-                "s-thread-compose-suggest-item",
-                i === slashState.index && "s-thread-compose-suggest-item--active",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                applySlashCommand(cmd);
-              }}
-              onMouseEnter={() => setSlashState((s) => ({ ...s, index: i }))}
-            >
-              <span className="s-thread-compose-suggest-cmd">{cmd.label}</span>
-              <span className="s-thread-compose-suggest-desc">{cmd.description}</span>
-            </button>
-          ))}
-        </div>
-      )}
+      {slashState.open ? (
+        <MessageComposerSuggestions
+          label="Slash commands"
+          items={filteredSlashCommands.map((command) => ({
+            id: command.command,
+            token: command.label,
+            description: command.description,
+          }))}
+          activeIndex={slashState.index}
+          onPick={(index) => {
+            const command = filteredSlashCommands[index];
+            if (command) applySlashCommand(command);
+          }}
+          onActiveIndexChange={(index) => setSlashState((state) => ({ ...state, index }))}
+        />
+      ) : null}
 
-      {mentionState.open && filteredMentions.length > 0 && (
-        <div
-          className="s-thread-compose-suggest"
-          role="listbox"
-          aria-label="Mention agents"
-        >
-          <div className="s-thread-compose-suggest-label">Mention agent</div>
-          {filteredMentions.map((m, i) => (
-            <button
-              key={m.id}
-              type="button"
-              role="option"
-              aria-selected={i === mentionState.index}
-              className={[
-                "s-thread-compose-suggest-item",
-                i === mentionState.index && "s-thread-compose-suggest-item--active",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                applyMention(m);
-              }}
-              onMouseEnter={() => setMentionState((s) => ({ ...s, index: i }))}
-            >
-              <span
-                className="s-ops-avatar s-thread-compose-suggest-avatar"
-                style={{
-                  "--size": "20px",
-                  background: actorColor(m.name),
-                } as CSSProperties}
-              >
-                {m.name[0]?.toUpperCase() ?? "?"}
-              </span>
-              <span className="s-thread-compose-suggest-cmd">@{m.handle}</span>
-              <span className="s-thread-compose-suggest-desc">{m.name}</span>
-            </button>
-          ))}
-        </div>
-      )}
+      {mentionState.open ? (
+        <MessageComposerSuggestions
+          label="Mention agent"
+          items={filteredMentions.map((mention) => ({
+            id: mention.id,
+            token: `@${mention.handle}`,
+            description: mention.name,
+            avatar: {
+              label: mention.name[0]?.toUpperCase() ?? "?",
+              color: actorColor(mention.name),
+            },
+          }))}
+          activeIndex={mentionState.index}
+          onPick={(index) => {
+            const mention = filteredMentions[index];
+            if (mention) applyMention(mention);
+          }}
+          onActiveIndexChange={(index) => setMentionState((state) => ({ ...state, index }))}
+        />
+      ) : null}
     </>
   );
 
@@ -426,7 +391,13 @@ export function ConversationComposer({
           closeSuggestions();
           return true;
         }
-        if ((event.key === "Enter" || event.key === "Tab") && !event.shiftKey) {
+        if (
+          (event.key === "Enter" || event.key === "Tab")
+          && !event.shiftKey
+          && !event.metaKey
+          && !event.ctrlKey
+          && !event.altKey
+        ) {
           if (slashState.open) {
             const pick =
               filteredSlashCommands[slashState.index]

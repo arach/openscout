@@ -576,7 +576,7 @@
 }
 
 .s-newchat-panel .s-msg-compose-shell:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--ink));
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--border));
 }
 
 .s-newchat-panel .s-msg-compose-input::placeholder {
@@ -585,6 +585,13 @@
 
 .s-newchat-panel .s-msg-compose-toolbar {
   border-top-color: color-mix(in srgb, var(--ink) 10%, transparent);
+}
+
+.s-newchat-compose-triggers {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  color: var(--dim);
 }
 
 .s-newchat-command-trigger {
