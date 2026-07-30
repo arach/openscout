@@ -63,4 +63,5 @@
   --text-4xl: 19px;  /* was 20 — study titles */
   --text-5xl: 22px;  /* was 24 */
   --text-6xl: 26px;  /* was 28 — landing mastheads */
+  --text-7xl: 32px;  /* article titles (plan docs) */
 }

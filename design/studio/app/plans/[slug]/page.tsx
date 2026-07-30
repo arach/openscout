@@ -46,12 +46,12 @@ export default async function PlanPage({
       </div>
 
       <article
-        className="studio-prose max-w-prose"
+        className="studio-prose max-w-[66ch]"
         dangerouslySetInnerHTML={{ __html: html }}
       />
 
       {plan.source && plan.source.length > 0 ? (
-        <div className="mt-12 max-w-prose border-t border-studio-edge pt-5">
+        <div className="mt-12 max-w-[66ch] border-t border-studio-edge pt-5">
           <div className="mb-2 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
             · related source
           </div>
