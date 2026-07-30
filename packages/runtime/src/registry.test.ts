@@ -55,7 +55,7 @@ function endpoint(
   };
 }
 
-function conversation(id: string, participantIds: string[]): ConversationDefinition {
+function conversation(id: string, participantIds: string[], createdAt?: number): ConversationDefinition {
   return {
     id,
     kind: "direct",
@@ -64,6 +64,7 @@ function conversation(id: string, participantIds: string[]): ConversationDefinit
     shareMode: "local",
     authorityNodeId: "node-1",
     participantIds,
+    ...(createdAt !== undefined ? { metadata: { createdAt } } : {}),
   };
 }
 
@@ -145,8 +146,8 @@ describe("queryRuntimeRegistrySnapshot", () => {
         }),
       },
       conversations: {
-        recent: conversation("recent", ["operator", "recent"]),
-        old: conversation("old", ["operator", "stale"]),
+        recent: conversation("recent", ["operator", "recent"], since + 1),
+        old: conversation("old", ["operator", "stale"], since - 1),
       },
       messages: {
         recent: message("recent", "recent", "recent", since + 1),
@@ -176,5 +177,22 @@ describe("queryRuntimeRegistrySnapshot", () => {
   test("returns the full snapshot when no cutoff is supplied", () => {
     const snapshot = createRuntimeRegistrySnapshot();
     expect(queryRuntimeRegistrySnapshot(snapshot)).toBe(snapshot);
+  });
+
+  test("retains conversations that carry no timestamp at all", () => {
+    // Records written before timestamps were stamped must stay visible to
+    // incremental snapshots or every send to them fails downstream.
+    const since = 10 * DAY_MS;
+    const snapshot = createRuntimeRegistrySnapshot({
+      actors: { operator: actor("operator") },
+      conversations: {
+        legacy: conversation("legacy", ["operator", "legacy"]),
+        old: conversation("old", ["operator", "old"], since - 1),
+      },
+    });
+
+    const result = queryRuntimeRegistrySnapshot(snapshot, { since });
+
+    expect(Object.keys(result.conversations)).toEqual(["legacy"]);
   });
 });
