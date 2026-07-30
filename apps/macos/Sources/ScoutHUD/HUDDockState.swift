@@ -32,6 +32,10 @@ public final class HUDDockState: ObservableObject {
     /// the work/hand target; scopes the draft when present.
     @Published var scopeProject: String? = nil
     @Published var focusRequested: Int = 0       // bump → dock takes firstResponder
+    /// SwiftUI's authoritative focus state for the message field. AppKit's
+    /// `firstResponder` can lag a focus transition by a run-loop turn, so the
+    /// HUD shortcut layer consults this before treating bare keys as commands.
+    @Published private(set) var textInputFocused = false
     @Published var lastError: String? = nil
     @Published var isSending: Bool = false
     @Published private(set) var suggestions: [HUDDockSuggestion] = []
@@ -100,7 +104,7 @@ public final class HUDDockState: ObservableObject {
 
     // MARK: - Dictation
 
-    /// Mic-tap action. Warms HudsonKit voice if needed,
+    /// Mic-tap action. Prepares the shared voice engine if needed,
     /// otherwise toggles recording on/off. Errors surface as state on
     /// HudVoiceService.shared; the dock view reads them for tooltip copy.
     func toggleDictation() async {
@@ -266,6 +270,12 @@ public final class HUDDockState: ObservableObject {
     /// should land in the input.
     func focus() {
         focusRequested &+= 1
+    }
+
+    func setTextInputFocused(_ focused: Bool) {
+        if textInputFocused != focused {
+            textInputFocused = focused
+        }
     }
 
     /// Stage a target without focusing — e.g. row hover. The chip

@@ -15,15 +15,317 @@
   border-bottom: 1px solid var(--border);
 }
 
-.s-code-rootPicker {
-  max-width: 340px;
-  height: 26px;
-  padding: 0 8px;
+/* ── project picker (recent chips + search combobox) ── */
+
+.s-code-picker {
+  position: relative;
+  flex: none;
+  min-width: 0;
+  max-width: min(420px, 100%);
+}
+
+.s-code-pickerTrigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 3px 8px 3px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface);
   color: var(--ink);
   font-size: var(--text-md);
+  cursor: pointer;
+}
+
+.s-code-pickerTrigger:hover,
+.s-code-pickerTrigger:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: color-mix(in srgb, var(--ink) 3%, var(--surface));
+}
+
+.s-code-pickerTrigger[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--accent) 54%, var(--border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.s-code-pickerTriggerName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.s-code-pickerTriggerDetail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.s-code-pickerChevron {
+  flex: none;
+  color: var(--dim);
+  transition: transform 0.12s ease;
+}
+
+.s-code-pickerChevron[data-open] {
+  transform: rotate(180deg);
+}
+
+.s-code-pickerPanel {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(420px, calc(100vw - 32px));
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow:
+    0 12px 32px color-mix(in srgb, var(--ink) 14%, transparent),
+    0 1px 0 color-mix(in srgb, var(--ink) 4%, transparent);
+}
+
+.s-code-pickerRecents {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+
+.s-code-pickerChip {
+  flex: none;
+  max-width: 160px;
+  height: 24px;
+  padding: 0 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.s-code-pickerChip:hover,
+.s-code-pickerChip:focus-visible {
+  outline: none;
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--ink) 22%, var(--border));
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.s-code-pickerChip[data-active] {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.s-code-pickerSearch {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 8px 0 28px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+}
+
+.s-code-pickerSearch:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 54%, var(--border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.s-code-pickerSearchIcon {
+  position: absolute;
+  left: 8px;
+  color: var(--dim);
+  pointer-events: none;
+}
+
+.s-code-pickerInputStack {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.s-code-pickerGhost {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--ink) 28%, transparent);
+  font-size: var(--text-md);
+  line-height: 30px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.s-code-pickerGhost span {
+  color: transparent;
+}
+
+.s-code-pickerInput {
+  position: relative;
+  width: 100%;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--text-md);
+  outline: none;
+}
+
+.s-code-pickerInput::-webkit-search-cancel-button {
+  opacity: 0.55;
+}
+
+.s-code-pickerHint {
+  flex: none;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.s-code-pickerHeading {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 4px 0;
+  color: var(--dim);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.s-code-pickerResults {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.s-code-pickerOption {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  row-gap: 1px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.s-code-pickerOption:hover,
+.s-code-pickerOption[data-active] {
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.s-code-pickerOption[data-selected] {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+.s-code-pickerOptionMain {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.s-code-pickerOptionMain strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.s-code-pickerWorktree {
+  flex: none;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--dim);
+  font-size: var(--text-2xs);
+  line-height: 16px;
+}
+
+.s-code-pickerOptionPath {
+  grid-column: 1;
+  grid-row: 2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.s-code-pickerOptionMeta {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.s-code-pickerEmpty {
+  padding: 10px 8px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.s-code-pickerGuide {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 2px 4px 0;
+  color: var(--dim);
+  font-size: var(--text-2xs);
+}
+
+.s-code-pickerGuide kbd {
+  margin-right: 3px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.s-code-pickerOption--deep .s-code-pickerOptionMain strong {
+  color: var(--accent);
 }
 
 .s-code-headStat {
@@ -42,6 +344,28 @@
   color: var(--dim);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
+}
+
+.s-code-copyLink {
+  flex: none;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.s-code-copyLink:hover,
+.s-code-copyLink:focus-visible {
+  outline: none;
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--ink) 22%, var(--border));
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
 }
 
 .s-code-body {

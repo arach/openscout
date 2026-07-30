@@ -4,10 +4,13 @@ import { api } from "../../lib/api.ts";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
 import type { Route } from "../../lib/types.ts";
 import { fetchRepoWatchSnapshot, getCachedRepoWatchSnapshot } from "../../scout/repo-watch/api.ts";
-import type { RepoWatchSnapshot, RepoWatchWorktree } from "../../scout/repo-watch/types.ts";
+import type { RepoWatchSnapshot } from "../../scout/repo-watch/types.ts";
 import { defineSurface } from "../../surfaces/types.ts";
 import { CodeDiffPane } from "./CodeDiffPane.tsx";
+import { CodeProjectPicker, type CodePickerSelection } from "./CodeProjectPicker.tsx";
+import { formatScoutCodeDeepLink } from "./code-deep-link.ts";
 import { relativeFilePath } from "./code-diff-model.ts";
+import { shortRootPath } from "./code-project-picker-model.ts";
 import { ShikiPane } from "./ShikiPane.tsx";
 import { readLastRoot, readStoredTree, writeLastRoot, writeStoredTree } from "./code-tree-store.ts";
 import "./code-screen.css";
@@ -63,12 +66,6 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function worktreeLabel(worktree: RepoWatchWorktree): string {
-  const branch = worktree.branch.detached ? "detached" : worktree.branch.name ?? "no branch";
-  const dirty = worktree.status.clean ? "" : ` · ${worktree.status.changedFiles} changed`;
-  return `${branch}${dirty}`;
 }
 
 function slugify(value: string): string {
@@ -506,37 +503,80 @@ export function CodeContent({
     }
   }, [filePreview]);
 
+  const [linkCopyStatus, setLinkCopyStatus] = useState<"idle" | "copied">("idle");
+
+  const scoutDeepLink = useMemo(() => {
+    if (!root) return null;
+    if (activeWorktree) {
+      const rel = selectedFile && selectedFile.startsWith(`${root}/`)
+        ? selectedFile.slice(root.length + 1)
+        : undefined;
+      const primaryPath = activeWorktree.project.worktrees[0]?.path;
+      return formatScoutCodeDeepLink({
+        project: slugify(activeWorktree.project.name),
+        ...(rel ? { path: rel } : {}),
+        ...(primaryPath && primaryPath !== root ? { wt: activeWorktree.worktree.name } : {}),
+        ...(focusedLines?.line ? { line: focusedLines.line } : {}),
+        ...(focusedLines?.endLine ? { endLine: focusedLines.endLine } : {}),
+      });
+    }
+    return formatScoutCodeDeepLink({
+      ...(selectedFile ? { file: selectedFile } : { root }),
+      ...(focusedLines?.line ? { line: focusedLines.line } : {}),
+      ...(focusedLines?.endLine ? { endLine: focusedLines.endLine } : {}),
+    });
+  }, [root, selectedFile, activeWorktree, focusedLines]);
+
+  const copyDeepLink = useCallback(async () => {
+    if (!scoutDeepLink) return;
+    const copied = await copyTextToClipboard(scoutDeepLink);
+    if (copied) {
+      setLinkCopyStatus("copied");
+      window.setTimeout(() => setLinkCopyStatus("idle"), 1500);
+    }
+  }, [scoutDeepLink]);
+
+  const selectFromPicker = useCallback((selection: CodePickerSelection) => {
+    setFocusedLines(
+      selection.line && selection.line > 0
+        ? {
+            line: selection.line,
+            ...(selection.endLine && selection.endLine >= selection.line
+              ? { endLine: selection.endLine }
+              : {}),
+          }
+        : null,
+    );
+    setSelectedFile(selection.file ?? null);
+    setRoot(selection.root);
+    if (selection.file) {
+      revealPath(selection.root, selection.file);
+    }
+    syncUrl(selection.root, selection.file ?? null);
+  }, [revealPath, syncUrl]);
+
   return (
     <div className="s-code-screen" data-embedded={embedded || undefined}>
       <div className="s-code-head">
-        <select
-          className="s-code-rootPicker"
-          value={root ?? ""}
-          aria-label="Project or worktree"
-          onChange={(event) => {
-            const value = event.currentTarget.value || null;
-            setSelectedFile(null);
-            setFocusedLines(null);
-            setRoot(value);
-            if (value) syncUrl(value, null);
-          }}
-        >
-          {!root ? <option value="">Pick a repo…</option> : null}
-          {root && !activeWorktree ? <option value={root}>{root}</option> : null}
-          {(snapshot?.projects ?? []).map((project) => (
-            <optgroup key={project.id} label={project.name}>
-              {project.worktrees.map((worktree) => (
-                <option key={worktree.id} value={worktree.path}>
-                  {project.name} · {worktreeLabel(worktree)}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
+        <CodeProjectPicker
+          snapshot={snapshot}
+          root={root}
+          onSelect={selectFromPicker}
+        />
         {activeWorktree?.worktree.diff.branchShortstat ? (
           <span className="s-code-headStat">{activeWorktree.worktree.diff.branchShortstat}</span>
         ) : null}
-        {root ? <span className="s-code-headPath">{root}</span> : null}
+        {root ? <span className="s-code-headPath" title={root}>{shortRootPath(root)}</span> : null}
+        {scoutDeepLink ? (
+          <button
+            type="button"
+            className="s-code-copyLink"
+            title={scoutDeepLink}
+            onClick={() => void copyDeepLink()}
+          >
+            {linkCopyStatus === "copied" ? "Copied scout://" : "Copy scout://"}
+          </button>
+        ) : null}
       </div>
       <div className="s-code-body">
         <div className="s-code-tree" role="tree" aria-label="Files">

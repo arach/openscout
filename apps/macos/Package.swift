@@ -116,6 +116,7 @@ let package = Package(
             dependencies: [
                 "ScoutHUD",
                 "ScoutAppCore",
+                "ScoutSharedUI",
             ],
             path: "Tests/ScoutHUDTests"
         ),

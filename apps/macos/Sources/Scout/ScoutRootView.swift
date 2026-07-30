@@ -539,6 +539,11 @@ struct ScoutRootView: View {
 
     /// Handles native code links plus exact terminal-surface links emitted by
     /// the web UI. Code query params pass through to the embedded code browser.
+    ///
+    /// Code forms (see `ScoutCodeDeepLink`):
+    /// - `scout://openscout/path/to/file.ts`  (primary)
+    /// - `scout:///absolute/path`
+    /// - `scout://code/openscout/...`        (legacy)
     private func handleScoutDeepLink(_ url: URL) {
         guard url.scheme?.lowercased() == "scout" else { return }
         if url.host?.lowercased() == "terminal" {
@@ -548,22 +553,8 @@ struct ScoutRootView: View {
             section = .terminals
             return
         }
-        guard url.host?.lowercased() == "code" else { return }
-        var items: [URLQueryItem] = []
-        let segments = url.pathComponents.filter { $0 != "/" }
-        if let project = segments.first {
-            items.append(URLQueryItem(name: "project", value: project))
-            let rest = segments.dropFirst().joined(separator: "/")
-            if !rest.isEmpty {
-                items.append(URLQueryItem(name: "path", value: rest))
-            }
-        }
-        if let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems {
-            for item in query where !items.contains(where: { $0.name == item.name }) {
-                items.append(item)
-            }
-        }
-        codeLinkQueryItems = items
+        guard let target = ScoutCodeDeepLink.parse(url) else { return }
+        codeLinkQueryItems = ScoutCodeDeepLink.queryItems(for: target)
         section = .code
     }
 
@@ -916,6 +907,13 @@ struct ScoutRootView: View {
         if event.keyCode == 53, HUDController.shared.handleHostKeyDown(event) {
             return true
         }
+        // A focused HUD composer owns the complete text-entry stream. Give
+        // composer controls (suggestions and explicit command shortcuts) one
+        // chance to handle the event, then pass everything else through to the
+        // field editor without falling into this window's h/j/k/l/g navigation.
+        if HUDController.shared.isMessageComposerFocused {
+            return HUDController.shared.handleHostKeyDown(event)
+        }
         if HUDController.shared.isVisible,
            bareKeysAvailable,
            HUDController.shared.handleHostKeyDown(event) {
@@ -978,6 +976,7 @@ struct ScoutRootView: View {
         !composerFocused
             && !searchFocused
             && !repoAskFocused
+            && !HUDController.shared.isMessageComposerFocused
             && !HUDController.shared.isTaskComposerPresented
     }
 
@@ -2833,9 +2832,11 @@ struct ScoutRootView: View {
                     }
                 }
         }
-        .padding(.horizontal, HudSpacing.xxl)
-        .padding(.top, HudSpacing.xxl)
-        .padding(.bottom, HudSpacing.lg)
+        // Match the shared web thread composer's 20pt side gutters and compact
+        // footer spacing while retaining native paste, drop, voice and key input.
+        .padding(.horizontal, HudSpacing.xxxl)
+        .padding(.top, HudSpacing.lg)
+        .padding(.bottom, HudSpacing.xxl)
         .background(ScoutDesign.bg)
         .overlay(alignment: .topLeading) {
             if !suggestions.isEmpty {
@@ -2885,12 +2886,9 @@ struct ScoutRootView: View {
         )
     }
 
-    // Studio `.composerBox` — a single rounded box with an internal toolbar.
-    // The field rides the top; a hairline-separated bar below (`.composerBar`)
-    // carries the hint/status on the left and the harmonized attach · mic · send
-    // controls on the right. The buttons live *inside* the box rather than
-    // floating beside it. Focus is carried by the well's border, fill, and
-    // shadow — no left-edge accent rule (banned styleguide treatment).
+    // Native counterpart to the shared web MessageComposer sandwich: writing
+    // area above, hairline-separated toolbar below. Native owns behavior; the
+    // web component owns the visual proportions both surfaces converge on.
     private var composerInputWell: some View {
         VStack(spacing: 0) {
             if let replyTarget = store.replyTarget {
@@ -2908,14 +2906,6 @@ struct ScoutRootView: View {
         .overlay(
             RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
                 .stroke(composerWellBorder, lineWidth: HudStrokeWidth.thin)
-        )
-        // The composer sits on the same page background as the transcript; this
-        // modest lift is the separator instead of a full-width footer band.
-        .shadow(
-            color: composerFocused ? ScoutPalette.accent.opacity(0.12) : ScoutSurface.shadow(0.18),
-            radius: composerFocused ? 8 : 6,
-            x: 0,
-            y: -1
         )
         .background {
             ScoutAttachmentDropCatcher(
@@ -2990,63 +2980,28 @@ struct ScoutRootView: View {
     // intact (the suggestions popover anchors off it).
     private var composerFieldRow: some View {
         HStack(alignment: .top, spacing: HudSpacing.sm) {
-            ZStack(alignment: .topLeading) {
-                TextField(showDictationPreview ? "" : composerPlaceholder, text: $draft, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(HudFont.mono(HudTextSize.xs))
-                    .foregroundStyle(ScoutPalette.ink)
-                    // Accent caret to match the HUD (not the system blue), and
-                    // hidden while dictating so the waveform is the only cue.
-                    .tint(showDictationPreview ? Color.clear : ScoutPalette.accent)
-                    .lineLimit(1...5)
-                    .focused($composerFocused)
-                    .disabled(store.selectedCId == nil || store.isSending)
-                    .onKeyPress(phases: .down) { press in
-                        // ⌘V image paste is handled by ImagePasteCatcher at the
-                        // AppKit level — the field editor swallows it here.
-                        if press.key == .return {
-                            if press.modifiers.contains(.command) || press.modifiers.contains(.control) {
-                                requestSend()
-                                return .handled
-                            }
-                            if !press.modifiers.contains(.shift), applySelectedSuggestion() { return .handled }
-                            draft.append("\n")
-                            return .handled
-                        }
-                        return .ignored
-                    }
-                    .onKeyPress(.upArrow) {
-                        guard !suggestions.isEmpty else { return .ignored }
-                        stepSuggestion(-1)
-                        return .handled
-                    }
-                    .onKeyPress(.downArrow) {
-                        guard !suggestions.isEmpty else { return .ignored }
-                        stepSuggestion(1)
-                        return .handled
-                    }
-                    .onKeyPress(.escape) {
-                        if store.replyTarget != nil {
-                            withAnimation(.easeOut(duration: 0.14)) {
-                                store.clearReplyTarget()
-                            }
-                            return .handled
-                        }
-                        if !suggestions.isEmpty {
-                            dismissSuggestions()
-                            return .handled
-                        }
-                        // Blur so the bare vim keys (h/j/k/l, g/G, ?) become
-                        // live for list navigation.
-                        composerFocused = false
-                        return .handled
-                    }
-
-                if showDictationPreview {
-                    ScoutDictationPreview(text: voice.partial)
-                        .allowsHitTesting(false)
-                }
-            }
+            MessageComposerField(
+                text: $draft,
+                focused: $composerFocused,
+                placeholder: composerPlaceholder,
+                partialText: voice.partial,
+                dictationActive: isDictating,
+                isEnabled: store.selectedCId != nil && !store.isSending,
+                suggestionsVisible: !suggestions.isEmpty,
+                submitBehavior: .commandReturn,
+                style: MessageComposerFieldStyle(
+                    font: HudFont.ui(HudTextSize.base),
+                    textColor: ScoutPalette.ink,
+                    caretColor: ScoutPalette.accent,
+                    partialColor: ScoutPalette.muted,
+                    maximumLines: 5,
+                    minimumHeight: 44
+                ),
+                onSubmit: requestSend,
+                onAcceptSuggestion: applySelectedSuggestion,
+                onMoveSuggestion: moveComposerSuggestion,
+                onEscape: handleComposerEscape
+            )
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 GeometryReader { proxy in
@@ -3063,11 +3018,10 @@ struct ScoutRootView: View {
                     .transition(.opacity)
             }
         }
-        .padding(.leading, HudSpacing.xl)
-        .padding(.trailing, HudSpacing.xl)
-        .padding(.top, HudSpacing.lg)
-        .padding(.bottom, HudSpacing.md)
-        .frame(maxWidth: .infinity, minHeight: 38, alignment: .topLeading)
+        .padding(.horizontal, HudSpacing.lg)
+        .padding(.top, HudSpacing.sm)
+        .padding(.bottom, HudSpacing.xs)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     // Studio `.composerBar` — the internal toolbar: hint/status on the left,
@@ -3075,6 +3029,7 @@ struct ScoutRootView: View {
     // top hairline over a faintly recessed plane (the canvas bg, like the web).
     private var composerToolbarBar: some View {
         HStack(spacing: HudSpacing.sm) {
+            composerAttachButton
             if let status = composerStatusText {
                 Text(status)
                     .font(HudFont.mono(HudTextSize.micro))
@@ -3083,17 +3038,16 @@ struct ScoutRootView: View {
                     .truncationMode(.tail)
             }
             Spacer(minLength: HudSpacing.sm)
-            composerAttachButton
-            ScoutMicButton(box: 26, glyph: 13, action: toggleDictation)
+            ScoutMicButton(box: ScoutComposerControl.box, glyph: 13, action: toggleDictation)
             ScoutSendButton(
-                isEnabled: composerReady,
+                isEnabled: composerCanSend || isDictating,
                 isSending: store.isSending,
                 action: requestSend
             )
         }
-        .padding(.leading, HudSpacing.xl)
-        .padding(.trailing, HudSpacing.md)
-        .padding(.vertical, HudSpacing.sm)
+        .padding(.horizontal, HudSpacing.sm)
+        .padding(.top, HudSpacing.sm)
+        .padding(.bottom, HudSpacing.md)
         .frame(maxWidth: .infinity)
         .background(composerBarFill)
         .overlay(alignment: .top) {
@@ -3203,14 +3157,14 @@ struct ScoutRootView: View {
         if store.selectedCId == nil {
             return ScoutSurface.inset
         }
-        return composerFocused ? ScoutSurface.controlFocused : ScoutSurface.control
+        return ScoutDesign.surface
     }
 
     private var composerWellBorder: Color {
         if store.selectedCId == nil {
             return ScoutDesign.hairline
         }
-        return composerFocused ? ScoutPalette.accent.opacity(0.6) : ScoutDesign.hairlineStrong
+        return composerFocused ? ScoutPalette.border : ScoutDesign.hairlineStrong
     }
 
     // The internal toolbar plane sits a step below the field — the canvas bg
@@ -3309,10 +3263,6 @@ struct ScoutRootView: View {
         return "⌘↵ send · ↵ newline"
     }
 
-    private var showDictationPreview: Bool {
-        draft.isEmpty && (voice.state.isCaptureActive || voice.state.isProcessing)
-    }
-
     private var isDictating: Bool {
         switch voice.state {
         case .starting, .recording, .processing: return true
@@ -3393,21 +3343,7 @@ struct ScoutRootView: View {
         draft = ScoutDictationBuffer.appending(trimmed, to: draft)
         ScoutRemoteVoiceService.shared.consumeFinalText()
         composerFocused = true
-        moveComposerCaretToEnd()
-    }
-
-    /// After splicing dictated text, drop the field's selection and park the
-    /// caret at the very end so you can keep typing/editing cleanly instead of
-    /// landing on an all-selected or mid-string insertion point.
-    private func moveComposerCaretToEnd() {
-        #if os(macOS)
-        DispatchQueue.main.async {
-            guard let textView = NSApp.keyWindow?.firstResponder as? NSTextView else { return }
-            let end = (textView.string as NSString).length
-            textView.setSelectedRange(NSRange(location: end, length: 0))
-            textView.scrollRangeToVisible(NSRange(location: end, length: 0))
-        }
-        #endif
+        MessageComposerTextSelection.moveCaretToEndSoon()
     }
 
     private func refreshSuggestions() {
@@ -3454,6 +3390,29 @@ struct ScoutRootView: View {
     private func stepSuggestion(_ delta: Int) {
         guard !suggestions.isEmpty else { return }
         selectedSuggestionIndex = (selectedSuggestionIndex + delta + suggestions.count) % suggestions.count
+    }
+
+    private func moveComposerSuggestion(_ delta: Int) -> Bool {
+        guard !suggestions.isEmpty else { return false }
+        stepSuggestion(delta)
+        return true
+    }
+
+    private func handleComposerEscape() -> Bool {
+        if store.replyTarget != nil {
+            withAnimation(.easeOut(duration: 0.14)) {
+                store.clearReplyTarget()
+            }
+            return true
+        }
+        if !suggestions.isEmpty {
+            dismissSuggestions()
+            return true
+        }
+        // Blur so bare navigation becomes live only after the editor has
+        // explicitly yielded focus.
+        composerFocused = false
+        return true
     }
 
     @discardableResult
@@ -5389,26 +5348,6 @@ private extension MessageSuggestionAgent {
     }
 }
 
-struct ScoutDictationPreview: View {
-    let text: String
-
-    private var displayText: String {
-        text.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    var body: some View {
-        // Live partial transcript only — no blinking caret. The recording cue
-        // is the waveform near the mic; the textual state lives in the status row.
-        Text(displayText)
-            .font(HudFont.mono(HudTextSize.xs))
-            .foregroundStyle(ScoutPalette.muted)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .opacity(displayText.isEmpty ? 0 : 1)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
 struct ScoutVoiceIssueRow: View {
     let message: String
     var actionTitle = "Open Settings"
@@ -5455,14 +5394,10 @@ struct ScoutVoiceIssueRow: View {
     }
 }
 
-/// Composer control footprint — a 26pt rounded-square shared by every button
-/// in the toolbar (attach · mic · send) so they read as one harmonized cluster
-/// instead of three mismatched shapes. The ghost variant (attach/mic) is
-/// transparent at rest and warms to a faint fill on hover; Send is the only
-/// filled one. Keep this in sync with `ScoutSendButton` / `ScoutMicButton`.
+/// Composer control footprint shared with the web MessageComposer toolbar.
+/// Circular 32pt controls keep attach, mic and Send on one baseline.
 private enum ScoutComposerControl {
-    static let box: CGFloat = 26
-    static let radius: CGFloat = HudRadius.standard
+    static let box: CGFloat = 32
 }
 
 /// Ghost icon button for the composer toolbar (attach, and the visual base for
@@ -5478,19 +5413,25 @@ private struct ScoutComposerIconButton: View {
     var body: some View {
         Button(action: action) {
             ZStack {
-                RoundedRectangle(cornerRadius: ScoutComposerControl.radius, style: .continuous)
+                Circle()
                     .fill(hovering && isEnabled ? ScoutSurface.hover : Color.clear)
+                Circle()
+                    .stroke(
+                        hovering && isEnabled ? ScoutPalette.ink.opacity(0.35) : ScoutPalette.border,
+                        lineWidth: HudStrokeWidth.thin
+                    )
                 Image(systemName: systemImage)
                     .font(.system(size: glyph, weight: .medium))
                     .foregroundStyle(hovering && isEnabled ? ScoutPalette.ink : ScoutPalette.muted)
             }
             .frame(width: ScoutComposerControl.box, height: ScoutComposerControl.box)
-            .contentShape(RoundedRectangle(cornerRadius: ScoutComposerControl.radius, style: .continuous))
+            .contentShape(Circle())
         }
         .buttonStyle(.plain).scoutPointerCursor()
         .onHover { hovering = $0 }
         .help(help)
         .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.4)
     }
 }
 
@@ -5504,22 +5445,20 @@ private struct ScoutSendButton: View {
     var body: some View {
         Button(action: action) {
             ZStack {
-                RoundedRectangle(cornerRadius: ScoutComposerControl.radius, style: .continuous)
+                Circle()
                     .fill(fillColor)
-
-                RoundedRectangle(cornerRadius: ScoutComposerControl.radius, style: .continuous)
-                    .stroke(borderColor, lineWidth: HudStrokeWidth.thin)
-
                 content
             }
             .frame(width: ScoutComposerControl.box, height: ScoutComposerControl.box)
-            .contentShape(RoundedRectangle(cornerRadius: ScoutComposerControl.radius, style: .continuous))
+            .contentShape(Circle())
         }
         .buttonStyle(.plain).scoutPointerCursor()
         .disabled(!isEnabled || isSending)
         .keyboardShortcut(.return, modifiers: .command)
         .onHover { hovering = $0 }
         .help(isEnabled && !isSending ? "Send message (⌘↵)" : "")
+        .scaleEffect(hovering && isEnabled && !isSending ? 1.05 : 1)
+        .animation(.easeOut(duration: 0.12), value: hovering)
     }
 
     @ViewBuilder
@@ -5538,21 +5477,14 @@ private struct ScoutSendButton: View {
 
     private var fillColor: Color {
         if !isEnabled || isSending {
-            return ScoutSurface.inset
+            return ScoutPalette.ink.opacity(0.25)
         }
-        return hovering ? ScoutPalette.ink : ScoutPalette.accent
-    }
-
-    private var borderColor: Color {
-        if !isEnabled || isSending {
-            return ScoutDesign.hairlineStrong
-        }
-        return hovering ? ScoutPalette.ink.opacity(0.72) : ScoutPalette.accent.opacity(0.46)
+        return ScoutPalette.ink
     }
 
     private var iconColor: Color {
         if !isEnabled || isSending {
-            return ScoutPalette.dim
+            return ScoutDesign.bg.opacity(0.72)
         }
         return ScoutDesign.bg
     }
@@ -5628,13 +5560,13 @@ struct ScoutMicButton: View {
         // lights with an accent fill + ring while actively recording.
         Button(action: action) {
             ZStack {
-                RoundedRectangle(cornerRadius: ScoutComposerControl.radius, style: .continuous)
+                Circle()
                     .fill(micFillColor)
                     .frame(width: box, height: box)
 
-                RoundedRectangle(cornerRadius: ScoutComposerControl.radius, style: .continuous)
+                Circle()
                     .stroke(
-                        isRecording ? ScoutPalette.accent.opacity(0.5) : Color.clear,
+                        micBorderColor,
                         lineWidth: HudStrokeWidth.thin
                     )
                     .frame(width: box, height: box)
@@ -5652,7 +5584,7 @@ struct ScoutMicButton: View {
                     .frame(width: glyph, height: glyph)
             }
             .frame(width: box, height: box)
-            .contentShape(RoundedRectangle(cornerRadius: ScoutComposerControl.radius, style: .continuous))
+            .contentShape(Circle())
         }
         .buttonStyle(.plain).scoutPointerCursor()
         .help(tooltip)
@@ -5671,6 +5603,12 @@ struct ScoutMicButton: View {
             return ScoutSurface.hover
         }
         return Color.clear
+    }
+
+    private var micBorderColor: Color {
+        if isRecording { return ScoutPalette.accent.opacity(0.5) }
+        if hovering { return ScoutPalette.ink.opacity(0.35) }
+        return ScoutPalette.border
     }
 }
 

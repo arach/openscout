@@ -28,37 +28,15 @@ final class OverlayPanel: NSPanel {
     }
 
     override func keyDown(with event: NSEvent) {
-        // Let text fields consume their own input. Without this guard,
-        // typing in a dock TextField sends '1','2',… through to the
-        // panel's nav hotkeys and the user can't compose a message.
-        // Esc and the dock suggestion keys still reach onKeyDown so
-        // completion can be accepted/dismissed while typing.
-        let kc = event.keyCode
-        let isEscape = kc == 53
-        let hasCommand = event.modifierFlags.contains(.command)
-        let isSuggestionKey = HUDDockState.shared.suggestionsVisible
-            && (kc == 36 || kc == 48 || kc == 125 || kc == 126)
-        let runnerTabIsForward = kc != 48
-            || !event.modifierFlags.contains(.shift)
-        let runnerTabModifiers: NSEvent.ModifierFlags = [.control, .option, .command]
-        let isRunnerFocusTab = HUDRunnerState.shared.isPresented
-            && kc == 48
-            && event.modifierFlags.intersection(runnerTabModifiers).isEmpty
-        let isRunnerProjectKey = HUDRunnerState.shared.isPresented
-            && HUDRunnerState.shared.shouldHandleProjectNavigation
-            && runnerTabIsForward
-            && (kc == 36 || kc == 48 || kc == 125 || kc == 126)
-        let isIdleAgentRosterArrow = HUDState.shared.view == .focus
-            && !HUDDockState.shared.suggestionsVisible
-            && HUDDockState.shared.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && (kc == 125 || kc == 126)
-        if firstResponderIsTextEditing
-            && !isEscape
-            && !hasCommand
-            && !isSuggestionKey
-            && !isRunnerFocusTab
-            && !isRunnerProjectKey
-            && !isIdleAgentRosterArrow {
+        // A focused editor owns its complete keyboard stream. Composer-level
+        // Return/Tab/Escape behavior is implemented on the shared field itself;
+        // the panel never gets to reinterpret letters or caret navigation as
+        // HUD shortcuts while the operator is writing.
+        if HUDKeyboardInput.shouldDeliverToTextEditor(
+            keyCode: event.keyCode,
+            textEditing: firstResponderIsTextEditing,
+            suggestionsVisible: HUDDockState.shared.suggestionsVisible
+        ) {
             super.keyDown(with: event)
             return
         }
@@ -80,7 +58,10 @@ final class OverlayPanel: NSPanel {
     }
 
     private var firstResponderIsTextEditing: Bool {
-        HUDKeyboardInput.isTextEditing(firstResponder)
+        HUDKeyboardInput.isTextEditing(
+            firstResponder,
+            logicalFocus: HUDDockState.shared.textInputFocused
+        )
     }
 
     override func flagsChanged(with event: NSEvent) {
@@ -91,7 +72,13 @@ final class OverlayPanel: NSPanel {
 
 @MainActor
 enum HUDKeyboardInput {
-    static func isTextEditing(_ responder: NSResponder?) -> Bool {
+    static func isTextEditing(
+        _ responder: NSResponder?,
+        logicalFocus: Bool = false
+    ) -> Bool {
+        if logicalFocus {
+            return true
+        }
         if let text = responder as? NSText, text.isEditable {
             return true
         }
@@ -103,6 +90,19 @@ enum HUDKeyboardInput {
             return true
         }
         return false
+    }
+
+    /// Once a text field owns focus, the panel delivers every key to its field
+    /// editor. The shared composer may then claim explicit controls locally,
+    /// but global HUD navigation never sees or duplicates the keystroke.
+    static func shouldDeliverToTextEditor(
+        keyCode: UInt16,
+        textEditing: Bool,
+        suggestionsVisible: Bool
+    ) -> Bool {
+        _ = keyCode
+        _ = suggestionsVisible
+        return textEditing
     }
 
     static func isTextEditingInKeyWindow(panel: NSWindow?) -> Bool {

@@ -1,4 +1,3 @@
-import AppKit
 import ScoutAppCore
 import ScoutNativeCore
 import ScoutSharedUI
@@ -135,15 +134,19 @@ struct HudMessageDock: View {
             // Grown → put the caret in the field so engage is one gesture.
             guard now else { return }
             focused = true
-            DockFieldSelection.moveCaretToEndSoon()
+            MessageComposerTextSelection.moveCaretToEndSoon()
         }
         .onChange(of: dock.focusRequested) { _, _ in
             engaged = true
             focused = true
-            DockFieldSelection.moveCaretToEndSoon()
+            MessageComposerTextSelection.moveCaretToEndSoon()
         }
         .onChange(of: dock.blurRequested)  { _, _ in focused = false }
-        .onChange(of: focused) { _, now in
+        .onChange(of: focused, initial: true) { _, now in
+            // This is the authoritative guard for HUD keyboard shortcuts.
+            // AppKit's field editor can briefly trail SwiftUI focus changes,
+            // which used to let bare-letter navigation consume typed text.
+            dock.setTextInputFocused(now)
             // Blur with nothing in flight collapses back to the resting bar;
             // a half-typed draft or live dictation keeps it grown.
             if !now, dock.text.isEmpty, !voiceActive { engaged = false }
@@ -159,6 +162,7 @@ struct HudMessageDock: View {
             dock.setSuggestionAgents(next)
         }
         .onAppear { refreshSuggestions() }
+        .onDisappear { dock.setTextInputFocused(false) }
     }
 
     private func submit() {
@@ -261,11 +265,8 @@ private struct CompactDock: View {
     @FocusState.Binding var focused: Bool
     let onSubmit: () -> Void
 
+    @ObservedObject private var dock = HUDDockState.shared
     @ObservedObject private var voice = HudVoiceService.shared
-
-    private var showDictationPreview: Bool {
-        text.isEmpty && (voice.state.isCaptureActive || voice.state.isProcessing)
-    }
 
     var body: some View {
         // `pad` kept for call-site parity with size tiers; the studio
@@ -280,30 +281,20 @@ private struct CompactDock: View {
                         place: threadName
                     )
 
-                    ZStack(alignment: .leading) {
-                        TextField(
-                            showDictationPreview
-                                ? ""
-                                : "steer here · @work to reach · #project to scope · / for commands",
-                            text: $text
-                        )
-                        .textFieldStyle(.plain)
-                        .font(HUDType.mono(11))
-                        .foregroundStyle(HUDChrome.ink)
-                        .focused($focused)
-                        .onKeyPress(phases: .down) { press in
-                            guard press.key == .return else { return .ignored }
-                            guard press.modifiers.contains(.command) || press.modifiers.contains(.control) else { return .ignored }
-                            onSubmit()
-                            return .handled
-                        }
-                        .onSubmit(onSubmit)
-                        if showDictationPreview {
-                            DictationLivePreview(text: voice.partial, fontSize: 11)
-                                .allowsHitTesting(false)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    MessageComposerField(
+                        text: $text,
+                        focused: $focused,
+                        placeholder: "steer here · @work to reach · #project to scope · / for commands",
+                        partialText: voice.partial,
+                        dictationActive: voice.state.isCaptureActive || voice.state.isProcessing,
+                        suggestionsVisible: dock.suggestionsVisible,
+                        submitBehavior: .returnKey,
+                        style: .hud(fontSize: 11, maximumLines: 1),
+                        onSubmit: onSubmit,
+                        onAcceptSuggestion: dock.applySelectedSuggestion,
+                        onMoveSuggestion: moveSuggestion,
+                        onEscape: escapeComposer
+                    )
 
                     DockToolRow(
                         micBox: 20,
@@ -316,6 +307,18 @@ private struct CompactDock: View {
                 }
             }
         }
+    }
+
+    private func moveSuggestion(_ delta: Int) -> Bool {
+        guard dock.suggestionsVisible else { return false }
+        dock.stepSuggestion(delta)
+        return true
+    }
+
+    private func escapeComposer() -> Bool {
+        if dock.escapePressed() { return true }
+        focused = false
+        return true
     }
 }
 
@@ -399,15 +402,13 @@ private struct MediumLargeDock: View {
     @FocusState.Binding var focused: Bool
     let onSubmit: () -> Void
 
+    @ObservedObject private var dock = HUDDockState.shared
     @ObservedObject private var voice = HudVoiceService.shared
 
     private var isLarge: Bool { size == .large }
     private var micBox: CGFloat { isLarge ? 24 : 22 }
     private var micGlyph: CGFloat { isLarge ? 14 : 13 }
     private var placeholderSize: CGFloat { isLarge ? 12 : 11 }
-    private var showDictationPreview: Bool {
-        text.isEmpty && (voice.state.isCaptureActive || voice.state.isProcessing)
-    }
 
     var body: some View {
         DockStrip {
@@ -419,33 +420,24 @@ private struct MediumLargeDock: View {
                         place: threadName
                     )
 
-                    ZStack(alignment: .topLeading) {
-                        TextField(
-                            showDictationPreview
-                                ? ""
-                                : "steer here · @work to reach · #project to scope · / for commands",
-                            text: $text,
-                            axis: .vertical
-                        )
-                        .textFieldStyle(.plain)
-                        .lineLimit(1...5)
-                        .font(HUDType.mono(placeholderSize))
-                        .foregroundStyle(HUDChrome.ink)
-                        .focused($focused)
-                        .onKeyPress(phases: .down) { press in
-                            guard press.key == .return else { return .ignored }
-                            guard press.modifiers.contains(.command) || press.modifiers.contains(.control) else { return .ignored }
-                            onSubmit()
-                            return .handled
-                        }
-                        .onSubmit(onSubmit)
-                        if showDictationPreview {
-                            DictationLivePreview(text: voice.partial, fontSize: placeholderSize)
-                                .allowsHitTesting(false)
-                                .padding(.top, 1)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, minHeight: isLarge ? 28 : 22, alignment: .leading)
+                    MessageComposerField(
+                        text: $text,
+                        focused: $focused,
+                        placeholder: "steer here · @work to reach · #project to scope · / for commands",
+                        partialText: voice.partial,
+                        dictationActive: voice.state.isCaptureActive || voice.state.isProcessing,
+                        suggestionsVisible: dock.suggestionsVisible,
+                        submitBehavior: .returnKey,
+                        style: .hud(
+                            fontSize: placeholderSize,
+                            maximumLines: 5,
+                            minimumHeight: isLarge ? 28 : 22
+                        ),
+                        onSubmit: onSubmit,
+                        onAcceptSuggestion: dock.applySelectedSuggestion,
+                        onMoveSuggestion: moveSuggestion,
+                        onEscape: escapeComposer
+                    )
 
                     DockToolRow(
                         micBox: micBox,
@@ -458,6 +450,18 @@ private struct MediumLargeDock: View {
                 }
             }
         }
+    }
+
+    private func moveSuggestion(_ delta: Int) -> Bool {
+        guard dock.suggestionsVisible else { return false }
+        dock.stepSuggestion(delta)
+        return true
+    }
+
+    private func escapeComposer() -> Bool {
+        if dock.escapePressed() { return true }
+        focused = false
+        return true
     }
 }
 
@@ -547,60 +551,23 @@ private struct DockGrammarHint: View {
     }
 }
 
-// ─── Dictation insertion affordances ────────────────────────────────
+// ─── Shared composer styling ────────────────────────────────────────
 
-@MainActor
-private enum DockFieldSelection {
-    static func moveCaretToEndSoon() {
-        moveCaretToEnd()
-        Task { @MainActor in
-            await Task.yield()
-            moveCaretToEnd()
-            await Task.yield()
-            moveCaretToEnd()
-        }
-    }
-
-    private static func moveCaretToEnd() {
-        guard let editor = NSApp.windows
-            .compactMap({ $0.firstResponder as? NSText })
-            .first(where: { $0.isEditable })
-        else { return }
-
-        let length = (editor.string as NSString).length
-        editor.selectedRange = NSRange(location: length, length: 0)
-    }
-}
-
-private struct DictationLivePreview: View {
-    let text: String
-    var fontSize: CGFloat = 10
-
-    @State private var caretLit = false
-
-    private var displayText: String {
-        text.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    var body: some View {
-        HStack(spacing: 4) {
-            if !displayText.isEmpty {
-                Text(displayText)
-                    .font(HUDType.mono(fontSize))
-                    .foregroundStyle(HUDChrome.inkMuted)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            RoundedRectangle(cornerRadius: 0.5, style: .continuous)
-                .fill(HUDChrome.accent.opacity(caretLit ? 0.95 : 0.25))
-                .frame(width: 1, height: max(10, fontSize + 2))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 0.48).repeatForever(autoreverses: true)) {
-                caretLit = true
-            }
-        }
+private extension MessageComposerFieldStyle {
+    static func hud(
+        fontSize: CGFloat,
+        maximumLines: Int,
+        minimumHeight: CGFloat? = nil
+    ) -> MessageComposerFieldStyle {
+        MessageComposerFieldStyle(
+            font: HUDType.mono(fontSize),
+            textColor: HUDChrome.ink,
+            caretColor: HUDChrome.accent,
+            partialColor: HUDChrome.inkMuted,
+            partialCaretColor: HUDChrome.accent,
+            maximumLines: maximumLines,
+            minimumHeight: minimumHeight
+        )
     }
 }
 

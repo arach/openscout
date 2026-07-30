@@ -956,27 +956,24 @@ struct ScoutSessionComposer: View {
     // the caret sits on the text baseline — mirrors the conversation composer's
     // `composerFieldRow`. Grows to ~10 lines; ⌘↵ submits via the send button.
     private var messageInputZone: some View {
-        ZStack(alignment: .topLeading) {
-            TextField(showDictationPreview ? "" : messagePlaceholder, text: $draft.instructions, axis: .vertical)
-                .textFieldStyle(.plain)
-                .font(HudFont.ui(HudTextSize.sm))
-                .foregroundStyle(ScoutPalette.ink)
-                .tint(showDictationPreview ? Color.clear : ScoutPalette.accent)
-                .lineLimit(1...10)
-                .focused($instructionsFocused)
-                .onKeyPress(phases: .down) { press in
-                    guard press.key == .return else { return .ignored }
-                    guard press.modifiers.contains(.command) || press.modifiers.contains(.control) else { return .ignored }
-                    submit()
-                    return .handled
-                }
-                .frame(maxWidth: .infinity, minHeight: 84, alignment: .topLeading)
-
-            if showDictationPreview {
-                ScoutDictationPreview(text: voice.partial)
-                    .allowsHitTesting(false)
-            }
-        }
+        MessageComposerField(
+            text: $draft.instructions,
+            focused: $instructionsFocused,
+            placeholder: messagePlaceholder,
+            partialText: voice.partial,
+            dictationActive: showDictationPreview,
+            isEnabled: !isSubmitting,
+            submitBehavior: .commandReturn,
+            style: MessageComposerFieldStyle(
+                font: HudFont.ui(HudTextSize.sm),
+                textColor: ScoutPalette.ink,
+                caretColor: ScoutPalette.accent,
+                partialColor: ScoutPalette.muted,
+                maximumLines: 10,
+                minimumHeight: 84
+            ),
+            onSubmit: submit
+        )
         .padding(.horizontal, HudSpacing.xl)
         .padding(.top, HudSpacing.lg)
         .padding(.bottom, HudSpacing.md)

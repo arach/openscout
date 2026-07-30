@@ -39,7 +39,7 @@ struct VoiceSettingsTab: View {
     private var permissionBanner: some View {
         let mic = ScoutVoicePermissions.microphoneStatus()
         let speech = ScoutVoicePermissions.speechRecognitionStatus()
-        let ready = mic.granted && speech.granted
+        let ready = mic.granted && (voice.usesSpeechAnalyzer || speech.granted)
 
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
@@ -63,7 +63,12 @@ struct VoiceSettingsTab: View {
                 bannerMeta("App", value: "Scout Menu")
                 bannerMeta("Host", value: "Scout voice")
                 bannerMeta("Mic", value: mic.granted ? "Granted" : mic.status.capitalized)
-                bannerMeta("Speech", value: speech.granted ? "Granted" : speech.status.capitalized)
+                bannerMeta(
+                    "Speech",
+                    value: voice.usesSpeechAnalyzer
+                        ? "On-device"
+                        : (speech.granted ? "Granted" : speech.status.capitalized)
+                )
             }
         }
         .padding(12)
@@ -168,7 +173,7 @@ struct VoiceSettingsTab: View {
         let mic = ScoutVoicePermissions.microphoneStatus()
         if !mic.granted { return mic.isTerminal ? .fail : .warn }
         if case .unavailable = voice.state { return .fail }
-        if voice.preference != .apple && !voice.modelReady { return .warn }
+        if voice.usesParakeetBackend && !voice.modelReady { return .warn }
         return .healthy
     }
 
@@ -178,7 +183,7 @@ struct VoiceSettingsTab: View {
             return mic.isTerminal ? "Mic blocked" : "Mic needed"
         }
         if case .unavailable = voice.state { return "Unavailable" }
-        if voice.preference != .apple && !voice.modelReady { return "Model warming" }
+        if voice.usesParakeetBackend && !voice.modelReady { return "Model warming" }
         return "Ready"
     }
 
@@ -191,8 +196,8 @@ struct VoiceSettingsTab: View {
                 for: AVCaptureDevice.authorizationStatus(for: .audio)
             ))
         }
-        if voice.preference != .apple && !voice.modelReady {
-            lines.append("Parakeet is not warm yet. Apple Speech remains available as a fallback.")
+        if voice.usesParakeetBackend && !voice.modelReady {
+            lines.append("Parakeet is not warm yet. Choose Apple to use the system speech engine instead.")
         }
         return lines.joined(separator: "\n\n")
     }
@@ -200,9 +205,9 @@ struct VoiceSettingsTab: View {
     private func voiceRows() -> [KVEntry] {
         [
             KVEntry(key: "Engine", value: activeEngineLabel),
-            KVEntry(key: "Preference", value: voice.preference.title),
+            KVEntry(key: "Preference", value: preferenceLabel(voice.preference)),
             KVEntry(key: "Model", value: modelStatusLabel),
-            KVEntry(key: "Warm", value: voice.preference == .apple ? "n/a" : (voice.modelReady ? "Yes" : "No")),
+            KVEntry(key: "Warm", value: voice.usesParakeetBackend ? (voice.modelReady ? "Yes" : "No") : "n/a"),
             KVEntry(key: "Last engine", value: lastEngineLabel(voice.lastEngine)),
             KVEntry(key: "Host", value: "scout-menu"),
         ]
@@ -226,12 +231,19 @@ struct VoiceSettingsTab: View {
                 request: { await ScoutVoicePermissions.recoverMicrophoneAccess() }
             )
 
-            permissionRow(
-                title: "Speech recognition",
-                status: ScoutVoicePermissions.speechRecognitionStatus(),
-                openSettings: ScoutVoicePermissions.openSpeechRecognitionPrivacySettings,
-                request: { await ScoutVoicePermissions.recoverSpeechRecognitionAccess() }
-            )
+            if voice.usesSpeechAnalyzer {
+                Text("SpeechAnalyzer runs on-device and needs only microphone access. The separate Speech Recognition permission is used by the legacy macOS 14–15 engine.")
+                    .font(MenuType.body(11))
+                    .foregroundStyle(ShellPalette.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                permissionRow(
+                    title: "Speech recognition",
+                    status: ScoutVoicePermissions.speechRecognitionStatus(),
+                    openSettings: ScoutVoicePermissions.openSpeechRecognitionPrivacySettings,
+                    request: { await ScoutVoicePermissions.recoverSpeechRecognitionAccess() }
+                )
+            }
         }
     }
 
@@ -321,7 +333,7 @@ struct VoiceSettingsTab: View {
         SettingsCard {
             sectionHeader("Transcription", symbol: "waveform")
 
-            Text("Parakeet on-device when warm; Apple Speech as instant fallback.")
+            Text(transcriptionSummary)
                 .font(MenuType.body(11))
                 .foregroundStyle(ShellPalette.dim)
                 .fixedSize(horizontal: false, vertical: true)
@@ -333,9 +345,9 @@ struct VoiceSettingsTab: View {
             }
 
             KVRow(entry: KVEntry(key: "Parakeet", value: modelStatusLabel))
-            KVRow(entry: KVEntry(key: "Fallback", value: "Apple Speech"))
+            KVRow(entry: KVEntry(key: "System", value: systemSpeechLabel))
 
-            if voice.preference != .apple && !voice.modelReady {
+            if voice.usesParakeetBackend && !voice.modelReady {
                 HStack(spacing: 8) {
                     Spacer(minLength: 0)
                     Button(isWarming ? "Warming…" : "Download & warm") {
@@ -354,7 +366,7 @@ struct VoiceSettingsTab: View {
             voice.preference = pref
             Task { await refresh() }
         } label: {
-            Text(pref.title.uppercased())
+            Text(preferenceLabel(pref).uppercased())
                 .font(MenuType.mono(9, weight: active ? .bold : .medium))
                 .tracking(0.6)
                 .foregroundStyle(active ? ShellPalette.ink : ShellPalette.dim)
@@ -462,8 +474,8 @@ struct VoiceSettingsTab: View {
         } else if mic.status == "notDetermined" {
             tips.insert("Tap Request access above or use the mic in chat to show the macOS microphone prompt.", at: 0)
         }
-        if voice.preference != .apple && !voice.modelReady {
-            tips.append("Use “Download & warm” or switch to Apple Speech for instant transcription while Parakeet loads.")
+        if voice.usesParakeetBackend && !voice.modelReady {
+            tips.append("Use “Download & warm” or switch to Apple for system-managed transcription while Parakeet loads.")
         }
         if case .unavailable(let reason) = voice.state {
             tips.insert(reason, at: 0)
@@ -504,13 +516,23 @@ struct VoiceSettingsTab: View {
     // MARK: - Helpers
 
     private var activeEngineLabel: String {
+        if voice.usesSpeechAnalyzer { return "SpeechAnalyzer" }
         switch voice.preference {
-        case .apple: return "Apple Speech"
-        case .auto, .parakeet: return voice.modelReady ? "Parakeet" : "Apple Speech"
+        case .apple: return "Apple Speech (legacy)"
+        case .auto, .parakeet: return voice.modelReady ? "Parakeet" : "Apple Speech (legacy)"
+        }
+    }
+
+    private func preferenceLabel(_ preference: HudDictation.Preference) -> String {
+        switch preference {
+        case .auto: return "Auto"
+        case .parakeet: return "Parakeet"
+        case .apple: return systemSpeechLabel
         }
     }
 
     private var modelStatusLabel: String {
+        if voice.usesSpeechAnalyzer { return "System managed" }
         if voice.preference == .apple { return "Off (Apple only)" }
         if voice.modelReady { return "Ready" }
         if voice.modelInstalled { return "On disk" }
@@ -564,10 +586,23 @@ struct VoiceSettingsTab: View {
         )
     }
 
-    private func lastEngineLabel(_ engine: HudDictation.Engine) -> String {
+    private var systemSpeechLabel: String {
+        if #available(macOS 26.0, *) { return "SpeechAnalyzer" }
+        return "Apple Speech (legacy)"
+    }
+
+    private var transcriptionSummary: String {
+        if #available(macOS 26.0, *) {
+            return "SpeechAnalyzer is the default system-managed engine. Parakeet remains available as an explicit on-device option."
+        }
+        return "Apple Speech is used on this macOS version. Parakeet remains available as an explicit on-device option."
+    }
+
+    private func lastEngineLabel(_ engine: ScoutVoiceService.Engine) -> String {
         switch engine {
         case .parakeet: return "Parakeet"
-        case .apple: return "Apple Speech"
+        case .speechAnalyzer: return "SpeechAnalyzer"
+        case .appleLegacy: return "Apple Speech (legacy)"
         }
     }
 
