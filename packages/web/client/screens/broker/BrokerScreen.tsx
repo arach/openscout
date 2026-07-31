@@ -23,6 +23,7 @@ import { effortsFor, type RuntimeValue } from "../../lib/runtime-catalog.ts";
 import {
   brokerAttemptDetailLimit,
   brokerAttemptErrorSummary,
+  brokerAttemptFailureTitle,
   brokerAttemptIsFailure,
   brokerAttemptTargetAgent,
   brokerAttemptContextText,
@@ -951,6 +952,21 @@ function DispatchPayloadViewer({ payload }: { payload: string }) {
   );
 }
 
+function DispatchRouteFailure({ attempt }: { attempt: BrokerRouteAttempt }) {
+  const title = brokerAttemptFailureTitle(attempt);
+  return (
+    <div className="sys-broker-route-failure" role="status">
+      <span className="sys-broker-route-failure-mark" aria-hidden="true"><X size={14} /></span>
+      <div>
+        <span className="sys-detail-label">Routing stopped</span>
+        <strong>{title}</strong>
+        <p>{attempt.detail}</p>
+      </div>
+      <CopyIconButton value={attempt.detail} subject="failure detail" />
+    </div>
+  );
+}
+
 export function BrokerAttemptInspector({
   attempt,
   navigate,
@@ -964,11 +980,12 @@ export function BrokerAttemptInspector({
   const rows = brokerInspectorRows(attempt);
   const metadata = brokerMetadataJson(attempt.metadata);
   const isFailure = brokerAttemptIsFailure(attempt);
+  const isRouteFailure = attempt.kind === "failed_query";
   const errorSummary = brokerAttemptErrorSummary(attempt);
   const tone = brokerAttemptTone(attempt.kind, attempt.status);
   const sentAt = metadataTimestamp(attempt, "sentAt", "createdAt") ?? normalizeTimestampMs(attempt.ts);
   const deliveredAt = metadataTimestamp(attempt, "deliveredAt", "completedAt")
-    ?? (isFailure ? null : normalizeTimestampMs(attempt.ts));
+    ?? normalizeTimestampMs(attempt.ts);
   const reference = brokerAttemptReference(attempt);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [reviewStatus, setReviewStatus] = useState<"idle" | "running" | "sent" | "failed">("idle");
@@ -985,6 +1002,7 @@ export function BrokerAttemptInspector({
   const [forwardEffort, setForwardEffort] = useState("medium");
   const [runtimeCapabilities, setRuntimeCapabilities] = useState<RuntimeCapabilityCatalog | null>(null);
   const [forwardFiles, setForwardFiles] = useState<File[]>([]);
+  const [forwardExpanded, setForwardExpanded] = useState(false);
   const [forwardStatus, setForwardStatus] = useState<DispatchActionStatus>("idle");
   const [forwardMessage, setForwardMessage] = useState<string | null>(null);
   const retryHarness = metadataText(attempt, "harness");
@@ -1068,6 +1086,7 @@ export function BrokerAttemptInspector({
     setForwardModel(defaults.defaultForwardAgent?.model?.trim() || "");
     setForwardEffort(defaults.effort);
     setForwardFiles([]);
+    setForwardExpanded(false);
     setForwardStatus("idle");
     setForwardMessage(null);
     // Deliberately keyed on the selected dispatch alone — see the note above.
@@ -1112,6 +1131,7 @@ export function BrokerAttemptInspector({
   }, [contextText]);
 
   const prepareScoutMessage = useCallback((prompt: string) => {
+    setForwardExpanded(true);
     setMessageDraft(prompt);
     window.requestAnimationFrame(() => messageInputRef.current?.focus());
   }, []);
@@ -1372,8 +1392,10 @@ export function BrokerAttemptInspector({
         </dl>
 
         <section className="sys-broker-payload">
-          <DispatchPayloadViewer payload={attempt.detail} />
-          {isFailure && errorSummary && (
+          {isRouteFailure
+            ? <DispatchRouteFailure attempt={attempt} />
+            : <DispatchPayloadViewer payload={attempt.detail} />}
+          {isFailure && !isRouteFailure && errorSummary && (
             <div className="sys-broker-inspector-error" role="status">
               <span className="sys-broker-inspector-error-label">Error</span>
               <p>{errorSummary}</p>
@@ -1505,31 +1527,45 @@ export function BrokerAttemptInspector({
         </button>
       </div>
 
-      <section className="sys-broker-forward" aria-labelledby="dispatch-forward-title">
-        <div className="sys-broker-forward-intro">
+      <section
+        className={`sys-broker-forward${forwardExpanded ? " sys-broker-forward--expanded" : ""}`}
+        aria-labelledby="dispatch-forward-title"
+      >
+        <button
+          type="button"
+          className="sys-broker-forward-toggle"
+          aria-expanded={forwardExpanded}
+          aria-controls="dispatch-forward-content"
+          onClick={() => setForwardExpanded((current) => !current)}
+        >
           <div className="sys-broker-action-head">
             <span className="sys-broker-action-mark" aria-hidden="true"><MessageSquare size={12} /></span>
             <div>
               <span id="dispatch-forward-title">Ask another agent</span>
-              <small>Send a custom request with the full dispatch context attached.</small>
+              <small>Optional · forwards this dispatch context.</small>
             </div>
           </div>
-          <div className="sys-broker-ask-prompts" aria-label="Suggested requests">
-            {scoutPrompts.map((prompt) => (
-              <button key={prompt} type="button" onClick={() => prepareScoutMessage(prompt)}>
-                <Sparkles size={11} aria-hidden="true" />
-                {prompt}
-              </button>
-            ))}
-          </div>
-        </div>
-        <form
-          className="sys-broker-message-composer"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void forwardDispatch();
-          }}
-        >
+          <ChevronDown className="sys-broker-forward-chevron" size={15} aria-hidden="true" />
+        </button>
+        {forwardExpanded && (
+          <div id="dispatch-forward-content">
+            <div className="sys-broker-forward-intro">
+              <div className="sys-broker-ask-prompts" aria-label="Suggested requests">
+                {scoutPrompts.map((prompt) => (
+                  <button key={prompt} type="button" onClick={() => prepareScoutMessage(prompt)}>
+                    <Sparkles size={11} aria-hidden="true" />
+                    {prompt}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <form
+              className="sys-broker-message-composer"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void forwardDispatch();
+              }}
+            >
           <label htmlFor="dispatch-message-input">Request</label>
           <textarea
             ref={messageInputRef}
@@ -1679,10 +1715,12 @@ export function BrokerAttemptInspector({
               {forwardStatus === "sending" ? <LoaderCircle size={14} className="sys-broker-action-spinner" aria-hidden="true" /> : <SendHorizontal size={14} aria-hidden="true" />}
             </button>
           </footer>
-        </form>
-        {forwardMessage && (
-          <div className={`sys-broker-action-status sys-broker-action-status--${forwardStatus}`} role="status">
-            {forwardMessage}
+            </form>
+            {forwardMessage && (
+              <div className={`sys-broker-action-status sys-broker-action-status--${forwardStatus}`} role="status">
+                {forwardMessage}
+              </div>
+            )}
           </div>
         )}
       </section>

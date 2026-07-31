@@ -144,9 +144,13 @@ struct HUDRunnerComposer: View {
                 || voice.state == .probing
                 || voice.state.isProcessing
         )
+        .keyboardShortcut("d", modifiers: .command)
         .focused(focus, equals: .voice)
         .help(voiceHelp)
         .accessibilityLabel(voiceLabel)
+        .accessibilityHint(
+            "Toggle dictation with \(HUDRunnerKeyboardContract.dictationShortcutLabel)."
+        )
     }
 
     private var runtimeButton: some View {
@@ -299,9 +303,11 @@ struct HUDRunnerComposer: View {
     private var voiceHelp: String {
         if runner.isPreparingVoice { return "Preparing voice dictation" }
         if case .unavailable(let reason) = voice.state { return reason }
-        if voice.state.isCaptureActive { return "Stop voice dictation" }
+        if voice.state.isCaptureActive {
+            return "Stop voice dictation (\(HUDRunnerKeyboardContract.dictationShortcutLabel))"
+        }
         if voice.state.isProcessing { return "Transcribing voice" }
-        return "Start voice dictation"
+        return "Start voice dictation (\(HUDRunnerKeyboardContract.dictationShortcutLabel))"
     }
 }
 

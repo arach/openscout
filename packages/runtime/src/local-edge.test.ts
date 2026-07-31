@@ -39,6 +39,11 @@ describe("OpenScout local edge", () => {
     expect(caddyfile).toContain("reverse_proxy 127.0.0.1:43120 {");
     expect(caddyfile).not.toContain("tls internal");
     expect(caddyfile).toContain("Start Scout");
+    expect(caddyfile).toContain("Bring Scout online.");
+    expect(caddyfile).toContain('localStorage.getItem("openscout.theme")');
+    expect(caddyfile).toContain(':root[data-scout-theme="light"]');
+    expect(caddyfile).toContain('class="orb"');
+    expect(caddyfile).toContain('class="orb-l" data-t="4"');
     expect(caddyfile).toContain("reverse_proxy 127.0.0.1:43110");
     expect(caddyfile).toContain("new URL(config.startPath, window.location.origin)");
   });

@@ -20,8 +20,18 @@ enum HUDRunnerLayout {
         switch disclosure {
         case .none:
             return collapsedRoutingHeight
-        case .projectChoices, .projectSearch:
+        case .projectChoices:
             return choiceRoutingHeight(count: projectChoiceCount)
+        case .projectSearch:
+            // Search owns a fixed three-row suggestion viewport plus its
+            // inset search field. Keep the empty/loading states the same size
+            // so the panel never clips or jumps while results arrive.
+            return choiceRoutingHeight(
+                count: max(
+                    projectChoiceCount,
+                    HUDRunnerKeyboardContract.visibleProjectSuggestionCount
+                )
+            ) + 14
         case .runtimeChoices:
             return choiceRoutingHeight(count: runtimeChoiceCount)
         case .route:
@@ -75,7 +85,7 @@ struct HUDRunnerOverlay: View {
         intakeLayer
             .onAppear {
                 Task { await runner.loadOptionsIfNeeded() }
-                focus(.instructions)
+                focus(runner.focusRequest.target)
             }
             .onChange(of: runner.focusRequest) { _, request in
                 focus(request.target)
@@ -196,7 +206,9 @@ struct HUDRunnerOverlay: View {
     private var projectChoiceCount: Int {
         switch runner.disclosure {
         case .projectChoices, .projectSearch:
-            runner.projectQuickChoices(limit: 3).count
+            runner.projectQuickChoices(
+                limit: HUDRunnerKeyboardContract.visibleProjectSuggestionCount
+            ).count
         default:
             3
         }
@@ -222,9 +234,13 @@ struct HUDRunnerOverlay: View {
         let projectIDs: [String]
         switch runner.disclosure {
         case .projectChoices:
-            projectIDs = runner.projectQuickChoices(limit: 3).map(\.id)
+            projectIDs = runner.projectQuickChoices(
+                limit: HUDRunnerKeyboardContract.visibleProjectSuggestionCount
+            ).map(\.id)
         case .projectSearch:
-            projectIDs = runner.projectMatches(limit: 3).map(\.id)
+            projectIDs = runner.projectMatches(
+                limit: HUDRunnerKeyboardContract.visibleProjectSuggestionCount
+            ).map(\.id)
         default:
             projectIDs = []
         }
@@ -258,18 +274,55 @@ struct HUDRunnerOverlay: View {
             ]
         } else {
             let presets = runner.runtimeQuickChoices(limit: 3)
-            order = presets.flatMap { preset in
-                [
-                    HUDRunnerFocusTarget.runtimeChoice(preset.id),
-                    HUDRunnerFocusTarget.runtimeTweaks(preset.id),
-                ]
-            } + [.configureRuntime]
+            order = [.runtimePickerClose]
+                + presets.flatMap(runtimePickerFocusTargets)
+                + [.configureRuntime]
         }
         guard !order.isEmpty else { return }
         let current = focusedField.flatMap { order.firstIndex(of: $0) }
             ?? (direction < 0 ? 0 : order.count - 1)
         let next = (current + (direction < 0 ? -1 : 1) + order.count) % order.count
         focusedField = order[next]
+    }
+
+    private func runtimePickerFocusTargets(
+        for preset: HUDRunnerRuntimePreset
+    ) -> [HUDRunnerFocusTarget] {
+        var result: [HUDRunnerFocusTarget] = [
+            .runtimeChoice(preset.id),
+            .runtimeTweaks(preset.id),
+        ]
+        guard runner.runtimePickerTuningPresetID == preset.id else {
+            return result
+        }
+
+        let descriptors = HUDRunnerRuntimeFormatter.descriptors(
+            models: runner.availableModels(for: preset.harness),
+            selectedModel: preset.model,
+            harness: preset.harness
+        )
+        if let selected = descriptors.first(where: { $0.option.id == preset.model }) {
+            result += descriptors
+                .filter { $0.familyID == selected.familyID }
+                .map { model in
+                    let resultPreset = HUDRunnerRuntimePreset(
+                        harness: preset.harness,
+                        model: model.option.id,
+                        effort: preset.effort
+                    )
+                    return .runtimeModel(resultPreset.id, model.option.id)
+                }
+        }
+        result += runner.availableEfforts(for: preset.harness)
+            .map { effort in
+                let resultPreset = HUDRunnerRuntimePreset(
+                    harness: preset.harness,
+                    model: preset.model,
+                    effort: effort.id
+                )
+                return .runtimeEffort(resultPreset.id, effort.id)
+            }
+        return result
     }
 }
 

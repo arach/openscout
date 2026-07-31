@@ -2,11 +2,13 @@ import { describe, expect, test } from "bun:test";
 import {
   SLASH_COMMANDS,
   WORKING_DURATION_THRESHOLDS_MS,
+  canOpenConversationTerminal,
   deriveWorkingDurationStage,
   hasOutstandingConversationReply,
   resolveComposeAction,
   resolveConversationAutoscroll,
   resolveThreadEmbedProps,
+  terminalTurnReceiptForFlight,
 } from "./conversation-model.ts";
 
 describe("conversation working duration", () => {
@@ -31,6 +33,20 @@ describe("conversation working duration", () => {
   test("keeps missing and future timestamps in the brief stage", () => {
     expect(deriveWorkingDurationStage(null, startedAt)).toBe("brief");
     expect(deriveWorkingDurationStage(startedAt + 1_000, startedAt)).toBe("brief");
+  });
+});
+
+describe("conversation working controls", () => {
+  test("offers Terminal only for a real terminal surface", () => {
+    expect(canOpenConversationTerminal({ terminalSurface: null })).toBe(false);
+    expect(canOpenConversationTerminal({
+      terminalSurface: {
+        backend: "tmux",
+        sessionName: "scout-agent-1",
+        paneId: null,
+        socketDir: null,
+      },
+    })).toBe(true);
   });
 });
 
@@ -66,9 +82,9 @@ describe("conversation composer product model", () => {
     })).toBe(false);
   });
 
-  test("keeps the macOS thread embed on the complete web conversation composer", () => {
+  test("keeps composer ownership out of the per-thread embed model", () => {
     const props = resolveThreadEmbedProps(
-      new URLSearchParams("conversationId=c-1&composer=0&treatment=ledger"),
+      new URLSearchParams("conversationId=c-1&treatment=ledger"),
     );
 
     expect(props).toEqual({
@@ -154,5 +170,48 @@ describe("conversation feed autoscroll", () => {
       historyRestorePending: false,
       initialScrollDone: false,
     })).toBe("none");
+  });
+});
+
+describe("terminal turn receipt", () => {
+  const completedFlight = {
+    id: "flt-1",
+    invocationId: "inv-1",
+    messageId: "msg-origin",
+    agentId: "agent-1",
+    agentName: "Tesla",
+    conversationId: "c.agent-1",
+    collaborationRecordId: null,
+    state: "completed",
+    summary: "worker-alias-3 replied.",
+    startedAt: 1_700_000_000_000,
+    completedAt: 1_700_000_020_000,
+    sessions: [],
+  };
+  test("does not create a feed receipt for successful completion", () => {
+    expect(terminalTurnReceiptForFlight(completedFlight)).toBeNull();
+    expect(terminalTurnReceiptForFlight({
+      ...completedFlight,
+      messageId: null,
+      summary: null,
+    })).toBeNull();
+  });
+
+  test("failed runs keep an interruption receipt", () => {
+    const receipt = terminalTurnReceiptForFlight({ ...completedFlight, state: "failed" });
+
+    expect(receipt).toEqual(expect.objectContaining({
+      label: "Run failed",
+      tone: "failed",
+    }));
+  });
+
+  test("cancelled runs keep an interruption receipt", () => {
+    const receipt = terminalTurnReceiptForFlight({ ...completedFlight, state: "cancelled" });
+
+    expect(receipt).toEqual(expect.objectContaining({
+      label: "Cancelled",
+      tone: "cancelled",
+    }));
   });
 });

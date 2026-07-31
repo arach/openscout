@@ -75,6 +75,10 @@ import { useScout } from "../../scout/Provider.tsx";
 import { openContent } from "../../scout/slots/openContent.ts";
 import { ObservedTopologyPanel } from "../../components/ObservedTopologyPanel.tsx";
 import { MessageComposer } from "../../components/MessageComposer/index.ts";
+import {
+  ObserveReasoningDisclosure,
+  ObserveStreamCursor,
+} from "./ObserveTextFlow.tsx";
 
 import "./session-observe.css";
 
@@ -436,7 +440,7 @@ function LaneExpandableText({
     return (
       <div className={className}>
         {renderExpanded ? renderExpanded(normalized) : normalized}
-        {live && <span className="s-observe-cursor" />}
+        {live && <ObserveStreamCursor text={normalized} />}
       </div>
     );
   }
@@ -452,7 +456,7 @@ function LaneExpandableText({
       <div className={`${className} s-observe-lane-expandable-body`}>
         <span className="s-observe-lane-expandable-text">
           {body}
-          {live && <span className="s-observe-cursor" />}
+          {live && <ObserveStreamCursor text={normalized} />}
         </span>
         {needsExpand && (
           <LaneExpandToggle
@@ -467,40 +471,21 @@ function LaneExpandableText({
 
 function ThinkBlock({ event, laneMode = false }: { event: SessionEvent; laneMode?: boolean }) {
   const text = event.text ?? "";
-  if (laneMode && !event.live) {
-    const snippet = laneSnippetText(text, 120, 1);
-    return (
-      <div className="s-observe-block s-observe-think-compact">
-        <span className="s-observe-think-compact-label">reasoning</span>
-        {snippet ? (
-          <span className="s-observe-think-compact-text" title={text}>
-            {snippet}
-          </span>
-        ) : null}
-      </div>
-    );
-  }
-
   return (
-    <div
-      className={[
-        "s-observe-block",
-        laneMode && "s-observe-think--lane",
-        event.live && "s-observe-think--live",
-      ]
-        .filter(Boolean)
-        .join(" ")}
-    >
-      <div className="s-observe-think-label">{event.live ? "thinking" : "reasoning"}</div>
-      <LaneExpandableText
-        text={text}
-        className="s-observe-think-text"
-        laneMode={laneMode}
-        live={event.live}
-        renderExpanded={(value) => <span className="s-observe-quoted">{value}</span>}
-      />
-      {!laneMode && <CopyButton text={text} label="Copy thought" />}
-    </div>
+    <ObserveReasoningDisclosure
+      text={text}
+      live={Boolean(event.live)}
+      compact={laneMode}
+      copyControl={
+        !laneMode ? (
+          <CopyButton
+            text={text}
+            label="Copy reasoning"
+            className="s-observe-copy-btn--inline"
+          />
+        ) : undefined
+      }
+    />
   );
 }
 
@@ -1109,7 +1094,17 @@ function MessageLine({ event, laneMode = false }: { event: SessionEvent; laneMod
   const text = thinking ? "Thinking..." : rawText;
   const label = thinking ? "Agent thinking" : messageDisplayLabel(event);
   return (
-    <div className={`s-observe-block${laneMode ? " s-observe-message--lane" : ""}${thinking ? " s-observe-message--thinking" : ""}`}>
+    <div
+      className={[
+        "s-observe-block",
+        laneMode && "s-observe-message--lane",
+        thinking && "s-observe-message--thinking",
+        event.live && "s-observe-message--streaming",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      aria-busy={event.live || undefined}
+    >
       {label ? <div className="s-observe-message-label">{label}</div> : null}
       <LaneExpandableText
         text={text}

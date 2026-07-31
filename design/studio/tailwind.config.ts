@@ -140,6 +140,7 @@ const config: Config = {
         "4xl": "var(--text-4xl)", // 19
         "5xl": "var(--text-5xl)", // 22
         "6xl": "var(--text-6xl)", // 26
+        "7xl": "var(--text-7xl)", // 32
       },
       letterSpacing: {
         // `eyebrow` is the studio's signature wide label tracking (278 call

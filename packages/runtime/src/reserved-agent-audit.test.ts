@@ -37,4 +37,22 @@ describe("stored reserved agent audit", () => {
       reviewer: agent("reviewer"),
     })).not.toThrow();
   });
+
+  test("does not let a remote mesh identity block local startup", () => {
+    const remote = agent("fable");
+    remote.homeNodeId = "remote-node";
+    remote.authorityNodeId = "remote-node";
+
+    expect(() => assertNoReservedStoredAgentNames(
+      { fable: remote },
+      { localNodeId: "local-node" },
+    )).not.toThrow();
+  });
+
+  test("still rejects a reserved identity owned by the local node", () => {
+    expect(() => assertNoReservedStoredAgentNames(
+      { fable: agent("fable") },
+      { localNodeId: "node" },
+    )).toThrow('reserved_name_existing: stored agent fable.main.node uses reserved profile name "fable"');
+  });
 });

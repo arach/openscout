@@ -9,9 +9,26 @@ export type ContextCaptureDraftSeed = {
   files?: File[];
   attachmentFeedback?: string;
   preferExistingChat?: boolean;
+  forwardContext?: ForwardContextSource;
+  forwardContextMode?: ForwardContextMode;
 };
 
-export type ContextCaptureIntent = "new-task" | "route-capture";
+export type ContextCaptureIntent = "new-task" | "route-capture" | "forward-message";
+
+export type ForwardContextMode = "selected-message" | "recent-context" | "instructions-only";
+
+/**
+ * Scout-owned, visible conversation material that can seed a fresh task.
+ * `recentContext` is a bounded excerpt, never a claim of full harness context
+ * or an AI-generated summary.
+ */
+export type ForwardContextSource = {
+  selectedMessage: string;
+  selectedMessageId: string;
+  sourceConversationId: string;
+  recentContext?: string;
+  recentMessageCount: number;
+};
 
 export type ContextCaptureDraft = {
   intent: ContextCaptureIntent;
@@ -23,12 +40,18 @@ export type ContextCaptureDraft = {
   mode: CaptureDeliveryMode;
   projectPath: string;
   projectQuery: string;
+  forwardContext?: ForwardContextSource;
+  forwardContextMode: ForwardContextMode;
 };
 
 export function contextCaptureDraftHasContent(
-  draft: Pick<ContextCaptureDraft, "message" | "files"> | null | undefined,
+  draft: Pick<ContextCaptureDraft, "message" | "files" | "forwardContext"> | null | undefined,
 ): boolean {
-  return Boolean(draft && (draft.message.trim().length > 0 || draft.files.length > 0));
+  return Boolean(draft && (
+    draft.message.trim().length > 0
+    || draft.files.length > 0
+    || draft.forwardContext
+  ));
 }
 
 function fileKey(file: File): string {
@@ -56,6 +79,7 @@ export function mergeContextCaptureDraft(
 ): ContextCaptureDraft {
   const intent = seed.intent ?? current?.intent ?? "new-task";
   const preserveRoute = intent === "route-capture";
+  const preserveForward = intent === "forward-message";
   return {
     intent,
     ...(preserveRoute && (seed.agentId ?? current?.agentId)
@@ -76,6 +100,12 @@ export function mergeContextCaptureDraft(
         : "new-session",
     projectPath: seed.projectPath ?? current?.projectPath ?? "",
     projectQuery: current?.projectQuery ?? "",
+    ...(preserveForward && (seed.forwardContext ?? current?.forwardContext)
+      ? { forwardContext: seed.forwardContext ?? current?.forwardContext }
+      : {}),
+    forwardContextMode: preserveForward
+      ? seed.forwardContextMode ?? current?.forwardContextMode ?? "selected-message"
+      : "selected-message",
   };
 }
 

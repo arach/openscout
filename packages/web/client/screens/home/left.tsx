@@ -1,7 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import "../../scout/slots/ctx-panel.css";
 import "./left.css";
-import { isAgentOnline, normalizeAgentState } from "../../lib/agent-state.ts";
+import { normalizeAgentState } from "../../lib/agent-state.ts";
 import { api, peekApiGet } from "../../lib/api.ts";
 import {
   filterAgentsByMachineScope,
@@ -96,7 +96,6 @@ export function HomeLeft({ prepend }: HomeLeftProps) {
       <RecentAgentsSection
         agents={recentAgents}
         totalCount={scopedAgents.length}
-        readyCount={scopedAgents.filter((a) => isAgentOnline(a.state)).length}
         loading={!agentsLoaded}
         onSelect={(agent) => openAgent(navigate, agent, { from: "base-rail", returnTo: route })}
         onSeeAll={() => navigate({ view: "agents-v2" })}
@@ -121,14 +120,12 @@ export function HomeLeft({ prepend }: HomeLeftProps) {
 function RecentAgentsSection({
   agents,
   totalCount,
-  readyCount,
   loading,
   onSelect,
   onSeeAll,
 }: {
   agents: Agent[];
   totalCount: number;
-  readyCount: number;
   loading: boolean;
   onSelect: (agent: Agent) => void;
   onSeeAll: () => void;
@@ -137,7 +134,6 @@ function RecentAgentsSection({
     <section className="ctx-panel-section base-rail-section">
       <SectionLabel
         title="Recent agents"
-        meta={totalCount > 0 ? `${readyCount} ready · ${totalCount}` : undefined}
         onSeeAll={totalCount > 0 ? onSeeAll : undefined}
       />
       {loading ? (

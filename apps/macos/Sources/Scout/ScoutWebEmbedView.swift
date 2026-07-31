@@ -57,7 +57,7 @@ private enum ScoutWebEmbedLoadPhase: Equatable {
     case failed(String)
 }
 
-struct ScoutRealtimeVoiceNativeAction: Decodable, Equatable {
+struct ScoutEmbeddedUIAction: Decodable, Equatable {
     struct Route: Decodable, Equatable {
         let view: String
         let conversationId: String?
@@ -76,6 +76,7 @@ struct ScoutRealtimeVoiceNativeAction: Decodable, Equatable {
         let endLine: Int?
         let mode: String?
         let preferredView: String?
+        let returnConversationId: String?
     }
 
     let type: String
@@ -84,9 +85,9 @@ struct ScoutRealtimeVoiceNativeAction: Decodable, Equatable {
     let mode: String?
 }
 
-private struct ScoutRealtimeVoiceNativeEnvelope: Decodable {
+private struct ScoutEmbeddedUIActionEnvelope: Decodable {
     let kind: String
-    let action: ScoutRealtimeVoiceNativeAction
+    let action: ScoutEmbeddedUIAction
 }
 
 private struct ScoutRealtimeVoiceNativeStateEnvelope: Decodable {
@@ -103,7 +104,7 @@ struct ScoutWebEmbedContent<AdditionalTrailing: View>: View {
     var loadingLaneSize: ScoutAgentLaneSize?
     var showsHeader: Bool
     var onRealtimeVoiceStateChange: (String, String?) -> Void
-    var onRealtimeVoiceAction: (ScoutRealtimeVoiceNativeAction) -> Void
+    var onNativeUIAction: (ScoutEmbeddedUIAction) -> Void
     var realtimeVoiceStopRequest: UUID?
     @ViewBuilder var additionalTrailing: () -> AdditionalTrailing
 
@@ -123,7 +124,7 @@ struct ScoutWebEmbedContent<AdditionalTrailing: View>: View {
         showsHeader: Bool = true,
         @ViewBuilder additionalTrailing: @escaping () -> AdditionalTrailing = { EmptyView() },
         onRealtimeVoiceStateChange: @escaping (String, String?) -> Void = { _, _ in },
-        onRealtimeVoiceAction: @escaping (ScoutRealtimeVoiceNativeAction) -> Void = { _ in },
+        onNativeUIAction: @escaping (ScoutEmbeddedUIAction) -> Void = { _ in },
         realtimeVoiceStopRequest: UUID? = nil
     ) {
         self.surface = surface
@@ -132,7 +133,7 @@ struct ScoutWebEmbedContent<AdditionalTrailing: View>: View {
         self.loadingLaneSize = loadingLaneSize
         self.showsHeader = showsHeader
         self.onRealtimeVoiceStateChange = onRealtimeVoiceStateChange
-        self.onRealtimeVoiceAction = onRealtimeVoiceAction
+        self.onNativeUIAction = onNativeUIAction
         self.realtimeVoiceStopRequest = realtimeVoiceStopRequest
         self.additionalTrailing = additionalTrailing
     }
@@ -158,7 +159,7 @@ struct ScoutWebEmbedContent<AdditionalTrailing: View>: View {
                 ignoresHTTPCache: ignoresHTTPCache,
                 loadingLaneSize: loadingLaneSize,
                 onRealtimeVoiceStateChange: onRealtimeVoiceStateChange,
-                onRealtimeVoiceAction: onRealtimeVoiceAction,
+                onNativeUIAction: onNativeUIAction,
                 realtimeVoiceStopRequest: realtimeVoiceStopRequest,
                 onReload: { scheduleCacheBustingReload(invalidateBaseURL: true) }
             )
@@ -236,7 +237,7 @@ struct ScoutWebEmbedHost: View {
     var ignoresHTTPCache: Bool = false
     var loadingLaneSize: ScoutAgentLaneSize?
     var onRealtimeVoiceStateChange: (String, String?) -> Void = { _, _ in }
-    var onRealtimeVoiceAction: (ScoutRealtimeVoiceNativeAction) -> Void = { _ in }
+    var onNativeUIAction: (ScoutEmbeddedUIAction) -> Void = { _ in }
     var realtimeVoiceStopRequest: UUID?
     var onReload: () -> Void = {}
 
@@ -256,7 +257,7 @@ struct ScoutWebEmbedHost: View {
                 ignoresHTTPCache: ignoresHTTPCache,
                 phase: $phase,
                 onRealtimeVoiceStateChange: onRealtimeVoiceStateChange,
-                onRealtimeVoiceAction: onRealtimeVoiceAction,
+                onNativeUIAction: onNativeUIAction,
                 realtimeVoiceStopRequest: realtimeVoiceStopRequest
             )
                 .opacity(isReady ? 1 : 0.001)
@@ -346,6 +347,7 @@ private struct ScoutWebEmbedErrorView: View {
 
 #if os(macOS)
 private struct ScoutWebEmbedWebView: NSViewRepresentable {
+    private static let nativeUIMessageHandler = "scoutNativeUI"
     private static let realtimeVoiceMessageHandler = "scoutRealtimeVoice"
 
     let surface: ScoutEmbedSurfaceId
@@ -354,7 +356,7 @@ private struct ScoutWebEmbedWebView: NSViewRepresentable {
     let ignoresHTTPCache: Bool
     @Binding var phase: ScoutWebEmbedLoadPhase
     let onRealtimeVoiceStateChange: (String, String?) -> Void
-    let onRealtimeVoiceAction: (ScoutRealtimeVoiceNativeAction) -> Void
+    let onNativeUIAction: (ScoutEmbeddedUIAction) -> Void
     let realtimeVoiceStopRequest: UUID?
 
     func makeCoordinator() -> Coordinator {
@@ -362,7 +364,7 @@ private struct ScoutWebEmbedWebView: NSViewRepresentable {
             surface: surface,
             phase: $phase,
             onRealtimeVoiceStateChange: onRealtimeVoiceStateChange,
-            onRealtimeVoiceAction: onRealtimeVoiceAction
+            onNativeUIAction: onNativeUIAction
         )
     }
 
@@ -370,6 +372,12 @@ private struct ScoutWebEmbedWebView: NSViewRepresentable {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        if surface == .thread || surface == .code || surface == .voice {
+            configuration.userContentController.add(
+                context.coordinator,
+                name: Self.nativeUIMessageHandler
+            )
+        }
         if surface == .voice {
             configuration.userContentController.add(
                 context.coordinator,
@@ -390,7 +398,7 @@ private struct ScoutWebEmbedWebView: NSViewRepresentable {
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.onRealtimeVoiceStateChange = onRealtimeVoiceStateChange
-        context.coordinator.onRealtimeVoiceAction = onRealtimeVoiceAction
+        context.coordinator.onNativeUIAction = onNativeUIAction
         context.coordinator.realtimeVoiceStopRequest = realtimeVoiceStopRequest
         context.coordinator.deliverRealtimeVoiceStopRequest(in: webView)
         guard context.coordinator.currentURL != url
@@ -414,6 +422,9 @@ private struct ScoutWebEmbedWebView: NSViewRepresentable {
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
         webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: nativeUIMessageHandler
+        )
+        webView.configuration.userContentController.removeScriptMessageHandler(
             forName: realtimeVoiceMessageHandler
         )
     }
@@ -422,7 +433,7 @@ private struct ScoutWebEmbedWebView: NSViewRepresentable {
         let surface: ScoutEmbedSurfaceId
         @Binding var phase: ScoutWebEmbedLoadPhase
         var onRealtimeVoiceStateChange: (String, String?) -> Void
-        var onRealtimeVoiceAction: (ScoutRealtimeVoiceNativeAction) -> Void
+        var onNativeUIAction: (ScoutEmbeddedUIAction) -> Void
         var realtimeVoiceStopRequest: UUID?
         var deliveredRealtimeVoiceStopRequest: UUID?
         var currentURL: URL?
@@ -432,19 +443,21 @@ private struct ScoutWebEmbedWebView: NSViewRepresentable {
             surface: ScoutEmbedSurfaceId,
             phase: Binding<ScoutWebEmbedLoadPhase>,
             onRealtimeVoiceStateChange: @escaping (String, String?) -> Void,
-            onRealtimeVoiceAction: @escaping (ScoutRealtimeVoiceNativeAction) -> Void
+            onNativeUIAction: @escaping (ScoutEmbeddedUIAction) -> Void
         ) {
             self.surface = surface
             _phase = phase
             self.onRealtimeVoiceStateChange = onRealtimeVoiceStateChange
-            self.onRealtimeVoiceAction = onRealtimeVoiceAction
+            self.onNativeUIAction = onNativeUIAction
         }
 
         func userContentController(
             _ userContentController: WKUserContentController,
             didReceive message: WKScriptMessage
         ) {
-            guard message.name == ScoutWebEmbedWebView.realtimeVoiceMessageHandler else { return }
+            guard message.name == ScoutWebEmbedWebView.nativeUIMessageHandler
+                    || message.name == ScoutWebEmbedWebView.realtimeVoiceMessageHandler
+            else { return }
             if let state = message.body as? String,
                ["idle", "connecting", "live", "ended", "error", "minimize", "expand", "restore"].contains(state) {
                 onRealtimeVoiceStateChange(state, nil)
@@ -461,10 +474,10 @@ private struct ScoutWebEmbedWebView: NSViewRepresentable {
                 return
             }
             if let actionEnvelope = try? JSONDecoder().decode(
-                ScoutRealtimeVoiceNativeEnvelope.self,
+                ScoutEmbeddedUIActionEnvelope.self,
                 from: data
             ), actionEnvelope.kind == "ui-action" {
-                onRealtimeVoiceAction(actionEnvelope.action)
+                onNativeUIAction(actionEnvelope.action)
             }
         }
 

@@ -75,10 +75,11 @@ enum ScoutEmbedSurfaceRegistry {
             systemImage: "chevron.left.forwardslash.chevron.right",
             section: .code
         ),
-        // The complete conversation body and composer, shared with the web app
-        // so reading, drafting, attachments, and dictation follow one product
-        // path. `section` is nil on purpose: unlike the surfaces above this is
-        // not a nav destination; it renders inside the native Comms shell.
+        // The shared conversation body. The embed boundary defers message input
+        // to the native composer, which owns pasteboard, drag-drop, dictation,
+        // and keyboard commands. `section` is nil on purpose: unlike the
+        // surfaces above this is not a nav destination; it renders inside the
+        // native Comms shell.
         ScoutEmbedSurface(
             id: .thread,
             label: "Thread",

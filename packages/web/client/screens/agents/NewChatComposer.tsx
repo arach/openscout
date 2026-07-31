@@ -12,18 +12,27 @@ import {
 import { ChevronDown, FileText, Loader2, Search, X } from "lucide-react";
 import {
   MessageComposer,
+  MessageComposerSuggestions,
   RuntimePicker,
   runtimeCatalogFromRunnerOptions,
+  type MessageComposerChangeMeta,
   type RuntimeValue,
 } from "../../components/MessageComposer/index.ts";
+import { compactAgentId } from "../../lib/agent-labels.ts";
 import { api } from "../../lib/api.ts";
+import { actorColor } from "../../lib/colors.ts";
 import { RUNTIME_CAPABILITY_SEED } from "../../lib/runtime-capabilities.ts";
 import {
   createClientMessageId,
   stageAcceptedConversationTurn,
 } from "../../lib/client-turn-transition.ts";
-import type { ContextCaptureDraft } from "../../lib/context-capture-draft.ts";
-import type { ContextCaptureIntent } from "../../lib/context-capture-draft.ts";
+import type {
+  ContextCaptureDraft,
+  ContextCaptureIntent,
+  ForwardContextMode,
+  ForwardContextSource,
+} from "../../lib/context-capture-draft.ts";
+import { buildForwardTaskInstructions } from "../../lib/forward-context.ts";
 import { useFocusTrap } from "../../lib/keyboard-nav.ts";
 import {
   dataTransferMayContainFiles,
@@ -43,6 +52,15 @@ import {
   type ProjectLaunchTarget,
 } from "../../lib/session-start.ts";
 import type { Agent, AgentConfigurationState, Route } from "../../lib/types.ts";
+import {
+  SLASH_COMMANDS,
+  matchMentionTrigger,
+  matchSlashTrigger,
+  type MentionCandidate,
+  type MentionSuggestState,
+  type SlashCommand,
+  type SlashSuggestState,
+} from "../chat/conversation-model.ts";
 import "./agents-rail.css";
 
 type Navigate = (route: Route) => void;
@@ -231,6 +249,8 @@ export function NewChatComposer({
   initialAttachmentFeedback,
   initialIntent = "new-task",
   initialProjectPath,
+  initialForwardContext,
+  initialForwardContextMode = "selected-message",
   defaultMode,
   draftRestored = false,
   onDraftChange,
@@ -248,12 +268,15 @@ export function NewChatComposer({
   initialIntent?: ContextCaptureIntent;
   initialProjectPath?: string;
   initialProjectQuery?: string;
+  initialForwardContext?: ForwardContextSource;
+  initialForwardContextMode?: ForwardContextMode;
   defaultMode?: CaptureDeliveryMode;
   draftRestored?: boolean;
   onDraftChange?: (draft: ContextCaptureDraft) => void;
   onDraftConsumed?: () => void;
 }) {
   const routeContext = useMemo(() => resolveCaptureRouteContext(route, agents), [route, agents]);
+  const isForwarding = initialIntent === "forward-message" && Boolean(initialForwardContext);
   const sorted = useMemo(
     () => [...agents].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)),
     [agents],
@@ -284,6 +307,21 @@ export function NewChatComposer({
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const [projectReminder, setProjectReminder] = useState<string | null>(null);
   const [message, setMessage] = useState(() => initialMessage ?? "");
+  const [forwardContextMode, setForwardContextMode] = useState<ForwardContextMode>(
+    initialForwardContextMode,
+  );
+  const [slashState, setSlashState] = useState<SlashSuggestState>({
+    open: false,
+    query: "",
+    triggerStart: -1,
+    index: 0,
+  });
+  const [mentionState, setMentionState] = useState<MentionSuggestState>({
+    open: false,
+    query: "",
+    triggerStart: -1,
+    index: 0,
+  });
   const [files, setFiles] = useState<File[]>(() => [...(initialFiles ?? [])]);
   const [mode, setMode] = useState<CaptureDeliveryMode>(() => {
     if (defaultMode) return defaultMode;
@@ -335,6 +373,35 @@ export function NewChatComposer({
         registrationKind: null,
       }
     : null);
+  const mentionCandidates = useMemo<MentionCandidate[]>(() => {
+    const seen = new Set<string>();
+    const scopedAgents = selectedProject
+      ? sorted.filter((agent) => (
+          agent.projectRoot?.trim() === selectedProject.root
+          || agent.cwd?.trim() === selectedProject.root
+        ))
+      : [];
+    // Worktree sessions often report their worktree as cwd rather than the
+    // canonical project root. Keep project-local results first when available,
+    // but never turn @ into an empty affordance because those paths differ.
+    const projectAgents = scopedAgents.length > 0 ? scopedAgents : sorted;
+
+    return projectAgents.flatMap((agent) => {
+      if (agent.retiredFromFleet) return [];
+      const handle = agent.handle?.trim().replace(/^@+/, "")
+        || compactAgentId(agent.id)
+        || "";
+      const key = handle.toLowerCase();
+      if (!handle || seen.has(key)) return [];
+      seen.add(key);
+      return [{
+        id: agent.id,
+        label: handle,
+        name: agent.name || handle,
+        handle,
+      }];
+    });
+  }, [selectedProject, sorted]);
   const harnesses = runnerOptions?.harnesses ?? FALLBACK_HARNESSES;
   const selectedHarness = harnesses.find((candidate) => candidate.id === harness) ?? null;
   const runnerLoading = !runnerOptions && !runnerLoadError;
@@ -397,10 +464,14 @@ export function NewChatComposer({
     && Boolean(routeAgent?.conversationId || routeConversationId);
   const usesNewWorker = !hasAttachments || !canUseExistingChat || mode === "new-session";
   const runtimeBlocked = usesNewWorker && (runnerLoading || selectedHarness?.ready === false);
-  const title = hasAttachments ? "Route capture" : "New task";
-  const committedMessage = message.trim();
+  const title = isForwarding ? "Forward to new task" : hasAttachments ? "Route capture" : "New task";
+  const committedMessage = isForwarding && initialForwardContext
+    ? buildForwardTaskInstructions(initialForwardContext, forwardContextMode, message)
+    : message.trim();
   const phaseLabel = phase === "uploading"
     ? "Uploading capture"
+    : isForwarding
+      ? "Forwarding to new task"
     : hasAttachments
       ? "Routing capture"
       : "Sending message";
@@ -412,7 +483,185 @@ export function NewChatComposer({
   const showDeliveryMode = hasAttachments && canUseExistingChat;
   const showRuntimeStatus = usesNewWorker
     && (runnerLoading || Boolean(runnerLoadError) || selectedHarness?.ready === false);
-  const showConfig = showDeliveryMode || showRuntimeStatus;
+  const showConfig = showDeliveryMode || (!isForwarding && showRuntimeStatus);
+  const filteredSlashCommands = useMemo(() => {
+    if (!slashState.open) return [];
+    const query = slashState.query.toLowerCase();
+    if (!query) return SLASH_COMMANDS;
+    return SLASH_COMMANDS.filter((command) => (
+      command.command.toLowerCase().startsWith(`/${query}`)
+      || command.command.toLowerCase().includes(query)
+    ));
+  }, [slashState.open, slashState.query]);
+  const filteredMentions = useMemo(() => {
+    if (!mentionState.open) return [];
+    const query = mentionState.query.toLowerCase();
+    if (!query) return mentionCandidates.slice(0, 8);
+    return mentionCandidates.filter((candidate) => (
+      candidate.handle.toLowerCase().includes(query)
+      || candidate.name.toLowerCase().includes(query)
+      || candidate.label.toLowerCase().includes(query)
+    )).slice(0, 8);
+  }, [mentionCandidates, mentionState.open, mentionState.query]);
+
+  const closeSuggestions = useCallback(() => {
+    setSlashState((current) => (current.open ? { ...current, open: false } : current));
+    setMentionState((current) => (current.open ? { ...current, open: false } : current));
+  }, []);
+
+  const updateMessageTriggers = useCallback((value: string, caret: number) => {
+    const slashMatch = matchSlashTrigger(value, caret);
+    setSlashState((current) => slashMatch
+      ? {
+          open: true,
+          query: slashMatch.query,
+          triggerStart: slashMatch.start,
+          index: current.open && current.triggerStart === slashMatch.start ? current.index : 0,
+        }
+      : current.open
+        ? { ...current, open: false }
+        : current);
+
+    const mentionMatch = matchMentionTrigger(value, caret);
+    setMentionState((current) => mentionMatch
+      ? {
+          open: true,
+          query: mentionMatch.query,
+          triggerStart: mentionMatch.start,
+          index: current.open && current.triggerStart === mentionMatch.start ? current.index : 0,
+        }
+      : current.open
+        ? { ...current, open: false }
+        : current);
+  }, []);
+
+  const handleMessageChange = useCallback((next: string, meta?: MessageComposerChangeMeta) => {
+    setMessage(next);
+    updateMessageTriggers(next, meta?.caret ?? next.length);
+  }, [updateMessageTriggers]);
+
+  const applySlashCommand = useCallback((command: SlashCommand) => {
+    const start = slashState.triggerStart;
+    if (start < 0) return;
+    const caret = textRef.current?.selectionStart ?? message.length;
+    const before = message.slice(0, start);
+    const after = message.slice(caret);
+    const next = `${before}${command.insert}${after}`;
+    setMessage(next);
+    setSlashState((current) => ({ ...current, open: false }));
+    requestAnimationFrame(() => {
+      const field = textRef.current;
+      if (!field) return;
+      const position = before.length + command.insert.length;
+      field.focus();
+      field.setSelectionRange(position, position);
+    });
+  }, [message, slashState.triggerStart]);
+
+  const applyMention = useCallback((candidate: MentionCandidate) => {
+    const start = mentionState.triggerStart;
+    if (start < 0) return;
+    const caret = textRef.current?.selectionStart ?? message.length;
+    const before = message.slice(0, start);
+    const after = message.slice(caret);
+    const insert = `@${candidate.handle}${after.length === 0 || !after.startsWith(" ") ? " " : ""}`;
+    const next = `${before}${insert}${after}`;
+    setMessage(next);
+    setMentionState((current) => ({ ...current, open: false }));
+    requestAnimationFrame(() => {
+      const field = textRef.current;
+      if (!field) return;
+      const position = before.length + insert.length;
+      field.focus();
+      field.setSelectionRange(position, position);
+    });
+  }, [mentionState.triggerStart, message]);
+
+  const insertComposerTrigger = useCallback((trigger: "/" | "@") => {
+    if (isStarting) return;
+    const field = textRef.current;
+    const caret = field?.selectionStart ?? message.length;
+    const before = message.slice(0, caret);
+    const after = message.slice(caret);
+    const spacer = before && !/\s$/.test(before) ? " " : "";
+    const insertion = `${spacer}${trigger}`;
+    const next = `${before}${insertion}${after}`;
+    const position = before.length + insertion.length;
+    setMessage(next);
+    updateMessageTriggers(next, position);
+    requestAnimationFrame(() => {
+      const nextField = textRef.current;
+      if (!nextField) return;
+      nextField.focus();
+      nextField.setSelectionRange(position, position);
+    });
+  }, [isStarting, message, updateMessageTriggers]);
+
+  const handleMessageKeyDown = useCallback((event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    const slashOpen = slashState.open && filteredSlashCommands.length > 0;
+    const mentionOpen = mentionState.open && filteredMentions.length > 0;
+    if (!slashOpen && !mentionOpen) return false;
+
+    if (event.key === "ArrowDown") {
+      if (slashOpen) {
+        setSlashState((current) => ({
+          ...current,
+          index: (current.index + 1) % filteredSlashCommands.length,
+        }));
+      } else {
+        setMentionState((current) => ({
+          ...current,
+          index: (current.index + 1) % filteredMentions.length,
+        }));
+      }
+      return true;
+    }
+    if (event.key === "ArrowUp") {
+      if (slashOpen) {
+        setSlashState((current) => ({
+          ...current,
+          index: (current.index - 1 + filteredSlashCommands.length) % filteredSlashCommands.length,
+        }));
+      } else {
+        setMentionState((current) => ({
+          ...current,
+          index: (current.index - 1 + filteredMentions.length) % filteredMentions.length,
+        }));
+      }
+      return true;
+    }
+    if (event.key === "Escape") {
+      closeSuggestions();
+      return true;
+    }
+    if (
+      (event.key === "Enter" || event.key === "Tab")
+      && !event.shiftKey
+      && !event.metaKey
+      && !event.ctrlKey
+      && !event.altKey
+    ) {
+      if (slashOpen) {
+        const command = filteredSlashCommands[slashState.index] ?? filteredSlashCommands[0];
+        if (command) applySlashCommand(command);
+      } else {
+        const mention = filteredMentions[mentionState.index] ?? filteredMentions[0];
+        if (mention) applyMention(mention);
+      }
+      return true;
+    }
+    return false;
+  }, [
+    applyMention,
+    applySlashCommand,
+    closeSuggestions,
+    filteredMentions,
+    filteredSlashCommands,
+    mentionState.index,
+    mentionState.open,
+    slashState.index,
+    slashState.open,
+  ]);
 
   const requestClose = useCallback(() => {
     if (isStarting) return;
@@ -531,11 +780,16 @@ export function NewChatComposer({
       // value, and restoring it now would pre-filter the standing list down to the
       // single row the operator had already picked.
       projectQuery,
+      ...(isForwarding && initialForwardContext ? { forwardContext: initialForwardContext } : {}),
+      forwardContextMode,
     });
   }, [
     attachmentFeedback,
     files,
+    forwardContextMode,
+    initialForwardContext,
     initialIntent,
+    isForwarding,
     message,
     mode,
     onDraftChange,
@@ -694,14 +948,13 @@ export function NewChatComposer({
     setReasoningEffort(next.effort);
   };
 
-  const insertSlashCommand = useCallback(() => {
-    if (isStarting) return;
-    setMessage((current) => `${current}${current && !current.endsWith("\n") ? "\n" : ""}/`);
-    requestAnimationFrame(() => textRef.current?.focus());
-  }, [isStarting]);
-
   const start = async () => {
     if (isStarting) return;
+    if (isForwarding && !committedMessage) {
+      setError("Add instructions, or choose a context option that includes the source message.");
+      requestAnimationFrame(() => textRef.current?.focus());
+      return;
+    }
     if (!selectedProject) {
       setError(null);
       setProjectReminder("Choose a project before starting this task.");
@@ -753,6 +1006,12 @@ export function NewChatComposer({
             ? { instructions: "Shared capture for context." }
             : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
+        ...(isForwarding && initialForwardContext
+          ? {
+              fromMessageId: initialForwardContext.selectedMessageId,
+              fromConversationId: initialForwardContext.sourceConversationId,
+            }
+          : {}),
         clientMessageId,
       });
       const conversationId = result.conversationId?.trim();
@@ -838,6 +1097,12 @@ export function NewChatComposer({
 
         <div className="s-newchat-body">
           <div className="s-newchat-lead">
+            {isForwarding ? (
+              <p className="s-newchat-forward-intro">
+                Choose the destination, runtime, and visible Scout context to carry into a fresh task.
+              </p>
+            ) : null}
+
             <div className="s-newchat-project-bar">
               <span className="label-md s-newchat-project-label">Project</span>
               <button
@@ -978,35 +1243,186 @@ export function NewChatComposer({
               </div>
             ) : null}
 
+            {isForwarding && initialForwardContext ? (
+              <div className="s-newchat-forward-config">
+                <div className="s-newchat-field">
+                  <span className="label-md s-newchat-field-label">Runtime</span>
+                  <div className="s-newchat-forward-runtime">
+                    <RuntimePicker
+                      catalog={runtimeCatalog}
+                      value={{ harness, model, effort: reasoningEffort }}
+                      onChange={handleRuntimeChange}
+                      status={runnerLoading ? "loading" : runnerLoadError ? "error" : "ready"}
+                      statusMessage={runnerLoadError ?? undefined}
+                      onRetry={loadRunnerOptions}
+                      disabled={isStarting || !usesNewWorker}
+                    />
+                  </div>
+                  {usesNewWorker && runnerLoading ? (
+                    <p className="s-newchat-runtime-note" data-pending="true" role="status">
+                      <Loader2 size={11} className="s-newchat-runtime-note-spinner" aria-hidden="true" />
+                      Loading the model catalog…
+                    </p>
+                  ) : usesNewWorker && (runnerLoadError || selectedHarness?.ready === false) ? (
+                    <p className="s-newchat-runtime-note" role="alert">
+                      {selectedHarness?.ready === false
+                        ? (selectedHarness.detail || `${selectedHarness.label} is unavailable.`)
+                        : runnerLoadError}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="s-newchat-field">
+                  <span id="s-newchat-forward-context-label" className="label-md s-newchat-field-label">
+                    Context
+                  </span>
+                  <div
+                    className="s-newchat-context-options"
+                    role="radiogroup"
+                    aria-labelledby="s-newchat-forward-context-label"
+                  >
+                    <button
+                      type="button"
+                      className="s-newchat-context-option"
+                      role="radio"
+                      aria-checked={forwardContextMode === "selected-message"}
+                      disabled={isStarting}
+                      onClick={() => setForwardContextMode("selected-message")}
+                    >
+                      <span className="s-newchat-context-option-title">Selected message</span>
+                      <span className="s-newchat-context-option-copy">Carry only the message you chose.</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="s-newchat-context-option"
+                      role="radio"
+                      aria-checked={forwardContextMode === "recent-context"}
+                      disabled={isStarting || initialForwardContext.recentMessageCount === 0}
+                      onClick={() => setForwardContextMode("recent-context")}
+                    >
+                      <span className="s-newchat-context-option-title">Recent context + message</span>
+                      <span className="s-newchat-context-option-copy">
+                        {initialForwardContext.recentMessageCount > 0
+                          ? `Carry ${initialForwardContext.recentMessageCount} preceding visible ${initialForwardContext.recentMessageCount === 1 ? "message" : "messages"}, then this message.`
+                          : "No preceding visible messages are available."}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="s-newchat-context-option"
+                      role="radio"
+                      aria-checked={forwardContextMode === "instructions-only"}
+                      disabled={isStarting}
+                      onClick={() => setForwardContextMode("instructions-only")}
+                    >
+                      <span className="s-newchat-context-option-title">Instructions only</span>
+                      <span className="s-newchat-context-option-copy">Start clean without source conversation text.</span>
+                    </button>
+                  </div>
+                  <p className="s-newchat-context-note">
+                    Recent context is a bounded Scout excerpt, not a generated summary or full model context.
+                  </p>
+                </div>
+              </div>
+            ) : null}
+
+            {isForwarding ? (
+              <span className="label-md s-newchat-field-label">Instructions</span>
+            ) : null}
             <MessageComposer
               density="panel"
               value={message}
-              onChange={setMessage}
+              onChange={handleMessageChange}
               onSend={() => void start()}
               sendOnEnter
               textareaRef={textRef}
-              placeholder={hasAttachments
+              placeholder={isForwarding
+                ? "Add what the new task should do (optional)…"
+                : hasAttachments
                 ? "What should the agent do with this?"
                 : "Describe the task, or leave blank…"}
+              aria-label={isForwarding ? "Instructions for the new task" : "Message"}
               disabled={isStarting}
               sending={isStarting}
-              canSend={!isStarting && !runtimeBlocked}
-              showDictation={false}
+              canSend={!isStarting && !runtimeBlocked && (!isForwarding || Boolean(committedMessage))}
               rows={7}
               maxHeightPx={280}
-              sendTitle={hasAttachments ? "Route (Enter)" : "Start task (Enter)"}
-              sendAriaLabel={hasAttachments ? "Route capture" : "Start task"}
-              leadingTools={(
-                <button
-                  type="button"
-                  className="s-newchat-command-trigger"
-                  disabled={isStarting}
-                  onClick={insertSlashCommand}
-                >
-                  / Commands
-                </button>
+              sendTitle={isForwarding
+                ? "Forward to new task (Enter)"
+                : hasAttachments
+                  ? "Route (Enter)"
+                  : "Start task (Enter)"}
+              sendAriaLabel={isForwarding ? "Forward to new task" : hasAttachments ? "Route capture" : "Start task"}
+              overlay={(
+                <>
+                  {slashState.open ? (
+                    <MessageComposerSuggestions
+                      label="Slash commands"
+                      placement="inside"
+                      items={filteredSlashCommands.map((command) => ({
+                        id: command.command,
+                        token: command.label,
+                        description: command.description,
+                      }))}
+                      activeIndex={slashState.index}
+                      onPick={(index) => {
+                        const command = filteredSlashCommands[index];
+                        if (command) applySlashCommand(command);
+                      }}
+                      onActiveIndexChange={(index) => setSlashState((current) => ({ ...current, index }))}
+                    />
+                  ) : null}
+                  {mentionState.open ? (
+                    <MessageComposerSuggestions
+                      label="Mention agent"
+                      placement="inside"
+                      items={filteredMentions.map((mention) => ({
+                        id: mention.id,
+                        token: `@${mention.handle}`,
+                        description: mention.name,
+                        avatar: {
+                          label: mention.name[0]?.toUpperCase() ?? "?",
+                          color: actorColor(mention.name),
+                        },
+                      }))}
+                      activeIndex={mentionState.index}
+                      onPick={(index) => {
+                        const mention = filteredMentions[index];
+                        if (mention) applyMention(mention);
+                      }}
+                      onActiveIndexChange={(index) => setMentionState((current) => ({ ...current, index }))}
+                    />
+                  ) : null}
+                </>
               )}
-              tools={(
+              onSelect={(event) => {
+                const field = event.currentTarget;
+                updateMessageTriggers(field.value, field.selectionStart);
+              }}
+              onBlur={() => window.setTimeout(closeSuggestions, 120)}
+              onKeyDown={handleMessageKeyDown}
+              leadingTools={(
+                <div className="s-newchat-compose-triggers" aria-label="Message shortcuts">
+                  <button
+                    type="button"
+                    className="s-newchat-command-trigger"
+                    disabled={isStarting}
+                    onClick={() => insertComposerTrigger("/")}
+                  >
+                    /Commands
+                  </button>
+                  <span aria-hidden="true">·</span>
+                  <button
+                    type="button"
+                    className="s-newchat-command-trigger"
+                    disabled={isStarting}
+                    onClick={() => insertComposerTrigger("@")}
+                  >
+                    @Agents
+                  </button>
+                </div>
+              )}
+              tools={isForwarding ? undefined : (
                 <RuntimePicker
                   catalog={runtimeCatalog}
                   value={{ harness, model, effort: reasoningEffort }}

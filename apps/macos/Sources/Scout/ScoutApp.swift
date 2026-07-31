@@ -116,6 +116,8 @@ struct ScoutApp: App {
 @MainActor
 final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
     private var distributedObserverInstalled = false
+    private var hudCommandHandlingReady = false
+    private var hudStartupTask: Task<Void, Never>?
     private var hudInboxRetryTask: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -134,11 +136,7 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
                 _ = self?.handleAppCommand(command: "open", value: nil)
             }
         }
-        if ScoutLaunchOptions.hudRequested {
-            showHUDFromLaunchArguments()
-        } else {
-            drainHUDCommandInbox()
-        }
+        scheduleInitialHUDCommandHandling()
         if let channelId = ScoutLaunchOptions.channelId?.nilIfEmpty {
             ScoutExternalCommand.openChannel(channelId)
         }
@@ -155,6 +153,8 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        hudStartupTask?.cancel()
+        hudStartupTask = nil
         hudInboxRetryTask?.cancel()
         hudInboxRetryTask = nil
         HotkeyManager.shared.unregister(id: 1)
@@ -205,6 +205,17 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
             let urlString = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
             let url = URL(string: urlString)
         else { return }
+        if !hudCommandHandlingReady,
+           let userInfo = ScoutHUDRouter.distributedUserInfo(url: url),
+           let command = userInfo["command"] as? String {
+            let value = userInfo["value"] as? String
+            do {
+                try ScoutHUDCommandInbox.enqueue(command: command, value: value)
+            } catch {
+                NSLog("[hud] could not defer startup URL: %@", error.localizedDescription)
+            }
+            return
+        }
         if ScoutHUDRouter.handle(url: url) {
             return
         }
@@ -232,6 +243,17 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
     @objc
     private func handleHUDCommandNotification(_ notification: Notification) {
         guard let command = notification.userInfo?["command"] as? String else {
+            return
+        }
+        guard hudCommandHandlingReady else {
+            // The helper has already persisted its command. Let the bounded
+            // startup task drain it after SwiftUI's initial window lifecycle
+            // settles; presenting a non-activating panel before then lets the
+            // scene bootstrap order it out again.
+            if command != "drain-inbox" {
+                let value = notification.userInfo?["value"] as? String
+                _ = try? ScoutHUDCommandInbox.enqueue(command: command, value: value)
+            }
             return
         }
         if command == "drain-inbox" {
@@ -305,6 +327,24 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func scheduleInitialHUDCommandHandling() {
+        hudStartupTask?.cancel()
+        hudStartupTask = Task { @MainActor [weak self] in
+            // A single main-queue turn is too early for a cold SwiftUI launch:
+            // the WindowGroup can still order out a panel created during app
+            // bootstrap. Keep the durable command queued until that settles.
+            try? await Task.sleep(for: .milliseconds(650))
+            guard !Task.isCancelled, let self else { return }
+            self.hudStartupTask = nil
+            self.hudCommandHandlingReady = true
+            if ScoutLaunchOptions.hudRequested {
+                self.showHUDFromLaunchArguments()
+            } else {
+                self.drainHUDCommandInbox()
+            }
+        }
+    }
+
     private func handleOpenScoutNetworkAuth(_ url: URL) -> Bool {
         let host = url.host?.lowercased()
         let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
@@ -350,31 +390,29 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showHUDFromLaunchArguments() {
-        DispatchQueue.main.async { [weak self] in
-            self?.hideMainWindowsForHUDLaunch()
-            let command = ScoutLaunchOptions.hudCommand?.lowercased() ?? "show"
-            if command == "drain-inbox" {
-                self?.drainHUDCommandInbox()
-                return
-            }
-            if command == "hide" {
-                HUDController.shared.dismiss()
-                self?.drainHUDCommandInbox()
-                return
-            }
-            if command == "tail" || command.hasPrefix("tail-") {
-                _ = ScoutHUDRouter.handle(command: command, value: ScoutLaunchOptions.hudValue)
-            } else if command == "show" || command == "toggle" {
-                _ = ScoutHUDRouter.handle(command: command, value: ScoutLaunchOptions.hudValue)
-            } else {
-                _ = ScoutHUDRouter.handle(command: "show")
-                _ = self?.dispatchHUDCommand(
-                    command: command,
-                    value: ScoutLaunchOptions.hudValue
-                )
-            }
-            self?.drainHUDCommandInbox()
+        hideMainWindowsForHUDLaunch()
+        let command = ScoutLaunchOptions.hudCommand?.lowercased() ?? "show"
+        if command == "drain-inbox" {
+            drainHUDCommandInbox()
+            return
         }
+        if command == "hide" {
+            HUDController.shared.dismiss()
+            drainHUDCommandInbox()
+            return
+        }
+        if command == "tail" || command.hasPrefix("tail-") {
+            _ = ScoutHUDRouter.handle(command: command, value: ScoutLaunchOptions.hudValue)
+        } else if command == "show" || command == "toggle" {
+            _ = ScoutHUDRouter.handle(command: command, value: ScoutLaunchOptions.hudValue)
+        } else {
+            _ = ScoutHUDRouter.handle(command: "show")
+            _ = dispatchHUDCommand(
+                command: command,
+                value: ScoutLaunchOptions.hudValue
+            )
+        }
+        drainHUDCommandInbox()
     }
 
     private func hideMainWindowsForHUDLaunch() {

@@ -10,7 +10,7 @@ struct HUDRunnerProjectSearch: View {
             VStack(spacing: 8) {
                 HUDRunnerDisclosureHeader(
                     title: "FIND A PROJECT",
-                    detail: "Type to filter",
+                    detail: "Type, then Tab or Return",
                     focus: focus
                 )
                 searchBar
@@ -52,6 +52,9 @@ struct HUDRunnerProjectSearch: View {
             .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
             .focused(focus, equals: .projectSearch)
             .accessibilityLabel("Project search")
+            .accessibilityHint(
+                "Type to filter. Use the arrow keys to move, then Tab or Return to choose."
+            )
 
             Button(action: runner.browseForDirectory) {
                 Image(systemName: "folder.badge.plus")
@@ -72,7 +75,9 @@ struct HUDRunnerProjectSearch: View {
 
     @ViewBuilder
     private var results: some View {
-        let matches = runner.projectMatches(limit: 3)
+        let matches = runner.projectMatches(
+            limit: HUDRunnerKeyboardContract.visibleProjectSuggestionCount
+        )
         if matches.isEmpty {
             HStack(spacing: 7) {
                 Image(systemName: "folder")

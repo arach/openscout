@@ -54,7 +54,8 @@ Both bundles register `scout` (Info.plist + ScoutInfo.plist); routing is bidirec
 
 | Channel | Direction | Semantics |
 |---|---|---|
-| `scout://hud/{show,hide,toggle,tail[/size],tab/<name>,size/<name>,task[/corner]}` | OS → either bundle | Scout handles directly (`ScoutHUDRouter`); helper persists commands to the acknowledged inbox, then wakes or launches Scout. `hud/tail` selects HUD tab 3; `hud/task` opens the fresh-task composer and optionally anchors it to a screen corner. |
+| `scout://asks[/new][?anchor=<corner>]` | OS → either bundle | Canonical product-level route for a fresh ask. The helper persists an `ask` command to the acknowledged inbox, then wakes or launches Scout; the HUD ask composer is the current renderer. |
+| `scout://hud/{show,hide,toggle,tail[/size],tab/<name>,size/<name>,task[/corner]}` | OS → either bundle | HUD implementation controls. `hud/task` remains a backward-compatible alias for the canonical `scout://asks/new` route. |
 | `scout://tail/{show,hide,toggle,attach,float,size/<name>,collapse,expand}` | OS → either bundle | Scout handles directly; helper forwards as Tail mode commands. Tail mode is the persistent attach/free overlay. |
 | `scout://{project}/[path]?wt=&line=&endLine=` · `scout:///{abs/path}` · `scout://code/...` | OS → Scout | Code browser deep links (`ScoutCodeDeepLink`). Project form is preferred; absolute form uses an empty host; `code/` is the legacy host. Opens the Code section and passes query items into the embed. |
 | `scout://services/restart/{broker,relay,web,all}` | OS → either bundle | helper executes after HMAC verify; Scout forwards via `app.openscout.scout.service-url` notification |
@@ -66,6 +67,11 @@ Both bundles register `scout` (Info.plist + ScoutInfo.plist); routing is bidirec
 | `/tmp/openscout-hud-window.txt` | Scout → external | window id for `screencapture -l` |
 | `/tmp/openscout-tail-window.txt` | Scout → external | Tail mode window id for `screencapture -l` |
 
+The development control CLI targets Scout's exact embedded `ScoutMenu.app`
+path when it exists. Do not route HUD/Tail commands by bundle identifier alone:
+standalone packaging artifacts intentionally share that identifier and can make
+LaunchServices select the wrong helper process.
+
 Services-link HMAC: query `expires`+`nonce`+`sig`; SHA256 HMAC over `v1\nservices\n<action>\n<target>\n<expires>\n<nonce>`, key = base64url file `~/Library/Application Support/OpenScout/service-link-signing.key` (`OPENSCOUT_SUPPORT_DIRECTORY` override); expiry must be within +120s; timing-safe compare.
 
 ## Lifecycle & keyboard
@@ -75,12 +81,38 @@ Services-link HMAC: query `expires`+`nonce`+`sig`; SHA256 HMAC over `v1\nservice
 | Activation policy | Scout starts `.regular`; `--hud` launch starts `.accessory` and hides non-panel windows; last window close → `.accessory`, never terminates; reopen → `.regular` |
 | Hotkeys (Carbon, sig `OSCT`) | Scout id 1: Hyper+H → HUD toggle. Helper id 2: Hyper+C → `openComms`; id 3: Hyper+T → Tail mode; id 4: Hyper+A → new agent task. |
 | Task hot corner | Helper defaults to bottom-left with a 420ms hover dwell; dragging reveals an immediate nonactivating drop receiver. Right-click the menu icon → Task Hot Corner to choose any corner or Off. The chosen physical corner applies on every display, and the triggering display id is preserved for HUD placement. Bounded transient payloads plus the acknowledged command inbox carry cold-start drops to Scout; promised files from apps such as Mail and Photos are materialized in private TTL staging. The helper never hosts the composer. |
-| Quick task confirmation | A fresh task opened directly from the menu helper requires an explicit project choice; capture drops may still infer their project from the captured files. After the broker accepts the task, the composer stays open on a durable receipt showing project, runtime/model, effort, and a broker reference, with **Open task** and **Done** actions. |
+| Quick task confirmation | A fresh task opened directly from the menu helper requires an explicit project choice; capture drops may still infer their project from the captured files. After the broker accepts the task, the composer stays open on a durable receipt showing project, runtime/model, effort, and a broker reference, with **Open chat** and **Done** actions. **Open chat** selects the broker conversation id; flight and session ids remain secondary runtime references. |
 | Realtime Scoutbot voice | The microphone/WebRTC call is disposable transport over the selected durable Scoutbot assistant chat. Stopping or minimizing voice preserves the chat; **New** and the recent-chat picker change it explicitly, ending an active call before switching. An operator-requested `ask-agent` action dispatches immediately through the broker and reports its receipt or failure without a second voice-surface confirmation. |
 | HUD panel | `HUDController` singleton; non-activating `OverlayPanel`, mouse-screen centered, fade in/out, outside-click dismiss (220ms), Esc cascade (cheatsheet → dock text → chip → blur → unengage → dismiss) |
 | HUD keys | one shared `handleKeyDown` for panel `onKeyDown` + global monitor. The message composer's SwiftUI focus state is authoritative, with AppKit `firstResponder` as fallback; while focused, panel/host/global shortcut layers yield the complete keyboard stream to the field. Tabs 1-5 = focus/threads/tail/scout/scoutbot; sizes compact/medium/large via `[`/`]`/⌘-arrows |
 | Tail mode | `TailModeController` singleton; separate non-activating `OverlayPanel` using the shared `HUDTailView` tail logic with the overlay skin/wrapper. Persistent by default, no outside-click dismiss. Placement can be attached to the nearest edge or free-floating. |
 | Main-window keys | `ScoutKeyboardEventMonitor` (local NSEvent monitor) offers Esc + bare keys to `HUDController.handleHostKeyDown` first while HUD visible. A focused HUD message composer bypasses main-window bare-key navigation entirely; otherwise only unclaimed events drive window navigation. |
+
+### Quick-task keyboard contract
+
+`HUDRunnerKeyboardContract` is the shared source of truth for the native quick-task
+flow. Keep `HUDRunnerState`, `HUDRunnerOverlay`, `HUDController`, and
+`TaskCaptureTests` on that contract rather than adding view-local Tab behavior.
+
+| Input | Behavior |
+|---|---|
+| Fresh menu ask | Opens the project combobox immediately with three zero-query suggestions. |
+| Type in project search | Filters title, basename, and path; the first match becomes the active descendant. |
+| Up / Down | Moves the active project without moving focus out of the search field. The cursor is bounded to the same three rows the view renders. |
+| Return | Commits the active project and focuses the task message. |
+| Tab | From project search, commits the active project and focuses the task message. The primary path then continues to runtime and Create; suggestion rows never become a Tab gauntlet. Supporting controls remain later in the wrapping focus loop. |
+| Shift-Tab | Traverses the same focus loop in reverse without committing a suggestion. |
+| Command-R | Opens the full runtime configuration. Runtime choices, per-preset tuning controls, model versions, and efforts all participate in keyboard focus. Escape closes the picker and restores focus to its trigger. |
+| Command-D | Toggles task dictation even while a runner text field owns first responder. Bare `m` remains the HUD-level push-to-talk shortcut outside text editing. |
+| Command-Return | Creates the task from anywhere in the runner when validation passes. |
+| Escape | Cancels voice first, then unwinds runtime/disclosure state one level at a time, then dismisses. |
+
+Zero-query project suggestions are not alphabetical. `HUDRunnerRecentHistory`
+persists successful-use statistics and ranks candidates with a stable blend of
+recency (65%) and frequency (35%). A project is recorded only after the broker
+accepts task creation, never when a row is highlighted or provisionally selected.
+The decoder migrates the previous MRU-only payload by treating each retained id as
+one use, and the usage index is bounded to 64 valid project ids.
 
 ## Message composition and voice
 
@@ -89,11 +121,28 @@ Services-link HMAC: query `expires`+`nonce`+`sig`; SHA256 HMAC over `v1\nservice
 - Focused fields own every keystroke before panel, host-window, or bare-key navigation layers. Shared field code only claims explicit Return/Tab/arrow/Escape controls; it never installs handlers for printable shortcut letters.
 - New installs default to Apple. On macOS 26+, Apple and Auto resolve to `SpeechAnalyzer` + `SpeechTranscriber` with system-managed assets and volatile live results; this path requests microphone access only. Parakeet is explicit opt-in. macOS 14–15 retain Hudson's legacy Apple/Parakeet compatibility path and its separate Speech Recognition permission.
 
+### Native conversation embed boundary
+
+The macOS Comms detail embeds the shared web `/embed/thread` transcript, but the
+native shell owns product navigation and the only composer. `DiscoveredEmbedHost`
+must route every screen-level `navigate` call through the `scoutNativeUI` bridge;
+an embedded route must never replace the transcript WebView with Sessions,
+Terminal, Code, or another full product screen. Standalone web keeps using its
+local router.
+
+Working-turn controls follow the same ownership rule. **Steer** emits
+`focus-composer` so `ScoutRootView` focuses the native message field. **Terminal**
+is offered only when the selected agent has a real `terminalSurface`; a harness
+session id or Codex App Server transport alone does not imply an interactive
+terminal. Flight/session observation remains a secondary destination, while the
+conversation and its original operator message stay the primary task surface.
+
 ## Data flow
 
 | Store | Target | Cadence | Notes |
 |---|---|---|---|
 | `ScoutTailStore` | ScoutAppCore | 1.4s poll; discovery sub-fetch ≤ 1/30s | merge-by-id, 700-event cap; feeds Tail surface + HUD tail |
+| `ScoutServerLogStore` | ScoutAppCore | 1.2s while Broker treatment is visible | bounded, read-only tail of canonical `logs/broker/{stdout,stderr}.log`; no arbitrary path input |
 | `ScoutAgentsStore` | ScoutAppCore | push stream; 2.0s reconnect/fallback | Summary mode uses scoutd NDJSON over UDS; rich mode remains web-backed |
 | `ScoutActivityStore` | ScoutAppCore | 2.0s | HUD focus (RECENT section) |
 | `ScoutComposeService` | ScoutAppCore | SSE reply stream | shared compose/route/assistant thread |

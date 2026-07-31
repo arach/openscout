@@ -10,6 +10,10 @@ import { homedir, hostname as osHostname } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveOpenScoutWebRoutes } from "../shared/runtime-config.js";
+import {
+  renderScoutAsciiMarkHtml,
+  renderScoutAsciiMarkScript,
+} from "@openscout/runtime/scout-ascii-mark";
 
 const DEFAULT_PORTS = {
   broker: 43110,
@@ -327,91 +331,165 @@ function renderDevStartPage() {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Start Scout</title>
+  <script>
+    (function () {
+      var theme = "dark";
+      try {
+        var query = new URLSearchParams(window.location.search).get("theme");
+        var stored = JSON.parse(window.localStorage.getItem("openscout.theme") || "{}").theme;
+        var preference = query || stored;
+        if (preference === "light") theme = "light";
+        if (preference === "system") {
+          theme = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+        }
+      } catch {}
+      document.documentElement.dataset.scoutTheme = theme;
+    })();
+  </script>
   <style>
     :root {
       color-scheme: light dark;
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #0f1720;
-      color: #f5f7fb;
+      --bg: #080a07;
+      --surface: #10130e;
+      --ink: #f5f1e8;
+      --muted: #aaa69b;
+      --edge: #303729;
+      --accent: #a6e15e;
+      --orb-0: #2a2723;
+      --orb-1: #444038;
+      --orb-2: #6d675a;
+      --orb-3: #9a9181;
+      --orb-4: #d8d0c0;
+      font-family: "Inter Tight", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--ink);
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       min-height: 100vh;
       display: grid;
       place-items: center;
-      padding: 32px;
-      background:
-        radial-gradient(ellipse at 15% 30%, rgba(91, 141, 239, 0.16) 0%, transparent 50%),
-        radial-gradient(ellipse at 85% 70%, rgba(74, 222, 128, 0.06) 0%, transparent 40%),
-        #111827;
+      padding: 32px 28px;
+      background: var(--bg);
     }
     main {
-      width: min(400px, 100%);
-      padding: 28px 30px 26px;
-      border: 1px solid rgba(255, 255, 255, 0.09);
-      border-radius: 10px;
-      background: rgba(15, 23, 32, 0.9);
-      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 20px 60px rgba(0, 0, 0, 0.45);
+      width: min(640px, 100%);
     }
-    .badge {
-      display: inline-flex;
+    .brand {
+      display: flex;
       align-items: center;
-      gap: 6px;
-      margin-bottom: 18px;
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.07em;
+      justify-content: space-between;
+      gap: 16px;
+      padding-bottom: 14px;
+      margin-bottom: 36px;
+      border-bottom: 1px solid color-mix(in srgb, var(--edge) 80%, transparent);
+    }
+    .host {
+      overflow: hidden;
+      color: var(--muted);
+      font: 500 11px/1.2 ui-monospace, "SF Mono", Menlo, monospace;
+      letter-spacing: 0.08em;
+      text-overflow: ellipsis;
       text-transform: uppercase;
-      color: rgba(74, 222, 128, 0.8);
+      white-space: nowrap;
     }
-    @keyframes blink {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.2; }
+    .service {
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.01em;
+      white-space: nowrap;
     }
-    .badge-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: #4ade80;
-      flex-shrink: 0;
-      animation: blink 2.4s ease-in-out infinite;
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 24px 36px;
+      align-items: center;
     }
+    .orb {
+      position: relative;
+      justify-self: end;
+      user-select: none;
+      pointer-events: none;
+    }
+    .orb-l {
+      margin: 0;
+      color: var(--orb-0);
+      font: 400 5px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      letter-spacing: 0;
+      white-space: pre;
+      -webkit-font-smoothing: none;
+      -moz-osx-font-smoothing: unset;
+      font-smooth: never;
+      text-rendering: geometricPrecision;
+      font-variant-ligatures: none;
+      font-kerning: none;
+    }
+    .orb-l + .orb-l { position: absolute; inset: 0; }
+    .orb-l[data-t="1"] { color: var(--orb-1); }
+    .orb-l[data-t="2"] { color: var(--orb-2); }
+    .orb-l[data-t="3"] { color: var(--orb-3); }
+    .orb-l[data-t="4"] { color: var(--orb-4); }
     h1 {
-      font-size: 22px;
-      font-weight: 700;
-      line-height: 1.2;
-      margin-bottom: 8px;
-      color: #f5f7fb;
+      margin-bottom: 10px;
+      color: var(--ink);
+      font-size: clamp(24px, 3.6vw, 28px);
+      font-weight: 560;
+      letter-spacing: -0.04em;
+      line-height: 1.12;
     }
     p {
+      max-width: 34ch;
+      color: var(--muted);
       font-size: 14px;
-      color: rgba(245, 247, 251, 0.5);
       line-height: 1.55;
       margin-bottom: 22px;
     }
     button {
-      width: 100%;
       min-height: 44px;
-      border: 0;
-      border-radius: 7px;
-      background: #f4d35e;
-      color: #17202a;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border: 1px solid var(--edge);
+      border-radius: 8px;
+      padding: 0 14px;
+      background: var(--surface);
+      color: var(--ink);
       font: inherit;
-      font-size: 14px;
-      font-weight: 700;
+      font-size: 13px;
+      font-weight: 550;
+      letter-spacing: -0.015em;
       cursor: pointer;
-      transition: background 0.1s, opacity 0.1s;
+      transition: background 120ms ease, border-color 120ms ease, color 120ms ease, opacity 120ms ease;
     }
-    button:hover:not(:disabled) { background: #f7dc74; }
-    button:active:not(:disabled) { background: #e8c44a; }
-    button:disabled { cursor: progress; opacity: 0.6; }
+    button:hover:not(:disabled) {
+      border-color: color-mix(in srgb, var(--accent) 42%, var(--edge));
+      background: color-mix(in srgb, var(--surface) 88%, var(--accent));
+    }
+    button:active:not(:disabled) {
+      background: color-mix(in srgb, var(--surface) 78%, var(--accent));
+    }
+    button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    button:disabled { cursor: progress; opacity: 0.55; }
+    .button-arrow {
+      color: var(--accent);
+      font-size: 14px;
+      font-weight: 500;
+      line-height: 1;
+      transition: transform 120ms ease;
+    }
+    button:hover:not(:disabled) .button-arrow { transform: translateX(1px); }
     .progress {
-      height: 2px;
-      margin-top: 14px;
-      border-radius: 2px;
-      background: rgba(255, 255, 255, 0.06);
+      width: min(220px, 100%);
+      height: 1px;
+      margin-top: 18px;
+      border-radius: 1px;
+      background: color-mix(in srgb, var(--edge) 70%, transparent);
       overflow: hidden;
+      opacity: 0;
+      transition: opacity 120ms ease;
     }
+    main.is-waiting .progress { opacity: 1; }
     @keyframes sweep {
       0%   { transform: translateX(-100%); }
       100% { transform: translateX(500%); }
@@ -419,8 +497,8 @@ function renderDevStartPage() {
     .progress-bar {
       height: 100%;
       width: 20%;
-      border-radius: 2px;
-      background: rgba(244, 211, 94, 0.7);
+      border-radius: 1px;
+      background: var(--accent);
       transform: translateX(-100%);
     }
     .progress-bar.running {
@@ -430,36 +508,82 @@ function renderDevStartPage() {
       display: block;
       min-height: 16px;
       margin-top: 10px;
-      color: rgba(245, 247, 251, 0.38);
+      color: var(--muted);
       font-family: ui-monospace, "SF Mono", Menlo, "Cascadia Code", monospace;
-      font-size: 12px;
+      font-size: 11px;
       line-height: 1.4;
+    }
+    :root[data-scout-theme="dark"] { color-scheme: dark; }
+    :root[data-scout-theme="light"] {
+      color-scheme: light;
+      --bg: #f3f1ea;
+      --surface: #fbfaf5;
+      --ink: #171914;
+      --muted: #65655d;
+      --edge: #c6c8ba;
+      --accent: #3a6807;
+      --orb-0: #d2cec4;
+      --orb-1: #a19d94;
+      --orb-2: #717068;
+      --orb-3: #484b44;
+      --orb-4: #1c2019;
+    }
+    @media (max-width: 520px) {
+      body { place-items: start center; padding: 24px 20px; }
+      main { padding-top: 10vh; }
+      .brand { margin-bottom: 28px; }
+      .service { display: none; }
+      .hero { grid-template-columns: 1fr; gap: 28px; }
+      .orb { order: -1; justify-self: start; }
+      .orb-l { font-size: 4.5px; }
+      h1 { font-size: clamp(22px, 6.5vw, 26px); }
+      p { max-width: none; }
+      button { width: 100%; }
+      .progress { width: 100%; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      button, .button-arrow, .progress { transition: none; }
+      button:hover:not(:disabled) .button-arrow { transform: none; }
+      .progress-bar.running { animation: none; transform: none; width: 100%; }
     }
   </style>
 </head>
 <body>
-  <main>
-    <div class="badge"><span class="badge-dot"></span>Broker online</div>
-    <h1>Start Scout</h1>
-    <p>The web app is not running yet. Click to start it on this machine.</p>
-    <button id="start" type="button">Start Scout</button>
-    <div class="progress"><div class="progress-bar" id="bar"></div></div>
-    <output id="status" role="status"></output>
+  <main id="shell">
+    <div class="brand">
+      <span class="host" id="host">Scout local</span>
+      <span class="service">Local web service</span>
+    </div>
+    <div class="hero">
+      <section>
+        <h1>Bring Scout online.</h1>
+        <p>The web interface is not running yet. Start it to return to your agents, messages, and activity.</p>
+        <button id="start" type="button"><span>Start Scout</span><span class="button-arrow" aria-hidden="true">→</span></button>
+        <div class="progress"><div class="progress-bar" id="bar"></div></div>
+        <output id="status" role="status"></output>
+      </section>
+      <div class="orb" aria-hidden="true">${renderScoutAsciiMarkHtml()}</div>
+    </div>
   </main>
+  ${renderScoutAsciiMarkScript()}
   <script>
     const config = ${pageConfig};
+    const shell = document.getElementById('shell');
+    const host = document.getElementById('host');
     const button = document.getElementById('start');
     const bar = document.getElementById('bar');
     const status = document.getElementById('status');
     const targetPath = window.location.pathname + window.location.search + window.location.hash;
     const healthUrl = new URL('/api/health', window.location.origin);
     const startUrl = new URL(config.startPath, window.location.origin);
+    host.textContent = window.location.host;
 
     function setStatus(message) {
       status.textContent = message;
     }
 
     function setWaiting(on) {
+      shell.classList.toggle('is-waiting', on);
       bar.classList.toggle('running', on);
     }
 

@@ -554,6 +554,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
   }
   if (parts[0] === "code") {
     const wt = url.searchParams.get("wt")?.trim() || undefined;
+    const returnConversationId = url.searchParams.get("fromConversation")?.trim() || undefined;
     const line = parsePositiveLine(url.searchParams.get("line"));
     const rawEndLine = parsePositiveLine(url.searchParams.get("endLine"));
     const endLine = line && rawEndLine && rawEndLine >= line ? rawEndLine : undefined;
@@ -567,6 +568,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
         ...(wt ? { wt } : {}),
         ...(line ? { line } : {}),
         ...(endLine ? { endLine } : {}),
+        ...(returnConversationId ? { returnConversationId } : {}),
       };
     }
     const root = url.searchParams.get("root")?.trim() || undefined;
@@ -578,6 +580,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
       ...(wt ? { wt } : {}),
       ...(line ? { line } : {}),
       ...(endLine ? { endLine } : {}),
+      ...(returnConversationId ? { returnConversationId } : {}),
     };
   }
   if (parts[0] === "briefings" && parts[1]) {
@@ -822,6 +825,7 @@ export function routePath(r: Route, pathname?: string): string {
       if (r.line) params.set("line", String(r.line));
       if (r.line && r.endLine && r.endLine >= r.line) params.set("endLine", String(r.endLine));
       if (r.project) {
+        if (r.returnConversationId) params.set("fromConversation", r.returnConversationId);
         const segments = [encodeURIComponent(r.project)];
         if (r.path) segments.push(...r.path.split("/").map(encodeURIComponent));
         const base = `/code/${segments.join("/")}`;
@@ -829,6 +833,7 @@ export function routePath(r: Route, pathname?: string): string {
       }
       if (r.root) params.set("root", r.root);
       if (r.file) params.set("file", r.file);
+      if (r.returnConversationId) params.set("fromConversation", r.returnConversationId);
       const search = params.toString();
       return search ? `/code?${search}` : "/code";
     }

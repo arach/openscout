@@ -20,6 +20,14 @@ const repoRoot = resolve(appDir, "..", "..");
 const distDir = resolve(appDir, "dist");
 const bundleName = "ScoutMenu.app";
 const bundlePath = resolve(distDir, bundleName);
+const embeddedBundlePath = resolve(
+  distDir,
+  "Scout.app",
+  "Contents",
+  "Library",
+  "LoginItems",
+  bundleName,
+);
 const legacyBundlePaths = [
   resolve(distDir, "OpenScoutMenu.app"),
   resolve(distDir, "OpenScout Menu.app"),
@@ -516,7 +524,9 @@ async function main(): Promise<void> {
 
 // ── HUD control via scout:// URL scheme ─────────────────────────────
 //
-// Actions are fired as URLs (`open -g scout://hud/<action>`); the app
+// Actions are fired as URLs (`open -g scout://hud/<action>`). New asks use
+// the product-level `scout://asks/new` route; `hud task` remains a CLI alias.
+// The app
 // mirrors current state to /tmp/openscout-hud-state.json on every
 // change. `capture` reads windowId from that file and shells out to
 // screencapture; `matrix` walks the HUD tab/size grid for a polish review.
@@ -556,9 +566,29 @@ function readHudState(): HudState {
 function fireHudURL(path: string): void {
   execFileSync(
     "open",
-    ["-g", "-b", bundleIdentifier, `scout://hud/${path}`],
+    ["-g", "-a", hudControlBundlePath(), `scout://hud/${path}`],
     { stdio: "inherit" },
   );
+}
+
+function fireAskURL(anchor?: string): void {
+  const url = new URL("scout://asks/new");
+  if (anchor) {
+    url.searchParams.set("anchor", anchor);
+  }
+  execFileSync(
+    "open",
+    ["-g", "-a", hudControlBundlePath(), url.toString()],
+    { stdio: "inherit" },
+  );
+}
+
+function hudControlBundlePath(): string {
+  // Dev builds can leave both a standalone packaging artifact and Scout's
+  // canonical embedded login item on disk with the same bundle identifier.
+  // Target the exact embedded helper so LaunchServices cannot choose the
+  // wrong process for HUD and Tail control URLs.
+  return existsSync(embeddedBundlePath) ? embeddedBundlePath : bundlePath;
 }
 
 function readTailState(): TailState {
@@ -573,7 +603,7 @@ function readTailState(): TailState {
 function fireTailURL(path: string): void {
   execFileSync(
     "open",
-    ["-g", "-b", bundleIdentifier, `scout://tail/${path}`],
+    ["-g", "-a", hudControlBundlePath(), `scout://tail/${path}`],
     { stdio: "inherit" },
   );
 }
@@ -643,7 +673,7 @@ async function runHudCommand(args: string[]): Promise<void> {
       if (corner && !HUD_CAPTURE_CORNERS.includes(corner as typeof HUD_CAPTURE_CORNERS[number])) {
         throw new Error(`hud task [${HUD_CAPTURE_CORNERS.join("|")}]`);
       }
-      fireHudURL(corner ? `task/${corner}` : "task");
+      fireAskURL(corner);
       return;
     }
     case "capture": {

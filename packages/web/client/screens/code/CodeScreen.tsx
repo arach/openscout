@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronRight, Copy } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, Copy } from "lucide-react";
 import { api } from "../../lib/api.ts";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
+import { forwardScoutbotUiActionToNativeHost } from "../../lib/scoutbot.ts";
 import type { Route } from "../../lib/types.ts";
 import { fetchRepoWatchSnapshot, getCachedRepoWatchSnapshot } from "../../scout/repo-watch/api.ts";
 import type { RepoWatchSnapshot } from "../../scout/repo-watch/types.ts";
@@ -161,6 +162,7 @@ export function CodeContent({
   wt: wtProp,
   line: lineProp,
   endLine: endLineProp,
+  returnConversationId: returnConversationIdProp,
   embedded = false,
 }: {
   route?: Extract<Route, { view: "code" }>;
@@ -172,6 +174,7 @@ export function CodeContent({
   wt?: string;
   line?: number;
   endLine?: number;
+  returnConversationId?: string;
   embedded?: boolean;
 }) {
   const initialRoot = rootProp ?? route?.root ?? null;
@@ -181,6 +184,7 @@ export function CodeContent({
   const linkWt = wtProp ?? route?.wt ?? null;
   const initialLine = lineProp ?? route?.line;
   const initialEndLine = endLineProp ?? route?.endLine;
+  const returnConversationId = returnConversationIdProp ?? route?.returnConversationId ?? null;
 
   const [snapshot, setSnapshot] = useState<RepoWatchSnapshot | null>(() => getCachedRepoWatchSnapshot());
   // With no explicit target, reopen where the operator last was — the surface
@@ -399,6 +403,7 @@ export function CodeContent({
   // surface is a copyable link — slug form when the snapshot knows the root,
   // absolute form otherwise.
   const routeForSelection = useCallback((rootPath: string, filePath: string | null): Route => {
+    const returnRoute = returnConversationId ? { returnConversationId } : {};
     if (snapshot) {
       for (const project of snapshot.projects) {
         for (const [index, worktree] of project.worktrees.entries()) {
@@ -409,13 +414,36 @@ export function CodeContent({
               project: slugify(project.name),
               ...(rel ? { path: rel } : {}),
               ...(index > 0 ? { wt: worktree.name } : {}),
+              ...returnRoute,
             };
           }
         }
       }
     }
-    return { view: "code", root: rootPath, ...(filePath ? { file: filePath } : {}) };
-  }, [snapshot]);
+    return { view: "code", root: rootPath, ...(filePath ? { file: filePath } : {}), ...returnRoute };
+  }, [returnConversationId, snapshot]);
+
+  const returnToThread = useCallback(() => {
+    if (!returnConversationId) return;
+    const destination: Route = { view: "conversation", conversationId: returnConversationId };
+    if (forwardScoutbotUiActionToNativeHost({ type: "navigate", route: destination })) return;
+    navigate?.(destination);
+  }, [navigate, returnConversationId]);
+
+  useEffect(() => {
+    if (!returnConversationId) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!event.metaKey || event.key !== "[") return;
+      if (event.target instanceof HTMLElement) {
+        const tag = event.target.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || event.target.isContentEditable) return;
+      }
+      event.preventDefault();
+      returnToThread();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [returnConversationId, returnToThread]);
 
   const syncUrl = useCallback((rootPath: string, filePath: string | null) => {
     if (embedded || !navigate) return;
@@ -558,6 +586,17 @@ export function CodeContent({
   return (
     <div className="s-code-screen" data-embedded={embedded || undefined}>
       <div className="s-code-head">
+        {returnConversationId ? (
+          <button
+            type="button"
+            className="s-code-returnThread"
+            onClick={returnToThread}
+            title="Back to thread (⌘[)"
+          >
+            <ArrowLeft size={13} strokeWidth={1.9} aria-hidden />
+            <span>Back to thread</span>
+          </button>
+        ) : null}
         <CodeProjectPicker
           snapshot={snapshot}
           root={root}
@@ -734,6 +773,7 @@ export const scoutSurface = defineSurface({
       wt: params.get("wt")?.trim() || undefined,
       line: positiveEmbedLine(params.get("line")),
       endLine: positiveEmbedLine(params.get("endLine")),
+      returnConversationId: params.get("fromConversation")?.trim() || undefined,
     }),
   },
 });

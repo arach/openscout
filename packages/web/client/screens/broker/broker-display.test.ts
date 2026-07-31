@@ -7,6 +7,7 @@ import {
   brokerAttemptContextText,
   brokerAttemptDedupeFingerprint,
   brokerAttemptErrorSummary,
+  brokerAttemptFailureTitle,
   brokerAttemptIsFailure,
   brokerMessageFeedRows,
   brokerAttemptRootCauseFingerprint,
@@ -168,17 +169,17 @@ describe("broker dispatch display", () => {
   });
 
   test("summarizes dispatch metadata for failed queries", () => {
-    const summary = brokerAttemptErrorSummary(attempt({
+    const failedQuery = attempt({
       kind: "failed_query",
-      status: "no_agent_match",
+      status: "failed",
       detail: "No agent matches for pi-lattice",
       metadata: {
-        dispatchKind: "ask",
+        dispatchKind: "unknown",
         requestedLabel: "pi-lattice",
       },
-    }));
-    expect(summary).toContain("ask");
-    expect(summary).toContain("no_agent_match");
+    });
+    expect(brokerAttemptFailureTitle(failedQuery)).toBe("Target not found");
+    expect(brokerAttemptErrorSummary(failedQuery)).toBe("Target not found");
   });
 
   test("prefers actionable delivery failure detail over its transport reason", () => {

@@ -681,11 +681,15 @@ button.s-thread-identity-chip:hover {
   transition: opacity 0.15s;
   cursor: pointer;
   color: var(--muted);
-  background: none;
+  background: transparent;
   border: none;
-  padding: 0 var(--space-3xs);
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: var(--radius-sm);
   display: inline-flex;
   align-items: center;
+  justify-content: center;
 }
 
 /* Keep the standard presentation's action buttons as direct flex items. The
@@ -701,10 +705,79 @@ button.s-thread-identity-chip:hover {
 
 .s-thread-msg-permalink:focus-visible {
   opacity: 1;
+  outline: 2px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  outline-offset: 1px;
 }
 
 .s-thread-msg-permalink:hover {
   color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+
+@media (hover: none) {
+  .s-thread-msg-permalink {
+    opacity: 0.72;
+  }
+}
+
+.s-thread-compose-reply {
+  display: grid;
+  grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-tight);
+}
+
+.s-thread-compose-reply-icon {
+  flex: none;
+  color: var(--accent);
+}
+
+.s-thread-compose-reply-label {
+  color: var(--dim);
+}
+
+.s-thread-compose-reply-actor {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.s-thread-compose-reply-preview {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.s-thread-compose-reply-cancel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin: calc(var(--space-2xs) * -1);
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.s-thread-compose-reply-cancel:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+
+.s-thread-compose-reply-cancel:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  outline-offset: 1px;
 }
 
 .s-thread-compose-receipt {
@@ -3244,8 +3317,8 @@ button.s-thread-sidebar-participant:focus-visible {
   color: var(--muted);
 }
 
-/* A terminal run is execution truth, not proof that a reply settled. Keep the
-   receipt quiet and neutral for success; reserve status color for interruption. */
+/* Successful completion belongs to the reply turn. Only interruption earns a
+   separate feed receipt because it needs operator attention. */
 .s-thread-feed-block--terminal {
   justify-content: flex-start;
 }

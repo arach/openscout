@@ -61,7 +61,7 @@ struct HUDRunnerCompletionView: View {
                     .buttonStyle(HUDRunnerSecondaryButtonStyle(isFocused: false))
                     .keyboardShortcut(.cancelAction)
                 if completion.conversationId != nil {
-                    Button("Open task", action: runner.openCompletedTask)
+                    Button("Open chat", action: runner.openCompletedTask)
                         .buttonStyle(HUDRunnerPrimaryTextButtonStyle())
                         .keyboardShortcut(.defaultAction)
                 }

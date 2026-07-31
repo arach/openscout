@@ -86,6 +86,32 @@ describe("context capture draft resilience", () => {
     expect(merged.attachmentFeedback).toBe("Added a new capture.");
   });
 
+  test("preserves an explicit forward source and context choice without leaking them to a normal task", () => {
+    const source = {
+      selectedMessage: "Forwarded message",
+      selectedMessageId: "message:one",
+      sourceConversationId: "chat:one",
+      recentContext: "Earlier context",
+      recentMessageCount: 1,
+    };
+    const forwarded = mergeContextCaptureDraft(null, {
+      intent: "forward-message",
+      forwardContext: source,
+      forwardContextMode: "recent-context",
+    });
+
+    expect(contextCaptureDraftHasContent(forwarded)).toBe(true);
+    expect(forwarded).toMatchObject({
+      intent: "forward-message",
+      forwardContext: source,
+      forwardContextMode: "recent-context",
+    });
+
+    const fresh = mergeContextCaptureDraft(forwarded, { intent: "new-task" });
+    expect(fresh.forwardContext).toBeUndefined();
+    expect(fresh.forwardContextMode).toBe("selected-message");
+  });
+
   test("keeps the sheet mounted throughout the dictation lifecycle", () => {
     expect(dictationBlocksContextCaptureClose("starting")).toBe(true);
     expect(dictationBlocksContextCaptureClose("recording")).toBe(true);

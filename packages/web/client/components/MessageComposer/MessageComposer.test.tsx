@@ -16,6 +16,8 @@ mock.module("react/jsx-runtime", () => ReactJsxRuntime);
 mock.module("react/jsx-dev-runtime", () => ReactJsxDevRuntime);
 
 const { MessageComposer } = await import("./MessageComposer.tsx");
+const { MessageComposerEmbedBoundary } = await import("./MessageComposerEmbedBoundary.tsx");
+const { MessageComposerSuggestions } = await import("./MessageComposerSuggestions.tsx");
 
 describe("MessageComposer overlays", () => {
   test("renders suggestions outside the clipped composer shell", () => {
@@ -36,5 +38,56 @@ describe("MessageComposer overlays", () => {
     expect(html).toContain(
       'role="listbox">Slash commands</div><div class="s-msg-compose-shell"',
     );
+  });
+
+  test("marks suggestions that should stay inside a modal composer", () => {
+    const html = renderToStaticMarkup(createElement(MessageComposerSuggestions, {
+      label: "Mention agent",
+      items: [{ id: "arach", token: "@arach", description: "Arach" }],
+      activeIndex: 0,
+      placement: "inside",
+      onPick: () => undefined,
+      onActiveIndexChange: () => undefined,
+    }));
+
+    expect(html).toContain('data-placement="inside"');
+    expect(html).toContain('aria-label="Mention agent"');
+  });
+});
+
+describe("MessageComposer embed ownership", () => {
+  test("drops the shared composer anywhere inside an embed boundary", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        MessageComposerEmbedBoundary,
+        null,
+        createElement(MessageComposer, {
+          value: "",
+          onChange: () => undefined,
+          onSend: () => undefined,
+          showDictation: false,
+        }),
+      ),
+    );
+
+    expect(html).toBe("");
+  });
+
+  test("supports an explicit embed-owned composer", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        MessageComposerEmbedBoundary,
+        null,
+        createElement(MessageComposer, {
+          value: "",
+          onChange: () => undefined,
+          onSend: () => undefined,
+          showDictation: false,
+          renderWhenEmbedded: true,
+        }),
+      ),
+    );
+
+    expect(html).toContain('class="s-msg-compose');
   });
 });

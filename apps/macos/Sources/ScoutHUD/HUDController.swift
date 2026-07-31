@@ -404,7 +404,9 @@ public final class HUDController {
             return HUDRunnerLayout.contentSize(
                 disclosure: runner.disclosure,
                 hasCaptures: !runner.attachments.isEmpty || !runner.localReferences.isEmpty,
-                projectChoiceCount: runner.projectQuickChoices(limit: 3).count,
+                projectChoiceCount: runner.projectQuickChoices(
+                    limit: HUDRunnerKeyboardContract.visibleProjectSuggestionCount
+                ).count,
                 runtimeChoiceCount: runner.runtimeQuickChoices(limit: 3).count
             )
         }
@@ -436,8 +438,27 @@ public final class HUDController {
         preparePanelForMotion(p)
         Task { @MainActor [weak self, weak p] in
             try? await Task.sleep(nanoseconds: 45_000_000)
-            guard let self, let p, self.panel === p else { return }
+            guard let self,
+                  let p,
+                  self.panel === p,
+                  HUDState.shared.isVisible else { return }
+            if !p.isVisible {
+                OverlayPanelShell.present(p, activate: false, makeKey: true, orderFrontRegardless: true)
+            }
             self.fadeIn(p)
+            try? await Task.sleep(nanoseconds: 260_000_000)
+            guard !Task.isCancelled,
+                  self.panel === p,
+                  HUDState.shared.isVisible else { return }
+            // A cold SwiftUI launch can order out the accessory panel after
+            // its first presentation. Reassert only while the HUD's own state
+            // still says it should be visible, so an intentional dismissal
+            // always wins.
+            if !p.isVisible {
+                OverlayPanelShell.present(p, activate: false, makeKey: true, orderFrontRegardless: true)
+            }
+            p.alphaValue = 1
+            HUDStateFile.shared.touch()
             HUDMotionState.shared.settle(after: 0.16)
         }
     }
@@ -522,7 +543,14 @@ public final class HUDController {
         if HUDRunnerState.shared.isPresented {
             let keyCode = event.keyCode
             if event.modifierFlags.contains(.command),
-               (keyCode == 36 || keyCode == 76 || keyCode == 37 || keyCode == 31 || keyCode == 15) {
+               (
+                   keyCode == 36
+                       || keyCode == 76
+                       || keyCode == 37
+                       || keyCode == 31
+                       || keyCode == 15
+                       || keyCode == 2
+               ) {
                 return true
             }
             if HUDRunnerState.shared.shouldHandleProjectNavigation {

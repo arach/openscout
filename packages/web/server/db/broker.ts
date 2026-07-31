@@ -407,7 +407,12 @@ function failedQueryFromRow(row: DispatchRow): WebBrokerRouteAttempt {
   return {
     id: `dispatch:${row.id}`,
     kind: "failed_query",
-    status: row.kind,
+    // `kind` describes why target resolution failed (unknown, ambiguous,
+    // unparseable). It is not the lifecycle status. Keeping those concepts
+    // separate prevents operator surfaces from rendering terminal failures as
+    // an "unknown" state while preserving the useful resolution diagnosis in
+    // metadata.
+    status: "failed",
     ts: normalizeTimestampMs(row.ts) ?? row.ts,
     actorName: row.actor_name ?? row.requester_id,
     target: row.asked_label,

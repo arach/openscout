@@ -256,13 +256,15 @@ body {
 
 /* ── Prose ─────────────────────────────────────────────────────────
  * Applied via `.studio-prose` on the rendered markdown wrapper.
- * Inter Tight for headings + body, JetBrains Mono for code + chrome.
- * Sized for sustained reading at ~720px column width. */
+ * Inter for reading body, Inter Tight for headings (the display cut),
+ * JetBrains Mono for code + chrome. Sized for sustained reading. */
 
 .studio-prose {
-  font-family: theme("fontFamily.sans");
+  /* Inter, not Inter Tight: Tight is the display cut and cramps at 13px
+   * sustained reading. Headings below keep the Tight cut. */
+  font-family: "Inter", "Inter Tight", -apple-system, "SF Pro Text", sans-serif;
   font-size: var(--text-lg); /* 13 — reading body, one step under old 14 */
-  line-height: 1.65;
+  line-height: 1.7;
   color: var(--studio-ink);
 }
 
@@ -276,14 +278,15 @@ body {
 }
 
 .studio-prose h1 {
-  font-size: var(--text-6xl);
-  font-weight: 500;
-  margin: 0 0 1.25rem;
-  line-height: 1.15;
+  font-size: var(--text-7xl);
+  font-weight: 600;
+  margin: 0 0 1.5rem;
+  line-height: 1.12;
+  letter-spacing: -0.02em;
 }
 .studio-prose h2 {
   font-size: var(--text-4xl);
-  font-weight: 500;
+  font-weight: 600;
   margin: 2.25rem 0 0.75rem;
   line-height: 1.25;
   border-bottom: 1px solid var(--studio-edge);
@@ -324,7 +327,7 @@ body {
   padding: 0;
 }
 .studio-prose li {
-  margin: 0.15rem 0;
+  margin: 0.25rem 0;
 }
 .studio-prose ul {
   list-style: square;

@@ -121,13 +121,94 @@
   color: var(--dim);
 }
 
-.s-msg-compose-input:focus {
+.s-msg-compose-shell .s-msg-compose-input:focus,
+.s-msg-compose-shell .s-msg-compose-input:focus-visible {
   box-shadow: none;
 }
 
 .s-msg-compose-input:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+/* Slash-command and mention menus are part of the shared composer contract.
+   Thread composers open above the clipped shell through the overlay slot. */
+.s-msg-compose-suggest {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  max-height: 260px;
+  overflow-y: auto;
+  padding: var(--space-2xs);
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--ink) 22%, transparent);
+  z-index: 20;
+}
+
+/* A modal composer has room inside its writing field but not above it. Keep the
+   project row and dialog stationary, preserve the first line being edited, and
+   let the suggestion tray scroll within the remaining writing area. */
+.s-msg-compose-suggest[data-placement="inside"] {
+  top: 40px;
+  right: var(--space-sm);
+  bottom: 52px;
+  left: var(--space-sm);
+  max-height: none;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 14px 28px -18px color-mix(in srgb, var(--ink) 48%, transparent);
+}
+
+.s-msg-compose-suggest-label {
+  padding: var(--space-xs) var(--space-md) var(--space-2xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-lg);
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.s-msg-compose-suggest-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  padding: var(--space-xs) var(--space-md);
+  border: none;
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.s-msg-compose-suggest-item:hover,
+.s-msg-compose-suggest-item--active {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.s-msg-compose-suggest-token {
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  color: var(--ink);
+}
+
+.s-msg-compose-suggest-desc {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-msg-compose-suggest-avatar {
+  flex-shrink: 0;
 }
 
 /* Voice strip lives in the body (not the toolbar) so model pickers /

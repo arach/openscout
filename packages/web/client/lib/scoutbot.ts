@@ -36,6 +36,7 @@ const ONLINE_SCOUTBOT_STATES = new Set([
 
 export type ScoutbotUiAction =
   | { type: "navigate"; route: Route; reason?: string }
+  | { type: "focus-composer"; reason?: string }
   | { type: "open-scoutbot"; mode?: "ask" | "tell"; reason?: string }
   | { type: "refresh"; reason?: string }
   | { type: "view-file"; path: string; reason?: string }
@@ -60,6 +61,9 @@ export type ScoutbotUiAction =
 type ScoutNativeUiActionHost = {
   webkit?: {
     messageHandlers?: {
+      scoutNativeUI?: {
+        postMessage: (message: unknown) => void;
+      };
       scoutRealtimeVoice?: {
         postMessage: (message: unknown) => void;
       };
@@ -70,19 +74,21 @@ type ScoutNativeUiActionHost = {
 export function isScoutNativeUiActionHost(
   host: ScoutNativeUiActionHost = globalThis.window as unknown as ScoutNativeUiActionHost,
 ): boolean {
-  return Boolean(host.webkit?.messageHandlers?.scoutRealtimeVoice);
+  const handlers = host.webkit?.messageHandlers;
+  return Boolean(handlers?.scoutNativeUI ?? handlers?.scoutRealtimeVoice);
 }
 
 /**
- * Native embeds own app navigation. The voice WebView only owns the realtime
- * transport and call UI, so a Scoutbot action must leave that document instead
- * of asking its embedded router to become the destination screen.
+ * Native embeds own app navigation. Their WebViews only own the embedded
+ * document, so a UI action must leave that document instead of asking its
+ * local router to become the destination screen.
  */
 export function forwardScoutbotUiActionToNativeHost(
   action: ScoutbotUiAction,
   host: ScoutNativeUiActionHost = globalThis.window as unknown as ScoutNativeUiActionHost,
 ): boolean {
-  const handler = host.webkit?.messageHandlers?.scoutRealtimeVoice;
+  const handlers = host.webkit?.messageHandlers;
+  const handler = handlers?.scoutNativeUI ?? handlers?.scoutRealtimeVoice;
   if (!handler) return false;
   try {
     handler.postMessage({ kind: "ui-action", action });

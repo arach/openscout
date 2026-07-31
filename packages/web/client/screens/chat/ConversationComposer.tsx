@@ -1,13 +1,14 @@
 import {
-  type CSSProperties,
   type Dispatch,
   type RefObject,
   type SetStateAction,
 } from "react";
+import { Reply, X } from "lucide-react";
 import { actorColor } from "../../lib/colors.ts";
 import {
   ComposerAttachmentStrip,
   MessageComposer,
+  MessageComposerSuggestions,
   type ComposerAttachmentsState,
 } from "../../components/MessageComposer/index.ts";
 import type {
@@ -20,6 +21,13 @@ import type {
   SlashCommand,
   SlashSuggestState,
 } from "./conversation-model.ts";
+
+export type ConversationReplyTarget = {
+  messageId: string;
+  actorLabel: string;
+  preview: string;
+  insertedMention?: string | null;
+};
 
 export function ConversationComposer({
   composeRef,
@@ -36,6 +44,8 @@ export function ConversationComposer({
   applyMention,
   updateTriggersFromDraft,
   closeSuggestions,
+  replyTarget,
+  onCancelReply,
   isStopMode,
   sending,
   composeAction,
@@ -69,6 +79,8 @@ export function ConversationComposer({
   applyMention: (candidate: MentionCandidate) => void;
   updateTriggersFromDraft: (value: string, caret: number) => void;
   closeSuggestions: () => void;
+  replyTarget: ConversationReplyTarget | null;
+  onCancelReply: () => void;
   isStopMode: boolean;
   sending: boolean;
   composeAction: ComposeAction;
@@ -96,78 +108,43 @@ export function ConversationComposer({
 }) {
   const overlay = (
     <>
-      {slashState.open && filteredSlashCommands.length > 0 && (
-        <div
-          className="s-thread-compose-suggest"
-          role="listbox"
-          aria-label="Slash commands"
-        >
-          <div className="s-thread-compose-suggest-label">Slash commands</div>
-          {filteredSlashCommands.map((cmd, i) => (
-            <button
-              key={cmd.command}
-              type="button"
-              role="option"
-              aria-selected={i === slashState.index}
-              className={[
-                "s-thread-compose-suggest-item",
-                i === slashState.index && "s-thread-compose-suggest-item--active",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                applySlashCommand(cmd);
-              }}
-              onMouseEnter={() => setSlashState((s) => ({ ...s, index: i }))}
-            >
-              <span className="s-thread-compose-suggest-cmd">{cmd.label}</span>
-              <span className="s-thread-compose-suggest-desc">{cmd.description}</span>
-            </button>
-          ))}
-        </div>
-      )}
+      {slashState.open ? (
+        <MessageComposerSuggestions
+          label="Slash commands"
+          items={filteredSlashCommands.map((command) => ({
+            id: command.command,
+            token: command.label,
+            description: command.description,
+          }))}
+          activeIndex={slashState.index}
+          onPick={(index) => {
+            const command = filteredSlashCommands[index];
+            if (command) applySlashCommand(command);
+          }}
+          onActiveIndexChange={(index) => setSlashState((state) => ({ ...state, index }))}
+        />
+      ) : null}
 
-      {mentionState.open && filteredMentions.length > 0 && (
-        <div
-          className="s-thread-compose-suggest"
-          role="listbox"
-          aria-label="Mention agents"
-        >
-          <div className="s-thread-compose-suggest-label">Mention agent</div>
-          {filteredMentions.map((m, i) => (
-            <button
-              key={m.id}
-              type="button"
-              role="option"
-              aria-selected={i === mentionState.index}
-              className={[
-                "s-thread-compose-suggest-item",
-                i === mentionState.index && "s-thread-compose-suggest-item--active",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                applyMention(m);
-              }}
-              onMouseEnter={() => setMentionState((s) => ({ ...s, index: i }))}
-            >
-              <span
-                className="s-ops-avatar s-thread-compose-suggest-avatar"
-                style={{
-                  "--size": "20px",
-                  background: actorColor(m.name),
-                } as CSSProperties}
-              >
-                {m.name[0]?.toUpperCase() ?? "?"}
-              </span>
-              <span className="s-thread-compose-suggest-cmd">@{m.handle}</span>
-              <span className="s-thread-compose-suggest-desc">{m.name}</span>
-            </button>
-          ))}
-        </div>
-      )}
+      {mentionState.open ? (
+        <MessageComposerSuggestions
+          label="Mention agent"
+          items={filteredMentions.map((mention) => ({
+            id: mention.id,
+            token: `@${mention.handle}`,
+            description: mention.name,
+            avatar: {
+              label: mention.name[0]?.toUpperCase() ?? "?",
+              color: actorColor(mention.name),
+            },
+          }))}
+          activeIndex={mentionState.index}
+          onPick={(index) => {
+            const mention = filteredMentions[index];
+            if (mention) applyMention(mention);
+          }}
+          onActiveIndexChange={(index) => setMentionState((state) => ({ ...state, index }))}
+        />
+      ) : null}
     </>
   );
 
@@ -344,22 +321,45 @@ export function ConversationComposer({
       above={queueStack}
       aboveAttached
       header={
-        isEditing && editingAttachmentCount > 0 ? (
-          <>
-            {/*
-              These files were uploaded when the draft was queued, so they never
-              appear in the staged-file strip. Say they are still attached.
-            */}
+        <>
+          {replyTarget ? (
+            <div className="s-thread-compose-reply" role="status">
+              <Reply
+                className="s-thread-compose-reply-icon"
+                size={13}
+                strokeWidth={1.8}
+                aria-hidden="true"
+              />
+              <span className="s-thread-compose-reply-label">Replying to</span>
+              <span className="s-thread-compose-reply-actor">
+                {replyTarget.actorLabel}
+              </span>
+              <span
+                className="s-thread-compose-reply-preview"
+                title={replyTarget.preview}
+              >
+                {replyTarget.preview}
+              </span>
+              <button
+                type="button"
+                className="s-thread-compose-reply-cancel"
+                aria-label="Cancel reply"
+                title="Cancel reply"
+                onClick={onCancelReply}
+              >
+                <X size={13} strokeWidth={1.8} aria-hidden="true" />
+              </button>
+            </div>
+          ) : null}
+          {isEditing && editingAttachmentCount > 0 ? (
             <div className="s-msg-compose-carried" role="status">
               {editingAttachmentCount} file
               {editingAttachmentCount === 1 ? "" : "s"} stay attached to this
               draft
             </div>
-            <ComposerAttachmentStrip attachments={attachments} />
-          </>
-        ) : (
+          ) : null}
           <ComposerAttachmentStrip attachments={attachments} />
-        )
+        </>
       }
       status={sendReceipt ? (
         <div
@@ -426,7 +426,13 @@ export function ConversationComposer({
           closeSuggestions();
           return true;
         }
-        if ((event.key === "Enter" || event.key === "Tab") && !event.shiftKey) {
+        if (
+          (event.key === "Enter" || event.key === "Tab")
+          && !event.shiftKey
+          && !event.metaKey
+          && !event.ctrlKey
+          && !event.altKey
+        ) {
           if (slashState.open) {
             const pick =
               filteredSlashCommands[slashState.index]

@@ -23,34 +23,48 @@ const LADDER: Array<{ rung: string; px: string; role: string }> = [
   { rung: "3xl", px: "17px", role: "section titles" },
   { rung: "4xl", px: "19px", role: "study titles" },
   { rung: "5xl", px: "22px", role: "page titles" },
-  { rung: "6xl", px: "26px", role: "landing mastheads · prose h1" },
+  { rung: "6xl", px: "26px", role: "landing mastheads" },
+  { rung: "7xl", px: "32px", role: "article titles · prose h1" },
 ];
 
 const DISPLAY: Row[] = [
   {
     sample: (
+      <span className="font-display text-7xl font-semibold leading-[1.12] tracking-[-0.02em] text-studio-ink">
+        H1 — text-7xl
+      </span>
+    ),
+    spec: [
+      ["token", "--text-7xl"],
+      ["size", "32px"],
+      ["weight", "600"],
+      ["usage", "prose h1 · article titles"],
+    ],
+  },
+  {
+    sample: (
       <span className="font-display text-6xl font-medium leading-[1.15] tracking-[-0.012em] text-studio-ink">
-        H1 — text-6xl
+        Masthead — text-6xl
       </span>
     ),
     spec: [
       ["token", "--text-6xl"],
       ["size", "26px"],
       ["weight", "500"],
-      ["usage", "landing mastheads · prose h1"],
+      ["usage", "landing mastheads"],
     ],
   },
   {
     sample: (
-      <span className="font-display text-4xl font-medium leading-[1.25] tracking-[-0.012em] text-studio-ink">
+      <span className="font-display text-4xl font-semibold leading-[1.25] tracking-[-0.012em] text-studio-ink">
         H2 — text-4xl
       </span>
     ),
     spec: [
       ["token", "--text-4xl"],
       ["size", "19px"],
-      ["weight", "500"],
-      ["usage", "study titles · prose h2"],
+      ["weight", "600"],
+      ["usage", "prose h2 · study titles"],
     ],
   },
   {
@@ -181,8 +195,8 @@ export default function TypographyPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <StudyHeader eyebrow="foundations · typography" title="Typography">
-        One ladder, whole pixels only. Display and body are Inter Tight; chrome
-        is JetBrains Mono. Sizes are named rungs (
+        One ladder, whole pixels only. Display is Inter Tight, reading prose is
+        Inter; chrome is JetBrains Mono. Sizes are named rungs (
         <code className="font-mono text-sm text-studio-ink">text-sm</code>,{" "}
         <code className="font-mono text-sm text-studio-ink">var(--text-sm)</code>
         ) — never ad-hoc{" "}

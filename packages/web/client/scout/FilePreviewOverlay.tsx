@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, ChevronUp, ExternalLink } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronUp, Code2, FolderOpen } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../lib/api.ts";
@@ -23,10 +23,12 @@ type DirectoryNavContext = {
 export function FilePreviewOverlay({
   path,
   onOpenPath,
+  onOpenInCode,
   onClose,
 }: {
   path: string | null;
   onOpenPath: (path: string) => void;
+  onOpenInCode: (path: string, rootPath: string) => void;
   onClose: () => void;
 }) {
   const [content, setContent] = useState<FilePreviewContent | null>(null);
@@ -130,10 +132,22 @@ export function FilePreviewOverlay({
     });
   }
   actions.push({
-    label: "Open in OS",
-    icon: <ExternalLink size={12} />,
+    label: "Open in Code",
+    icon: <Code2 size={12} />,
+    onClick: () => {
+      if (content?.kind === "file") {
+        onOpenInCode(content.realPath, content.rootPath);
+      }
+    },
+    title: "Continue with this file in Scout’s Code browser",
+    disabled: content?.kind !== "file",
+  });
+  actions.push({
+    label: "Show in folder",
+    icon: <FolderOpen size={12} />,
     onClick: revealInOs,
-    title: "Reveal this file in your operating system",
+    title: "Show this file in its operating system folder",
+    hideLabel: true,
   });
 
   const meta = content ? metaFor(content) : [];

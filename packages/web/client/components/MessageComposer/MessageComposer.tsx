@@ -13,6 +13,7 @@ import {
 } from "react";
 import { isComposerSendShortcut } from "../../lib/compose-shortcuts.ts";
 import { DictationMic, type MicStatus } from "../DictationMic.tsx";
+import { useMessageComposerEmbedded } from "./MessageComposerEmbedBoundary.tsx";
 import { VoiceWaveform } from "./VoiceWaveform.tsx";
 import "./message-composer.css";
 
@@ -27,6 +28,11 @@ export type MessageComposerProps = {
   value: string;
   onChange: (value: string, meta?: MessageComposerChangeMeta) => void;
   onSend: () => void;
+  /**
+   * Embedded surfaces normally defer to their host's composer. Set this only
+   * when an embed intentionally owns a distinct message target.
+   */
+  renderWhenEmbedded?: boolean;
   placeholder?: string;
   /** Disables the textarea and actions. */
   disabled?: boolean;
@@ -98,7 +104,7 @@ export type MessageComposerProps = {
   /** Send receipt or other feedback rendered below the toolbar. */
   status?: ReactNode;
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
-  /** Extra key handling after the built-in send shortcut. Return true to stop. */
+  /** Extra key handling before the send shortcut. Return true to stop. */
   onKeyDown?: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => boolean | void;
   /** Use Enter to send while preserving Shift+Enter for a line break. */
   sendOnEnter?: boolean;
@@ -194,6 +200,15 @@ function voiceLabel(status: MicStatus): string {
  * ready. Send never stops the mic; the mic never sends.
  */
 export function MessageComposer({
+  renderWhenEmbedded = false,
+  ...props
+}: MessageComposerProps) {
+  const embedded = useMessageComposerEmbedded();
+  if (embedded && !renderWhenEmbedded) return null;
+  return <MessageComposerControl {...props} />;
+}
+
+function MessageComposerControl({
   value,
   onChange,
   onSend,
@@ -237,7 +252,7 @@ export function MessageComposer({
   autoResize = true,
   maxHeightPx = 160,
   "aria-label": ariaLabel = "Message",
-}: MessageComposerProps) {
+}: Omit<MessageComposerProps, "renderWhenEmbedded">) {
   const localRef = useRef<HTMLTextAreaElement | null>(null);
   const [voiceStatus, setVoiceStatus] = useState<MicStatus | null>(null);
 
@@ -285,13 +300,16 @@ export function MessageComposer({
   };
 
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    // Suggestion menus must get first refusal on plain Enter / Tab. Modified
+    // send shortcuts still fall through when the menu handler returns false.
+    if (onKeyDown?.(event)) {
+      event.preventDefault();
+      return;
+    }
     if (isComposerSendShortcut(event, sendOnEnter)) {
       event.preventDefault();
       trySend();
       return;
-    }
-    if (onKeyDown?.(event)) {
-      event.preventDefault();
     }
   };
 

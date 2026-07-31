@@ -86,7 +86,7 @@ export default function PlansIndex() {
             plans/README.md
           </div>
           <div
-            className="studio-prose max-w-prose"
+            className="studio-prose max-w-[66ch]"
             dangerouslySetInnerHTML={{ __html: readmeHtml }}
           />
         </div>
