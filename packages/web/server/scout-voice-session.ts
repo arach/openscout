@@ -319,6 +319,10 @@ export function awaitScoutVoiceHostCommand(
       }
     }, 100);
     signal?.addEventListener("abort", abort, { once: true });
+    // Close the narrow race where cancellation lands after the preflight
+    // check but before the listener is attached. AbortSignal does not replay
+    // an already-dispatched event to a late subscriber.
+    if (signal?.aborted) abort();
   });
 }
 

@@ -180,4 +180,27 @@ describe("scout voice native sessions", () => {
       command: { type: "session.start", sessionId },
     });
   });
+
+  test("an aborted poll releases command ownership immediately", async () => {
+    registerScoutVoiceHost({
+      hostId: "scout-menu",
+      instanceId: "menu-process",
+      platform: "macos",
+    });
+    const controller = new AbortController();
+    const abortedPoll = awaitScoutVoiceHostCommand(
+      "scout-menu",
+      1_000,
+      "menu-process",
+      controller.signal,
+    );
+
+    controller.abort();
+    const { sessionId } = createScoutVoiceSession({ surface: "macos.native-composer" });
+
+    await expect(abortedPoll).resolves.toEqual({ command: null });
+    await expect(awaitScoutVoiceHostCommand("scout-menu", 1_000, "menu-process")).resolves.toMatchObject({
+      command: { type: "session.start", sessionId },
+    });
+  });
 });
