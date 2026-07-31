@@ -124,4 +124,83 @@ describe("scout voice native sessions", () => {
       lastTranscript: "Hello there.",
     });
   });
+
+  test("queues stop behind start when capture is toggled before the host polls", async () => {
+    registerScoutVoiceHost({
+      hostId: "scout-menu",
+      instanceId: "menu-process",
+      platform: "macos",
+    });
+
+    const { sessionId } = createScoutVoiceSession({ surface: "macos.native-composer" });
+    stopScoutVoiceSession(sessionId);
+
+    await expect(awaitScoutVoiceHostCommand("scout-menu", 1_000, "menu-process")).resolves.toMatchObject({
+      command: { type: "session.start", sessionId },
+    });
+    await expect(awaitScoutVoiceHostCommand("scout-menu", 1_000, "menu-process")).resolves.toMatchObject({
+      command: { type: "session.stop", sessionId },
+    });
+  });
+
+  test("a stale helper poll cannot consume a replacement helper's command", async () => {
+    registerScoutVoiceHost({
+      hostId: "scout-menu",
+      instanceId: "old-process",
+      platform: "macos",
+    });
+    const stalePoll = awaitScoutVoiceHostCommand("scout-menu", 1_000, "old-process");
+
+    registerScoutVoiceHost({
+      hostId: "scout-menu",
+      instanceId: "new-process",
+      platform: "macos",
+    });
+    const { sessionId } = createScoutVoiceSession({ surface: "macos.native-composer" });
+
+    await expect(stalePoll).resolves.toEqual({ command: null });
+    await expect(awaitScoutVoiceHostCommand("scout-menu", 1_000, "new-process")).resolves.toMatchObject({
+      command: { type: "session.start", sessionId },
+    });
+  });
+
+  test("a replacement poll supersedes an abandoned poll from the same helper", async () => {
+    registerScoutVoiceHost({
+      hostId: "scout-menu",
+      instanceId: "menu-process",
+      platform: "macos",
+    });
+    const abandonedPoll = awaitScoutVoiceHostCommand("scout-menu", 1_000, "menu-process");
+    const replacementPoll = awaitScoutVoiceHostCommand("scout-menu", 1_000, "menu-process");
+
+    const { sessionId } = createScoutVoiceSession({ surface: "macos.native-composer" });
+
+    await expect(abandonedPoll).resolves.toEqual({ command: null });
+    await expect(replacementPoll).resolves.toMatchObject({
+      command: { type: "session.start", sessionId },
+    });
+  });
+
+  test("an aborted poll releases command ownership immediately", async () => {
+    registerScoutVoiceHost({
+      hostId: "scout-menu",
+      instanceId: "menu-process",
+      platform: "macos",
+    });
+    const controller = new AbortController();
+    const abortedPoll = awaitScoutVoiceHostCommand(
+      "scout-menu",
+      1_000,
+      "menu-process",
+      controller.signal,
+    );
+
+    controller.abort();
+    const { sessionId } = createScoutVoiceSession({ surface: "macos.native-composer" });
+
+    await expect(abortedPoll).resolves.toEqual({ command: null });
+    await expect(awaitScoutVoiceHostCommand("scout-menu", 1_000, "menu-process")).resolves.toMatchObject({
+      command: { type: "session.start", sessionId },
+    });
+  });
 });

@@ -229,6 +229,7 @@ export function mountScoutVoiceRoutes(app: Hono, deps: ScoutVoiceRouteDeps = {})
   app.post("/api/voice/host/register", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       hostId?: string;
+      instanceId?: string;
       platform?: string;
       bundle?: string;
       settings?: {
@@ -249,6 +250,7 @@ export function mountScoutVoiceRoutes(app: Hono, deps: ScoutVoiceRouteDeps = {})
     try {
       return c.json(registerScoutVoiceHost({
         hostId: body.hostId ?? "",
+        instanceId: body.instanceId,
         platform: body.platform ?? "unknown",
         bundle: body.bundle,
         settings: body.settings,
@@ -271,8 +273,9 @@ export function mountScoutVoiceRoutes(app: Hono, deps: ScoutVoiceRouteDeps = {})
       return c.json({ error: "hostId is required" }, 400);
     }
     const timeoutMs = parseOptionalPositiveInt(c.req.query("timeoutMs"), 25_000) ?? 25_000;
+    const instanceId = c.req.query("instanceId")?.trim();
     try {
-      return c.json(await awaitScoutVoiceHostCommand(hostId, timeoutMs));
+      return c.json(await awaitScoutVoiceHostCommand(hostId, timeoutMs, instanceId, c.req.raw.signal));
     } catch (error) {
       return jsonScoutVoiceSessionError(error);
     }
@@ -281,6 +284,7 @@ export function mountScoutVoiceRoutes(app: Hono, deps: ScoutVoiceRouteDeps = {})
   app.post("/api/voice/host/events", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       hostId?: string;
+      instanceId?: string;
       sessionId?: string;
       event?: string;
       data?: Record<string, unknown>;
@@ -294,6 +298,7 @@ export function mountScoutVoiceRoutes(app: Hono, deps: ScoutVoiceRouteDeps = {})
     try {
       return c.json(pushScoutVoiceHostEvent({
         hostId,
+        instanceId: body.instanceId,
         sessionId,
         event,
         data: body.data,

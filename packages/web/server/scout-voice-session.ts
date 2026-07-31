@@ -91,11 +91,13 @@ type VoiceSession = {
 
 type VoiceHost = {
   hostId: string;
+  instanceId: string | null;
   platform: string;
   bundle: string | null;
   registeredAt: number;
   lastSeenAt: number;
-  pendingCommand: ScoutVoiceHostCommand | null;
+  activePollId: number | null;
+  pendingCommands: ScoutVoiceHostCommand[];
   settings: ScoutVoiceSettings;
   devices: ScoutVoiceInputDevice[];
 };
@@ -109,6 +111,7 @@ const MAX_EVENTS_PER_SESSION = 200;
 const sessions = new Map<string, VoiceSession>();
 const hosts = new Map<string, VoiceHost>();
 const sessionSubscribers = new Map<string, Set<SessionSubscriber>>();
+let nextHostPollId = 1;
 
 const DEFAULT_VOICE_SETTINGS: ScoutVoiceSettings = {
   preference: "auto",
@@ -120,10 +123,12 @@ export function resetScoutVoiceSessionStateForTests(): void {
   sessions.clear();
   hosts.clear();
   sessionSubscribers.clear();
+  nextHostPollId = 1;
 }
 
 export function registerScoutVoiceHost(input: {
   hostId: string;
+  instanceId?: string;
   platform: string;
   bundle?: string;
   settings?: Partial<ScoutVoiceSettings>;
@@ -136,14 +141,17 @@ export function registerScoutVoiceHost(input: {
 
   const now = Date.now();
   const previous = hosts.get(hostId);
+  const instanceId = input.instanceId?.trim() || null;
   const settings = mergeVoiceSettings(previous?.settings ?? DEFAULT_VOICE_SETTINGS, input.settings);
   hosts.set(hostId, {
     hostId,
+    instanceId,
     platform: input.platform.trim() || "unknown",
     bundle: input.bundle?.trim() || null,
     registeredAt: previous?.registeredAt ?? now,
     lastSeenAt: now,
-    pendingCommand: previous?.pendingCommand ?? null,
+    activePollId: previous?.instanceId === instanceId ? (previous?.activePollId ?? null) : null,
+    pendingCommands: previous?.pendingCommands ?? [],
     settings,
     devices: input.devices?.length ? input.devices : (previous?.devices ?? []),
   });
@@ -240,49 +248,87 @@ export function touchScoutVoiceHost(hostId: string): void {
 export function awaitScoutVoiceHostCommand(
   hostId: string,
   timeoutMs = 25_000,
+  instanceId?: string,
+  signal?: AbortSignal,
 ): Promise<{ command: ScoutVoiceHostCommand | null }> {
   const normalizedHostId = hostId.trim();
+  const normalizedInstanceId = instanceId?.trim() || null;
   const host = hosts.get(normalizedHostId);
   if (!host) {
     throw new ScoutVoiceSessionError("host_unknown", "Voice host is not registered.", 404);
   }
 
+  // A terminated helper can leave a long poll alive in the web server until
+  // its timeout expires. Once a replacement helper registers, that stale poll
+  // must not consume commands intended for the replacement process.
+  if (host.instanceId !== normalizedInstanceId) {
+    return Promise.resolve({ command: null });
+  }
+
+  // URLSession can abandon a long poll while its server-side promise remains
+  // alive. The replacement poll from the same helper process supersedes that
+  // abandoned request so only the newest connection may dequeue a command.
+  const pollId = nextHostPollId++;
+  host.activePollId = pollId;
+
   touchScoutVoiceHost(normalizedHostId);
   pruneExpiredSessions();
 
-  if (host.pendingCommand) {
-    const command = host.pendingCommand;
-    host.pendingCommand = null;
+  if (host.pendingCommands.length > 0) {
+    const command = host.pendingCommands.shift() ?? null;
+    host.activePollId = null;
     return Promise.resolve({ command });
+  }
+
+  if (signal?.aborted) {
+    host.activePollId = null;
+    return Promise.resolve({ command: null });
   }
 
   return new Promise((resolve) => {
     const startedAt = Date.now();
+    let settled = false;
+    const finish = (command: ScoutVoiceHostCommand | null) => {
+      if (settled) return;
+      settled = true;
+      clearInterval(timer);
+      signal?.removeEventListener("abort", abort);
+      const current = hosts.get(normalizedHostId);
+      if (current?.activePollId === pollId) current.activePollId = null;
+      resolve({ command });
+    };
+    const abort = () => finish(null);
     const timer = setInterval(() => {
       const current = hosts.get(normalizedHostId);
       if (!current) {
-        clearInterval(timer);
-        resolve({ command: null });
+        finish(null);
+        return;
+      }
+      if (current.instanceId !== normalizedInstanceId || current.activePollId !== pollId) {
+        finish(null);
         return;
       }
       current.lastSeenAt = Date.now();
-      if (current.pendingCommand) {
-        const command = current.pendingCommand;
-        current.pendingCommand = null;
-        clearInterval(timer);
-        resolve({ command });
+      if (current.pendingCommands.length > 0) {
+        const command = current.pendingCommands.shift() ?? null;
+        finish(command);
         return;
       }
       if (Date.now() - startedAt >= timeoutMs) {
-        clearInterval(timer);
-        resolve({ command: null });
+        finish(null);
       }
     }, 100);
+    signal?.addEventListener("abort", abort, { once: true });
+    // Close the narrow race where cancellation lands after the preflight
+    // check but before the listener is attached. AbortSignal does not replay
+    // an already-dispatched event to a late subscriber.
+    if (signal?.aborted) abort();
   });
 }
 
 export function pushScoutVoiceHostEvent(input: {
   hostId: string;
+  instanceId?: string;
   sessionId: string;
   event: ScoutVoiceSessionEventName;
   data?: Record<string, unknown>;
@@ -290,6 +336,10 @@ export function pushScoutVoiceHostEvent(input: {
   const host = hosts.get(input.hostId.trim());
   if (!host) {
     throw new ScoutVoiceSessionError("host_unknown", "Voice host is not registered.", 404);
+  }
+  const instanceId = input.instanceId?.trim() || null;
+  if (host.instanceId !== instanceId) {
+    throw new ScoutVoiceSessionError("host_instance_mismatch", "Voice host process is no longer active.", 409);
   }
   touchScoutVoiceHost(host.hostId);
 
@@ -543,7 +593,7 @@ function queueHostCommand(hostId: string, command: ScoutVoiceHostCommand): void 
   if (!host) {
     throw new ScoutVoiceSessionError("host_unknown", "Voice host is not registered.", 404);
   }
-  host.pendingCommand = command;
+  host.pendingCommands.push(command);
   host.lastSeenAt = Date.now();
 }
 

@@ -14,6 +14,7 @@ final class ScoutVoiceHostRunner {
     static let shared = ScoutVoiceHostRunner()
 
     private let hostId = "scout-menu"
+    private let instanceId = UUID().uuidString
     private let bundleId = "app.openscout.scout.menu"
     private let log = Logger(subsystem: "dev.openscout.menu", category: "voice-host")
     private let voice = ScoutVoiceService.shared
@@ -97,6 +98,7 @@ final class ScoutVoiceHostRunner {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(RegisterBody(
             hostId: hostId,
+            instanceId: instanceId,
             platform: "macos",
             bundle: bundleId,
             settings: settings,
@@ -112,6 +114,7 @@ final class ScoutVoiceHostRunner {
         )
         components?.queryItems = [
             URLQueryItem(name: "hostId", value: hostId),
+            URLQueryItem(name: "instanceId", value: instanceId),
             URLQueryItem(name: "timeoutMs", value: "25000"),
         ]
         guard let url = components?.url else { return nil }
@@ -120,6 +123,7 @@ final class ScoutVoiceHostRunner {
     }
 
     private func handle(_ command: HostCommand) async {
+        log.debug("voice host command \(command.type, privacy: .public) session=\(command.sessionId ?? "-", privacy: .public)")
         switch command.type {
         case "session.start":
             await startSession(command)
@@ -432,6 +436,7 @@ final class ScoutVoiceHostRunner {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
             "hostId": hostId,
+            "instanceId": instanceId,
             "sessionId": sessionId,
             "event": event,
             "data": data,
@@ -446,6 +451,7 @@ final class ScoutVoiceHostRunner {
 
 private struct RegisterBody: Encodable {
     let hostId: String
+    let instanceId: String
     let platform: String
     let bundle: String
     let settings: ScoutVoiceSettingsSnapshot
