@@ -14,6 +14,11 @@ const nextConfig = {
     // (preloadEntriesOnStart: true). With ~87 study routes that's the whole
     // studio resident at once — the OOM. Load routes on demand instead.
     preloadEntriesOnStart: false,
+    // This studio is normally opened to review one agent-built study. Keep
+    // Turbopack's on-demand compiler, but do not retain every visited route on
+    // disk forever. In Next 16 this cache defaults on and has no size eviction;
+    // a single three-day cache reached 3.35 GiB here.
+    turbopackFileSystemCacheForDev: false,
   },
 };
 

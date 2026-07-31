@@ -9,6 +9,7 @@
     "dev:raw": "next dev --port 43140",
     "build": "next build --webpack",
     "start": "next start --port 43140",
+    "cache:status": "PYTHONDONTWRITEBYTECODE=1 python3 ../../scripts/derived-state/studio-cache.py --studio .",
     "ds": "bun scripts/ds.ts"
   },
   "dependencies": {
