@@ -21,6 +21,7 @@ Three buckets:
 cd design/studio
 bun install
 bun run dev        # → http://openscout.studio.local  (and http://127.0.0.1:43140)
+bun run cache:status # read-only legacy Turbopack cache inspection
 ```
 
 `dev` wraps Next with arach/studio's host CLI (`studio dev`), which registers
@@ -29,6 +30,13 @@ narrow route on Scout's Caddy when that already owns :80). Needs the sibling
 checkout at `../../studio` (`/Users/…/dev/studio` next to openscout).
 
 Escape hatch without the host: `bun run dev:raw` → port 43140 only.
+
+The studio intentionally keeps `next dev`: review sessions compile only the
+route being viewed. Turbopack's filesystem cache is disabled in
+`next.config.mjs`, so restarts may pay a cold route compile but visited studies
+do not accumulate permanently under `.next/dev/cache/turbopack`. The cache
+status command is dry-run only; the underlying script requires `--apply` and
+refuses to act while a studio process is live.
 
 `?focus=1` on any page strips the sidebar + page strip for screenshots /
 presentation.

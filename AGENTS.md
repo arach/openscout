@@ -15,6 +15,28 @@ Host-specific instruction files [CODEX.md](./CODEX.md) and [CLAUDE.md](./CLAUDE.
 - Do not use `git stash` as the main preservation mechanism for user work. Prefer explicit commits or named branches so useful work cannot be forgotten in a hidden stash.
 - Before committing broad work, confirm the staged file list and call out anything excluded.
 
+## Worktree Lifecycle
+
+- Repo copies are allowed to build and run. The lifecycle rule is retirement
+  after merge, not a canonical-tree execution restriction.
+- Immediately after creating an OpenScout clone/worktree, register it with an
+  owner, task id, and expected lifetime:
+
+  ```bash
+  python3 scripts/derived-state/register.py register \
+    --path "$PWD" --owner "${SCOUT_AGENT_ID:-agent:<handle>}" \
+    --task-id "<issue/pr/flight>" --lifetime-hours 72
+  ```
+
+- After its PR is confirmed merged, request retirement with
+  `register.py retire --path <copy> --task-id pr:<number>`. The dry-run-first
+  janitor removes it only after a fresh safety pass proves it is clean,
+  inactive, merged into observed origin main, and remote-reachable. Dirty,
+  unmerged, unpushed, active, and orphan-risk copies are kept.
+- Use `python3 scripts/derived-state/roster.py` for the human roster. Do not use
+  `du` as a reclaim estimate on APFS; only `df /System/Volumes/Data` measures
+  physical reclaim.
+
 ## Product Posture
 
 OpenScout is currently for high-trust local developer pilots, not enterprise-ready deployment. Do not claim compliance readiness, hardened multi-tenant security, guaranteed distributed delivery, or a finalized open-source license unless package and repo metadata have changed.
