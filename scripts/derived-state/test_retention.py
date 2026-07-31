@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import unittest
 from datetime import timedelta
+from pathlib import Path
+from unittest.mock import patch
 
 from retention_common import explain_safety, ignored_path_is_derived, isoformat, normalize_remote, parse_worktree_porcelain, utc_now
+from reap import block_fetch_failures, linked_worktree_paths
 
 
 class RetentionPolicyTests(unittest.TestCase):
@@ -71,6 +74,35 @@ class RetentionPolicyTests(unittest.TestCase):
         records = parse_worktree_porcelain("worktree /a\nHEAD abc\nbranch refs/heads/main\n\nworktree /b\nHEAD def\ndetached\n")
         self.assertEqual(records[0]["worktree"], "/a")
         self.assertEqual(records[1]["detached"], "true")
+
+    def test_failed_fetch_blocks_only_its_git_store(self):
+        failed = Path("/git/failed")
+        records = [
+            {"commonDir": failed, "decision": "reap:eligible", "decisionReasons": []},
+            {"commonDir": Path("/git/fresh"), "decision": "reap:eligible", "decisionReasons": []},
+        ]
+
+        block_fetch_failures(records, {failed})
+
+        self.assertEqual(records[0]["decision"], "keep:unknown")
+        self.assertIn("fetch failed", records[0]["decisionReasons"][0])
+        self.assertEqual(records[1]["decision"], "reap:eligible")
+
+    @patch("reap.git_text")
+    def test_independent_clone_reports_linked_worktrees(self, git_text_mock):
+        git_text_mock.return_value = (
+            "worktree /copies/owner\nHEAD abc\nbranch refs/heads/main\n\n"
+            "worktree /copies/feature\nHEAD def\nbranch refs/heads/feature\n"
+        )
+
+        self.assertEqual(
+            linked_worktree_paths(Path("/copies/owner")),
+            [Path("/copies/feature")],
+        )
+
+    @patch("reap.git_text", return_value=None)
+    def test_unreadable_worktree_ownership_fails_closed(self, _git_text_mock):
+        self.assertIsNone(linked_worktree_paths(Path("/copies/owner")))
 
 
 if __name__ == "__main__":

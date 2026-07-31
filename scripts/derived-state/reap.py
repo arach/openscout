@@ -8,7 +8,7 @@ import json
 import os
 import shutil
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from retention_common import (
     DEFAULT_CANONICAL,
@@ -20,6 +20,7 @@ from retention_common import (
     display_path,
     explain_safety,
     git,
+    git_text,
     ignored_path_is_derived,
     inspect_copy,
     integration_ref,
@@ -27,8 +28,10 @@ from retention_common import (
     json_safe,
     load_registry,
     normalize_remote,
+    parse_worktree_porcelain,
     repo_origin,
     refs_containing,
+    resolved,
     run,
     status_entries,
     utc_now,
@@ -47,8 +50,11 @@ def parser() -> argparse.ArgumentParser:
     return result
 
 
-def fetch_integration_refs(bases: Sequence[Dict[str, object]]) -> List[str]:
+def fetch_integration_refs(
+    bases: Sequence[Dict[str, object]],
+) -> Tuple[List[str], Set[Path]]:
     messages: List[str] = []
+    failures: Set[Path] = set()
     seen: set[Path] = set()
     for base in bases:
         if base.get("kind") not in {"canonical", "clone"} or not base.get("exists"):
@@ -70,9 +76,39 @@ def fetch_integration_refs(bases: Sequence[Dict[str, object]]) -> List[str]:
         if result.returncode == 0:
             messages.append(f"fetched {display_path(path)}")
         else:
+            failures.add(common)
             detail = result.stderr.strip().splitlines()[-1] if result.stderr.strip() else f"exit {result.returncode}"
             messages.append(f"fetch failed {display_path(path)}: {detail}")
-    return messages
+    return messages, failures
+
+
+def block_fetch_failures(
+    records: Sequence[Dict[str, object]],
+    failed_common_dirs: Set[Path],
+) -> None:
+    """Make a failed integration-ref refresh an explicit deletion blocker."""
+
+    for record in records:
+        common = record.get("commonDir")
+        if isinstance(common, Path) and common in failed_common_dirs:
+            record["decision"] = "keep:unknown"
+            record["decisionReasons"] = [
+                "origin main fetch failed for this Git store; refusing stale reachability evidence"
+            ]
+
+
+def linked_worktree_paths(clone: Path) -> Optional[List[Path]]:
+    """Return worktrees whose Git metadata is owned by an independent clone."""
+
+    output = git_text(clone, ["worktree", "list", "--porcelain"])
+    if output is None:
+        return None
+    owner = resolved(clone)
+    return [
+        resolved(Path(record["worktree"]))
+        for record in parse_worktree_porcelain(output)
+        if record.get("worktree") and resolved(Path(record["worktree"])) != owner
+    ]
 
 
 def allowed_roots(search_roots: Sequence[Path]) -> List[Path]:
@@ -109,6 +145,13 @@ def apply_preflight(record: Dict[str, object], roots: Sequence[Path], fingerprin
         errors.append("path is outside the allowlisted roots")
     if normalize_remote(repo_origin(path)) != fingerprint:
         errors.append("origin no longer matches OpenScout")
+    if record.get("kind") == "clone":
+        linked = linked_worktree_paths(path)
+        if linked is None:
+            errors.append("could not prove the clone owns no linked worktrees")
+        elif linked:
+            preview = ", ".join(display_path(item) for item in linked[:4])
+            errors.append(f"clone still owns linked worktrees: {preview}")
     fresh_active = active_processes([path]).get(path, [])
     if fresh_active:
         errors.append("fresh liveness check found an active process or probe failure")
@@ -203,11 +246,12 @@ def main() -> int:
     args = parser().parse_args()
     search_roots = args.search_root or DEFAULT_SEARCH_ROOTS
     bases, fingerprint = discover_repo_copies(args.repo, search_roots)
-    fetch_messages = fetch_integration_refs(bases) if args.fetch else []
+    fetch_messages, fetch_failures = fetch_integration_refs(bases) if args.fetch else ([], set())
     registrations = load_registry()
     paths = [base["path"] for base in bases]
     active = active_processes(paths)
     records = [inspect_copy(base, registrations, active) for base in bases]
+    block_fetch_failures(records, fetch_failures)
     all_records = records
 
     selected = {path.expanduser().resolve(strict=False) for path in (args.path or [])}

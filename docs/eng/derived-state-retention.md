@@ -156,7 +156,10 @@ Automated removal requires **all** of the following at action time:
 5. no live process has a cwd inside the copy or names it in its command;
 6. HEAD is an ancestor of the locally observed origin default branch;
 7. a remote ref contains HEAD and `HEAD --not --remotes` is empty;
-8. the path is not symlinked and origin still matches.
+8. the path is not symlinked and origin still matches;
+9. the integration-ref fetch succeeded for that Git store;
+10. an independent clone owns no linked worktrees whose metadata would be lost
+    with its `.git` directory.
 
 Safety beats age. Dirty, unmerged, unpushed, active, and orphan-risk copies are
 kept indefinitely. A squash/rebase merge whose original commit is not reachable
