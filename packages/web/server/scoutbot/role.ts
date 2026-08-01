@@ -5,7 +5,8 @@ export const SCOUTBOT_DEFAULT_THREAD_ID = "thr-default";
 export const SCOUTBOT_DEFAULT_THREAD_NAME = "default";
 export const SCOUTBOT_ENDPOINT_ID = "endpoint.scoutbot.codex_app_server";
 export const SCOUTBOT_RUNTIME_INSTANCE_ID = "scoutbot-default";
-export const SCOUTBOT_REASONING_EFFORT = "low";
+export const SCOUTBOT_MODEL = "gpt-5.6-luna";
+export const SCOUTBOT_REASONING_EFFORT = "medium";
 
 export type ScoutbotStructuredWriteTool =
   | "messages_send"
@@ -36,6 +37,7 @@ export type ScoutbotRoleConfig = {
     provenanceSource: "scoutbot";
     generatedBy: "scoutbot";
     cwdPolicy: "openscout_control_plane";
+    model: typeof SCOUTBOT_MODEL;
     reasoningEffort: typeof SCOUTBOT_REASONING_EFFORT;
   };
 };
@@ -48,7 +50,7 @@ Your job is to read broker state, explain what is happening, and perform structu
 
 ## Operating loop
 
-Default to a low-effort triage pass. Your first move is to read the current broker facts and recent thread context, then answer directly if the operator is asking for status, latest activity, who is blocked, what changed, routing, or a next-action recommendation.
+Default to a concise triage pass. Your first move is to read the current broker facts and recent thread context, then answer directly if the operator is asking for status, latest activity, who is blocked, what changed, routing, or a next-action recommendation.
 
 For status questions such as "what's latest on Hudson", answer from broker facts in a few bullets:
 - current state
@@ -109,6 +111,7 @@ export const SCOUTBOT_ROLE_CONFIG: ScoutbotRoleConfig = {
     provenanceSource: "scoutbot",
     generatedBy: "scoutbot",
     cwdPolicy: "openscout_control_plane",
+    model: SCOUTBOT_MODEL,
     reasoningEffort: SCOUTBOT_REASONING_EFFORT,
   },
 };
@@ -122,6 +125,8 @@ export function scoutbotRuntimeToolNames(): string[] {
 
 export function scoutbotCodexLaunchArgs(): string[] {
   return [
+    "--model",
+    SCOUTBOT_ROLE_CONFIG.defaults.model,
     "--reasoning-effort",
     SCOUTBOT_ROLE_CONFIG.defaults.reasoningEffort,
     "-c",

@@ -370,6 +370,38 @@ describe("resolveAgentLabel", () => {
     expect(result.kind).toBe("unknown");
   });
 
+  test("routes the canonical broker-registered @scoutbot product agent", () => {
+    const snapshot = makeSnapshot([
+      makeAgent({
+        id: "scoutbot",
+        definitionId: "scoutbot",
+        handle: "scoutbot",
+        metadata: {
+          source: "scoutbot",
+          brokerRegistered: true,
+        },
+      }),
+    ]);
+
+    const result = resolveAgentLabel(snapshot, "@scoutbot", { helpers });
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      expect(result.agent.id).toBe("scoutbot");
+    }
+  });
+
+  test("does not route an ordinary agent through the reserved @scoutbot identity", () => {
+    const snapshot = makeSnapshot([
+      makeAgent({
+        id: "scoutbot",
+        definitionId: "scoutbot",
+        handle: "scoutbot",
+      }),
+    ]);
+
+    expect(resolveAgentLabel(snapshot, "@scoutbot", { helpers }).kind).toBe("unknown");
+  });
+
   test("keeps product handles reserved when the local orchestrator is separate", () => {
     const snapshot = makeSnapshot([
       makeAgent({

@@ -46,6 +46,8 @@ These names are design language only. They should not appear in user-facing copy
 
 Scoutbot is the settled assistant identity; backend wiring is separate implementation work. The intended backend is Codex-backed because Codex is Arach's dominant LLM harness, but the handle should not churn when model choices evolve.
 
+The default Codex-backed runtime is GPT-5.6 Luna at medium reasoning effort. It is the fast, economical path for routine fleet orientation and ad hoc questions; callers can explicitly request a stronger effort when a deeper synthesis warrants it. The user-facing identity remains `@scoutbot` regardless of the runtime choice.
+
 | Backend | Use For |
 |---|---|
 | Codex-backed Scoutbot service | Planned default for repo-native tools, code/docs inspection, durable follow-through, and richer execution context. |

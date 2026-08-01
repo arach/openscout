@@ -186,6 +186,25 @@ function isBareReservedProductIdentity(identity: AgentIdentity): boolean {
     && !identity.model;
 }
 
+function resolveCanonicalScoutbot(
+  snapshot: RuntimeSnapshot,
+  identity: AgentIdentity,
+  helpers: Pick<DispatcherHelpers, "isStale">,
+): AgentDefinition | null {
+  if (identity.definitionId !== "scoutbot") return null;
+  const agent = snapshot.agents.scoutbot;
+  if (
+    !agent
+    || helpers.isStale(agent)
+    || agent.id !== "scoutbot"
+    || agent.metadata?.source !== "scoutbot"
+    || agent.metadata?.brokerRegistered !== true
+  ) {
+    return null;
+  }
+  return agent;
+}
+
 export function buildAgentLabelCandidates(
   snapshot: RuntimeSnapshot,
   helpers: Pick<DispatcherHelpers, "isStale">,
@@ -538,6 +557,10 @@ export function resolveAgentLabel(
     return { kind: "unparseable", label };
   }
   if (isBareReservedProductIdentity(identity)) {
+    const scoutbot = resolveCanonicalScoutbot(snapshot, identity, options.helpers);
+    if (scoutbot) {
+      return { kind: "resolved", agent: scoutbot };
+    }
     return { kind: "unknown", label: identity.label };
   }
 

@@ -560,7 +560,6 @@ describe("createScoutMcpServer", () => {
             deliveries: 0,
             deliveryAttempts: 0,
             dispatches: 0,
-            unblockRequests: 0,
             errors: 1,
             warnings: 0,
           },

@@ -940,7 +940,6 @@ const brokerFeedItemSchema = z.object({
     "delivery",
     "delivery_attempt",
     "dispatch",
-    "unblock_request",
   ]),
   severity: z.enum(["info", "status", "warning", "error"]),
   at: z.number(),
@@ -955,17 +954,15 @@ const brokerFeedItemSchema = z.object({
   flightId: z.string().optional(),
   deliveryId: z.string().optional(),
   dispatchId: z.string().optional(),
-  unblockRequestId: z.string().optional(),
   status: z.string().optional(),
   reason: z.string().optional(),
-  source: z.enum(["activity", "snapshot", "delivery", "dispatch", "unblock_request"]),
+  source: z.enum(["activity", "snapshot", "delivery", "dispatch"]),
   message: brokerFeedRecordSchema.optional(),
   invocation: brokerFeedRecordSchema.optional(),
   flight: brokerFeedRecordSchema.optional(),
   delivery: brokerFeedRecordSchema.optional(),
   deliveryAttempt: brokerFeedRecordSchema.optional(),
   dispatch: brokerFeedRecordSchema.optional(),
-  unblockRequest: brokerFeedRecordSchema.optional(),
   metadata: brokerFeedRecordSchema.optional(),
 }).catchall(z.unknown());
 
@@ -1012,7 +1009,6 @@ const brokerFeedSchema = z.object({
     deliveries: z.number(),
     deliveryAttempts: z.number(),
     dispatches: z.number(),
-    unblockRequests: z.number(),
     errors: z.number(),
     warnings: z.number(),
   }),
@@ -3352,7 +3348,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Read Agent Broker Feed",
       description:
-        "Fetch a native broker view of messages, status, delivery, dispatch, unblock, and error records for one agent. Use this instead of stitching together messages, flights, deliveries, and broker errors by hand.",
+        "Fetch a native broker view of messages, status, delivery, dispatch, and error records for one agent. Use this instead of stitching together messages, flights, deliveries, and broker errors by hand.",
       inputSchema: z.object({
         currentDirectory: z.string().optional(),
         senderId: z.string().optional(),
@@ -3418,7 +3414,6 @@ export function createScoutMcpServer(options: {
             deliveries: 0,
             deliveryAttempts: 0,
             dispatches: 0,
-            unblockRequests: 0,
             errors: 0,
             warnings: 0,
           },

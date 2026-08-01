@@ -6,6 +6,8 @@ import {
   isScoutbotDirectDeliveryFlight,
 } from "./runner.ts";
 import {
+  SCOUTBOT_MODEL,
+  SCOUTBOT_REASONING_EFFORT,
   SCOUTBOT_ROLE_CONFIG,
   scoutbotCodexLaunchArgs,
   scoutbotRuntimeToolNames,
@@ -13,6 +15,12 @@ import {
 
 describe("scoutbot runner routing", () => {
   test("constrains Codex to the effective Scout broker tool manifest", () => {
+    expect(SCOUTBOT_ROLE_CONFIG.defaults).toMatchObject({
+      model: SCOUTBOT_MODEL,
+      reasoningEffort: SCOUTBOT_REASONING_EFFORT,
+    });
+    expect(SCOUTBOT_MODEL).toBe("gpt-5.6-luna");
+    expect(SCOUTBOT_REASONING_EFFORT).toBe("medium");
     expect(SCOUTBOT_ROLE_CONFIG.grants).toMatchObject({
       shell: false,
       codebaseWrites: false,
@@ -25,6 +33,10 @@ describe("scoutbot runner routing", () => {
       "ask",
     ]));
     expect(scoutbotCodexLaunchArgs()).toEqual(expect.arrayContaining([
+      "--model",
+      "gpt-5.6-luna",
+      "--reasoning-effort",
+      "medium",
       "features.shell_tool=false",
       "features.unified_exec=false",
       "features.browser_use=false",

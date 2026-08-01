@@ -460,6 +460,7 @@ export type CreateOpenScoutWebServerOptions = {
   scoutbot?: {
     enabled?: boolean;
     brokerBaseUrl?: string;
+    startOnCreate?: boolean;
   };
   /** Run process-wide discovery/watch services. Embedded and test hosts can
    * disable these to avoid owning UDP beacons and filesystem watchers. */

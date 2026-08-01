@@ -173,7 +173,7 @@ const web = await createOpenScoutWebServer({
     const relay = await ensureTerminalRelay();
     return relay ? relay.healthcheck() : false;
   },
-  scoutbot: { enabled: true },
+  scoutbot: { enabled: true, startOnCreate: true },
 });
 const { app, warmupCaches } = web;
 

@@ -55,7 +55,10 @@ import {
   startScoutbotRunner,
   type ScoutbotRunnerHandle,
 } from "../scoutbot/runner.ts";
-import { SCOUTBOT_REASONING_EFFORT } from "../scoutbot/role.ts";
+import {
+  SCOUTBOT_MODEL,
+  SCOUTBOT_REASONING_EFFORT,
+} from "../scoutbot/role.ts";
 
 export type WebTailRuntime = {
   getTailDiscovery: typeof getTailDiscovery;
@@ -93,6 +96,7 @@ export type ScoutbotServicesOptions = {
   scoutbot?: {
     enabled?: boolean;
     brokerBaseUrl?: string;
+    startOnCreate?: boolean;
   };
 };
 
@@ -709,7 +713,7 @@ function createDefaultScoutbotCodexInvoker(currentDirectory: string): ScoutbotCo
 
 function buildScoutbotAssistantCodexLaunchArgs(env: NodeJS.ProcessEnv): string[] {
   const args: string[] = [];
-  const model = env.OPENSCOUT_SCOUTBOT_CODEX_MODEL?.trim();
+  const model = env.OPENSCOUT_SCOUTBOT_CODEX_MODEL?.trim() || SCOUTBOT_MODEL;
   const reasoningEffort = env.OPENSCOUT_SCOUTBOT_CODEX_REASONING_EFFORT?.trim()
     || SCOUTBOT_REASONING_EFFORT;
   if (model) args.push("--model", model);
@@ -833,6 +837,10 @@ export async function createScoutbotWebServices(
   const waitForRunner = async () => {
     return startRunnerIfNeeded();
   };
+
+  if (options.scoutbot?.startOnCreate) {
+    void startRunnerIfNeeded();
+  }
 
   return {
     assistant: scoutbotAssistant,

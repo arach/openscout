@@ -373,6 +373,7 @@ function buildScoutbotAgent(nodeId: string): ScoutBrokerAgentRecord {
 }
 
 function buildScoutbotEndpoint(nodeId: string, currentDirectory: string): ScoutBrokerEndpointRecord {
+  const model = SCOUTBOT_ROLE_CONFIG.defaults.model;
   const reasoningEffort = SCOUTBOT_ROLE_CONFIG.defaults.reasoningEffort;
   return {
     id: `${SCOUTBOT_ENDPOINT_ID}.${nodeId}`,
@@ -400,6 +401,7 @@ function buildScoutbotEndpoint(nodeId: string, currentDirectory: string): ScoutB
       approvalPolicy: "never",
       sandbox: "read-only",
       shellTool: false,
+      model,
       reasoningEffort,
       launchArgs: scoutbotCodexLaunchArgs(),
       projectRoot: currentDirectory,
@@ -456,10 +458,12 @@ function hasCurrentScoutbotRuntimeConfig(endpoint: ScoutBrokerEndpointRecord): b
     ? endpoint.metadata.launchArgs
     : [];
   return metadataString(endpoint.metadata, "systemPrompt") === SCOUTBOT_ROLE_CONFIG.systemPrompt
+    && metadataString(endpoint.metadata, "model") === SCOUTBOT_ROLE_CONFIG.defaults.model
     && metadataString(endpoint.metadata, "reasoningEffort") === SCOUTBOT_ROLE_CONFIG.defaults.reasoningEffort
     && metadataString(endpoint.metadata, "approvalPolicy") === "never"
     && metadataString(endpoint.metadata, "sandbox") === "read-only"
     && endpoint.metadata?.shellTool === false
+    && launchArgs.includes(SCOUTBOT_ROLE_CONFIG.defaults.model)
     && launchArgs.includes("features.shell_tool=false")
     && launchArgs.includes(`mcp_servers.scout.enabled_tools=${JSON.stringify([
       ...SCOUTBOT_ROLE_CONFIG.grants.read,
