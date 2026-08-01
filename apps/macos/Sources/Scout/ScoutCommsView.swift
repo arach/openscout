@@ -53,6 +53,18 @@ enum ScoutCommsMetrics {
     /// than the 8pt `card` chrome so the turn reads as a speech surface, not a
     /// panel.
     static let bubbleRadius: CGFloat = 11
+    /// Main-stream gap between independent turns (Studio `.stream { gap: 20px }`).
+    static let streamTurnGap: CGFloat = HudSpacing.xxxl
+    /// Gap between a parent and an adjacent reply-to turn, or between compact
+    /// chain members (Studio `.chain { gap: 14px }`, tightened slightly for the
+    /// denser native bubble stream).
+    static let replyClusterGap: CGFloat = HudSpacing.md
+    /// Compact reply avatar — Studio chain turns use 20; 22 keeps sprites
+    /// readable without matching the mainline 28 tile.
+    static let compactReplyAvatar: CGFloat = 22
+    /// Root turn avatar + inter-column gap — the content-edge indent used by
+    /// the reply rail so it hangs under the body, not the avatar.
+    static let turnContentLeading: CGFloat = 28 + HudSpacing.xl
 }
 
 struct ScoutComposerInputFrameKey: PreferenceKey {
@@ -1395,6 +1407,7 @@ struct ScoutMessageRow: View {
     let onNewFromMessage: () -> Void
 
     @State private var isHoveringAgent = false
+    @State private var isHoveringRow = false
     /// Collapsed by default for long turns; toggled by the Show more button.
     @State private var expanded = false
 
@@ -1408,6 +1421,10 @@ struct ScoutMessageRow: View {
                     Text(ScoutRelativeTime.format(message.createdAt))
                         .font(HudFont.mono(HudTextSize.xxs))
                         .foregroundStyle(ScoutPalette.dim)
+                    Spacer(minLength: 0)
+                    if isHoveringRow {
+                        hoverReplyButton
+                    }
                 }
                 if showCustodyCaption, let custodyLabel {
                     Text(custodyLabel)
@@ -1455,6 +1472,36 @@ struct ScoutMessageRow: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .onHover { isHoveringRow = $0 }
+        .animation(.easeOut(duration: 0.12), value: isHoveringRow)
+    }
+
+    /// Studio `.turnAct` — ghost Reply chip on hover so reply is one click,
+    /// not buried in the context menu.
+    private var hoverReplyButton: some View {
+        Button(action: onReply) {
+            HStack(spacing: HudSpacing.xs) {
+                Image(systemName: "arrowshape.turn.up.left")
+                    .font(.system(size: 10, weight: .semibold))
+                Text("Reply")
+                    .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+            }
+            .foregroundStyle(ScoutPalette.muted)
+            .padding(.horizontal, HudSpacing.sm)
+            .padding(.vertical, HudSpacing.xxs)
+            .background(
+                RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                    .fill(ScoutPalette.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                    .stroke(ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin)
+            )
+        }
+        .buttonStyle(.plain).scoutPointerCursor()
+        .help("Reply to this message")
+        .transition(.opacity)
     }
 
     /// Studio `.turnAvatar` — a 28×28 sprite tile leading each turn. Operator gets
