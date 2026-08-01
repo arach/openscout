@@ -10,6 +10,7 @@ import { usePersistentBoolean, usePersistentNumber, usePersistentString } from "
 import { onToggleScoutbot } from "../../lib/scoutbot-broadcast-store.ts";
 import {
   extractScoutbotUiActions,
+  SCOUTBOT_COMPOSE_EVENT,
   SCOUTBOT_SUBMIT_EVENT,
   stripScoutbotUiFences,
 } from "../../lib/scoutbot.ts";
@@ -657,8 +658,8 @@ export function ScoutbotPanel({
         setComposeFocusNonce((nonce) => nonce + 1);
       }
     };
-    window.addEventListener("scout:scoutbot-compose", composeHandler);
-    return () => window.removeEventListener("scout:scoutbot-compose", composeHandler);
+    window.addEventListener(SCOUTBOT_COMPOSE_EVENT, composeHandler);
+    return () => window.removeEventListener(SCOUTBOT_COMPOSE_EVENT, composeHandler);
   }, [setCollapsed]);
 
   const scoutbotPublicState = useMemo<ScoutbotPublicState>(() => {

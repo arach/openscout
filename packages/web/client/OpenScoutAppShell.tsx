@@ -1120,12 +1120,16 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const leftPushInset = sidebarChrome
     ? sidebarCollapse.width + sideRailPushWidth
     : (leftCollapsed || scopeHidesLegacyLeft ? 0 : leftWidth);
+  // An expanded inspector may float over the center (the Dispatch detail sheet
+  // intentionally does), but its collapsed rail is still a real 48px column.
+  // Keep that strip out of the center layout so toolbar actions cannot land
+  // underneath the expand affordance.
   const rightPushInset =
-    !showRightPanel || rightOverlay || dispatchSheetOpen || scopeHidesRight
+    !showRightPanel || scopeHidesRight
       ? 0
       : effectiveRightCollapsed
         ? (sidebarChrome ? RAIL_COLLAPSED_WIDTH : 0)
-        : rightWidth;
+        : (rightOverlay || dispatchSheetOpen ? 0 : rightWidth);
   const pushedContentWidth = viewportWidth - leftPushInset - rightPushInset;
   const shouldAutoOverlayPanels =
     layoutMode === "panel" &&
@@ -1141,7 +1145,8 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
       : leftPushInset > 0 &&
         viewportWidth - leftPushInset < CENTER_CONTENT_MIN_WIDTH);
   const leftPanelOverlaysContent = autoOverlayLeft;
-  const rightPanelOverlaysContent = dispatchSheetOpen || rightOverlay || autoOverlayRight;
+  const rightPanelOverlaysContent =
+    !effectiveRightCollapsed && (dispatchSheetOpen || rightOverlay || autoOverlayRight);
   // When the side rail overlays, keep the nav rail inset so content starts after icons.
   const leftInset = leftPanelOverlaysContent
     ? (sidebarChrome ? sidebarCollapse.width : 0)
@@ -1613,7 +1618,10 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                         className="scout-rail-toggle--panel scout-rail-toggle--inspector"
                         style={{
                           position: "fixed",
-                          right: rightWidth,
+                          // Dispatch detail is a floating sheet with a 12px
+                          // outer inset; keep the chevron centered on its true
+                          // left edge instead of 12px inside the panel.
+                          right: rightWidth + (dispatchSheetOpen ? 12 : 0),
                           top: railToggleTop,
                           zIndex: 45,
                           transform: "translateX(50%)",
