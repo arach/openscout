@@ -226,27 +226,6 @@ private struct ScoutDiffSheetRequest {
     }
 }
 
-private struct ScoutMessageRenderBlock: Identifiable {
-    let root: ScoutMessage
-    let replies: [ScoutMessage]
-
-    var id: String { root.id }
-}
-
-private enum ScoutMessageRenderItem: Identifiable {
-    case inline(ScoutMessage)
-    case chain(ScoutMessageRenderBlock)
-
-    var id: String {
-        switch self {
-        case .inline(let message):
-            return "inline:\(message.id)"
-        case .chain(let block):
-            return "chain:\(block.root.id)"
-        }
-    }
-}
-
 private struct ScoutThreadStartResponse: Decodable {
     let id: String?
     let conversationId: String?
@@ -2210,111 +2189,11 @@ struct ScoutRootView: View {
     }
 
     private var messageRenderItems: [ScoutMessageRenderItem] {
-        Self.messageRenderItems(for: store.messages)
+        ScoutMessageRenderPlanner.items(for: store.messages)
     }
 
     private var latestMessageIdForFullDisplay: String? {
-        store.messages.last(where: Self.isReplyGatherCandidate)?.id
-    }
-
-    private static func messageRenderItems(for messages: [ScoutMessage]) -> [ScoutMessageRenderItem] {
-        var messagesById: [String: ScoutMessage] = [:]
-        var indexById: [String: Int] = [:]
-        for (index, message) in messages.enumerated() {
-            messagesById[message.id] = message
-            indexById[message.id] = index
-        }
-
-        // Pass 1: which messages *want* to leave the chronological stream and
-        // sit under a parent rail? Rule A keeps true adjacency inline (compact
-        // density handles that case); only non-adjacent reply-tos gather.
-        var wantsGather = Set<String>()
-        for message in messages {
-            guard isReplyGatherCandidate(message),
-                  let parentId = message.replyToMessageId?.nilIfEmpty,
-                  let parent = messagesById[parentId],
-                  isReplyGatherCandidate(parent),
-                  let messageIndex = indexById[message.id],
-                  let parentIndex = indexById[parentId],
-                  parentIndex != messageIndex - 1 else {
-                continue
-            }
-            wantsGather.insert(message.id)
-        }
-
-        // Pass 2: attach each gathered reply under the nearest *stream-visible*
-        // ancestor — walk up through parents that themselves gather so a deep
-        // reply flattens into one rail, but stop at a message that stays in the
-        // chronological stream (e.g. Bohr's findings, not Iris's seed above it).
-        // Walking all the way to the ultimate seed reorders late pings above the
-        // turn they actually answer (the Iris channel example).
-        var gatheredIds = Set<String>()
-        var repliesByRoot: [String: [ScoutMessage]] = [:]
-
-        for message in messages where wantsGather.contains(message.id) {
-            guard let rootId = streamVisibleChainRoot(
-                for: message,
-                messagesById: messagesById,
-                wantsGather: wantsGather
-            ), rootId != message.id else {
-                continue
-            }
-            gatheredIds.insert(message.id)
-            repliesByRoot[rootId, default: []].append(message)
-        }
-
-        for rootId in repliesByRoot.keys {
-            repliesByRoot[rootId]?.sort {
-                (indexById[$0.id] ?? Int.max) < (indexById[$1.id] ?? Int.max)
-            }
-        }
-
-        return messages.compactMap { message in
-            if gatheredIds.contains(message.id) {
-                return nil
-            }
-            if let replies = repliesByRoot[message.id], !replies.isEmpty {
-                return .chain(ScoutMessageRenderBlock(root: message, replies: replies))
-            }
-            return .inline(message)
-        }
-    }
-
-    /// Nearest ancestor that remains in the chronological stream. Walks through
-    /// parents that are themselves gathered so multi-hop replies flatten under
-    /// one rail (design: one visual level), without jumping past a mainline turn
-    /// the reply is actually about.
-    private static func streamVisibleChainRoot(
-        for message: ScoutMessage,
-        messagesById: [String: ScoutMessage],
-        wantsGather: Set<String>
-    ) -> String? {
-        var current = message
-        var visited = Set([message.id])
-
-        while let parentId = current.replyToMessageId?.nilIfEmpty {
-            guard let parent = messagesById[parentId] else {
-                // Parent outside the loaded window — keep the reply inline with
-                // its custody caption rather than inventing an attachment.
-                return nil
-            }
-            guard !visited.contains(parent.id), isReplyGatherCandidate(parent) else {
-                return nil
-            }
-            visited.insert(parent.id)
-            // Stop on the first ancestor that stays in the stream.
-            if !wantsGather.contains(parent.id) {
-                return parent.id
-            }
-            current = parent
-        }
-
-        return nil
-    }
-
-    private static func isReplyGatherCandidate(_ message: ScoutMessage) -> Bool {
-        let messageClass = message.messageClass.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return messageClass != "status" && messageClass != "system"
+        store.messages.last(where: ScoutMessageRenderPlanner.isReplyGatherCandidate)?.id
     }
 
     @ViewBuilder
@@ -2380,14 +2259,14 @@ struct ScoutRootView: View {
     /// Rule A leaves those inline (no rail regrouping); we still render them
     /// compact so a reply hugs its parent instead of another full mainline gap.
     private func isAdjacentReply(_ message: ScoutMessage) -> Bool {
-        guard Self.isReplyGatherCandidate(message),
+        guard ScoutMessageRenderPlanner.isReplyGatherCandidate(message),
               let replyTo = message.replyToMessageId?.nilIfEmpty,
               let index = store.messages.firstIndex(where: { $0.id == message.id }),
               index > 0 else {
             return false
         }
         let parent = store.messages[index - 1]
-        return parent.id == replyTo && Self.isReplyGatherCandidate(parent)
+        return parent.id == replyTo && ScoutMessageRenderPlanner.isReplyGatherCandidate(parent)
     }
 
     @ViewBuilder
