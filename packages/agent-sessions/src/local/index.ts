@@ -107,6 +107,9 @@ export type CreateLocalAgentClientOptions = {
   adapterOptions?: Record<string, unknown>;
   warmth?: LocalAgentWarmth;
   model?: string;
+  /** Codex reasoning effort ("low" | "medium" | ...) — translated to a
+   * model_reasoning_effort config override in the app-server launch args. */
+  effort?: string;
   timeoutMs?: number;
   signal?: AbortSignal;
 };
@@ -508,8 +511,11 @@ function codexLocalSessionPaths(sessionId: string): {
   };
 }
 
-function codexLaunchArgsForModel(model: string | undefined): string[] {
-  return model ? normalizeCodexAppServerLaunchArgs(["--model", model]) : [];
+function codexLaunchArgsForSession(model: string | undefined, effort: string | undefined): string[] {
+  return normalizeCodexAppServerLaunchArgs([
+    ...(model ? ["--model", model] : []),
+    ...(effort ? ["--effort", effort] : []),
+  ]);
 }
 
 function buildCodexSessionOptions(options: {
@@ -517,6 +523,7 @@ function buildCodexSessionOptions(options: {
   cwd: string;
   systemPrompt?: string;
   model?: string;
+  effort?: string;
 }): CodexAppServerSessionOptions {
   const paths = codexLocalSessionPaths(options.sessionId);
   return {
@@ -526,7 +533,7 @@ function buildCodexSessionOptions(options: {
     systemPrompt: options.systemPrompt?.trim() || "You are a helpful local Codex agent.",
     runtimeDirectory: paths.runtimeDirectory,
     logsDirectory: paths.logsDirectory,
-    launchArgs: codexLaunchArgsForModel(options.model),
+    launchArgs: codexLaunchArgsForSession(options.model, options.effort),
     clientInfo: {
       name: "openscout-agent-sessions",
       title: "OpenScout Agent Sessions",
@@ -577,6 +584,7 @@ async function createCodexLocalAgentClient(
     cwd: options.cwd,
     systemPrompt: options.systemPrompt,
     model: options.model,
+    effort: options.effort,
   });
   let client = getOrCreateCodexAppServerClient(currentSessionOptions);
   let closed = false;
@@ -601,6 +609,7 @@ async function createCodexLocalAgentClient(
       cwd: options.cwd,
       systemPrompt: options.systemPrompt,
       model,
+      effort: options.effort,
     });
     currentSessionOptions = nextSessionOptions;
     client = getOrCreateCodexAppServerClient(nextSessionOptions);
