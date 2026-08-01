@@ -1,0 +1,4 @@
+interface:
+  display_name: "Delegate and Monitor"
+  short_description: "Delegate work and monitor only when needed"
+  default_prompt: "Use $delegate-and-monitor to hand this work off and monitor it efficiently."
