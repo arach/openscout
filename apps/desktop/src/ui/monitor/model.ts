@@ -27,7 +27,7 @@ export const SCOUT_HARNESS_COMMANDS: readonly ScoutHarnessCommandDefinition[] = 
   { name: "clear", usage: "/clear", summary: "Clear the local conversation viewport without deleting broker records.", category: "conversation" },
   { name: "fleet", usage: "/fleet", summary: "Open the live fleet view.", category: "navigate" },
   { name: "tail", usage: "/tail", summary: "Open the broker activity tail.", category: "navigate" },
-  { name: "launch", usage: "/launch", summary: "Open the launch guide.", category: "navigate" },
+  { name: "new", aliases: ["launch"], usage: "/new", summary: "Compose a new broker command and choose where it runs.", category: "navigate" },
 ] as const;
 
 export type ScoutHarnessCommand =
@@ -37,7 +37,7 @@ export type ScoutHarnessCommand =
   | { kind: "runtime"; runtime?: string }
   | { kind: "status" }
   | { kind: "chat" }
-  | { kind: "navigate"; tab: "fleet" | "tail" | "launch" }
+  | { kind: "navigate"; tab: "fleet" | "tail" | "new" }
   | { kind: "clear" }
   | { kind: "help"; query?: string }
   | { kind: "empty" }
@@ -75,8 +75,8 @@ export function parseScoutHarnessCommand(value: string): ScoutHarnessCommand {
       return { kind: "navigate", tab: "fleet" };
     case "tail":
       return { kind: "navigate", tab: "tail" };
-    case "launch":
-      return { kind: "navigate", tab: "launch" };
+    case "new":
+      return { kind: "navigate", tab: "new" };
     case "clear":
       return { kind: "clear" };
     case "help":

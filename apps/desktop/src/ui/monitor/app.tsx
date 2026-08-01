@@ -1,6 +1,7 @@
 /** @jsxImportSource @opentui/react */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { TextareaOptions, TextareaRenderable } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import {
   SCOUT_RESERVED_RUNTIME_PROFILE_IDS,
@@ -70,6 +71,10 @@ const C = {
 const MONITOR_TABS: MonitorTab[] = ["home", "harness", "tail", "new"];
 const operatorName = resolveOperatorName();
 
+function monitorTabLabel(tab: MonitorTab): string {
+  return tab === "home" ? "fleet" : tab;
+}
+
 type AgentRow = {
   key: string;
   title: string;
@@ -90,11 +95,141 @@ type HarnessLocalEntry = {
   createdAt: number;
 };
 
+type ComposerDraft = {
+  current: string;
+};
+
+const MESSAGE_COMPOSER_KEY_BINDINGS: NonNullable<TextareaOptions["keyBindings"]> = [
+  { name: "return", action: "submit" },
+  { name: "linefeed", action: "submit" },
+  { name: "return", shift: true, action: "newline" },
+  { name: "linefeed", shift: true, action: "newline" },
+  { name: "return", meta: true, action: "newline" },
+  { name: "linefeed", meta: true, action: "newline" },
+];
+
 const CONTROL_PATTERN = /[\u0000-\u001F\u007F]/g;
 
 function cleanText(value: string): string {
   return stripVTControlCharacters(value).replace(CONTROL_PATTERN, "").trim();
 }
+
+function composerLineCount(value: string): number {
+  return value.length === 0 ? 1 : value.split("\n").length;
+}
+
+const MessageComposer = React.memo(function MessageComposer({
+  draft,
+  prefix,
+  placeholder,
+  sending,
+  disabled = false,
+  active = true,
+  error,
+  width,
+  submitLabel,
+  idleHint,
+  onSubmit,
+}: {
+  draft: ComposerDraft;
+  prefix: string;
+  placeholder: string;
+  sending: boolean;
+  disabled?: boolean;
+  active?: boolean;
+  error: string | null;
+  width: number;
+  submitLabel: string;
+  idleHint: string;
+  onSubmit: (value: string) => boolean | Promise<boolean>;
+}) {
+  const editor = useRef<TextareaRenderable>(null);
+  const submitting = useRef(false);
+  const [lineCount, setLineCount] = useState(() => composerLineCount(draft.current));
+  const lineCountRef = useRef(lineCount);
+  const ready = active && !sending && !disabled;
+
+  useEffect(() => {
+    editor.current?.gotoBufferEnd();
+  }, []);
+
+  const syncDraft = useCallback(() => {
+    const value = editor.current?.plainText ?? draft.current;
+    draft.current = value;
+    const nextLineCount = editor.current?.lineCount ?? composerLineCount(value);
+    if (lineCountRef.current !== nextLineCount) {
+      lineCountRef.current = nextLineCount;
+      setLineCount(nextLineCount);
+    }
+    return value;
+  }, [draft]);
+
+  const submit = useCallback(async () => {
+    if (!ready || submitting.current) return;
+    const value = syncDraft();
+    if (!value.trim()) return;
+
+    submitting.current = true;
+    try {
+      if (await onSubmit(value)) {
+        draft.current = "";
+        editor.current?.clear();
+        lineCountRef.current = 1;
+        setLineCount(1);
+      }
+    } finally {
+      submitting.current = false;
+    }
+  }, [draft, onSubmit, ready, syncDraft]);
+
+  const shortcut = width >= 64
+    ? `${lineCount > 1 ? `${lineCount} lines` : "single line"}  ·  ⇧/⌥↵ newline  ·  ↵ ${submitLabel}`
+    : `⇧/⌥↵ newline  ·  ↵ ${submitLabel}`;
+  const status = error ?? (sending ? "Dispatching through Scout…" : idleHint);
+
+  return (
+    <>
+      <box
+        height={5}
+        flexDirection="row"
+        border
+        borderStyle="single"
+        borderColor={error ? C.red : sending ? C.yellow : ready ? C.accent : C.borderStrong}
+        backgroundColor={C.bg}
+        paddingLeft={1}
+        paddingRight={1}
+      >
+        <text fg={sending ? C.yellow : ready ? C.accent : C.dim}>{sending ? "… " : prefix}</text>
+        <textarea
+          ref={editor}
+          width={Math.max(10, width - prefix.length - 4)}
+          height={3}
+          initialValue={draft.current}
+          placeholder={sending ? "Dispatching through Scout…" : placeholder}
+          placeholderColor={C.dim}
+          textColor={C.text}
+          focusedTextColor={C.text}
+          backgroundColor={C.bg}
+          focusedBackgroundColor={C.bg}
+          cursorColor={C.accent}
+          cursorStyle={{ style: "line", blinking: true }}
+          wrapMode="word"
+          scrollMargin={1}
+          keyBindings={MESSAGE_COMPOSER_KEY_BINDINGS}
+          focused={ready}
+          onContentChange={syncDraft}
+          onSubmit={() => void submit()}
+        />
+      </box>
+      <box height={1} flexDirection="row" justifyContent="space-between">
+        <text fg={error ? C.red : C.dim}>
+          {truncate(status, Math.max(10, width - shortcut.length - 2))}
+        </text>
+        <text fg={ready ? C.accent : C.dim}>{shortcut}</text>
+      </box>
+    </>
+  );
+});
 
 function sourceText(value: string | null | undefined): string {
   return cleanText(value ?? "")
@@ -323,8 +458,8 @@ function Header({
         {MONITOR_TABS.map((entry) => (
           <text key={entry} fg={entry === tab ? C.text : C.dim}>
             {entry === tab
-              ? `[${entry === "home" ? "fleet" : entry === "new" ? "launch" : entry}]`
-              : ` ${entry === "home" ? "fleet" : entry === "new" ? "launch" : entry} `}
+              ? `[${monitorTabLabel(entry)}]`
+              : ` ${monitorTabLabel(entry)} `}
           </text>
         ))}
         <text fg={online ? C.accent : C.yellow}>{loading ? "refreshing" : status}</text>
@@ -429,32 +564,66 @@ function AgentListPanel({
   );
 }
 
-function NewAgentPanel({
+type NewCommandTarget =
+  | {
+      key: "scoutbot";
+      kind: "scoutbot";
+      label: string;
+      detail: string;
+    }
+  | {
+      key: `profile:${string}`;
+      kind: "profile";
+      profile: string;
+      label: string;
+      detail: string;
+    }
+  | {
+      key: `agent:${string}`;
+      kind: "agent";
+      agentId: string;
+      label: string;
+      detail: string;
+    };
+
+function NewCommandPanel({
   snapshot,
+  targets,
+  selectedIndex,
+  choosingTarget,
+  draft,
+  active,
+  sending,
+  error,
   width,
   height,
+  onSelect,
+  onChooseTarget,
+  onSubmit,
 }: {
   snapshot: ScoutMonitorSnapshot;
+  targets: NewCommandTarget[];
+  selectedIndex: number;
+  choosingTarget: boolean;
+  draft: ComposerDraft;
+  active: boolean;
+  sending: boolean;
+  error: string | null;
   width: number;
   height: number;
+  onSelect: (index: number) => void;
+  onChooseTarget: () => void;
+  onSubmit: (value: string) => Promise<boolean>;
 }) {
   const brokerOk = snapshot.brokerHealth.ok;
-  const commands: Array<{ command: string; color: string }> = brokerOk
-    ? [
-        { command: "scout up . --harness claude", color: C.text },
-        { command: 'scout ask --project . --harness claude "..."', color: C.text },
-        { command: "scout card create . --harness claude", color: C.text },
-      ]
-    : [
-        { command: "scout doctor", color: C.yellow },
-        { command: "scout doctor --fix --yes", color: C.yellow },
-      ];
-  const compact = height <= 7;
   const lineWidth = Math.max(24, width - 4);
-  const headerRows = compact ? 1 : 4;
-  const maxCommandCount = Math.max(1, height - headerRows - 2);
-  const visibleCommands = commands.slice(0, maxCommandCount);
-  const path = compactPath(snapshot.currentDirectory) ?? snapshot.currentDirectory;
+  const target = targets[clampScoutTuiSelection(selectedIndex, targets.length)] ?? targets[0];
+  const availableRows = Math.max(1, height - 7);
+  const windowStart = Math.min(
+    Math.max(0, targets.length - availableRows),
+    Math.max(0, selectedIndex - availableRows + 1),
+  );
+  const visibleTargets = targets.slice(windowStart, windowStart + availableRows);
 
   return (
     <box
@@ -463,37 +632,74 @@ function NewAgentPanel({
       height={height}
       border
       borderStyle="rounded"
-      borderColor={brokerOk ? C.border : C.red}
+      borderColor={error ? C.red : brokerOk ? C.borderStrong : C.red}
+      backgroundColor={C.surface}
       padding={1}
-      title="Launch agent"
+      title={choosingTarget ? "New command · Choose target" : "New command"}
     >
-      <box height={1}>
-        <text fg={brokerOk ? C.accent : C.red}>
-          {fitLine(brokerOk ? "Broker ready" : "Broker offline", lineWidth)}
-        </text>
-      </box>
-      {compact ? null : (
+      {!brokerOk ? (
         <box height={1}>
-          <text fg={C.dim}>{fitLine(path, lineWidth)}</text>
+          <text fg={C.red}>{fitLine("Broker offline · run scout doctor before dispatching", lineWidth)}</text>
         </box>
-      )}
-      {compact ? null : (
-        <box height={1}>
-          <text fg={C.dim}>{fitLine("", lineWidth)}</text>
-        </box>
-      )}
-      {visibleCommands.map((entry) => {
-        return (
-          <box key={entry.command} height={1} width={lineWidth}>
-            <text fg={entry.color}>{fitLine(entry.command, lineWidth)}</text>
+      ) : choosingTarget ? (
+        <>
+          <box height={1}>
+            <text fg={C.dim}>{fitLine("Choose the identity or fresh runtime that should own this command.", lineWidth)}</text>
           </box>
-        );
-      })}
-      {visibleCommands.length < commands.length ? (
-        <box height={1}>
-          <text fg={C.dim}>{fitLine(`${commands.length - visibleCommands.length} more hidden`, lineWidth)}</text>
-        </box>
-      ) : null}
+          <box height={1}><text fg={C.dim}>{fitLine("", lineWidth)}</text></box>
+          {visibleTargets.map((entry, index) => {
+            const entryIndex = windowStart + index;
+            const selected = entryIndex === selectedIndex;
+            return (
+              <box
+                key={entry.key}
+                height={1}
+                backgroundColor={selected ? C.selected : C.surface}
+                onMouseDown={() => {
+                  onSelect(entryIndex);
+                  onChooseTarget();
+                }}
+              >
+                <text fg={selected ? C.accent : C.text}>
+                  {fitLine(`${selected ? "›" : " "} ${entry.label}  ·  ${entry.detail}`, lineWidth)}
+                </text>
+              </box>
+            );
+          })}
+          <box flexGrow={1} />
+          <box height={1} flexDirection="row" justifyContent="space-between">
+            <text fg={C.accent}>↑↓ choose · enter write command</text>
+            <text fg={C.dim}>{targets.length === 0 ? "0 targets" : `${selectedIndex + 1} / ${targets.length}`}</text>
+          </box>
+        </>
+      ) : (
+        <>
+          <box height={1} flexDirection="row" justifyContent="space-between">
+            <text fg={C.accent}>{truncate(`TARGET  ${target?.label ?? "Unavailable"}`, Math.max(18, Math.floor(lineWidth * 0.55)))}</text>
+            <text fg={C.dim}>^t change target</text>
+          </box>
+          <box height={1}>
+            <text fg={C.dim}>{fitLine(target?.detail ?? "No dispatch target is available.", lineWidth)}</text>
+          </box>
+          <box height={1}>
+            <text fg={C.dim}>{fitLine(`PROJECT  ${compactPath(snapshot.currentDirectory) ?? snapshot.currentDirectory}`, lineWidth)}</text>
+          </box>
+          <box flexGrow={1} />
+          <MessageComposer
+            draft={draft}
+            prefix="run› "
+            placeholder="Describe the work to run"
+            sending={sending}
+            disabled={!brokerOk}
+            active={active}
+            error={error}
+            width={lineWidth}
+            submitLabel="run"
+            idleHint="Dispatch opens the broker conversation; the draft survives errors and navigation."
+            onSubmit={onSubmit}
+          />
+        </>
+      )}
     </box>
   );
 }
@@ -714,69 +920,209 @@ type TailLine = {
   selected?: boolean;
 };
 
-function buildTailLines(snapshot: ScoutMonitorSnapshot, width: number): TailLine[] {
-  const seenMessageIds = new Set(snapshot.activity.map((item) => item.id));
-  const activityLines = snapshot.activity.map((item): TailLine => {
-    const title = sourceText(item.detail || item.title);
+type TailContextField = {
+  label: string;
+  value: string;
+};
+
+type TailEntry = {
+  key: string;
+  timestamp: number;
+  color: string;
+  kind: string;
+  actor: string;
+  headline: string;
+  body: string;
+  context: TailContextField[];
+};
+
+function formatContextValue(value: unknown): string {
+  if (typeof value === "string") return sourceText(value);
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (value === null || value === undefined) return "";
+  try {
+    return sourceText(JSON.stringify(value));
+  } catch {
+    return sourceText(String(value));
+  }
+}
+
+function formatDateTime(value: unknown): string {
+  const timestamp = normalizeTimestamp(value);
+  if (timestamp === null) return "unknown";
+  return new Date(timestamp * 1000).toLocaleString();
+}
+
+function messageContext(message: ScoutBrokerMessageRecord): TailContextField[] {
+  return [
+    { label: "TIME", value: formatDateTime(message.createdAt) },
+    { label: "ACTOR", value: message.actorId },
+    { label: "CLASS", value: message.class },
+    { label: "CONVERSATION", value: message.conversationId },
+    { label: "MESSAGE", value: message.id },
+    { label: "ORIGIN", value: message.originNodeId },
+    { label: "VISIBILITY", value: formatContextValue(message.visibility) },
+    { label: "POLICY", value: formatContextValue(message.policy) },
+    ...(message.replyToMessageId ? [{ label: "REPLY TO", value: message.replyToMessageId }] : []),
+    ...(message.threadConversationId ? [{ label: "THREAD", value: message.threadConversationId }] : []),
+    ...(message.mentions?.length ? [{ label: "MENTIONS", value: message.mentions.map((mention) => mention.label ?? mention.actorId).join(", ") }] : []),
+    ...(message.attachments?.length ? [{ label: "ATTACHMENTS", value: message.attachments.map((attachment) => attachment.fileName ?? attachment.id).join(", ") }] : []),
+  ].filter((field) => Boolean(field.value));
+}
+
+function buildTailEntries(snapshot: ScoutMonitorSnapshot): TailEntry[] {
+  const messagesById = new Map(snapshot.recentMessages.map((message) => [message.id, message]));
+  const representedMessages = new Set<string>();
+  const activityEntries = snapshot.activity.map((item): TailEntry => {
+    const message = messagesById.get(item.id);
+    if (message) representedMessages.add(message.id);
     const actor = sourceText(item.actorName || displayName(item.actorId));
+    const body = sourceText(message?.body ?? item.detail ?? item.title);
     return {
       key: `activity:${item.id}`,
       timestamp: normalizeTimestamp(item.timestamp) ?? 0,
       color: activityTone(item),
-      text: `${formatClock(item.timestamp)}  ${item.kind.padEnd(7, " ")}  ${actor}  ${title}`,
+      kind: message?.class ?? item.kind,
+      actor,
+      headline: sourceText(item.title || body),
+      body,
+      context: message
+        ? [
+            ...(item.channel ? [{ label: "CHANNEL", value: item.channel }] : []),
+            ...messageContext(message),
+          ]
+        : [
+            { label: "TIME", value: formatDateTime(item.timestamp) },
+            { label: "ACTOR", value: `${actor} · ${item.actorId}` },
+            ...(item.channel ? [{ label: "CHANNEL", value: item.channel }] : []),
+            ...(item.conversationId ? [{ label: "CONVERSATION", value: item.conversationId }] : []),
+            { label: "EVENT", value: item.id },
+          ],
     };
   });
-  const messageLines = snapshot.recentMessages
-    .filter((message) => !seenMessageIds.has(message.id))
-    .flatMap((message): TailLine[] => {
-      const timestamp = normalizeTimestamp(message.createdAt) ?? 0;
-      const actor = truncate(sourceText(displayName(message.actorId)), 12).padEnd(12, " ");
-      return wrapText(sourceText(message.body), Math.max(24, width - 28)).map((line, index) => ({
-        key: `message:${message.id}:${index}`,
-        timestamp,
-        color: messageTone(message),
-        text: index === 0
-          ? `${formatClock(message.createdAt)}  message  ${actor}  ${line}`
-          : `${" ".repeat(10)}${" ".repeat(9)}${" ".repeat(12)}  ${line}`,
-      }));
-    });
+  const messageEntries = snapshot.recentMessages
+    .filter((message) => !representedMessages.has(message.id))
+    .map((message): TailEntry => ({
+      key: `message:${message.id}`,
+      timestamp: normalizeTimestamp(message.createdAt) ?? 0,
+      color: messageTone(message),
+      kind: message.class,
+      actor: sourceText(displayName(message.actorId)),
+      headline: sourceText(message.body),
+      body: sourceText(message.body),
+      context: messageContext(message),
+    }));
 
-  return [...activityLines, ...messageLines]
+  return [...activityEntries, ...messageEntries]
     .sort((left, right) => left.timestamp - right.timestamp || left.key.localeCompare(right.key));
 }
 
+function buildTailDetailLines(entry: TailEntry, width: number): TailLine[] {
+  return [
+    ...wrapText(entry.body || entry.headline, Math.max(16, width - 2)).map((text, index): TailLine => ({
+      key: `body:${index}`,
+      timestamp: entry.timestamp,
+      color: C.text,
+      text,
+    })),
+    { key: "spacer", timestamp: entry.timestamp, color: C.dim, text: "" },
+    ...entry.context.flatMap((field): TailLine[] => wrapText(
+      `${field.label.padEnd(14, " ")} ${field.value}`,
+      Math.max(16, width - 2),
+    ).map((text, index) => ({
+      key: `context:${field.label}:${index}`,
+      timestamp: entry.timestamp,
+      color: C.dim,
+      text,
+    }))),
+  ];
+}
+
 function TailPanel({
-  snapshot,
-  scrollOffset,
+  entries,
+  channel,
+  selectionOffset,
+  detailOpen,
+  detailScrollOffset,
   width,
   height,
+  onSelectOffset,
 }: {
-  snapshot: ScoutMonitorSnapshot;
-  scrollOffset: number;
+  entries: TailEntry[];
+  channel: string;
+  selectionOffset: number;
+  detailOpen: boolean;
+  detailScrollOffset: number;
   width: number;
   height: number;
+  onSelectOffset: (offset: number) => void;
 }) {
   const panelHeight = Math.max(6, height);
-  const rendered = buildTailLines(snapshot, width);
-  const availableRows = Math.max(3, panelHeight - 4);
-  const end = Math.max(0, rendered.length - scrollOffset);
-  const start = Math.max(0, end - availableRows);
-  const visible = rendered.slice(start, end);
+  const lineWidth = Math.max(24, width - 4);
+  const selectedIndex = entries.length === 0
+    ? 0
+    : clampScoutTuiSelection(entries.length - 1 - selectionOffset, entries.length);
+  const selectedEntry = entries[selectedIndex] ?? null;
+  const availableRows = Math.max(3, panelHeight - 5);
+  const windowStart = Math.min(
+    Math.max(0, entries.length - availableRows),
+    Math.max(0, selectedIndex - availableRows + 1),
+  );
+  const visible = entries.slice(windowStart, windowStart + availableRows);
+  const detailLines = selectedEntry ? buildTailDetailLines(selectedEntry, lineWidth) : [];
+  const detailStart = Math.min(
+    Math.max(0, detailLines.length - availableRows),
+    Math.max(0, detailScrollOffset),
+  );
+  const visibleDetail = detailLines.slice(detailStart, detailStart + availableRows);
 
   return (
-    <box flexDirection="column" width={width} height={panelHeight} border borderStyle="rounded" borderColor={C.border} padding={1} title={`Tail · #${snapshot.channel}`}>
-      {visible.length === 0 ? (
+    <box flexDirection="column" width={width} height={panelHeight} border borderStyle="rounded" borderColor={detailOpen ? C.borderStrong : C.border} padding={1} title={`Tail · #${channel}${detailOpen ? " · Context" : ""}`}>
+      {selectedEntry && detailOpen ? (
+        <box flexDirection="column" flexGrow={1} backgroundColor={C.bg}>
+          <box height={1} flexDirection="row" justifyContent="space-between">
+            <text fg={selectedEntry.color}>{truncate(`${selectedEntry.kind} · ${selectedEntry.actor}`, Math.max(16, lineWidth - 20))}</text>
+            <text fg={C.dim}>{formatClock(selectedEntry.timestamp)}</text>
+          </box>
+          <box flexDirection="column" flexGrow={1} backgroundColor={C.bg} paddingLeft={1} paddingRight={1}>
+            {visibleDetail.map((line) => (
+              <box key={line.key} height={1}>
+                <text fg={line.color}>{fitLine(line.text, Math.max(12, lineWidth - 2))}</text>
+              </box>
+            ))}
+          </box>
+          <box height={1} flexDirection="row" justifyContent="space-between">
+            <text fg={C.accent}>↑↓ scroll · enter / esc back</text>
+            <text fg={C.dim}>{detailLines.length === 0 ? "0 lines" : `${detailStart + 1}–${Math.min(detailLines.length, detailStart + visibleDetail.length)} / ${detailLines.length}`}</text>
+          </box>
+        </box>
+      ) : visible.length === 0 ? (
         <text fg={C.dim}>{fitLine("No tail events yet.", width - 4)}</text>
       ) : (
-        visible.map((line) => (
-          <box key={line.key} height={1}>
-            <text fg={line.color}>
-              {fitLine(line.text, width - 4)}
+        visible.map((entry, index) => {
+          const entryIndex = windowStart + index;
+          const selected = entryIndex === selectedIndex;
+          const offset = Math.max(0, entries.length - 1 - entryIndex);
+          return (
+          <box
+            key={entry.key}
+            height={1}
+            backgroundColor={selected ? C.selected : C.surface}
+            onMouseDown={() => onSelectOffset(offset)}
+          >
+            <text fg={selected ? C.accent : entry.color}>
+              {fitLine(`${selected ? "›" : " "} ${formatClock(entry.timestamp)}  ${entry.kind.padEnd(7, " ")}  ${truncate(entry.actor, 12).padEnd(12, " ")}  ${entry.headline}`, lineWidth)}
             </text>
           </box>
-        ))
+          );
+        })
       )}
-      {scrollOffset > 0 ? <text fg={C.yellow}>↑ {scrollOffset} newer lines below</text> : null}
+      {!detailOpen && entries.length > 0 ? (
+        <box height={1} flexDirection="row" justifyContent="space-between">
+          <text fg={C.accent}>↑↓ choose · enter context · pgup/pgdn jump</text>
+          <text fg={C.dim}>{selectedIndex + 1} / {entries.length}</text>
+        </box>
+      ) : null}
     </box>
   );
 }
@@ -802,13 +1148,13 @@ function HarnessPanel({
   messages,
   localEntries,
   draft,
+  active,
   sending,
   error,
   clearBefore,
   scrollOffset,
   width,
   height,
-  onDraftChange,
   onSubmit,
 }: {
   snapshot: ScoutMonitorSnapshot;
@@ -830,18 +1176,18 @@ function HarnessPanel({
   conversationId: string | null;
   messages: ScoutBrokerMessageRecord[];
   localEntries: HarnessLocalEntry[];
-  draft: string;
+  draft: ComposerDraft;
+  active: boolean;
   sending: boolean;
   error: string | null;
   clearBefore: number;
   scrollOffset: number;
   width: number;
   height: number;
-  onDraftChange: (value: string) => void;
-  onSubmit: () => void;
+  onSubmit: (value: string) => Promise<boolean>;
 }) {
   const lineWidth = Math.max(24, width - 4);
-  const availableRows = Math.max(3, height - 10);
+  const availableRows = Math.max(3, height - (view === "conversation" ? 12 : 10));
   const brokerLines = messages
     .filter((message) => (normalizeTimestamp(message.createdAt) ?? 0) >= clearBefore)
     .flatMap((message): TailLine[] => {
@@ -1011,7 +1357,7 @@ function HarnessPanel({
         {view === "conversation" && conversationVisible.length === 0 ? (
           <box flexDirection="column">
             <text fg={C.muted}>{fitLine("Scout is the front door: ask about the fleet, route work, or explore the primitives.", Math.max(12, lineWidth - 2))}</text>
-            <text fg={C.dim}>{fitLine("Plain text talks to Scoutbot. Try /help, /profile, /runtime, /agents, or /status.", Math.max(12, lineWidth - 2))}</text>
+            <text fg={C.dim}>{fitLine("Plain text talks to Scoutbot. Try /help, /profile, /runtime, /agents, /new, or /status.", Math.max(12, lineWidth - 2))}</text>
           </box>
         ) : (view === "conversation" ? conversationVisible : inspectorVisible).map((line) => (
           <box key={line.key} height={1} backgroundColor={line.selected ? C.selected : C.bg}>
@@ -1020,32 +1366,29 @@ function HarnessPanel({
         ))}
       </box>
       {view === "conversation" ? (
-        <box height={3} border borderStyle="single" borderColor={sending ? C.yellow : C.accent} backgroundColor={C.bg} paddingLeft={1} paddingRight={1}>
-          <text fg={sending ? C.yellow : C.accent}>{sending ? "… " : "scout› "}</text>
-          <input
-            width={Math.max(10, lineWidth - 10)}
-            value={draft}
-            placeholder={sending ? "Dispatching through Scout…" : "Ask Scout or enter /help"}
-            placeholderColor={C.dim}
-            textColor={C.text}
-            focusedTextColor={C.text}
-            backgroundColor={C.bg}
-            focusedBackgroundColor={C.bg}
-            cursorColor={C.accent}
-            focused={!sending}
-            onInput={onDraftChange}
-            onSubmit={onSubmit}
-          />
-        </box>
+        <MessageComposer
+          draft={draft}
+          prefix="scout› "
+          placeholder="Ask Scout or enter /help"
+          sending={sending}
+          active={active}
+          error={error}
+          width={lineWidth}
+          submitLabel="send"
+          idleHint={scrollOffset > 0 ? `${scrollOffset} newer lines below` : "Plain text talks to Scout; slash commands stay local to the harness."}
+          onSubmit={onSubmit}
+        />
       ) : (
         <box height={3} border borderStyle="single" borderColor={C.borderStrong} backgroundColor={C.bg} paddingLeft={1} paddingRight={1}>
           <text fg={C.accent}>{fitLine(`${viewLabel} is interactive. ${viewFooter}`, lineWidth - 2)}</text>
         </box>
       )}
-      <box height={1} flexDirection="row" justifyContent="space-between">
-        <text fg={error ? C.red : C.dim}>{truncate(error ?? viewFooter, Math.max(18, lineWidth - 24))}</text>
-        <text fg={C.dim}>{view === "conversation" ? "esc fleet · ^p commands" : `${inspectorStart + 1}–${Math.min(inspectorLines.length, inspectorStart + inspectorVisible.length)} / ${inspectorLines.length}`}</text>
-      </box>
+      {view !== "conversation" ? (
+        <box height={1} flexDirection="row" justifyContent="space-between">
+          <text fg={error ? C.red : C.dim}>{truncate(error ?? viewFooter, Math.max(18, lineWidth - 24))}</text>
+          <text fg={C.dim}>{`${inspectorStart + 1}–${Math.min(inspectorLines.length, inspectorStart + inspectorVisible.length)} / ${inspectorLines.length}`}</text>
+        </box>
+      ) : null}
     </box>
   );
 }
@@ -1166,17 +1509,15 @@ function AskComposer({
   error,
   width,
   height,
-  onDraftChange,
   onSubmit,
 }: {
   agent: ScoutMonitorAgent;
-  draft: string;
+  draft: ComposerDraft;
   sending: boolean;
   error: string | null;
   width: number;
   height: number;
-  onDraftChange: (value: string) => void;
-  onSubmit: () => void;
+  onSubmit: (value: string) => Promise<boolean>;
 }) {
   const modalWidth = Math.min(88, Math.max(44, width - 8));
   const lineWidth = modalWidth - 4;
@@ -1196,7 +1537,7 @@ function AskComposer({
       <box
         flexDirection="column"
         width={modalWidth}
-        height={10}
+        height={12}
         border
         borderStyle="rounded"
         borderColor={error ? C.red : C.accent}
@@ -1210,26 +1551,17 @@ function AskComposer({
         <box height={1}>
           <text fg={C.dim}>{fitLine(compactPath(agent.projectRoot) ?? "No project path reported", lineWidth)}</text>
         </box>
-        <box height={3} border borderStyle="single" borderColor={C.borderStrong} backgroundColor={C.bg} paddingLeft={1} paddingRight={1}>
-          <input
-            width={Math.max(10, lineWidth - 2)}
-            value={draft}
-            placeholder="What should this agent do?"
-            placeholderColor={C.dim}
-            textColor={C.text}
-            focusedTextColor={C.text}
-            backgroundColor={C.bg}
-            focusedBackgroundColor={C.bg}
-            cursorColor={C.accent}
-            focused={!sending}
-            onInput={onDraftChange}
-            onSubmit={onSubmit}
-          />
-        </box>
-        <box height={1} flexDirection="row" justifyContent="space-between">
-          <text fg={error ? C.red : C.dim}>{truncate(error ?? (sending ? "Dispatching through Scout…" : "enter dispatches · esc keeps the draft"), Math.max(20, lineWidth - 16))}</text>
-          <text fg={draft.trim() && !sending ? C.accent : C.dim}>ask ↵</text>
-        </box>
+        <MessageComposer
+          draft={draft}
+          prefix="ask› "
+          placeholder="What should this agent do?"
+          sending={sending}
+          error={error}
+          width={lineWidth}
+          submitLabel="ask"
+          idleHint="Broker-native work request; Esc closes without losing the draft."
+          onSubmit={onSubmit}
+        />
       </box>
     </box>
   );
@@ -1238,15 +1570,15 @@ function AskComposer({
 function StatusBar({ tab, notice }: { tab: MonitorTab; notice: string | null }) {
   const hints: Record<MonitorTab, string> = {
     home: "↑↓ / jk select  ·  a / enter ask",
-    harness: "ask Scout  ·  /help  /profile  /runtime",
-    tail: "↑↓ / jk scroll  ·  1 fleet  4 launch",
-    new: "1 fleet  ·  2 harness  ·  3 tail",
+    harness: "ask Scout  ·  /help  /profile  /runtime  ·  tab next",
+    tail: "↑↓ choose  ·  enter context  ·  tab next",
+    new: "enter dispatch  ·  ^t target  ·  tab next",
   };
 
   return (
     <box flexDirection="row" justifyContent="space-between" paddingLeft={1} paddingRight={1} height={2}>
       <text fg={notice ? C.accent : C.dim}>{truncate(notice ?? hints[tab], 72)}</text>
-      <text fg={C.dim}>{tab === "harness" ? "^c quit" : "/ commands  ·  r refresh  ·  q quit"}</text>
+      <text fg={C.dim}>{tab === "harness" || tab === "new" ? "^c quit" : "/ commands  ·  r refresh  ·  q quit"}</text>
     </box>
   );
 }
@@ -1268,15 +1600,21 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
   const [snapshot, setSnapshot] = useState<ScoutMonitorSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshError, setRefreshError] = useState<string | null>(null);
-  const [scrollOffset, setScrollOffset] = useState(0);
+  const [tailSelectionOffset, setTailSelectionOffset] = useState(0);
+  const [tailDetailOpen, setTailDetailOpen] = useState(false);
+  const [tailDetailScrollOffset, setTailDetailScrollOffset] = useState(0);
   const [selectedAgentIndex, setSelectedAgentIndex] = useState(0);
   const [overlay, setOverlay] = useState<MonitorOverlay>(null);
   const [paletteQuery, setPaletteQuery] = useState("");
   const [paletteIndex, setPaletteIndex] = useState(0);
-  const [askDraft, setAskDraft] = useState("");
+  const askDraft = useRef("");
   const [askSending, setAskSending] = useState(false);
   const [askError, setAskError] = useState<string | null>(null);
-  const [harnessDraft, setHarnessDraft] = useState("");
+  const newCommandDraft = useRef("");
+  const [newCommandTargetIndex, setNewCommandTargetIndex] = useState(0);
+  const [newCommandChoosingTarget, setNewCommandChoosingTarget] = useState(false);
+  const [newCommandError, setNewCommandError] = useState<string | null>(null);
+  const harnessDraft = useRef("");
   const [harnessSending, setHarnessSending] = useState(false);
   const [harnessError, setHarnessError] = useState<string | null>(null);
   const [harnessSenderId, setHarnessSenderId] = useState<string | null>(null);
@@ -1307,6 +1645,41 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
     () => buildAgentRows(snapshot?.agents ?? []),
     [snapshot?.agents],
   );
+  const tailEntries = useMemo(
+    () => snapshot ? buildTailEntries(snapshot) : [],
+    [snapshot],
+  );
+  const newCommandTargets = useMemo<NewCommandTarget[]>(() => [
+    {
+      key: "scoutbot",
+      kind: "scoutbot",
+      label: "Scoutbot",
+      detail: "Durable assistant conversation; Scout chooses the conversational backend.",
+    },
+    ...SCOUT_RESERVED_RUNTIME_PROFILE_IDS.map((profile): NewCommandTarget => ({
+      key: `profile:${profile}`,
+      kind: "profile",
+      profile,
+      label: `Fresh ${profile}`,
+      detail: "Start a new broker-managed runtime in this project.",
+    })),
+    ...orderedAgentRows.map((agent): NewCommandTarget => ({
+      key: `agent:${agent.key}`,
+      kind: "agent",
+      agentId: agent.key,
+      label: agent.title,
+      detail: `${agent.status} · ${agent.project} · ${agent.runtime}`,
+    })),
+  ], [orderedAgentRows]);
+  const selectedTailIndex = tailEntries.length === 0
+    ? 0
+    : clampScoutTuiSelection(tailEntries.length - 1 - tailSelectionOffset, tailEntries.length);
+  const selectedTailEntry = tailEntries[selectedTailIndex] ?? null;
+  const tailDetailVisibleRows = Math.max(3, Math.max(8, height - 5) - 5);
+  const tailDetailLineCount = selectedTailEntry
+    ? buildTailDetailLines(selectedTailEntry, Math.max(24, width - 6)).length
+    : 0;
+  const tailDetailMaxOffset = Math.max(0, tailDetailLineCount - tailDetailVisibleRows);
   const selectedAgentRow = orderedAgentRows[selectedAgentIndex];
   const selectedAgent = selectedAgentRow && snapshot
     ? snapshot.agents.find((agent) => agent.id === selectedAgentRow.key) ?? null
@@ -1361,7 +1734,8 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
         if (stopped.current) return;
         setSnapshot(next);
         setRefreshError(null);
-        setScrollOffset((current) => Math.max(0, current));
+        const nextTailCount = buildTailEntries(next).length;
+        setTailSelectionOffset((current) => clampScoutTuiSelection(current, nextTailCount));
       } while (refreshQueued.current && !stopped.current);
     } catch (error) {
       if (!stopped.current) {
@@ -1431,6 +1805,12 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
     setTab("harness");
   }, []);
 
+  const openNewCommand = useCallback(() => {
+    setNewCommandError(null);
+    setNewCommandChoosingTarget(false);
+    setTab("new");
+  }, []);
+
   const resolveHarnessSenderId = useCallback(async () => {
     if (harnessSenderId) return harnessSenderId;
     const senderId = await resolveScoutSenderId(
@@ -1467,145 +1847,27 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
     setHarnessScrollOffset(0);
   }, [harnessConversationId, harnessTargetAgentId, props.limit, resolveHarnessSenderId]);
 
-  const submitHarness = useCallback(async () => {
-    if (harnessSending) return;
-    const command = parseScoutHarnessCommand(harnessDraft);
-    if (command.kind === "empty") return;
-    setHarnessDraft("");
-    setHarnessError(null);
-
-    if (command.kind === "invalid") {
-      appendHarnessEntry("scout", command.message, C.red);
-      return;
-    }
-    if (command.kind === "help") {
-      const definition = command.query ? findScoutHarnessCommandDefinition(command.query) : null;
-      if (command.query && !definition) {
-        appendHarnessEntry("scout", `No command matches “${command.query}”. Opening all help.`, C.red);
-      }
-      setHarnessHelpDefinition(definition);
-      setHarnessViewScrollOffset(0);
-      setHarnessView("help");
-      return;
-    }
-    if (command.kind === "status") {
-      setHarnessViewScrollOffset(0);
-      setHarnessView("status");
-      return;
-    }
-    if (command.kind === "chat") {
-      setHarnessProfile(null);
-      setHarnessRuntimeLiteral(null);
-      setHarnessTargetAgentId(null);
-      setHarnessContinuationHandle(null);
-      setHarnessConversationId(null);
-      setHarnessMessages([]);
-      setHarnessSenderId("operator");
-      setHarnessView("conversation");
-      return;
-    }
-    if (command.kind === "navigate") {
-      setTab(command.tab === "fleet" ? "home" : command.tab === "launch" ? "new" : "tail");
-      return;
-    }
-    if (command.kind === "clear") {
-      setHarnessEntries([]);
-      setHarnessClearBefore(Date.now() / 1000);
-      setHarnessScrollOffset(0);
-      setHarnessView("conversation");
-      return;
-    }
-    if (command.kind === "profile") {
-      if (!command.profile) {
-        const selectedIndex = harnessProfile
-          ? SCOUT_RESERVED_RUNTIME_PROFILE_IDS.indexOf(harnessProfile as (typeof SCOUT_RESERVED_RUNTIME_PROFILE_IDS)[number])
-          : 0;
-        setHarnessViewIndex(Math.max(0, selectedIndex));
-        setHarnessView("profiles");
-        return;
-      }
-      const profile = normalizeReservedRuntimeProfileId(command.profile);
-      if (!profile) {
-        appendHarnessEntry(
-          "scout",
-          `Unknown runtime profile: ${command.profile}. Available: ${SCOUT_RESERVED_RUNTIME_PROFILE_IDS.join(", ")}.`,
-          C.red,
-        );
-        return;
-      }
-      setHarnessProfile(profile);
-      setHarnessRuntimeLiteral(null);
-      setHarnessTargetAgentId(null);
-      setHarnessContinuationHandle(null);
-      setHarnessConversationId(null);
-      setHarnessMessages([]);
-      setHarnessViewIndex(Math.max(0, SCOUT_RESERVED_RUNTIME_PROFILE_IDS.indexOf(profile)));
-      setHarnessView("profiles");
-      return;
-    }
-    if (command.kind === "runtime") {
-      if (!command.runtime) {
-        setHarnessViewIndex(0);
-        setHarnessView("runtimes");
-        return;
-      }
-      const runtime = command.runtime.trim();
-      setHarnessRuntimeLiteral(runtime);
-      setHarnessProfile(null);
-      setHarnessTargetAgentId(null);
-      setHarnessContinuationHandle(null);
-      setHarnessConversationId(null);
-      setHarnessMessages([]);
-      const harnessId = runtime.split("/")[0];
-      const runtimeIndex = harnessRuntimeReport?.runtimeCapabilities.harnesses.findIndex((entry) => entry.id === harnessId) ?? -1;
-      setHarnessViewIndex(Math.max(0, runtimeIndex));
-      setHarnessView("runtimes");
-      return;
-    }
-    if (command.kind === "agent") {
-      if (!command.query) {
-        const currentIndex = orderedAgentRows.findIndex((agent) => agent.key === harnessTargetAgentId);
-        setHarnessViewIndex(Math.max(0, currentIndex));
-        setHarnessView("agents");
-        return;
-      }
-      const match = findScoutHarnessAgent(
-        orderedAgentRows.map((agent) => ({ id: agent.key, title: agent.title })),
-        command.query,
-      );
-      if (match.kind === "ambiguous") {
-        const candidates = match.indices
-          .map((index) => orderedAgentRows[index]?.key)
-          .filter((id): id is string => Boolean(id));
-        appendHarnessEntry(
-          "scout",
-          `Ambiguous agent “${command.query}”. Use one full id: ${candidates.join(", ")}.`,
-          C.red,
-        );
-        return;
-      }
-      if (match.kind === "missing") {
-        appendHarnessEntry("scout", `No fleet agent matches “${command.query}”. Try /agents.`, C.red);
-        return;
-      }
-      const agent = orderedAgentRows[match.index]!;
-      setSelectedAgentIndex(match.index);
-      setHarnessTargetAgentId(agent.key);
-      setHarnessProfile(null);
-      setHarnessRuntimeLiteral(null);
-      setHarnessContinuationHandle(null);
-      setHarnessConversationId(null);
-      setHarnessMessages([]);
-      setHarnessViewIndex(match.index);
-      setHarnessView("agents");
-      return;
-    }
+  const dispatchHarnessAsk = useCallback(async (
+    body: string,
+    target?: {
+      profile: string | null;
+      runtimeLiteral: string | null;
+      agentId: string | null;
+      continuationHandle: string | null;
+    },
+  ): Promise<string | null> => {
+    if (harnessSending) return "A command is already dispatching.";
+    const profile = target ? target.profile : harnessProfile;
+    const runtimeLiteral = target ? target.runtimeLiteral : harnessRuntimeLiteral;
+    const targetAgentId = target ? target.agentId : harnessTargetAgentId;
+    const continuationHandle = target ? target.continuationHandle : harnessContinuationHandle;
 
     setHarnessSending(true);
+    setHarnessError(null);
     try {
-      if (!harnessProfile && !harnessRuntimeLiteral && !harnessTargetAgentId && !harnessContinuationHandle) {
+      if (!profile && !runtimeLiteral && !targetAgentId && !continuationHandle) {
         const receipt = await sendScoutMonitorAssistantMessage({
-          body: command.body,
+          body,
           currentDirectory: props.currentDirectory,
         });
         setHarnessSenderId("operator");
@@ -1616,19 +1878,20 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
           senderId: "operator",
         });
         void refresh();
-        return;
+        return null;
       }
+
       const senderId = await resolveHarnessSenderId();
-      const parsedRuntime = harnessRuntimeLiteral
-        ? parseScoutHarnessRuntime(harnessRuntimeLiteral)
+      const parsedRuntime = runtimeLiteral
+        ? parseScoutHarnessRuntime(runtimeLiteral)
         : null;
       if (parsedRuntime && !parsedRuntime.ok) {
         throw new Error(parsedRuntime.message);
       }
       const receipt = await scoutAskHandler({
         senderId,
-        ...(harnessProfile
-          ? { runtimeProfile: harnessProfile, projectPath: props.currentDirectory }
+        ...(profile
+          ? { runtimeProfile: profile, projectPath: props.currentDirectory }
           : parsedRuntime?.ok
           ? {
               projectPath: props.currentDirectory,
@@ -1647,10 +1910,10 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
               },
               session: "new" as const,
             }
-          : harnessContinuationHandle
-          ? { existingHandle: harnessContinuationHandle }
-          : { to: `id:${harnessTargetAgentId}` }),
-        body: command.body,
+          : continuationHandle
+          ? { existingHandle: continuationHandle }
+          : { to: `id:${targetAgentId}` }),
+        body,
         replyMode: "notify",
         currentDirectory: props.currentDirectory,
         source: "scout-tui-harness",
@@ -1663,13 +1926,13 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
         );
       }
 
-      const nextAgentId = receipt.ids.targetAgentId ?? harnessTargetAgentId;
+      const nextAgentId = receipt.ids.targetAgentId ?? targetAgentId;
       const nextContinuationHandle = receipt.ids.bindingRef
         ? `ref:${receipt.ids.bindingRef.replace(/^ref:/, "")}`
-        : harnessContinuationHandle;
+        : continuationHandle;
       if (nextAgentId) setHarnessTargetAgentId(nextAgentId);
       if (nextContinuationHandle) setHarnessContinuationHandle(nextContinuationHandle);
-      if ((harnessProfile || harnessRuntimeLiteral) && nextAgentId) {
+      if ((profile || runtimeLiteral) && nextAgentId) {
         setHarnessProfile(null);
         setHarnessRuntimeLiteral(null);
       }
@@ -1687,27 +1950,251 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
         senderId,
       });
       void refresh();
+      return null;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setHarnessError(message);
       appendHarnessEntry("scout", message, C.red);
+      return message;
     } finally {
       setHarnessSending(false);
     }
   }, [
     appendHarnessEntry,
-    harnessDraft,
+    harnessContinuationHandle,
     harnessProfile,
     harnessRuntimeLiteral,
-    harnessContinuationHandle,
     harnessSending,
     harnessTargetAgentId,
-    orderedAgentRows,
     props.currentDirectory,
     refresh,
     refreshHarness,
     resolveHarnessSenderId,
-    snapshot?.brokerHealth.counts,
+  ]);
+
+  const submitHarness = useCallback(async (value: string): Promise<boolean> => {
+    if (harnessSending) return false;
+    const command = parseScoutHarnessCommand(value);
+    if (command.kind === "empty") return false;
+    setHarnessError(null);
+
+    if (command.kind === "invalid") {
+      appendHarnessEntry("scout", command.message, C.red);
+      return true;
+    }
+    if (command.kind === "help") {
+      const definition = command.query ? findScoutHarnessCommandDefinition(command.query) : null;
+      if (command.query && !definition) {
+        appendHarnessEntry("scout", `No command matches “${command.query}”. Opening all help.`, C.red);
+      }
+      setHarnessHelpDefinition(definition);
+      setHarnessViewScrollOffset(0);
+      setHarnessView("help");
+      return true;
+    }
+    if (command.kind === "status") {
+      setHarnessViewScrollOffset(0);
+      setHarnessView("status");
+      return true;
+    }
+    if (command.kind === "chat") {
+      setHarnessProfile(null);
+      setHarnessRuntimeLiteral(null);
+      setHarnessTargetAgentId(null);
+      setHarnessContinuationHandle(null);
+      setHarnessConversationId(null);
+      setHarnessMessages([]);
+      setHarnessSenderId("operator");
+      setHarnessView("conversation");
+      return true;
+    }
+    if (command.kind === "navigate") {
+      if (command.tab === "new") {
+        openNewCommand();
+      } else {
+        if (command.tab === "tail") {
+          setTailDetailOpen(false);
+          setTailDetailScrollOffset(0);
+        }
+        setTab(command.tab === "fleet" ? "home" : "tail");
+      }
+      return true;
+    }
+    if (command.kind === "clear") {
+      setHarnessEntries([]);
+      setHarnessClearBefore(Date.now() / 1000);
+      setHarnessScrollOffset(0);
+      setHarnessView("conversation");
+      return true;
+    }
+    if (command.kind === "profile") {
+      if (!command.profile) {
+        const selectedIndex = harnessProfile
+          ? SCOUT_RESERVED_RUNTIME_PROFILE_IDS.indexOf(harnessProfile as (typeof SCOUT_RESERVED_RUNTIME_PROFILE_IDS)[number])
+          : 0;
+        setHarnessViewIndex(Math.max(0, selectedIndex));
+        setHarnessView("profiles");
+        return true;
+      }
+      const profile = normalizeReservedRuntimeProfileId(command.profile);
+      if (!profile) {
+        appendHarnessEntry(
+          "scout",
+          `Unknown runtime profile: ${command.profile}. Available: ${SCOUT_RESERVED_RUNTIME_PROFILE_IDS.join(", ")}.`,
+          C.red,
+        );
+        return true;
+      }
+      setHarnessProfile(profile);
+      setHarnessRuntimeLiteral(null);
+      setHarnessTargetAgentId(null);
+      setHarnessContinuationHandle(null);
+      setHarnessConversationId(null);
+      setHarnessMessages([]);
+      setHarnessViewIndex(Math.max(0, SCOUT_RESERVED_RUNTIME_PROFILE_IDS.indexOf(profile)));
+      setHarnessView("profiles");
+      return true;
+    }
+    if (command.kind === "runtime") {
+      if (!command.runtime) {
+        setHarnessViewIndex(0);
+        setHarnessView("runtimes");
+        return true;
+      }
+      const runtime = command.runtime.trim();
+      setHarnessRuntimeLiteral(runtime);
+      setHarnessProfile(null);
+      setHarnessTargetAgentId(null);
+      setHarnessContinuationHandle(null);
+      setHarnessConversationId(null);
+      setHarnessMessages([]);
+      const harnessId = runtime.split("/")[0];
+      const runtimeIndex = harnessRuntimeReport?.runtimeCapabilities.harnesses.findIndex((entry) => entry.id === harnessId) ?? -1;
+      setHarnessViewIndex(Math.max(0, runtimeIndex));
+      setHarnessView("runtimes");
+      return true;
+    }
+    if (command.kind === "agent") {
+      if (!command.query) {
+        const currentIndex = orderedAgentRows.findIndex((agent) => agent.key === harnessTargetAgentId);
+        setHarnessViewIndex(Math.max(0, currentIndex));
+        setHarnessView("agents");
+        return true;
+      }
+      const match = findScoutHarnessAgent(
+        orderedAgentRows.map((agent) => ({ id: agent.key, title: agent.title })),
+        command.query,
+      );
+      if (match.kind === "ambiguous") {
+        const candidates = match.indices
+          .map((index) => orderedAgentRows[index]?.key)
+          .filter((id): id is string => Boolean(id));
+        appendHarnessEntry(
+          "scout",
+          `Ambiguous agent “${command.query}”. Use one full id: ${candidates.join(", ")}.`,
+          C.red,
+        );
+        return true;
+      }
+      if (match.kind === "missing") {
+        appendHarnessEntry("scout", `No fleet agent matches “${command.query}”. Try /agents.`, C.red);
+        return true;
+      }
+      const agent = orderedAgentRows[match.index]!;
+      setSelectedAgentIndex(match.index);
+      setHarnessTargetAgentId(agent.key);
+      setHarnessProfile(null);
+      setHarnessRuntimeLiteral(null);
+      setHarnessContinuationHandle(null);
+      setHarnessConversationId(null);
+      setHarnessMessages([]);
+      setHarnessViewIndex(match.index);
+      setHarnessView("agents");
+      return true;
+    }
+
+    return (await dispatchHarnessAsk(command.body)) === null;
+  }, [
+    appendHarnessEntry,
+    dispatchHarnessAsk,
+    harnessProfile,
+    harnessTargetAgentId,
+    harnessRuntimeReport,
+    orderedAgentRows,
+    openNewCommand,
+  ]);
+
+  const submitNewCommand = useCallback(async (value: string): Promise<boolean> => {
+    const body = value.trim();
+    const target = newCommandTargets[
+      clampScoutTuiSelection(newCommandTargetIndex, newCommandTargets.length)
+    ];
+    if (!body || !target || harnessSending) return false;
+    if (!snapshot?.brokerHealth.ok) {
+      setNewCommandError("Broker offline. Run scout doctor, then retry.");
+      return false;
+    }
+
+    setNewCommandError(null);
+    setHarnessConversationId(null);
+    setHarnessMessages([]);
+    setHarnessContinuationHandle(null);
+    let dispatchTarget: {
+      profile: string | null;
+      runtimeLiteral: string | null;
+      agentId: string | null;
+      continuationHandle: string | null;
+    };
+
+    if (target.kind === "profile") {
+      setHarnessProfile(target.profile);
+      setHarnessRuntimeLiteral(null);
+      setHarnessTargetAgentId(null);
+      dispatchTarget = {
+        profile: target.profile,
+        runtimeLiteral: null,
+        agentId: null,
+        continuationHandle: null,
+      };
+    } else if (target.kind === "agent") {
+      setHarnessProfile(null);
+      setHarnessRuntimeLiteral(null);
+      setHarnessTargetAgentId(target.agentId);
+      const agentIndex = orderedAgentRows.findIndex((agent) => agent.key === target.agentId);
+      if (agentIndex >= 0) setSelectedAgentIndex(agentIndex);
+      dispatchTarget = {
+        profile: null,
+        runtimeLiteral: null,
+        agentId: target.agentId,
+        continuationHandle: null,
+      };
+    } else {
+      setHarnessProfile(null);
+      setHarnessRuntimeLiteral(null);
+      setHarnessTargetAgentId(null);
+      dispatchTarget = {
+        profile: null,
+        runtimeLiteral: null,
+        agentId: null,
+        continuationHandle: null,
+      };
+    }
+
+    const dispatchError = await dispatchHarnessAsk(body, dispatchTarget);
+    if (dispatchError) {
+      setNewCommandError(dispatchError);
+      return false;
+    }
+    setNewCommandChoosingTarget(false);
+    setHarnessView("conversation");
+    setTab("harness");
+    return true;
+  }, [
+    dispatchHarnessAsk,
+    harnessSending,
+    newCommandTargetIndex,
+    newCommandTargets,
+    orderedAgentRows,
     snapshot?.brokerHealth.ok,
   ]);
 
@@ -1771,9 +2258,9 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
     orderedAgentRows,
   ]);
 
-  const submitAsk = useCallback(async () => {
-    const body = askDraft.trim();
-    if (!selectedAgent || !body || askSending) return;
+  const submitAsk = useCallback(async (value: string): Promise<boolean> => {
+    const body = value.trim();
+    if (!selectedAgent || !body || askSending) return false;
 
     setAskSending(true);
     setAskError(null);
@@ -1799,7 +2286,6 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
         );
       }
 
-      setAskDraft("");
       setOverlay(null);
       setNotice(
         receipt.ids.flightId
@@ -1807,18 +2293,20 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
           : `Asked ${selectedAgent.title}`,
       );
       void refresh();
+      return true;
     } catch (error) {
       setAskError(error instanceof Error ? error.message : String(error));
+      return false;
     } finally {
       setAskSending(false);
     }
-  }, [askDraft, askSending, props.currentDirectory, refresh, selectedAgent]);
+  }, [askSending, props.currentDirectory, refresh, selectedAgent]);
 
   const paletteCommands = useMemo<ScoutTuiCommand[]>(() => [
     { id: "fleet", label: "Show fleet", description: "Return to the live agent control plane", shortcut: "1" },
     { id: "harness", label: "Open interactive harness", description: "Talk to Scout and explore agents, profiles, and runtimes", shortcut: "2" },
     { id: "tail", label: "Open live tail", description: "Follow recent broker activity and messages", shortcut: "3" },
-    { id: "launch", label: "Open launch guide", description: "See broker-backed ways to start or ask an agent", shortcut: "4" },
+    { id: "new", label: "New command", description: "Choose a target, dispatch work, and open its conversation", shortcut: "n" },
     { id: "ask", label: "Ask selected agent", description: selectedAgent ? `Dispatch work to ${selectedAgent.title}` : "Select an agent first", shortcut: "a", enabled: Boolean(selectedAgent) },
     { id: "next-agent", label: "Select next agent", description: "Move the fleet cursor down", shortcut: "↓", enabled: orderedAgentRows.length > 0 },
     { id: "previous-agent", label: "Select previous agent", description: "Move the fleet cursor up", shortcut: "↑", enabled: orderedAgentRows.length > 0 },
@@ -1839,13 +2327,15 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
         setTab("home");
         break;
       case "tail":
+        setTailDetailOpen(false);
+        setTailDetailScrollOffset(0);
         setTab("tail");
         break;
       case "harness":
         openHarness();
         break;
-      case "launch":
-        setTab("new");
+      case "new":
+        openNewCommand();
         break;
       case "ask":
         openAsk();
@@ -1865,11 +2355,19 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
         shutdown();
         break;
     }
-  }, [openAsk, openHarness, orderedAgentRows.length, paletteIndex, refresh, shutdown, visiblePaletteCommands]);
+  }, [openAsk, openHarness, openNewCommand, orderedAgentRows.length, paletteIndex, refresh, shutdown, visiblePaletteCommands]);
 
   useEffect(() => {
     setSelectedAgentIndex((current) => clampScoutTuiSelection(current, orderedAgentRows.length));
   }, [orderedAgentRows.length]);
+
+  useEffect(() => {
+    setNewCommandTargetIndex((current) => clampScoutTuiSelection(current, newCommandTargets.length));
+  }, [newCommandTargets.length]);
+
+  useEffect(() => {
+    setTailSelectionOffset((current) => clampScoutTuiSelection(current, tailEntries.length));
+  }, [tailEntries.length]);
 
   useEffect(() => {
     if (
@@ -2073,6 +2571,22 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
       return;
     }
 
+    if (key.name === "tab") {
+      const index = MONITOR_TABS.indexOf(tab);
+      const direction = key.shift ? -1 : 1;
+      const next = MONITOR_TABS[(index + direction + MONITOR_TABS.length) % MONITOR_TABS.length] ?? "home";
+      if (next === "harness") openHarness();
+      else if (next === "new") openNewCommand();
+      else {
+        if (next === "tail") {
+          setTailDetailOpen(false);
+          setTailDetailScrollOffset(0);
+        }
+        setTab(next);
+      }
+      return;
+    }
+
     if (tab === "harness") {
       if (key.name === "escape") {
         if (harnessView !== "conversation") {
@@ -2097,7 +2611,7 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
       if (harnessView !== "conversation") {
         if (key.name === "/" || key.name === "slash") {
           setHarnessView("conversation");
-          setHarnessDraft("/");
+          harnessDraft.current = "/";
           return;
         }
         if (key.name === "up" || key.name === "k") {
@@ -2129,18 +2643,126 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
         }
         return;
       }
-      if (key.name === "pageup" || (key.name === "u" && key.ctrl)) {
+      if (key.name === "pageup") {
         setHarnessScrollOffset((current) => current + 5);
         return;
       }
-      if (key.name === "pagedown" || (key.name === "d" && key.ctrl)) {
+      if (key.name === "pagedown") {
         setHarnessScrollOffset((current) => Math.max(0, current - 5));
       }
       return;
     }
 
-    if (key.name === "q" || key.name === "escape") {
+    if (tab === "new") {
+      if (key.name === "escape") {
+        if (newCommandChoosingTarget) {
+          setNewCommandChoosingTarget(false);
+        } else {
+          setTab("home");
+        }
+        return;
+      }
+      if (key.name === "p" && key.ctrl) {
+        openPalette();
+        return;
+      }
+      if (key.name === "r" && key.ctrl) {
+        void refresh();
+        return;
+      }
+      if (key.name === "t" && key.ctrl && !harnessSending) {
+        setNewCommandChoosingTarget((current) => !current);
+        setNewCommandError(null);
+        return;
+      }
+      if (newCommandChoosingTarget) {
+        if (key.name === "up" || key.name === "k") {
+          setNewCommandTargetIndex((current) => moveScoutTuiSelection(current, -1, newCommandTargets.length));
+          return;
+        }
+        if (key.name === "down" || key.name === "j") {
+          setNewCommandTargetIndex((current) => moveScoutTuiSelection(current, 1, newCommandTargets.length));
+          return;
+        }
+        if (key.name === "pageup") {
+          setNewCommandTargetIndex((current) => clampScoutTuiSelection(current - 5, newCommandTargets.length));
+          return;
+        }
+        if (key.name === "pagedown") {
+          setNewCommandTargetIndex((current) => clampScoutTuiSelection(current + 5, newCommandTargets.length));
+          return;
+        }
+        if (key.name === "return" || key.name === "enter") {
+          setNewCommandChoosingTarget(false);
+        }
+        return;
+      }
+      return;
+    }
+
+    if (tab === "tail") {
+      if (tailDetailOpen) {
+        if (key.name === "escape" || key.name === "return" || key.name === "enter") {
+          setTailDetailOpen(false);
+          setTailDetailScrollOffset(0);
+          return;
+        }
+        if (key.name === "up" || key.name === "k") {
+          setTailDetailScrollOffset((current) => Math.max(0, current - 1));
+          return;
+        }
+        if (key.name === "down" || key.name === "j") {
+          setTailDetailScrollOffset((current) => Math.min(tailDetailMaxOffset, current + 1));
+          return;
+        }
+        if (key.name === "pageup" || (key.name === "u" && key.ctrl)) {
+          setTailDetailScrollOffset((current) => Math.max(0, current - 5));
+          return;
+        }
+        if (key.name === "pagedown" || (key.name === "d" && key.ctrl)) {
+          setTailDetailScrollOffset((current) => Math.min(tailDetailMaxOffset, current + 5));
+          return;
+        }
+      } else {
+        if (key.name === "escape") {
+          setTab("home");
+          return;
+        }
+        if (key.name === "up" || key.name === "k") {
+          setTailSelectionOffset((current) => clampScoutTuiSelection(current + 1, tailEntries.length));
+          setTailDetailScrollOffset(0);
+          return;
+        }
+        if (key.name === "down" || key.name === "j") {
+          setTailSelectionOffset((current) => Math.max(0, current - 1));
+          setTailDetailScrollOffset(0);
+          return;
+        }
+        if (key.name === "pageup" || (key.name === "u" && key.ctrl)) {
+          setTailSelectionOffset((current) => clampScoutTuiSelection(current + 5, tailEntries.length));
+          setTailDetailScrollOffset(0);
+          return;
+        }
+        if (key.name === "pagedown" || (key.name === "d" && key.ctrl)) {
+          setTailSelectionOffset((current) => Math.max(0, current - 5));
+          setTailDetailScrollOffset(0);
+          return;
+        }
+        if ((key.name === "return" || key.name === "enter") && selectedTailEntry) {
+          setTailDetailOpen(true);
+          setTailDetailScrollOffset(0);
+          return;
+        }
+      }
+    }
+
+    if (key.name === "q") {
       shutdown();
+      return;
+    }
+    if (key.name === "escape") {
+      if (tab === "home") shutdown();
+      else setTab("home");
       return;
     }
     if (
@@ -2157,13 +2779,6 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
       void refresh();
       return;
     }
-    if (key.name === "tab") {
-      const index = MONITOR_TABS.indexOf(tab);
-      const next = MONITOR_TABS[(index + 1) % MONITOR_TABS.length] ?? "home";
-      if (next === "harness") openHarness();
-      else setTab(next);
-      return;
-    }
     if (key.name === "1") {
       setTab("home");
       return;
@@ -2173,11 +2788,13 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
       return;
     }
     if (key.name === "3") {
+      setTailDetailOpen(false);
+      setTailDetailScrollOffset(0);
       setTab("tail");
       return;
     }
     if (key.name === "4") {
-      setTab("new");
+      openNewCommand();
       return;
     }
     if (key.name === "h") {
@@ -2185,7 +2802,7 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
       return;
     }
     if (key.name === "n") {
-      setTab("new");
+      openNewCommand();
       return;
     }
     if (tab === "home" && (key.name === "up" || key.name === "k")) {
@@ -2199,13 +2816,6 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
     if (tab === "home" && (key.name === "a" || key.name === "return" || key.name === "enter")) {
       openAsk();
       return;
-    }
-    if (tab === "tail" && (key.name === "up" || key.name === "k")) {
-      setScrollOffset((current) => current + 1);
-      return;
-    }
-    if (tab === "tail" && (key.name === "down" || key.name === "j")) {
-      setScrollOffset((current) => Math.max(0, current - 1));
     }
   });
 
@@ -2235,7 +2845,19 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
     if (tab === "tail") {
       return (
         <box flexGrow={1} paddingLeft={1} paddingRight={1} paddingBottom={1}>
-          <TailPanel snapshot={snapshot} scrollOffset={scrollOffset} width={Math.max(32, width - 2)} height={Math.max(8, height - 5)} />
+          <TailPanel
+            entries={tailEntries}
+            channel={snapshot.channel}
+            selectionOffset={tailSelectionOffset}
+            detailOpen={tailDetailOpen}
+            detailScrollOffset={tailDetailScrollOffset}
+            width={Math.max(32, width - 2)}
+            height={Math.max(8, height - 5)}
+            onSelectOffset={(offset) => {
+              setTailSelectionOffset(offset);
+              setTailDetailScrollOffset(0);
+            }}
+          />
         </box>
       );
     }
@@ -2264,14 +2886,14 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
             messages={harnessMessages}
             localEntries={harnessEntries}
             draft={harnessDraft}
+            active={overlay === null}
             sending={harnessSending}
             error={harnessError}
             clearBefore={harnessClearBefore}
             scrollOffset={harnessScrollOffset}
             width={Math.max(32, width - 2)}
             height={Math.max(8, height - 5)}
-            onDraftChange={setHarnessDraft}
-            onSubmit={() => void submitHarness()}
+            onSubmit={submitHarness}
           />
         </box>
       );
@@ -2279,13 +2901,26 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
 
     return (
       <box flexGrow={1} paddingLeft={1} paddingRight={1} paddingBottom={1}>
-        <NewAgentPanel snapshot={snapshot} width={Math.max(32, width - 2)} height={Math.max(8, height - 5)} />
+        <NewCommandPanel
+          snapshot={snapshot}
+          targets={newCommandTargets}
+          selectedIndex={newCommandTargetIndex}
+          choosingTarget={newCommandChoosingTarget}
+          draft={newCommandDraft}
+          active={overlay === null}
+          sending={harnessSending}
+          error={newCommandError}
+          width={Math.max(32, width - 2)}
+          height={Math.max(8, height - 5)}
+          onSelect={setNewCommandTargetIndex}
+          onChooseTarget={() => setNewCommandChoosingTarget(false)}
+          onSubmit={submitNewCommand}
+        />
       </box>
     );
   }, [
     harnessClearBefore,
     harnessConversationId,
-    harnessDraft,
     harnessEntries,
     harnessError,
     harnessHelpDefinition,
@@ -2306,13 +2941,22 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
     harnessViewScrollOffset,
     height,
     refreshError,
-    scrollOffset,
+    newCommandChoosingTarget,
+    newCommandError,
+    newCommandTargetIndex,
+    newCommandTargets,
     selectedAgentIndex,
     orderedAgentRows,
+    overlay,
     props.currentDirectory,
     snapshot,
     submitHarness,
+    submitNewCommand,
     tab,
+    tailDetailOpen,
+    tailDetailScrollOffset,
+    tailEntries,
+    tailSelectionOffset,
     width,
   ]);
 
@@ -2341,8 +2985,7 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
           error={askError}
           width={width}
           height={height}
-          onDraftChange={setAskDraft}
-          onSubmit={() => void submitAsk()}
+          onSubmit={submitAsk}
         />
       ) : null}
     </box>
