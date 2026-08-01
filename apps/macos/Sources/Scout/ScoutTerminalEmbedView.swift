@@ -681,12 +681,14 @@ private struct ScoutTerminalActiveWorkspaceContent: View {
         Menu {
             Menu("Native renderer") {
                 nativeShellButton(title: "Shell", mode: "shell", command: nil, icon: "terminal")
+                nativeShellButton(title: "Codex", mode: "codex", command: "codex", icon: "sparkles")
                 nativeShellButton(title: "tmux", mode: "tmux", command: "tmux", icon: "rectangle.split.2x1")
                 nativeShellButton(title: "zellij", mode: "zellij", command: "zellij", icon: "rectangle.3.group")
                 nativeShellButton(title: "herdr", mode: "herdr", command: "herdr", icon: "square.grid.2x2")
             }
             Menu("Web renderer") {
                 webShellButton(title: "Shell", backend: "pty", agent: "shell", icon: "terminal")
+                webShellButton(title: "Codex", backend: "pty", agent: "codex", icon: "sparkles")
                 webShellButton(title: "tmux", backend: "tmux", agent: "shell", icon: "rectangle.split.2x1")
                 webShellButton(title: "zellij", backend: "zellij", agent: "shell", icon: "rectangle.3.group")
                 Divider()
@@ -827,6 +829,7 @@ private struct ScoutNativeTerminalContent: View {
     private var nativeNewShellMenu: some View {
         Menu {
             nativeShellButton(title: "shell", mode: "shell", command: nil, icon: "terminal")
+            nativeShellButton(title: "Codex", mode: "codex", command: "codex", icon: "sparkles")
             Divider()
             nativeShellButton(title: "tmux", mode: "tmux", command: "tmux", icon: "rectangle.split.2x1")
             nativeShellButton(title: "zellij", mode: "zellij", command: "zellij", icon: "rectangle.3.group")
@@ -2247,6 +2250,13 @@ struct ScoutNativeTerminalTarget: Identifiable, Hashable, Sendable {
             subtitle = "\(session) · \(Self.shortPath(home))"
             backendLabel = "tmux"
             commandLabel = "tmux"
+        } else if mode == "codex" {
+            let codexPath = Self.commandURL("codex")?.path ?? "codex"
+            attachCommand = [codexPath]
+            title = index == 1 ? "Codex" : "Codex \(index)"
+            subtitle = "Codex TUI · \(Self.shortPath(home))"
+            backendLabel = "codex"
+            commandLabel = codexPath
         } else if mode == "zellij" {
             let session = "scout-local-\(index)"
             attachCommand = ["zellij", "attach", "--create", session]
@@ -2332,6 +2342,16 @@ struct ScoutNativeTerminalTarget: Identifiable, Hashable, Sendable {
             let candidate = URL(fileURLWithPath: directory).appendingPathComponent(command)
             if FileManager.default.isExecutableFile(atPath: candidate.path) {
                 return candidate
+            }
+        }
+        if command == "codex" {
+            for path in [
+                "/Applications/Codex.app/Contents/Resources/codex",
+                "/Applications/ChatGPT.app/Contents/Resources/codex",
+                NSHomeDirectory() + "/Applications/Codex.app/Contents/Resources/codex",
+                NSHomeDirectory() + "/Applications/ChatGPT.app/Contents/Resources/codex",
+            ] where FileManager.default.isExecutableFile(atPath: path) {
+                return URL(fileURLWithPath: path)
             }
         }
         return nil
@@ -2865,6 +2885,9 @@ private struct ScoutTerminalTabbedWebContent: View {
             Button("Claude") {
                 model.addTerminalTab(backend: "pty", agent: "claude")
             }
+            Button("Codex") {
+                model.addTerminalTab(backend: "pty", agent: "codex")
+            }
             Divider()
             Menu("tmux") {
                 Button("Shell in tmux") {
@@ -2873,6 +2896,9 @@ private struct ScoutTerminalTabbedWebContent: View {
                 Button("Claude in tmux") {
                     model.addTerminalTab(backend: "tmux", agent: "claude")
                 }
+                Button("Codex in tmux") {
+                    model.addTerminalTab(backend: "tmux", agent: "codex")
+                }
             }
             Menu("zellij") {
                 Button("Shell in zellij") {
@@ -2880,6 +2906,9 @@ private struct ScoutTerminalTabbedWebContent: View {
                 }
                 Button("Claude in zellij") {
                     model.addTerminalTab(backend: "zellij", agent: "claude")
+                }
+                Button("Codex in zellij") {
+                    model.addTerminalTab(backend: "zellij", agent: "codex")
                 }
             }
         } label: {
@@ -3325,7 +3354,7 @@ final class ScoutTerminalWebTabsModel: ObservableObject {
         let id = UUID().uuidString
         let short = String(id.prefix(8)).lowercased()
         let backendLabel = backend == "pty" ? "pty" : backend
-        let agentLabel = agent == "shell" ? "Shell" : agent == "pi" ? "Pi" : "Claude"
+        let agentLabel = agent == "shell" ? "Shell" : agent == "codex" ? "Codex" : agent == "pi" ? "Pi" : "Claude"
         let sessionName = backend == "pty" ? nil : "\(backend == "zellij" ? "scout-zj" : "scout-tmux")-\(short)"
         let route = Self.newRoute(backend: backend, agent: agent, sessionName: sessionName, tabID: short)
         appendOrSelect(ScoutTerminalWebTab(

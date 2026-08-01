@@ -8,7 +8,8 @@ export const SCOUT_TERMINAL_INITIAL_ROWS = 44;
 
 export type TerminalRelayControlMode = "observe" | "takeover";
 
-export function relayAgentForHarness(harness: string | null | undefined): "claude" | "pi" | undefined {
+export function relayAgentForHarness(harness: string | null | undefined): "claude" | "codex" | "pi" | undefined {
+  if (harness === "codex") return "codex";
   return harness === "pi" ? "pi" : undefined;
 }
 
@@ -118,7 +119,7 @@ export type TerminalRelayBinding = {
   relayStorageSessionKey: string;
   scopedRelayUrl: string;
   cwd?: string;
-  relayAgent?: "claude" | "pi";
+  relayAgent?: "claude" | "codex" | "pi";
   surfaceOptions: TerminalRelaySurfaceOptions | null;
   orphanTTL?: number;
   controlMode: TerminalRelayControlMode;

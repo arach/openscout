@@ -134,9 +134,11 @@ function parseTerminalBackend(value: string | null): "pty" | "tmux" | "zellij" |
     : undefined;
 }
 
-function parseTerminalAgent(value: string | null): "shell" | "claude" | "pi" | undefined {
+function parseTerminalAgent(value: string | null): "shell" | "claude" | "codex" | "pi" | undefined {
   const normalized = value?.trim().toLowerCase();
-  return normalized === "shell" || normalized === "claude" || normalized === "pi" ? normalized : undefined;
+  return normalized === "shell" || normalized === "claude" || normalized === "codex" || normalized === "pi"
+    ? normalized
+    : undefined;
 }
 
 function parseDiffInclude(value: string | null): "changed" | "all" | undefined {

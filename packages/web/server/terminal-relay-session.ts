@@ -32,8 +32,8 @@ export interface SessionInitMessage {
   zellijSocketDir?: string;
   /** For herdr backend: the Herdr session name (`default` or named). */
   herdrSession?: string;
-  /** Process to spawn. 'claude' (default), 'pi', or 'shell' for a normal login shell. */
-  agent?: 'claude' | 'pi' | 'shell';
+  /** Process to spawn. 'claude' (default), 'codex', 'pi', or 'shell' for a normal login shell. */
+  agent?: 'claude' | 'codex' | 'pi' | 'shell';
   /** For pi agent: provider name (e.g. 'minimax', 'github-copilot'). */
   provider?: string;
   /** For pi agent: model ID (e.g. 'MiniMax-M1'). */
@@ -113,6 +113,7 @@ import {
   createZellijLayoutFile,
   prepareZellijSocketDir,
 } from './terminal-relay-zellij';
+import { resolveCodexExecutableInventory } from '@openscout/agent-sessions/codex-executable';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -432,6 +433,14 @@ async function findPiBin(): Promise<string | null> {
   return findBin('pi', 'PI_BIN');
 }
 
+/** Locate Codex using the shared app/PATH/npm-aware executable inventory. */
+async function findCodexBin(): Promise<string | null> {
+  const selected = resolveCodexExecutableInventory().selected;
+  if (!selected?.executable) return null;
+  if (selected.path === 'codex') return findBin('codex', 'CODEX_BIN');
+  return selected.path;
+}
+
 /** Locate the user's shell, falling back to common POSIX shells. */
 async function findShellBin(): Promise<string | null> {
   const configured = process.env.SHELL;
@@ -721,6 +730,14 @@ export async function createSession(ws: RelaySocket, msg: SessionInitMessage): P
       send(ws, { type: 'session:error', error: reason });
       return null;
     }
+  } else if (agent === 'codex') {
+    agentBin = await findCodexBin();
+    if (!agentBin) {
+      const reason = 'Codex CLI not found. Install it with: npm install -g @openai/codex';
+      console.error(`[relay] Session ${id} failed: ${reason}`);
+      send(ws, { type: 'session:error', error: reason });
+      return null;
+    }
   } else if (agent === 'pi') {
     agentBin = await findPiBin();
     if (!agentBin) {
@@ -775,6 +792,8 @@ export async function createSession(ws: RelaySocket, msg: SessionInitMessage): P
     if (agent === 'shell') {
       const shellName = agentBin.split('/').pop() ?? '';
       agentArgs = shellName === 'sh' ? [] : ['-l'];
+    } else if (agent === 'codex') {
+      agentArgs = [];
     } else if (agent === 'pi') {
       agentArgs = ['--verbose'];
       const provider = normalizePiProviderForCli(msg.provider);

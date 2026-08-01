@@ -1396,7 +1396,7 @@ export type Route =
 	      terminalSessionId?: string;
 	      terminalSurfaceKey?: string;
 	      terminalBackend?: "pty" | "tmux" | "zellij" | "herdr";
-	      terminalAgent?: "shell" | "claude" | "pi";
+	      terminalAgent?: "shell" | "claude" | "codex" | "pi";
 	      terminalSessionName?: string;
 	      terminalTabId?: string;
 	      zellijSocketDir?: string;
