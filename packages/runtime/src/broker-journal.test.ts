@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type {
   ActorIdentity,
   AgentDefinition,
+  DeliveryIntent,
   DurableAction,
   FlightRecord,
   InvocationRequest,
@@ -115,6 +116,20 @@ function sampleDurableAction(input: Partial<DurableAction> = {}): DurableAction 
   };
 }
 
+function samplePeerDelivery(id: string, status: DeliveryIntent["status"]): DeliveryIntent {
+  return {
+    id,
+    invocationId: `invocation-${id}`,
+    targetId: "agent-peer",
+    targetNodeId: "node-peer",
+    targetKind: "agent",
+    transport: "peer_broker",
+    reason: "invocation",
+    policy: "must_ack",
+    status,
+  };
+}
+
 describe("FileBackedBrokerJournal", () => {
   test("skips redundant entity upserts on append", async () => {
     const { journal, journalPath } = createJournal();
@@ -216,5 +231,24 @@ describe("FileBackedBrokerJournal", () => {
       kind: "message_delivery",
       idempotencyKey: "delivery-1:create",
     })).toBeNull();
+  });
+
+  test("keeps newly accepted peer deliveries inside a bounded scan", async () => {
+    const { journal } = createJournal();
+    await journal.load();
+
+    const historical = Array.from({ length: 501 }, (_, index) =>
+      samplePeerDelivery(`delivery-old-${index}`, "peer_acked"));
+    const newest = samplePeerDelivery("delivery-new", "accepted");
+    await journal.appendEntries({
+      kind: "deliveries.record",
+      deliveries: [...historical, newest],
+    });
+
+    const bounded = journal.listDeliveries({ transport: "peer_broker", limit: 500 });
+    expect(bounded).toHaveLength(500);
+    expect(bounded.at(-1)?.id).toBe("delivery-new");
+    expect(bounded.some((delivery) => delivery.id === "delivery-new")).toBe(true);
+    expect(bounded.some((delivery) => delivery.id === "delivery-old-0")).toBe(false);
   });
 });

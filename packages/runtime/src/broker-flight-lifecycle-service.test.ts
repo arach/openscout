@@ -150,6 +150,7 @@ function testSnapshot(input: {
 }
 
 function createHarness(input: {
+  localNodeId?: string;
   snapshot?: RuntimeSnapshot;
   deliveries?: DeliveryIntent[];
   deliveryAttempts?: Record<string, DeliveryAttempt[]>;
@@ -182,6 +183,7 @@ function createHarness(input: {
   const activeInvocationIds = new Set(input.activeInvocationIds ?? []);
 
   const service = new BrokerFlightLifecycleService({
+    localNodeId: input.localNodeId ?? "node-1",
     runtime: {
       snapshot: () => snapshot,
       async upsertFlight(flight) {
@@ -568,5 +570,40 @@ describe("broker flight lifecycle helpers", () => {
     ]);
     expect(harness.promoted).toHaveLength(1);
     expect(harness.forwardedFlights).toHaveLength(1);
+  });
+
+  test("does not reconcile a mirrored flight owned by a remote authority", async () => {
+    const remoteAgent = testAgent({
+      homeNodeId: "node-remote",
+      authorityNodeId: "node-remote",
+    });
+    const flight = testFlight({
+      state: "running",
+      startedAt: 10_000,
+      metadata: {
+        dispatchAck: {
+          endpointId: "endpoint-agent-1-node-remote",
+          nodeId: "node-remote",
+        },
+      },
+    });
+    const invocation = testInvocation();
+    const harness = createHarness({
+      localNodeId: "node-local",
+      snapshot: testSnapshot({
+        agents: { "agent-1": remoteAgent },
+        endpoints: {},
+        invocations: { [invocation.id]: invocation },
+        flights: { [flight.id]: flight },
+      }),
+      invocation,
+      now: 10_000 + 2 * 60_000,
+    });
+
+    await harness.service.reconcileStaleWorkingFlights();
+
+    expect(harness.committedFlights).toEqual([]);
+    expect(harness.promoted).toEqual([]);
+    expect(harness.forwardedFlights).toEqual([]);
   });
 });

@@ -805,6 +805,7 @@ async function recordScoutDispatchDurably(
 }
 
 const flightLifecycleService = new BrokerFlightLifecycleService({
+  localNodeId: nodeId,
   runtime,
   journal,
   durableStore,

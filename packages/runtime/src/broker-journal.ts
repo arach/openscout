@@ -313,10 +313,13 @@ export class FileBackedBrokerJournal {
     limit?: number;
   } = {}): DeliveryIntent[] {
     const limit = options.limit ?? 200;
-    return [...this.state.deliveries.values()]
+    const deliveries = [...this.state.deliveries.values()]
       .filter((delivery) => !options.transport || delivery.transport === options.transport)
-      .filter((delivery) => !options.status || delivery.status === options.status)
-      .slice(0, limit);
+      .filter((delivery) => !options.status || delivery.status === options.status);
+    const boundedLimit = Number.isFinite(limit)
+      ? Math.max(0, Math.floor(limit))
+      : deliveries.length;
+    return boundedLimit === 0 ? [] : deliveries.slice(-boundedLimit);
   }
 
   listDeliveryAttempts(deliveryId: string): DeliveryAttempt[] {

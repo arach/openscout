@@ -272,6 +272,7 @@ export function staleWorkingFlightReason(
   flight: FlightRecord,
   options: {
     isInvocationActive: (invocationId: string) => boolean;
+    localNodeId?: string;
     now?: number;
   },
 ): string | null {
@@ -296,6 +297,13 @@ export function staleWorkingFlightReason(
   }
 
   const agent = snapshot.agents[flight.targetAgentId];
+  if (
+    options.localNodeId
+    && agent?.authorityNodeId
+    && agent.authorityNodeId !== options.localNodeId
+  ) {
+    return null;
+  }
   if (isRetiredLocalAgent(agent)) {
     return `target agent ${flight.targetAgentId} was retired from the fleet`;
   }

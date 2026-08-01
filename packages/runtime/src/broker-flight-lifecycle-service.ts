@@ -46,6 +46,7 @@ type DurableStore = {
 };
 
 export type BrokerFlightLifecycleServiceOptions = {
+  localNodeId: string;
   runtime: FlightLifecycleRuntime;
   journal: FlightLifecycleJournal;
   durableStore: DurableStore;
@@ -325,6 +326,7 @@ export class BrokerFlightLifecycleService {
     for (const flight of Object.values(snapshot.flights)) {
       const reason = staleWorkingFlightReason(snapshot, flight, {
         isInvocationActive: this.options.isInvocationActive,
+        localNodeId: this.options.localNodeId,
         now,
       });
       if (!reason) {
