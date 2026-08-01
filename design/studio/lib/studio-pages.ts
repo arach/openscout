@@ -338,6 +338,22 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Menu-bar and app-icon optical sizes side by side: protected small status marks, full app icon, and tiny simplified cube treatments so the mark keeps its O-shaped read at status-bar scale.",
   },
   {
+    href: "/studies/scout-topic-glyphs",
+    label: "Scout Topic Glyphs",
+    bucket: "studies",
+    surface: "macos",
+    family: "scout-iconography",
+    status: "in-flight",
+    source: [
+      "design/studio/views/scout-topic-glyphs.tsx",
+      "design/studio/components/scout/TopicGlyphs.tsx",
+      "apps/macos/Sources/Scout/ScoutModels.swift",
+      "apps/macos/Sources/Scout/ScoutRootView.swift",
+      "apps/macos/Sources/Scout/ScoutObserveView.swift",
+    ],
+    blurb: "A Scout-owned icon vocabulary for native macOS topics, settings, service lights, and semantic events. Inline SVG primitives only — no SF Symbols, icon font, Lucide, or vendored asset dependency.",
+  },
+  {
     href: "/studies/scout-ios",
     label: "Scout iOS Theme",
     bucket: "studies",
