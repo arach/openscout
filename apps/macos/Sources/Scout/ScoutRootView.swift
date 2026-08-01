@@ -279,8 +279,8 @@ private struct ScoutThreadParticipantFaces: View {
 }
 
 /// Compact avatar-led turn used for reply chains and expanded sub-threads.
-/// Studio `.turnCompact` — smaller tile, no bubble, tighter type — so a reply
-/// cluster reads as one unit under its parent rather than a second mainline turn.
+/// The smaller tile, absent bubble, and tighter type make a reply cluster read
+/// as one unit under its parent rather than a second mainline turn.
 private struct ScoutThreadCompactMessageRow: View {
     let message: ScoutMessage
     let baseDirectory: String?
@@ -2417,9 +2417,9 @@ struct ScoutRootView: View {
     }
 
     private func replyChainBlock(_ block: ScoutMessageRenderBlock) -> some View {
-        // Studio `.chain`: tuck under the root, hairline rail at the content
-        // edge, compact turns stacked on replyClusterGap. Root may itself be
-        // an adjacent reply-to (compact) — the rail hangs under that denser row.
+        // Tuck replies under the root with a hairline rail at the content edge
+        // and compact turns stacked on replyClusterGap. The root may itself be
+        // an adjacent reply-to, so the rail hangs under that denser row.
         VStack(alignment: .leading, spacing: ScoutCommsMetrics.replyClusterGap) {
             messageRow(
                 block.root,
@@ -3081,8 +3081,8 @@ struct ScoutRootView: View {
     }
 
     private func composerReplyBand(_ target: ScoutMessage) -> some View {
-        // Studio `.replyChip` — flat band inside the well; compact padding so
-        // the chip doesn't dominate the composer once Reply is armed.
+        // A flat band inside the well, with compact padding so it does not
+        // dominate the composer once Reply is armed.
         HStack(spacing: HudSpacing.sm) {
             Image(systemName: "arrowshape.turn.up.left")
                 .font(.system(size: 10, weight: .semibold))

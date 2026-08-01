@@ -53,14 +53,13 @@ enum ScoutCommsMetrics {
     /// than the 8pt `card` chrome so the turn reads as a speech surface, not a
     /// panel.
     static let bubbleRadius: CGFloat = 11
-    /// Main-stream gap between independent turns (Studio `.stream { gap: 20px }`).
+    /// Main-stream gap between independent turns.
     static let streamTurnGap: CGFloat = HudSpacing.xxxl
     /// Gap between a parent and an adjacent reply-to turn, or between compact
-    /// chain members (Studio `.chain { gap: 14px }`, tightened slightly for the
-    /// denser native bubble stream).
+    /// chain members in the denser native bubble stream.
     static let replyClusterGap: CGFloat = HudSpacing.md
-    /// Compact reply avatar — Studio chain turns use 20; 22 keeps sprites
-    /// readable without matching the mainline 28 tile.
+    /// Compact reply avatar; 22 keeps sprites readable without matching the
+    /// mainline 28 tile.
     static let compactReplyAvatar: CGFloat = 22
     /// Root turn avatar + inter-column gap — the content-edge indent used by
     /// the reply rail so it hangs under the body, not the avatar.
@@ -1477,8 +1476,8 @@ struct ScoutMessageRow: View {
         .animation(.easeOut(duration: 0.12), value: isHoveringRow)
     }
 
-    /// Studio `.turnAct` — ghost Reply chip on hover so reply is one click,
-    /// not buried in the context menu.
+    /// Ghost Reply chip on hover so reply is one click, not buried in the
+    /// context menu.
     private var hoverReplyButton: some View {
         Button(action: onReply) {
             HStack(spacing: HudSpacing.xs) {
