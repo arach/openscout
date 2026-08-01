@@ -59,6 +59,8 @@ describe("Scout operator harness", () => {
     expect(parseScoutHarnessCommand("/agent openscout.main")).toEqual({ kind: "agent", query: "openscout.main" });
     expect(parseScoutHarnessCommand("/status")).toEqual({ kind: "status" });
     expect(parseScoutHarnessCommand("/tail")).toEqual({ kind: "navigate", tab: "tail" });
+    expect(parseScoutHarnessCommand("/new")).toEqual({ kind: "navigate", tab: "new" });
+    expect(parseScoutHarnessCommand("/launch")).toEqual({ kind: "navigate", tab: "new" });
   });
 
   test("opens interactive inspectors when target commands have no argument", () => {
@@ -99,6 +101,7 @@ describe("Scout operator harness", () => {
   test("uses the same registry for parsing and detailed help", () => {
     expect(findScoutHarnessCommandDefinition("profile")?.usage).toBe("/profile [name]");
     expect(findScoutHarnessCommandDefinition("/profiles")?.name).toBe("profile");
+    expect(findScoutHarnessCommandDefinition("/launch")?.name).toBe("new");
     expect(findScoutHarnessCommandDefinition("missing")).toBeNull();
   });
 
