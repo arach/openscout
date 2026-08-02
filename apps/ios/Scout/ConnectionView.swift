@@ -16,31 +16,30 @@ struct ConnectionView: View {
                 statusSection
                     .padding(HudSpacing.xxl)
                 Divider()
-                    .overlay(HudHairline.subtle)
+                    .overlay(ScoutHairline.subtle)
                 ConnectionLogList(entries: model.connectionLog.entries)
             }
-            .background(HudPalette.bg)
+            .background(ScoutPalette.bg)
             .navigationTitle("Connection")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
-                        .foregroundStyle(HudPalette.accent)
+                        .foregroundStyle(ScoutPalette.accent)
                 }
             }
         }
-        .preferredColorScheme(.dark)
     }
 
     // MARK: - Status
 
     private var statusSection: some View {
         VStack(alignment: .leading, spacing: HudSpacing.md) {
-            HudSectionLabel("Status")
+            ScoutSectionLabel("Status")
             HStack(spacing: HudSpacing.md) {
                 HudStatusDot(color: model.statusTint, size: 8, pulses: model.statusPulses)
                 Text(statusText)
                     .font(HudFont.ui(HudTextSize.sm, weight: .medium))
-                    .foregroundStyle(HudPalette.ink)
+                    .foregroundStyle(ScoutPalette.ink)
                 Spacer()
                 HudButton("Reconnect", icon: "arrow.clockwise", style: .secondary) {
                     Task { await model.reconnect() }
@@ -53,7 +52,7 @@ struct ConnectionView: View {
             .padding(HudSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(ScoutSurface.inset))
-            .overlay(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).stroke(HudHairline.standard, lineWidth: HudStrokeWidth.standard))
+            .overlay(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).stroke(ScoutHairline.standard, lineWidth: HudStrokeWidth.standard))
             routeLegend
         }
     }
@@ -68,7 +67,7 @@ struct ConnectionView: View {
             ForEach(["LAN", "TSN", "OSN"], id: \.self) { label in
                 Text(label)
                     .font(HudFont.mono(HudTextSize.micro, weight: .bold))
-                    .foregroundStyle(isActiveRoute(label) ? HudPalette.accent : ScoutInk.dim)
+                    .foregroundStyle(isActiveRoute(label) ? ScoutPalette.accent : ScoutInk.dim)
                 if label != "OSN" {
                     Glyphic.arrow(.trailing, size: 12)
                         .foregroundStyle(ScoutInk.dim)
@@ -94,7 +93,7 @@ struct ConnectionLogList: View {
 
     var body: some View {
         if entries.isEmpty {
-            HudEmptyState(title: "No log entries", subtitle: emptySubtitle, icon: "list.bullet.rectangle")
+            ScoutEmptyState(title: "No log entries", subtitle: emptySubtitle, icon: "list.bullet.rectangle")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
@@ -136,31 +135,31 @@ struct ConnectionLogList: View {
 
                 Text(entry.message)
                     .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                    .foregroundStyle(HudPalette.ink)
+                    .foregroundStyle(ScoutPalette.ink)
                     .lineLimit(3)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(.horizontal, HudSpacing.md)
         .padding(.vertical, HudSpacing.sm)
-        .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudPalette.surface))
-        .overlay(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).stroke(HudHairline.subtle, lineWidth: HudStrokeWidth.thin))
+        .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(ScoutPalette.surface))
+        .overlay(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).stroke(ScoutHairline.subtle, lineWidth: HudStrokeWidth.thin))
     }
 
     private func logEventColor(_ entry: ConnectionLogEntry) -> Color {
         switch entry.event {
         case .routeDisabled, .routeUnavailable, .reconnect, .network:
-            return HudPalette.statusWarn
+            return ScoutPalette.statusWarn
         default:
             break
         }
         switch entry.level {
         case .error:
-            return HudPalette.statusError
+            return ScoutPalette.statusError
         case .warning:
-            return HudPalette.statusWarn
+            return ScoutPalette.statusWarn
         case .success:
-            return HudPalette.accent
+            return ScoutPalette.accent
         case .info:
             return entry.event == .lifecycle ? ScoutInk.dim : ScoutInk.muted
         }

@@ -61,6 +61,7 @@ struct HomeSurface: View {
     let isActive: Bool
     @Environment(\.scoutLayout) private var layout
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
     var onConversationStatusContext: (String?) -> Void = { _ in }
     var onSeeAllAgents: () -> Void = {}
     var onSeeAllActivity: () -> Void = {}
@@ -413,7 +414,7 @@ struct HomeSurface: View {
                                     .padding(.horizontal, HudSpacing.xxl)
                                     .frame(height: entryAccessoryControl)
                                     .background(Capsule().fill(ScoutSurface.card))
-                                    .overlay(Capsule().stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin))
+                                    .overlay(Capsule().stroke(ScoutHairline.standard, lineWidth: HudStrokeWidth.thin))
                                     .contentShape(Capsule())
                             }
                             .buttonStyle(.plain)
@@ -446,7 +447,7 @@ struct HomeSurface: View {
             .padding(.horizontal, layout.contentInset)
             .overlay(alignment: .top) {
                 Rectangle()
-                    .fill(HudHairline.subtle)
+                    .fill(ScoutHairline.subtle)
                     // Compact: the rule spans the surface, as designed (a nil
                     // width takes the full proposal). Regular: it stops with the
                     // column, so it reads as the composer's shoulder instead of
@@ -465,7 +466,7 @@ struct HomeSurface: View {
                 .frame(width: 44, height: entryAccessoryRow)
                 .overlay(alignment: .leading) {
                     Rectangle()
-                        .fill(HudHairline.standard)
+                        .fill(ScoutHairline.standard)
                         .frame(width: HudStrokeWidth.thin, height: 16)
                 }
                 .contentShape(Rectangle())
@@ -703,7 +704,7 @@ struct HomeSurface: View {
                     Text("Connect")
                 }
                 .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                .foregroundStyle(HudPalette.bg)
+                .foregroundStyle(ScoutPalette.bg)
                 .padding(.horizontal, HudSpacing.lg)
                 .padding(.vertical, HudSpacing.sm)
                 .background(Capsule().fill(ScoutVibe.accent))
@@ -865,8 +866,18 @@ struct HomeSurface: View {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(ModelPickerTone.insetEdge, lineWidth: HudStrokeWidth.thin)
                 )
-                .overlay(TerminalInsetShadow(shape: RoundedRectangle(cornerRadius: 8, style: .continuous), color: .black.opacity(0.9), radius: 2, y: 1))
-                .overlay(TerminalInsetShadow(shape: RoundedRectangle(cornerRadius: 8, style: .continuous), color: .black.opacity(0.55), radius: 5, y: 0))
+                .overlay(TerminalInsetShadow(
+                    shape: RoundedRectangle(cornerRadius: 8, style: .continuous),
+                    color: .black.opacity(colorScheme == .dark ? 0.9 : 0.10),
+                    radius: 2,
+                    y: 1
+                ))
+                .overlay(TerminalInsetShadow(
+                    shape: RoundedRectangle(cornerRadius: 8, style: .continuous),
+                    color: .black.opacity(colorScheme == .dark ? 0.55 : 0.05),
+                    radius: 5,
+                    y: 0
+                ))
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
         }
@@ -901,7 +912,7 @@ struct HomeSurface: View {
         HStack(spacing: HudSpacing.sm) {
             TextField("Ask the fleet…", text: $askDraft, axis: .vertical)
                 .font(HudFont.ui(HudTextSize.sm))
-                .foregroundStyle(HudPalette.ink)
+                .foregroundStyle(ScoutPalette.ink)
                 .lineLimit(1...4)
                 .focused($askFocused)
                 .submitLabel(.send)
@@ -987,13 +998,13 @@ struct HomeSurface: View {
                             .fixedSize()
                         Text(event.summary)
                             .font(HudFont.mono(HudTextSize.xs))
-                            .foregroundStyle(HudPalette.ink)
+                            .foregroundStyle(ScoutPalette.ink)
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .padding(.vertical, HudSpacing.xs)
                     .overlay(alignment: .bottom) {
-                        HudDivider(color: HudHairline.subtle)
+                        HudDivider(color: ScoutHairline.subtle)
                     }
                 }
                 if tailEvents.isEmpty, tailLoaded {
@@ -1032,10 +1043,10 @@ struct HomeSurface: View {
 
     private func tailKindColor(_ kind: TailEvent.Kind) -> Color {
         switch kind {
-        case .user: return Color(red: 0.50, green: 0.68, blue: 0.95)
-        case .assistant: return Color(red: 0.45, green: 0.78, blue: 0.55)
-        case .tool: return Color(red: 0.88, green: 0.62, blue: 0.38)
-        case .toolResult: return Color(red: 0.52, green: 0.72, blue: 0.70)
+        case .user: return ScoutPalette.statusInfo
+        case .assistant: return ScoutPalette.statusOk
+        case .tool: return ScoutPalette.statusWarn
+        case .toolResult: return ScoutPalette.accent
         case .system: return ScoutInk.muted
         case .other: return ScoutInk.dim
         }
@@ -1128,7 +1139,7 @@ struct HomeSurface: View {
                     .foregroundStyle(ScoutInk.dim)
             }
             Rectangle()
-                .fill(HudHairline.subtle)
+                .fill(ScoutHairline.subtle)
                 .frame(height: HudStrokeWidth.standard)
                 .frame(maxWidth: .infinity)
             if let onAll {
@@ -1156,7 +1167,7 @@ struct HomeSurface: View {
 
     private func rowSeparator() -> some View {
         Rectangle()
-            .fill(HudHairline.subtle)
+            .fill(ScoutHairline.subtle)
             .frame(height: HudStrokeWidth.thin)
             .padding(.leading, HudSpacing.xl)
     }
@@ -1978,7 +1989,7 @@ private struct TerminalTile: View {
         .padding(.vertical, HudSpacing.sm)
         .frame(width: 190, alignment: .leading)
         // A dark, recessed terminal well — no accent; the shell reads on its own.
-        .background(RoundedRectangle(cornerRadius: ScoutVibe.cardRadius, style: .continuous).fill(Color.black.opacity(0.40)))
+        .background(RoundedRectangle(cornerRadius: ScoutVibe.cardRadius, style: .continuous).fill(ScoutSignalSurface.bottom))
         .overlay(
             RoundedRectangle(cornerRadius: ScoutVibe.cardRadius, style: .continuous)
                 .stroke(ScoutVibe.hairline, lineWidth: HudStrokeWidth.thin)

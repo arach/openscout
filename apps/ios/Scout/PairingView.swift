@@ -30,16 +30,15 @@ struct PairingView: View {
             }
             .padding(.top, HudSpacing.xxl)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(HudPalette.bg)
+            .background(ScoutPalette.bg)
             .navigationTitle("Pair with Mac")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Close") { dismiss() }
-                        .foregroundStyle(HudPalette.accent)
+                        .foregroundStyle(ScoutPalette.accent)
                 }
             }
         }
-        .preferredColorScheme(.dark)
         .task {
             await model.refreshPairingDiscoveryTargets()
         }
@@ -142,7 +141,7 @@ struct PairingView: View {
             VStack(alignment: .leading, spacing: HudSpacing.xs) {
                 if discoveryBusy {
                     HStack(spacing: HudSpacing.sm) {
-                        ProgressView().controlSize(.small).tint(HudPalette.accent)
+                        ProgressView().controlSize(.small).tint(ScoutPalette.accent)
                         Text("Looking for pairable Macs…")
                             .font(HudFont.ui(HudTextSize.sm))
                             .foregroundStyle(ScoutInk.muted)
@@ -156,13 +155,13 @@ struct PairingView: View {
                 if let error = model.tailnetPairError {
                     Text("Tailnet: \(error)")
                         .font(HudFont.mono(HudTextSize.micro))
-                        .foregroundStyle(HudPalette.statusError)
+                        .foregroundStyle(ScoutPalette.statusError)
                         .lineLimit(2)
                 }
                 if let error = model.openScoutNetworkPairError {
                     Text("OpenScout Network: \(error)")
                         .font(HudFont.mono(HudTextSize.micro))
-                        .foregroundStyle(HudPalette.statusError)
+                        .foregroundStyle(ScoutPalette.statusError)
                         .lineLimit(2)
                 }
             }
@@ -218,7 +217,7 @@ struct PairingView: View {
             .clipShape(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                    .stroke(HudPalette.accent.opacity(0.5), lineWidth: HudStrokeWidth.standard)
+                    .stroke(ScoutPalette.accent.opacity(0.5), lineWidth: HudStrokeWidth.standard)
             )
         }
         .padding(.horizontal, HudSpacing.xxl)
@@ -242,11 +241,11 @@ struct PairingView: View {
             VStack(spacing: HudSpacing.sm) {
                 HStack(spacing: HudSpacing.sm) {
                     if case .connecting = model.connectionState {
-                        ProgressView().controlSize(.small).tint(HudPalette.accent)
+                        ProgressView().controlSize(.small).tint(ScoutPalette.accent)
                     }
                     Text(status)
                         .font(HudFont.mono(HudTextSize.xs))
-                        .foregroundStyle(isFailure ? HudPalette.statusError : ScoutInk.muted)
+                        .foregroundStyle(isFailure ? ScoutPalette.statusError : ScoutInk.muted)
                 }
                 if isFailure {
                     HudButton("Scan again", icon: "qrcode.viewfinder", style: .secondary) {
@@ -345,13 +344,13 @@ private struct DiscoveryPairRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: HudSpacing.sm) {
-            HudStatusDot(color: isActive ? HudPalette.accent : ScoutInk.dim, size: 7, pulses: isActive)
+            HudStatusDot(color: isActive ? ScoutPalette.accent : ScoutInk.dim, size: 7, pulses: isActive)
                 .frame(width: 12)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(name)
                     .font(HudFont.ui(HudTextSize.md))
-                    .foregroundStyle(isActive ? HudPalette.ink : ScoutInk.muted)
+                    .foregroundStyle(isActive ? ScoutPalette.ink : ScoutInk.muted)
                     .lineLimit(1)
                 Text(detail)
                     .font(HudFont.mono(HudTextSize.micro))
@@ -366,13 +365,13 @@ private struct DiscoveryPairRow: View {
                 Text(isBusy && badge == "PAIR" ? "PAIRING" : badge)
                     .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                     .tracking(0.8)
-                    .foregroundStyle(isActive ? HudPalette.accent : ScoutInk.dim)
+                    .foregroundStyle(isActive ? ScoutPalette.accent : ScoutInk.dim)
                     .padding(.horizontal, HudSpacing.sm)
                     .padding(.vertical, HudSpacing.xxs)
                     .overlay(
                         Capsule()
                             .strokeBorder(
-                                HudSurface.tintBorder(isActive ? HudPalette.accent : ScoutInk.dim),
+                                HudSurface.tintBorder(isActive ? ScoutPalette.accent : ScoutInk.dim),
                                 lineWidth: HudStrokeWidth.thin
                             )
                     )
@@ -383,7 +382,7 @@ private struct DiscoveryPairRow: View {
         .frame(height: HudLayout.rowHeightRegular)
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(HudHairline.subtle)
+                .fill(ScoutHairline.subtle)
                 .frame(height: HudStrokeWidth.thin)
         }
         .accessibilityElement(children: .combine)

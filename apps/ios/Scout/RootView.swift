@@ -7,8 +7,8 @@ import UIKit
 #endif
 
 /// Top-level navigation for Scout. Wraps the active surface in the
-/// `HudPhoneAppShell` (which supplies the NavigationStack + dark Hudson
-/// background) and switches between the native phone surfaces plus iPad-only
+/// `HudPhoneAppShell` (which supplies the adaptive NavigationStack) and switches
+/// between the native phone surfaces plus iPad-only
 /// Lanes and Dispatch mission control via the docked tab bar.
 struct RootView: View {
     @Bindable var model: AppModel
@@ -52,6 +52,7 @@ struct RootView: View {
     /// "where did I come from" without the surfaces having to move at all.
     @Namespace private var glassTabSeat
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
 
     private var navMode: ScoutNavMode { ScoutNavMode.resolve(navModeRaw) }
 
@@ -87,6 +88,13 @@ struct RootView: View {
         case new = "New"
 
         var id: String { rawValue }
+
+        /// Compact labels keep all six navigation seats on one consistent
+        /// rhythm. The destination remains "Terminal" everywhere outside the
+        /// rail; "Shell" is the familiar, shorter action label under its glyph.
+        var navigationLabel: String {
+            self == .terminal ? "Shell" : rawValue
+        }
 
         /// Hand-drawn glyph from the unified set (see `Glyphs.swift`).
         var glyph: GlyphShape.Kind {
@@ -129,7 +137,7 @@ struct RootView: View {
     }
 
     var body: some View {
-        HudPhoneAppShell {
+        HudPhoneAppShell(background: ScoutPalette.bg, appearance: .system) {
             // Author every surface through Scout's phone layout frame. The
             // 13 mini gets native sizing with compact metrics; only narrower
             // widths scale down. See `DesignFrame`.
@@ -593,11 +601,10 @@ struct RootView: View {
         .padding(.horizontal, hPad)
         .background(alignment: .top) {
             Rectangle()
-                // Solid near-black chrome, the studio way — an opaque bar, not a
-                // frosted-glass wash (the translucency read as a flat grey slab
-                // over the dark canvas). Separation comes from the lit lip +
-                // upward shadow, not translucency.
-                .fill(HudPalette.bg)
+                // Opaque adaptive chrome keeps the content legible in both
+                // appearances. Separation comes from the lit lip + upward
+                // shadow, not a decorative blur.
+                .fill(ScoutPalette.bg)
                 // Lift the studio way (cf. `scoutCard`): a SOLID lifted-tone top
                 // edge (`cardEdgeTop`), never a glossy white sheen. Crisp 1.5pt
                 // lit lip — a sharp raised edge, not a soft bevel.
@@ -609,9 +616,8 @@ struct RootView: View {
                 .ignoresSafeArea(edges: .bottom)
                 // Elevation: a tighter, crisper shadow cast upward so the bar
                 // reads as a sharply raised surface, not a soft glow.
-                .shadow(color: Color.black.opacity(0.6), radius: 11, y: -6)
+                .shadow(color: Color.black.opacity(0.22), radius: 11, y: -6)
         }
-        .environment(\.colorScheme, .dark)
     }
 
     /// Liquid-glass tab bar — the Apple-shaped bottom chrome the Entry home
@@ -636,7 +642,6 @@ struct RootView: View {
         // whole point of the shape is the air around it.
         .padding(.top, HudSpacing.sm)
         .padding(.bottom, HudSpacing.xxs)
-        .environment(\.colorScheme, .dark)
     }
 
     private func tabRail(
@@ -651,20 +656,37 @@ struct RootView: View {
         // Glass shows AROUND the seated tab — the seat has to sit in the rail,
         // not fill it, or the bar reads as a slab with a lid.
         .padding(.horizontal, HudSpacing.sm)
-        .padding(.vertical, HudSpacing.sm)
+        .padding(.vertical, 10)
         .frame(width: barWidth)
         // The seat's travel and the glyph/label tint ease together, and this
         // animation overrides the shell's own surface crossfade for everything
         // inside the rail — the bar gets the spring, the surfaces keep their
         // fast, flat fade.
         .animation(ScoutMotion.honoring(reduceMotion, ScoutMotion.travel), value: surface)
+        // Regular glass gives the busy Tail enough optical blur to read as an
+        // atmosphere behind the rail rather than as a second layer of text.
+        // The semantic backing is intentionally faint: the native material is
+        // still doing the refraction and most of the opacity.
+        .background {
+            Capsule()
+                .fill(ScoutPalette.chrome.opacity(colorScheme == .dark ? 0.08 : 0.12))
+        }
         .hudLiquidBarMaterial(tint: .regular)
-        // The rail is edged like the complications it seats: the same top rim
-        // light + hairline the machined plates carry, over the glass rather
-        // than over graphite. This is what makes the masthead and the bar read
-        // as one system instead of two materials that happen to share a screen.
-        .overlay(ScoutMachinedRim(shape: Capsule()))
-        .shadow(color: .black.opacity(0.5), radius: 14, y: 6)
+        .overlay {
+            Capsule()
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(colorScheme == .dark ? 0.19 : 0.72),
+                            ScoutHairline.standard.opacity(colorScheme == .dark ? 0.55 : 0.78),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: HudStrokeWidth.thin
+                )
+        }
+        .scoutFloatingSurface(.navigation)
     }
 
     /// One glass-bar tab. Selection reads exactly as it does on the docked bar
@@ -682,26 +704,18 @@ struct RootView: View {
         } label: {
             VStack(spacing: HudSpacing.xxs) {
                 Glyphic(kind: s.glyph, size: layout.tabGlyphSize)
-                Text(s.rawValue)
+                Text(s.navigationLabel)
                     .font(HudFont.mono(layout.tabLabelSize, weight: .medium))
                     .lineLimit(1)
             }
-            .foregroundStyle(isSelected ? HudPalette.accent : ScoutInk.muted)
-            // The seat HUGS its tab (Apple's shape), so it can't be sized off
-            // the equal column the way the docked bar's columns are. The
-            // longest label ("Terminal") still clears its neighbours at both
-            // phone widths — hence fixed, unscaled type here.
-            .fixedSize(horizontal: true, vertical: false)
-            .padding(.horizontal, HudSpacing.sm)
-            .frame(height: layout.tabButtonHeight)
+            .foregroundStyle(isSelected ? ScoutPalette.accent : ScoutInk.muted)
+            // Every selected droplet has exactly one column's footprint. The
+            // shape no longer breathes wider for Terminal or narrower for Tail;
+            // only the content inside it changes.
+            .frame(width: width, height: layout.tabButtonHeight)
             .background {
                 if isSelected {
-                    ScoutMachinedPlate(
-                        shape: Capsule(),
-                        rimBoost: 0.15,
-                        lightReach: layout.tabButtonHeight,
-                        grainOpacity: 0.05
-                    )
+                    ScoutLiquidNavigationSeat()
                     // One seat, shared identity: SwiftUI interpolates the frame
                     // between the tab that had it and the tab taking it, so the
                     // plate slides and stretches to its new label's width
@@ -711,7 +725,6 @@ struct RootView: View {
                     .matchedGeometryEffect(id: "glass-tab-seat", in: glassTabSeat)
                 }
             }
-            .frame(width: width)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -774,9 +787,9 @@ struct RootView: View {
             // route + stat readouts stay intrinsic, so none of them truncate.
             items.append(
                 StatusReadout(
-                    dot: machine.isOnline ? HudPalette.accent : ScoutInk.dim,
+                    dot: machine.isOnline ? ScoutPalette.accent : ScoutInk.dim,
                     label: machine.name,
-                    tint: machine.isOnline ? HudPalette.ink : ScoutInk.muted,
+                    tint: machine.isOnline ? ScoutPalette.ink : ScoutInk.muted,
                     maxLabelWidth: layout.statusMachineMaxLabelWidth
                 )
             )
@@ -801,7 +814,7 @@ struct RootView: View {
             StatusReadout(label: pluralized(model.agentCount, "agent"), tint: ScoutInk.muted),
             StatusReadout(
                 label: "\(model.activeAgentCount) active",
-                tint: model.activeAgentCount > 0 ? HudPalette.accent : ScoutInk.dim
+                tint: model.activeAgentCount > 0 ? ScoutPalette.accent : ScoutInk.dim
             ),
         ]
         let machineTotal = model.pairedMachines.count
@@ -810,7 +823,7 @@ struct RootView: View {
             items.insert(
                 StatusReadout(
                     label: layout.isMiniPhone ? "\(online)/\(machineTotal)" : "\(online)/\(machineTotal) online",
-                    tint: online > 0 ? HudPalette.accent : ScoutInk.dim
+                    tint: online > 0 ? ScoutPalette.accent : ScoutInk.dim
                 ),
                 at: 1
             )
@@ -831,7 +844,7 @@ struct RootView: View {
             items.append(
                 StatusReadout(
                     label: "\(online)/\(machineTotal) online",
-                    tint: online > 0 ? HudPalette.accent : ScoutInk.dim
+                    tint: online > 0 ? ScoutPalette.accent : ScoutInk.dim
                 )
             )
         }
@@ -839,7 +852,7 @@ struct RootView: View {
         items.append(
             StatusReadout(
                 label: "\(model.activeAgentCount) active",
-                tint: model.activeAgentCount > 0 ? HudPalette.accent : ScoutInk.dim
+                tint: model.activeAgentCount > 0 ? ScoutPalette.accent : ScoutInk.dim
             )
         )
         return items
@@ -901,7 +914,7 @@ struct RootView: View {
             .padding(.horizontal, 1)
             // Active state is carried entirely by the accent glyph + label — no
             // indicator bar.
-            .foregroundStyle(isSelected ? HudPalette.accent : ScoutInk.muted)
+            .foregroundStyle(isSelected ? ScoutPalette.accent : ScoutInk.muted)
             // Explicit equal column width (not maxWidth) so labels shrink to fit
             // rather than overflowing the bar.
             .frame(width: width)
@@ -936,7 +949,7 @@ struct RootView: View {
                         Text("SCOUT")
                             .font(HudFont.ui(layout.wordmarkSize, weight: .light))
                             .tracking(2.5)
-                            .foregroundStyle(HudPalette.ink)
+                            .foregroundStyle(ScoutPalette.ink)
                     }
                 }
                 // New carries its own HOST control, because choosing where a
@@ -964,7 +977,7 @@ struct RootView: View {
             }
             .frame(width: barWidth)
             Rectangle()
-                .fill(HudHairline.standard)
+                .fill(ScoutHairline.standard)
                 .frame(width: barWidth, height: HudStrokeWidth.thin)
         }
         .padding(.horizontal, layout.titleHorizontalPadding)
@@ -1012,11 +1025,11 @@ struct RootView: View {
         let plate = RoundedRectangle(cornerRadius: 5, style: .continuous)
         let chip = HStack(spacing: HudSpacing.xs) {
             Circle()
-                .fill(online ? HudPalette.accent : ScoutInk.dim)
+                .fill(online ? ScoutPalette.accent : ScoutInk.dim)
                 .frame(width: 5, height: 5)
             Text(name)
                 .font(HudFont.mono(10.5, weight: .medium))
-                .foregroundStyle(selected ? HudPalette.ink : ScoutInk.muted)
+                .foregroundStyle(selected ? ScoutPalette.ink : ScoutInk.muted)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: 92, alignment: .leading)
@@ -1024,7 +1037,7 @@ struct RootView: View {
         .padding(.horizontal, HudSpacing.sm)
         .padding(.vertical, 3)
         .background(plate.fill(selected ? ScoutSurface.raised : ScoutSurface.inset))
-        .overlay(plate.stroke(selected ? ScoutInk.dim : HudHairline.standard, lineWidth: HudStrokeWidth.thin))
+        .overlay(plate.stroke(selected ? ScoutInk.dim : ScoutHairline.standard, lineWidth: HudStrokeWidth.thin))
 
         if let action {
             Button(action: action) { chip }
@@ -1048,11 +1061,11 @@ struct RootView: View {
                         Text(unseen > 99 ? "99+" : "\(unseen)")
                             .font(HudFont.mono(HudTextSize.micro - 1, weight: .bold))
                             .monospacedDigit()
-                            .foregroundStyle(HudPalette.bg)
+                            .foregroundStyle(ScoutPalette.bg)
                             .padding(.horizontal, 3)
                             .frame(minWidth: 14, minHeight: 14)
                             .background(Capsule().fill(ScoutVibe.accent))
-                            .overlay(Capsule().stroke(HudPalette.bg, lineWidth: 1.5))
+                            .overlay(Capsule().stroke(ScoutPalette.bg, lineWidth: 1.5))
                             .offset(x: 3, y: -3)
                     }
                 }
@@ -1084,10 +1097,10 @@ struct RootView: View {
         tint: Color = ScoutInk.muted
     ) -> some View {
         let sizing = CrownSizing.resolve(layout)
-        return ScoutMachinedPlate(shape: Circle(), lightReach: sizing.seat, grainOpacity: 0.05)
+        return ScoutMachinedPlate(shape: Circle(), lightReach: sizing.seat, grainOpacity: 0.035)
             .overlay(Glyphic(kind: glyph, size: sizing.seatGlyph).foregroundStyle(tint))
             .frame(width: sizing.seat, height: sizing.seat)
-            .shadow(color: .black.opacity(0.45), radius: 3, y: 1.5)
+            .scoutFloatingSurface(.control)
     }
 
     /// The map. Every row is REAL navigation this shell already performs — tab
@@ -1121,11 +1134,11 @@ struct RootView: View {
                                     .foregroundStyle(ScoutInk.muted)
                                     .frame(width: 34, height: 34)
                                     .background(Circle().fill(ScoutSurface.inset))
-                                    .overlay(Circle().stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin))
+                                    .overlay(Circle().stroke(ScoutHairline.standard, lineWidth: HudStrokeWidth.thin))
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(place.name)
                                         .font(HudFont.ui(HudTextSize.md, weight: .medium))
-                                        .foregroundStyle(HudPalette.ink)
+                                        .foregroundStyle(ScoutPalette.ink)
                                     Text(place.blurb)
                                         .font(HudFont.ui(HudTextSize.sm))
                                         .foregroundStyle(ScoutInk.dim)
@@ -1140,13 +1153,13 @@ struct RootView: View {
                         }
                         .buttonStyle(.plain)
                         .overlay(alignment: .bottom) {
-                            if place.id != places.last?.id { HudDivider(color: HudHairline.subtle) }
+                            if place.id != places.last?.id { HudDivider(color: ScoutHairline.subtle) }
                         }
                     }
                 }
                 .padding(.horizontal, HudSpacing.xxl)
             }
-            .background(HudPalette.bg)
+            .background(ScoutPalette.bg)
             .navigationTitle("Places")
             .navigationBarTitleDisplayMode(.inline)
         }

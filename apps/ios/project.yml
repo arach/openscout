@@ -127,7 +127,6 @@ targets:
         # the generator alongside the custom Info.plist double-wraps it (nested
         # UILaunchScreen) and triggers compatibility scaling on the 13 mini.
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait"
-        INFOPLIST_KEY_UIUserInterfaceStyle: Dark
         MARKETING_VERSION: "0.2.70"
         CURRENT_PROJECT_VERSION: "1"
       configs:

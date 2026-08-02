@@ -257,7 +257,7 @@ struct MissionControlSurface: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(HudPalette.bg)
+            .background(ScoutPalette.bg)
             .cockpitEntrance(index: 1, phase: entrance)
 
             // The feed reads; the dock acts. Dispatch is where you watch the
@@ -302,7 +302,7 @@ struct MissionControlSurface: View {
 
     private var standardToolbar: some View {
         HStack(spacing: HudSpacing.md) {
-            HudSectionLabel(kind.rawValue, tint: ScoutInk.muted)
+            ScoutSectionLabel(kind.rawValue, tint: ScoutInk.muted)
             if usesLocalBundledPage {
                 // Provenance, not signal: emerald stays reserved for connection
                 // and selection state, the same rationing Deck's header uses.
@@ -330,7 +330,7 @@ struct MissionControlSurface: View {
             if webState.isLoading {
                 ProgressView()
                     .controlSize(.small)
-                    .tint(HudPalette.accent)
+                    .tint(ScoutPalette.accent)
             }
             Button("Reload") {
                 webState = HudWebViewState()
@@ -346,7 +346,7 @@ struct MissionControlSurface: View {
         .padding(.horizontal, HudSpacing.xxl)
         .padding(.vertical, HudSpacing.sm)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(HudHairline.standard).frame(height: HudStrokeWidth.thin)
+            Rectangle().fill(ScoutHairline.standard).frame(height: HudStrokeWidth.thin)
         }
     }
 
@@ -357,7 +357,7 @@ struct MissionControlSurface: View {
     private var deckToolbar: some View {
         VStack(spacing: 0) {
             HStack(spacing: HudSpacing.md) {
-                HudSectionLabel("Deck", tint: ScoutInk.muted)
+                ScoutSectionLabel("Deck", tint: ScoutInk.muted)
                 deckHostCount
                 if usesLocalBundledPage {
                     Text("LOCAL · SIGNED")
@@ -372,7 +372,7 @@ struct MissionControlSurface: View {
                 if webState.isLoading {
                     ProgressView()
                         .controlSize(.small)
-                        .tint(HudPalette.accent)
+                        .tint(ScoutPalette.accent)
                 }
                 Button("Reload") { reloadSurface() }
                     .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
@@ -407,7 +407,7 @@ struct MissionControlSurface: View {
             }
         }
         .overlay(alignment: .bottom) {
-            Rectangle().fill(HudHairline.standard).frame(height: HudStrokeWidth.thin)
+            Rectangle().fill(ScoutHairline.standard).frame(height: HudStrokeWidth.thin)
         }
     }
 
@@ -451,7 +451,7 @@ struct MissionControlSurface: View {
     private var deckHostCount: some View {
         HStack(spacing: 3) {
             Text("\(selectedMachineIds.count)")
-                .foregroundStyle(HudPalette.ink)
+                .foregroundStyle(ScoutPalette.ink)
             Text(selectedMachineIds.count == 1 ? "HOST" : "HOSTS")
                 .foregroundStyle(ScoutInk.dim)
         }
@@ -472,7 +472,7 @@ struct MissionControlSurface: View {
         Button(action: action) {
             HStack(spacing: 6) {
                 Circle()
-                    .fill(online ? HudPalette.accent : ScoutInk.dim)
+                    .fill(online ? ScoutPalette.accent : ScoutInk.dim)
                     .frame(width: 5, height: 5)
                 Text(label.uppercased())
                     .lineLimit(1)
@@ -485,7 +485,7 @@ struct MissionControlSurface: View {
             }
             .font(HudFont.mono(HudTextSize.xxs, weight: selected ? .bold : .medium))
             .tracking(0.45)
-            .foregroundStyle(selected ? HudPalette.ink : ScoutInk.muted)
+            .foregroundStyle(selected ? ScoutPalette.ink : ScoutInk.muted)
             .padding(.horizontal, HudSpacing.md)
             .padding(.vertical, HudSpacing.xs + 1)
             .background(
@@ -495,7 +495,7 @@ struct MissionControlSurface: View {
             .overlay(
                 RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
                     .stroke(
-                        selected ? HudPalette.accent.opacity(0.55) : ScoutSignalSurface.edge.opacity(0.55),
+                        selected ? ScoutPalette.accent.opacity(0.55) : ScoutSignalSurface.edge.opacity(0.55),
                         lineWidth: HudStrokeWidth.thin
                     )
             )
@@ -516,12 +516,12 @@ struct MissionControlSurface: View {
             if let composerError {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Circle()
-                        .fill(HudPalette.statusError)
+                        .fill(ScoutPalette.statusError)
                         .frame(width: 5, height: 5)
                         .alignmentGuide(.firstTextBaseline) { $0[.bottom] }
                     Text(composerError)
                         .font(HudFont.mono(HudTextSize.xxs))
-                        .foregroundStyle(HudPalette.statusError)
+                        .foregroundStyle(ScoutPalette.statusError)
                         .lineLimit(2)
                 }
             }
@@ -531,8 +531,8 @@ struct MissionControlSurface: View {
                     .textFieldStyle(.plain)
                     .lineLimit(1...3)
                     .font(HudFont.ui(HudTextSize.sm))
-                    .foregroundStyle(HudPalette.ink)
-                    .tint(HudPalette.accent)
+                    .foregroundStyle(ScoutPalette.ink)
+                    .tint(ScoutPalette.accent)
                     .focused($composerFocused)
                     .onSubmit(sendDeckMessage)
                     .disabled(laneSelection?.conversationId == nil || isSending)
@@ -546,9 +546,9 @@ struct MissionControlSurface: View {
                             Glyphic.arrow(.top, size: 17)
                         }
                     }
-                    .foregroundStyle(canSendDeckMessage ? HudPalette.bg : ScoutInk.muted)
+                    .foregroundStyle(canSendDeckMessage ? ScoutPalette.bg : ScoutInk.muted)
                     .frame(width: 30, height: 30)
-                    .background(Circle().fill(canSendDeckMessage ? HudPalette.accent : ScoutSurface.raised))
+                    .background(Circle().fill(canSendDeckMessage ? ScoutPalette.accent : ScoutSurface.raised))
                 }
                 .buttonStyle(.plain)
                 .disabled(!canSendDeckMessage)
@@ -563,7 +563,7 @@ struct MissionControlSurface: View {
             .overlay(
                 RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
                     .stroke(
-                        composerFocused ? HudPalette.accent.opacity(0.58) : HudHairline.standard,
+                        composerFocused ? ScoutPalette.accent.opacity(0.58) : ScoutHairline.standard,
                         lineWidth: HudStrokeWidth.standard
                     )
             )
@@ -579,7 +579,7 @@ struct MissionControlSurface: View {
             )
         )
         .overlay(alignment: .top) {
-            Rectangle().fill(HudHairline.standard).frame(height: HudStrokeWidth.thin)
+            Rectangle().fill(ScoutHairline.standard).frame(height: HudStrokeWidth.thin)
         }
     }
 
@@ -590,13 +590,13 @@ struct MissionControlSurface: View {
     private var deckTargetReadout: some View {
         HStack(spacing: HudSpacing.sm) {
             Circle()
-                .fill(laneSelection?.conversationId == nil ? ScoutInk.dim : HudPalette.accent)
+                .fill(laneSelection?.conversationId == nil ? ScoutInk.dim : ScoutPalette.accent)
                 .frame(width: 6, height: 6)
 
             if let laneSelection {
                 Text(laneSelection.agentName.uppercased())
                     .font(HudFont.mono(HudTextSize.sm, weight: .semibold))
-                    .foregroundStyle(HudPalette.ink)
+                    .foregroundStyle(ScoutPalette.ink)
                     .lineLimit(1)
                     .layoutPriority(1)
                 Text("·")
@@ -671,7 +671,7 @@ struct MissionControlSurface: View {
             )
         )
         .overlay(alignment: .top) {
-            Rectangle().fill(HudHairline.standard).frame(height: HudStrokeWidth.thin)
+            Rectangle().fill(ScoutHairline.standard).frame(height: HudStrokeWidth.thin)
         }
     }
 
@@ -699,13 +699,13 @@ struct MissionControlSurface: View {
             // without saying that you could change it.
             HStack(spacing: HudSpacing.xs) {
                 HudStatusDot(
-                    color: steerTarget == nil ? ScoutInk.dim : HudPalette.accent,
+                    color: steerTarget == nil ? ScoutInk.dim : ScoutPalette.accent,
                     size: 5
                 )
                 Text(steerTargetLabel)
                     .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
                     .tracking(0.45)
-                    .foregroundStyle(steerTarget == nil ? ScoutInk.muted : HudPalette.ink)
+                    .foregroundStyle(steerTarget == nil ? ScoutInk.muted : ScoutPalette.ink)
                     .lineLimit(1)
                 if let project = steerTarget?.project {
                     Text(project.uppercased())
@@ -722,7 +722,7 @@ struct MissionControlSurface: View {
             .padding(.horizontal, HudSpacing.md)
             .padding(.vertical, 3)
             .background(steerSeat.fill(ScoutSurface.card))
-            .overlay(steerSeat.stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin))
+            .overlay(steerSeat.stroke(ScoutHairline.standard, lineWidth: HudStrokeWidth.thin))
             .contentShape(steerSeat)
         }
         .menuStyle(.button)
@@ -1017,10 +1017,10 @@ struct MissionControlSurface: View {
                         Text(recovery.title)
                     }
                     .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                    .foregroundStyle(HudPalette.bg)
+                    .foregroundStyle(ScoutPalette.bg)
                     .padding(.horizontal, HudSpacing.lg)
                     .padding(.vertical, HudSpacing.sm)
-                    .background(Capsule().fill(HudPalette.accent))
+                    .background(Capsule().fill(ScoutPalette.accent))
                     .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
@@ -1030,7 +1030,7 @@ struct MissionControlSurface: View {
         }
         .padding(HudSpacing.xxl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(HudPalette.bg)
+        .background(ScoutPalette.bg)
     }
 }
 

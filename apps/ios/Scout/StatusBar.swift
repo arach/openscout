@@ -79,9 +79,9 @@ struct ScoutStatusBar: View {
         // home-indicator zone so the bar reaches the true bottom edge.
         .background(alignment: .top) {
             ZStack(alignment: .top) {
-                HudPalette.chrome
+                ScoutPalette.chrome
                 Rectangle()
-                    .fill(HudHairline.standard)
+                    .fill(ScoutHairline.standard)
                     .frame(height: HudStrokeWidth.thin)
             }
             .ignoresSafeArea(edges: .bottom)

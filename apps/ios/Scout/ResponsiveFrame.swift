@@ -33,10 +33,10 @@ struct ScoutLayoutMetrics: Equatable {
     // Tight side gutters so all six tabs (incl. the trailing "New") tile across a
     // native 393pt bar; the mini only fit them via its responsive downscale.
     var tabBarHorizontalPadding: CGFloat { HudSpacing.xs }
-    // Slick: minimal top/bottom padding, a calm glyph — active state is carried
-    // by accent color, not glyph heft. Kept low so the docked bar reads as a
-    // trim strip (studio `.iTabs` ~52px total incl. safe area), not a slab.
-    var tabButtonHeight: CGFloat { isNarrowPhone ? 42 : 44 }
+    // The approved floating nav is intentionally a little taller than the
+    // original strip. The labels stay calm; the added height belongs to the
+    // glass and its touch target, not larger type.
+    var tabButtonHeight: CGFloat { isNarrowPhone ? 46 : 48 }
     var tabGlyphSize: CGFloat { isNarrowPhone ? 16 : 16.5 }
     var tabLabelSize: CGFloat { isNarrowPhone ? HudTextSize.micro : HudTextSize.xxs }
 

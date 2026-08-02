@@ -96,14 +96,14 @@ struct AgentsSurface: View {
             // mode there are no sections, so nothing pins and the list reads exactly
             // as it always has.
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-                HudField("Search agents", text: $searchText, icon: "magnifyingglass")
+                ScoutField("Search agents", text: $searchText, icon: "magnifyingglass")
                     .padding(.horizontal, HudSpacing.xxl)
                     .padding(.top, HudSpacing.lg)
                     .padding(.bottom, HudSpacing.md)
                     .cockpitEntrance(index: 0, phase: entrance)
 
                 if isLoading {
-                    HudEmptyState(title: "Loading agents", icon: "person.2")
+                    ScoutEmptyState(title: "Loading agents", icon: "person.2")
                         .frame(maxWidth: .infinity).padding(.top, HudSpacing.huge)
                 } else {
                     if !allAgents.isEmpty {
@@ -160,7 +160,7 @@ struct AgentsSurface: View {
             ? "\(visible.count) agents · \(live) live"
             : "\(visible.count) agents · \(projects(from: visible).count) projects"
         return HStack(alignment: .firstTextBaseline) {
-            HudSectionLabel(text.uppercased())
+            ScoutSectionLabel(text.uppercased())
             Spacer(minLength: HudSpacing.md)
             SortToggle(sort: $sort)
         }
@@ -171,7 +171,7 @@ struct AgentsSurface: View {
     @ViewBuilder
     private var content: some View {
         if allVisibleAgents.isEmpty && !allAgents.isEmpty {
-            HudEmptyState(title: "No matches", subtitle: "Nothing matches “\(searchText)”.", icon: "magnifyingglass")
+            ScoutEmptyState(title: "No matches", subtitle: "Nothing matches “\(searchText)”.", icon: "magnifyingglass")
                 .frame(maxWidth: .infinity).padding(.top, HudSpacing.huge)
                 .cockpitEntrance(index: 2, phase: entrance)
         } else if sort == .recent {
@@ -181,7 +181,7 @@ struct AgentsSurface: View {
         } else if let only = sections.first, only.isOnline, !only.agents.isEmpty {
             machineBody(only)
         } else {
-            HudEmptyState(title: "No agents", subtitle: "Connect to your Mac to see the directory.", icon: "person.2.slash")
+            ScoutEmptyState(title: "No agents", subtitle: "Connect to your Mac to see the directory.", icon: "person.2.slash")
                 .frame(maxWidth: .infinity).padding(.top, HudSpacing.huge)
                 .cockpitEntrance(index: 2, phase: entrance)
         }
@@ -261,7 +261,7 @@ struct AgentsSurface: View {
     }
 
     private var rowDivider: some View {
-        Rectangle().fill(HudHairline.subtle).frame(height: 0.5)
+        Rectangle().fill(ScoutHairline.subtle).frame(height: 0.5)
             .padding(.leading, HudSpacing.xxl)
     }
 
@@ -437,11 +437,11 @@ private struct SortToggle: View {
                     Text(mode.label)
                         .font(HudFont.mono(HudTextSize.micro, weight: sort == mode ? .bold : .regular))
                         .tracking(0.6)
-                        .foregroundStyle(sort == mode ? HudPalette.accent : ScoutInk.muted)
+                        .foregroundStyle(sort == mode ? ScoutPalette.accent : ScoutInk.muted)
                         .padding(.horizontal, HudSpacing.sm)
                         .padding(.vertical, 3)
                         .background(
-                            Capsule().fill(sort == mode ? HudPalette.accent.opacity(0.12) : .clear)
+                            Capsule().fill(sort == mode ? ScoutPalette.accent.opacity(0.12) : .clear)
                         )
                 }
                 .buttonStyle(.plain)
@@ -462,27 +462,27 @@ private struct MachineSectionHeader: View {
 
     var body: some View {
         HStack(spacing: HudSpacing.sm) {
-            HudStatusDot(color: HudPalette.accent, size: 6, pulses: liveCount > 0)
+            HudStatusDot(color: ScoutPalette.accent, size: 6, pulses: liveCount > 0)
             Text(name)
                 .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
-                .foregroundStyle(HudPalette.ink)
+                .foregroundStyle(ScoutPalette.ink)
                 .lineLimit(1).truncationMode(.tail)
             Spacer(minLength: HudSpacing.sm)
             if liveCount > 0 {
                 Text("\(liveCount) live")
                     .font(HudFont.mono(HudTextSize.micro))
-                    .foregroundStyle(HudPalette.accent)
+                    .foregroundStyle(ScoutPalette.accent)
             }
             Text("\(agentCount)")
                 .font(HudFont.mono(HudTextSize.xs)).monospacedDigit()
-                .foregroundStyle(HudPalette.muted)
+                .foregroundStyle(ScoutPalette.muted)
         }
         .padding(.horizontal, HudSpacing.xxl)
         .padding(.vertical, HudSpacing.sm)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(HudPalette.bg)
+        .background(ScoutPalette.bg)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(HudHairline.standard).frame(height: HudStrokeWidth.thin)
+            Rectangle().fill(ScoutHairline.standard).frame(height: HudStrokeWidth.thin)
         }
     }
 }
@@ -496,15 +496,15 @@ private struct OfflineMachineRow: View {
 
     var body: some View {
         HStack(spacing: HudSpacing.sm) {
-            HudStatusDot(color: HudPalette.dim, size: 6, pulses: false)
+            HudStatusDot(color: ScoutPalette.dim, size: 6, pulses: false)
             Text(name)
                 .font(HudFont.ui(HudTextSize.sm, weight: .medium))
-                .foregroundStyle(HudPalette.muted)
+                .foregroundStyle(ScoutPalette.muted)
                 .lineLimit(1).truncationMode(.tail)
             Spacer(minLength: HudSpacing.sm)
             Text(detail)
                 .font(HudFont.mono(HudTextSize.micro))
-                .foregroundStyle(HudPalette.dim)
+                .foregroundStyle(ScoutPalette.dim)
         }
         .padding(.horizontal, HudSpacing.xxl)
         .padding(.vertical, HudSpacing.md)
@@ -541,7 +541,7 @@ private struct ProjectSection: View {
                     ) { onTapAgent(agent) }
                 }
             }
-            Rectangle().fill(HudHairline.subtle).frame(height: 0.5)
+            Rectangle().fill(ScoutHairline.subtle).frame(height: 0.5)
                 .padding(.leading, HudSpacing.xxl)
         }
     }
@@ -561,11 +561,11 @@ private struct ProjectHeaderRow: View {
                     .frame(width: 13, height: 13)
                 Text(project.name)
                     .font(HudFont.ui(HudTextSize.md, weight: .semibold))
-                    .foregroundStyle(HudPalette.ink)
+                    .foregroundStyle(ScoutPalette.ink)
                     .lineLimit(1).truncationMode(.middle)
                 Spacer(minLength: HudSpacing.sm)
                 if project.liveCount > 0 {
-                    HudStatusDot(color: HudPalette.accent, size: 5, pulses: true)
+                    HudStatusDot(color: ScoutPalette.accent, size: 5, pulses: true)
                 }
                 Text("\(project.agents.count)")
                     .font(HudFont.mono(HudTextSize.xs)).monospacedDigit()
@@ -600,7 +600,7 @@ private struct AgentRow: View {
             HStack(spacing: HudSpacing.md) {
                 if let connector {
                     TreeConnector(isLast: connector.isLast)
-                        .stroke(HudHairline.standard, style: StrokeStyle(lineWidth: 1, lineCap: .round))
+                        .stroke(ScoutHairline.standard, style: StrokeStyle(lineWidth: 1, lineCap: .round))
                         .frame(width: HudSpacing.xl)
                         .frame(maxHeight: .infinity)
                 }
@@ -608,7 +608,7 @@ private struct AgentRow: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(agent.title)
                         .font(HudFont.ui(HudTextSize.base, weight: connector == nil ? .medium : .regular))
-                        .foregroundStyle(HudPalette.ink)
+                        .foregroundStyle(ScoutPalette.ink)
                         .lineLimit(1).truncationMode(.tail)
                     if let session = sessionLine {
                         Text(session)
@@ -657,7 +657,7 @@ private struct AgentStateDot: View {
     var body: some View {
         switch state {
         case .live:
-            HudStatusDot(color: HudPalette.accent, size: 6, pulses: true)
+            HudStatusDot(color: ScoutPalette.accent, size: 6, pulses: true)
         case .idle:
             Circle().fill(ScoutInk.muted).frame(width: 5, height: 5)
         case .offline, .unknown:
@@ -709,13 +709,13 @@ private struct ProjectDetailSheet: View {
                     if let errorText {
                         Text(errorText)
                             .font(HudFont.mono(HudTextSize.xs))
-                            .foregroundStyle(HudPalette.statusError)
+                            .foregroundStyle(ScoutPalette.statusError)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .padding(HudSpacing.xxl)
             }
-            .background(HudPalette.bg)
+            .background(ScoutPalette.bg)
             .navigationTitle(node.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -744,14 +744,14 @@ private struct ProjectDetailSheet: View {
 
     private var agentsSection: some View {
         VStack(alignment: .leading, spacing: HudSpacing.sm) {
-            HudSectionLabel("\(node.agents.count) AGENTS")
+            ScoutSectionLabel("\(node.agents.count) AGENTS")
             ForEach(node.agents) { agent in
                 Button { onOpenSession(agent) } label: {
                     HStack(spacing: HudSpacing.md) {
                         AgentStateDot(state: agent.state).frame(width: 8)
                         Text(agent.title)
                             .font(HudFont.ui(HudTextSize.base, weight: .medium))
-                            .foregroundStyle(HudPalette.ink)
+                            .foregroundStyle(ScoutPalette.ink)
                         Spacer(minLength: HudSpacing.sm)
                         if let h = agent.harness { Text(h.lowercased()).font(HudFont.mono(HudTextSize.xs)).foregroundStyle(ScoutInk.muted) }
                         if agent.sessionId != nil {
@@ -770,7 +770,7 @@ private struct ProjectDetailSheet: View {
 
     private var launcherSection: some View {
         VStack(alignment: .leading, spacing: HudSpacing.lg) {
-            HudSectionLabel("START A SESSION")
+            ScoutSectionLabel("START A SESSION")
 
             // Harness
             HStack(spacing: HudSpacing.sm) {
@@ -778,27 +778,27 @@ private struct ProjectDetailSheet: View {
                     Button { harness = h } label: {
                         Text(h)
                             .font(HudFont.mono(HudTextSize.sm, weight: harness == h ? .bold : .regular))
-                            .foregroundStyle(harness == h ? HudPalette.bg : ScoutInk.muted)
+                            .foregroundStyle(harness == h ? ScoutPalette.bg : ScoutInk.muted)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, HudSpacing.md)
                             .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                                .fill(harness == h ? HudPalette.accent : ScoutSurface.inset))
+                                .fill(harness == h ? ScoutPalette.accent : ScoutSurface.inset))
                     }
                     .buttonStyle(.plain)
                 }
             }
 
-            HudField("Model (optional)", text: $model, icon: "cpu")
-            HudField("Project path", text: $path, icon: "folder")
+            ScoutField("Model (optional)", text: $model, icon: "cpu")
+            ScoutField("Project path", text: $path, icon: "folder")
 
             TextEditor(text: $instructions)
                 .font(HudFont.ui(HudTextSize.base))
-                .foregroundStyle(HudPalette.ink)
+                .foregroundStyle(ScoutPalette.ink)
                 .scrollContentBackground(.hidden)
                 .frame(minHeight: 88)
                 .padding(HudSpacing.md)
                 .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(ScoutSurface.inset))
-                .overlay(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).stroke(HudHairline.standard, lineWidth: HudStrokeWidth.standard))
+                .overlay(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).stroke(ScoutHairline.standard, lineWidth: HudStrokeWidth.standard))
                 .overlay(alignment: .topLeading) {
                     if instructions.isEmpty {
                         Text("First instruction (optional)…")

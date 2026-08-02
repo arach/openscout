@@ -101,12 +101,16 @@ export type BrokerRuntimeFreshness = {
   state: "current" | "pinned" | "stale" | "unverified" | string;
   intentional: boolean;
   basis: string;
+  reasonCode: string | null;
   artifactCommit: string | null;
   expectedCommit: string | null;
   pin: string | null;
   pinReason: string | null;
   manifestPath: string | null;
   version: string | null;
+  actualBuiltAt: string | null;
+  expectedBuiltAt: string | null;
+  /** @deprecated Use actualBuiltAt. */
   builtAt: string | null;
   sourceDirty: boolean | null;
   detail: string;
@@ -602,13 +606,16 @@ function readRuntimeFreshness(value: unknown): BrokerRuntimeFreshness | undefine
     state,
     intentional: readBoolean(value.intentional) ?? false,
     basis,
+    reasonCode: readString(value.reasonCode) ?? null,
     artifactCommit: readString(value.artifactCommit) ?? null,
     expectedCommit: readString(value.expectedCommit) ?? null,
     pin: readString(value.pin) ?? null,
     pinReason: readString(value.pinReason) ?? null,
     manifestPath: readString(value.manifestPath) ?? null,
     version: readString(value.version) ?? null,
-    builtAt: readString(value.builtAt) ?? null,
+    actualBuiltAt: readString(value.actualBuiltAt) ?? readString(value.builtAt) ?? null,
+    expectedBuiltAt: readString(value.expectedBuiltAt) ?? null,
+    builtAt: readString(value.builtAt) ?? readString(value.actualBuiltAt) ?? null,
     sourceDirty: readBoolean(value.sourceDirty) ?? null,
     detail,
   };
@@ -1118,6 +1125,9 @@ function formatBrokerServiceStatus(status: BrokerServiceStatus): string {
 
   if (status.runtimeFreshness) {
     lines.push(`runtime freshness detail: ${status.runtimeFreshness.detail}`);
+    if (status.runtimeFreshness.reasonCode) {
+      lines.push(`runtime freshness reason: ${status.runtimeFreshness.reasonCode}`);
+    }
   }
 
   if (status.health.socketFallbackError) {
