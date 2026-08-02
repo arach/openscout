@@ -30,10 +30,13 @@ describe("native scoutd doctor helpers", () => {
             error: "connection refused",
           },
           runtimeFreshness: {
-            state: "stale",
+            state: "unverified",
             intentional: false,
-            basis: "workspace_head",
-            detail: "Running runtime commit old does not match expected commit new.",
+            basis: "explicit_pin",
+            reasonCode: "pin_mismatch",
+            actualBuiltAt: "2026-08-01T12:00:00.000Z",
+            expectedBuiltAt: null,
+            detail: "Running runtime commit old does not match explicit pin new.",
           },
         },
         warnings: [
@@ -61,7 +64,8 @@ describe("native scoutd doctor helpers", () => {
     const rendered = renderNativeScoutdDoctorSection(report);
     expect(rendered).toContain("Native daemon:");
     expect(rendered).toContain("multiple scout-broker processes found");
-    expect(rendered).toContain("Runtime freshness: stale");
+    expect(rendered).toContain("Runtime freshness: unverified");
+    expect(rendered).toContain("Runtime reason: pin_mismatch");
     expect(rendered).toContain("pid 42 ppid 1");
   });
 

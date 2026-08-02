@@ -52,7 +52,7 @@
       "commit": "1111111111111111111111111111111111111111",
       "version": "0.2.78",
       "sourceDirty": false,
-      "builtAt": null,
+      "builtAt": "2026-08-01T12:00:00.000Z",
       "manifestPath": "/opt/openscout/dist/build-manifest.json"
     },
     "scoutdPid": 4242,
@@ -80,9 +80,12 @@
     "pinReason": null,
     "manifestPath": "/opt/openscout/dist/build-manifest.json",
     "version": "0.2.78",
-    "builtAt": null,
+    "builtAt": "2026-08-01T12:00:00.000Z",
     "sourceDirty": false,
-    "detail": "The stale runtime is intentional for this fixture."
+    "detail": "The stale runtime is intentional for this fixture.",
+    "reasonCode": null,
+    "actualBuiltAt": "2026-08-01T12:00:00.000Z",
+    "expectedBuiltAt": "2026-08-02T12:00:00.000Z"
   },
   "probes": {
     "socketPath": "/Users/example/.openscout/run/scoutd-probes.sock",

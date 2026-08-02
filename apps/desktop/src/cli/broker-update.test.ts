@@ -23,7 +23,8 @@ const temporaryDirectories: string[] = [];
 const fixtureNames = [
   "scoutd-status-unverified.json",
   "scoutd-status-stale.json",
-  "scoutd-status-stale-intentional.json",
+  "scoutd-status-pinned.json",
+  "scoutd-status-pin-mismatch.json",
 ] as const;
 
 afterEach(() => {
@@ -152,7 +153,7 @@ describe("CLI broker update coordination", () => {
     expect(readFileSync(checkpointPath, "utf8")).toBe("2000");
   });
 
-  test("does not restart an intentional stale runtime", async () => {
+  test("does not restart an intentionally pinned runtime", async () => {
     const checkpointPath = temporaryCheckpointPath();
     const reports: string[] = [];
 
@@ -162,12 +163,36 @@ describe("CLI broker update coordination", () => {
       readCurrentMtime: () => 2_000,
       report: (message) => reports.push(message),
       restart: async () => ({ ok: true }),
-      status: async () => statusFromFixture("scoutd-status-stale-intentional.json"),
+      status: async () => statusFromFixture("scoutd-status-pinned.json"),
     });
 
     expect(reports).toHaveLength(1);
     expect(reports[0]).toContain(
-      "not authorized: state=stale intentional=true basis=installed_artifact",
+      "not authorized: state=pinned intentional=true basis=explicit_pin",
+    );
+  });
+
+  test("reports and does not restart when the running build contradicts an explicit pin", async () => {
+    const checkpointPath = temporaryCheckpointPath();
+    const reports: string[] = [];
+    let restartCount = 0;
+
+    await ensureBrokerUptodate({
+      checkpointPath,
+      debug: true,
+      readCurrentMtime: () => 2_000,
+      report: (message) => reports.push(message),
+      restart: async () => {
+        restartCount += 1;
+        return { ok: true };
+      },
+      status: async () => statusFromFixture("scoutd-status-pin-mismatch.json"),
+    });
+
+    expect(restartCount).toBe(0);
+    expect(reports).toHaveLength(1);
+    expect(reports[0]).toContain(
+      "not authorized: state=unverified intentional=false basis=explicit_pin reasonCode=pin_mismatch",
     );
   });
 

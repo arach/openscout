@@ -389,10 +389,13 @@ export async function ensureBrokerUptodate(options: EnsureBrokerUptodateOptions)
     }
 
     if (!shouldRestartBrokerForRuntimeFreshness(freshness)) {
+      const reasonCode = freshness.reasonCode
+        ? ` reasonCode=${freshness.reasonCode}`
+        : "";
       const detail = freshness.detail ? ` detail=${JSON.stringify(freshness.detail)}` : "";
       reportDebug(
         options,
-        `not authorized: state=${freshness.state} intentional=${freshness.intentional} basis=${freshness.basis}${detail}`,
+        `not authorized: state=${freshness.state} intentional=${freshness.intentional} basis=${freshness.basis}${reasonCode}${detail}`,
       );
       return;
     }

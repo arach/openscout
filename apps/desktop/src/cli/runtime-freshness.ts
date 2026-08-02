@@ -1,9 +1,16 @@
-export const RUNTIME_FRESHNESS_DECISION_KEYS = ["state", "intentional", "basis"] as const;
+export const RUNTIME_FRESHNESS_DECISION_KEYS = [
+  "state",
+  "intentional",
+  "basis",
+  "reasonCode",
+  "detail",
+] as const;
 
 export type ScoutdRuntimeFreshnessDecision = {
   state: string;
   intentional: boolean;
   basis: string;
+  reasonCode: string | null;
   detail: string | null;
 };
 
@@ -43,6 +50,7 @@ export function extractRuntimeFreshnessDecisionFromScoutdPayload(
     state,
     intentional: freshness.intentional,
     basis,
+    reasonCode: readNonEmptyString(freshness.reasonCode),
     detail: readNonEmptyString(freshness.detail),
   };
 }

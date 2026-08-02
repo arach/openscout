@@ -405,12 +405,17 @@ struct RuntimeFreshness {
     state: String,
     intentional: bool,
     basis: String,
+    reason_code: Option<String>,
     artifact_commit: Option<String>,
     expected_commit: Option<String>,
     pin: Option<String>,
     pin_reason: Option<String>,
     manifest_path: Option<String>,
     version: Option<String>,
+    actual_built_at: Option<String>,
+    expected_built_at: Option<String>,
+    // Backward-compatible alias for actual_built_at. New consumers should use
+    // the explicitly named fields above.
     built_at: Option<String>,
     source_dirty: Option<bool>,
     detail: String,
@@ -2710,6 +2715,22 @@ fn commits_match(left: &str, right: &str) -> bool {
         && (left == right || left.starts_with(right) || right.starts_with(left))
 }
 
+fn is_canonical_build_timestamp(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 24
+        && bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && bytes[10] == b'T'
+        && bytes[13] == b':'
+        && bytes[16] == b':'
+        && bytes[19] == b'.'
+        && bytes[23] == b'Z'
+        && [0..4, 5..7, 8..10, 11..13, 14..16, 17..19, 20..23]
+            .into_iter()
+            .flatten()
+            .all(|index| bytes[index].is_ascii_digit())
+}
+
 fn inspect_runtime_freshness(config: &Config, raw_daemon_state: Option<&str>) -> RuntimeFreshness {
     let configured = configured_runtime_artifact(config);
     let running = running_runtime_artifact(raw_daemon_state);
@@ -2725,6 +2746,11 @@ fn evaluate_runtime_freshness(
     pin_reason: Option<String>,
 ) -> RuntimeFreshness {
     let expected_commit = pin.clone().or_else(|| configured.commit.clone());
+    let expected_built_at = if pin.is_some() {
+        None
+    } else {
+        configured.built_at.clone()
+    };
     let basis = if pin.is_some() {
         "explicit_pin"
     } else if configured.mode == "source" {
@@ -2738,12 +2764,15 @@ fn evaluate_runtime_freshness(
             state: "unverified".to_string(),
             intentional: false,
             basis: basis.to_string(),
+            reason_code: None,
             artifact_commit: None,
             expected_commit,
             pin,
             pin_reason,
             manifest_path: configured.manifest_path,
             version: configured.version,
+            actual_built_at: None,
+            expected_built_at,
             built_at: configured.built_at,
             source_dirty: configured.source_dirty,
             detail: "No running runtime artifact identity is recorded; restart scoutd once to establish it.".to_string(),
@@ -2751,6 +2780,7 @@ fn evaluate_runtime_freshness(
     };
 
     let actual_commit = actual.commit.clone();
+    let actual_built_at = actual.built_at.clone();
     let Some((actual_commit_value, expected_commit_value)) =
         actual_commit.as_deref().zip(expected_commit.as_deref())
     else {
@@ -2758,13 +2788,16 @@ fn evaluate_runtime_freshness(
             state: "unverified".to_string(),
             intentional: false,
             basis: basis.to_string(),
+            reason_code: None,
             artifact_commit: actual_commit,
             expected_commit,
             pin,
             pin_reason,
             manifest_path: actual.manifest_path.or(configured.manifest_path),
             version: actual.version.or(configured.version),
-            built_at: actual.built_at,
+            actual_built_at: actual_built_at.clone(),
+            expected_built_at,
+            built_at: actual_built_at,
             source_dirty: actual.source_dirty,
             detail: if actual.commit.is_none() {
                 "The running runtime has no artifact commit; restart scoutd once after installing a runtime manifest to establish a comparable identity."
@@ -2777,10 +2810,11 @@ fn evaluate_runtime_freshness(
     };
     let matches_expected = commits_match(actual_commit_value, expected_commit_value);
 
-    let (state, intentional, detail) = if pin.is_some() && matches_expected {
+    let (state, intentional, reason_code, detail) = if pin.is_some() && matches_expected {
         (
             "pinned",
             true,
+            None,
             format!(
                 "Running the explicitly pinned runtime build{}.",
                 pin_reason
@@ -2789,34 +2823,74 @@ fn evaluate_runtime_freshness(
                     .unwrap_or_default()
             ),
         )
+    } else if pin.is_some() {
+        (
+            "unverified",
+            false,
+            Some("pin_mismatch"),
+            format!(
+                "Running runtime commit {actual_commit_value} does not match explicit pin {expected_commit_value}; automatic maintenance will not override an inconsistent pin."
+            ),
+        )
     } else if !matches_expected {
         (
             "stale",
             false,
+            None,
             format!(
                 "Running runtime commit {actual_commit_value} does not match expected commit {expected_commit_value}. Rebuild/restart, or set OPENSCOUT_RUNTIME_BUILD_PIN={actual_commit_value} with a reason to make the older build intentional."
             ),
         )
     } else if actual.mode == "bundle"
-        && configured.built_at.is_some()
-        && actual.built_at != configured.built_at
+        && expected_built_at.is_some()
+        && actual_built_at != expected_built_at
     {
-        (
-            "stale",
-            false,
-            "A newer bundle with the same source commit exists on disk; restart scoutd to run it."
-                .to_string(),
-        )
+        match (actual_built_at.as_deref(), expected_built_at.as_deref()) {
+            (Some(actual_timestamp), Some(expected_timestamp))
+                if is_canonical_build_timestamp(actual_timestamp)
+                    && is_canonical_build_timestamp(expected_timestamp)
+                    && actual_timestamp < expected_timestamp =>
+            {
+                (
+                    "stale",
+                    false,
+                    None,
+                    "A newer bundle with the same source commit exists on disk; restart scoutd to run it."
+                        .to_string(),
+                )
+            }
+            (Some(actual_timestamp), Some(expected_timestamp))
+                if is_canonical_build_timestamp(actual_timestamp)
+                    && is_canonical_build_timestamp(expected_timestamp) =>
+            {
+                (
+                    "unverified",
+                    false,
+                    Some("expected_build_older_than_running"),
+                    "The configured bundle is older than the running bundle with the same source commit; automatic maintenance will not downgrade it."
+                        .to_string(),
+                )
+            }
+            _ => (
+                "unverified",
+                false,
+                Some("build_timestamp_incomparable"),
+                "The running and configured bundles have different but non-comparable build timestamps; automatic maintenance cannot prove which artifact is newer."
+                    .to_string(),
+            ),
+        }
     } else if actual.mode == "source" && actual.source_dirty == Some(true) {
         (
             "unverified",
             false,
+            None,
             "The runtime started from a dirty source checkout; commit identity alone cannot prove that the currently loaded process includes every working-tree edit.".to_string(),
         )
     } else {
         (
             "current",
             false,
+            None,
             "The running runtime identity matches the configured source/artifact.".to_string(),
         )
     };
@@ -2825,13 +2899,16 @@ fn evaluate_runtime_freshness(
         state: state.to_string(),
         intentional,
         basis: basis.to_string(),
+        reason_code: reason_code.map(str::to_string),
         artifact_commit: actual_commit,
         expected_commit,
         pin,
         pin_reason,
         manifest_path: actual.manifest_path.or(configured.manifest_path),
         version: actual.version.or(configured.version),
-        built_at: actual.built_at,
+        actual_built_at: actual_built_at.clone(),
+        expected_built_at,
+        built_at: actual_built_at,
         source_dirty: actual.source_dirty,
         detail,
     }
@@ -3667,6 +3744,15 @@ mod tests {
             freshness.expected_commit.as_deref(),
             Some("new-runtime-commit")
         );
+        assert_eq!(freshness.reason_code, None);
+        assert_eq!(
+            freshness.actual_built_at.as_deref(),
+            Some("2026-08-01T12:00:00.000Z")
+        );
+        assert_eq!(
+            freshness.expected_built_at.as_deref(),
+            Some("2026-08-02T12:00:00.000Z")
+        );
     }
 
     #[test]
@@ -3691,6 +3777,124 @@ mod tests {
         assert_eq!(freshness.state, "stale");
         assert_eq!(freshness.basis, "installed_artifact");
         assert!(freshness.detail.contains("newer bundle"));
+        assert_eq!(
+            freshness.actual_built_at.as_deref(),
+            Some("2026-08-01T12:00:00.000Z")
+        );
+        assert_eq!(
+            freshness.expected_built_at.as_deref(),
+            Some("2026-08-02T12:00:00.000Z")
+        );
+        assert_eq!(freshness.built_at, freshness.actual_built_at);
+        let serialized = serde_json::to_value(&freshness).expect("serialize freshness");
+        assert_eq!(serialized["actualBuiltAt"], "2026-08-01T12:00:00.000Z");
+        assert_eq!(serialized["expectedBuiltAt"], "2026-08-02T12:00:00.000Z");
+    }
+
+    #[test]
+    fn runtime_freshness_does_not_downgrade_same_commit_bundle() {
+        let freshness = evaluate_runtime_freshness(
+            runtime_artifact(
+                "bundle",
+                Some("same-runtime-commit"),
+                Some("2026-08-01T12:00:00.000Z"),
+                Some(false),
+            ),
+            Some(runtime_artifact(
+                "bundle",
+                Some("same-runtime-commit"),
+                Some("2026-08-02T12:00:00.000Z"),
+                Some(false),
+            )),
+            None,
+            None,
+        );
+
+        assert_eq!(freshness.state, "unverified");
+        assert_eq!(
+            freshness.reason_code.as_deref(),
+            Some("expected_build_older_than_running")
+        );
+        assert!(freshness.detail.contains("will not downgrade"));
+    }
+
+    #[test]
+    fn runtime_freshness_rejects_incomparable_same_commit_build_timestamps() {
+        let freshness = evaluate_runtime_freshness(
+            runtime_artifact(
+                "bundle",
+                Some("same-runtime-commit"),
+                Some("not-a-timestamp"),
+                Some(false),
+            ),
+            Some(runtime_artifact(
+                "bundle",
+                Some("same-runtime-commit"),
+                Some("2026-08-01T12:00:00.000Z"),
+                Some(false),
+            )),
+            None,
+            None,
+        );
+
+        assert_eq!(freshness.state, "unverified");
+        assert_eq!(
+            freshness.reason_code.as_deref(),
+            Some("build_timestamp_incomparable")
+        );
+    }
+
+    #[test]
+    fn runtime_freshness_marks_matching_explicit_pin_intentional() {
+        let freshness = evaluate_runtime_freshness(
+            runtime_artifact(
+                "bundle",
+                Some("configured-runtime-commit"),
+                Some("2026-08-02T12:00:00.000Z"),
+                Some(false),
+            ),
+            Some(runtime_artifact(
+                "bundle",
+                Some("pinned-runtime-commit"),
+                Some("2026-08-01T12:00:00.000Z"),
+                Some(false),
+            )),
+            Some("pinned-runtime-commit".to_string()),
+            Some("bisecting a regression".to_string()),
+        );
+
+        assert_eq!(freshness.state, "pinned");
+        assert!(freshness.intentional);
+        assert_eq!(freshness.basis, "explicit_pin");
+        assert_eq!(freshness.reason_code, None);
+    }
+
+    #[test]
+    fn runtime_freshness_keeps_explicit_pin_mismatch_unverified() {
+        let freshness = evaluate_runtime_freshness(
+            runtime_artifact(
+                "bundle",
+                Some("configured-runtime-commit"),
+                Some("2026-08-02T12:00:00.000Z"),
+                Some(false),
+            ),
+            Some(runtime_artifact(
+                "bundle",
+                Some("running-runtime-commit"),
+                Some("2026-08-01T12:00:00.000Z"),
+                Some(false),
+            )),
+            Some("pinned-runtime-commit".to_string()),
+            Some("operator hold".to_string()),
+        );
+
+        assert_eq!(freshness.state, "unverified");
+        assert!(!freshness.intentional);
+        assert_eq!(freshness.basis, "explicit_pin");
+        assert_eq!(freshness.reason_code.as_deref(), Some("pin_mismatch"));
+        assert!(freshness.detail.contains("will not override"));
+        let serialized = serde_json::to_value(&freshness).expect("serialize freshness");
+        assert_eq!(serialized["reasonCode"], "pin_mismatch");
     }
 
     #[test]

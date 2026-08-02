@@ -54,6 +54,9 @@ export type NativeScoutdDoctorReport = {
       state: string;
       intentional: boolean | null;
       basis: string | null;
+      reasonCode: string | null;
+      actualBuiltAt: string | null;
+      expectedBuiltAt: string | null;
       detail: string | null;
     } | null;
   } | null;
@@ -444,6 +447,9 @@ function readStatus(raw: unknown): NativeScoutdDoctorReport["status"] {
           state: readString(runtimeFreshness.state)!,
           intentional: readBoolean(runtimeFreshness.intentional),
           basis: readString(runtimeFreshness.basis),
+          reasonCode: readString(runtimeFreshness.reasonCode),
+          actualBuiltAt: readString(runtimeFreshness.actualBuiltAt),
+          expectedBuiltAt: readString(runtimeFreshness.expectedBuiltAt),
           detail: readString(runtimeFreshness.detail),
         }
       : null,
@@ -628,6 +634,9 @@ export function renderNativeScoutdDoctorSection(report: NativeScoutdDoctorReport
       );
       if (status.runtimeFreshness.detail) {
         lines.push(`  Runtime detail: ${status.runtimeFreshness.detail}`);
+      }
+      if (status.runtimeFreshness.reasonCode) {
+        lines.push(`  Runtime reason: ${status.runtimeFreshness.reasonCode}`);
       }
     }
   }
