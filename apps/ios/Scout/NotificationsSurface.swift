@@ -51,7 +51,7 @@ struct NotificationsSurface: View {
                 header
                 content
             }
-            .background(HudPalette.bg.ignoresSafeArea())
+            .background(ScoutPalette.bg.ignoresSafeArea())
             .navigationBarHidden(true)
             .navigationDestination(for: Destination.self) { destination in
                 switch destination {
@@ -77,7 +77,6 @@ struct NotificationsSurface: View {
                 }
             }
         }
-        .preferredColorScheme(.dark)
         .task {
             await refresh()
             focusIfNeeded()
@@ -94,7 +93,7 @@ struct NotificationsSurface: View {
                         .foregroundStyle(ScoutInk.muted)
                         .frame(width: 30, height: 30)
                         .background(Circle().fill(ScoutSurface.inset))
-                        .overlay(Circle().stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin))
+                        .overlay(Circle().stroke(ScoutHairline.standard, lineWidth: HudStrokeWidth.thin))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Close notifications")
@@ -126,7 +125,7 @@ struct NotificationsSurface: View {
             .padding(.vertical, HudSpacing.sm)
 
             Rectangle()
-                .fill(HudHairline.standard)
+                .fill(ScoutHairline.standard)
                 .frame(height: HudStrokeWidth.thin)
         }
     }
@@ -150,7 +149,7 @@ struct NotificationsSurface: View {
                         Text(scopeLabel(candidate).uppercased())
                             .font(HudFont.mono(HudTextSize.xxs, weight: .medium))
                             .tracking(1.2)
-                            .foregroundStyle(selected ? HudPalette.ink : ScoutInk.dim)
+                            .foregroundStyle(selected ? ScoutPalette.ink : ScoutInk.dim)
                         Text("\(count)")
                             .font(HudFont.mono(HudTextSize.micro, weight: .medium))
                             .monospacedDigit()
@@ -197,7 +196,7 @@ struct NotificationsSurface: View {
                         ForEach(Array(rows.enumerated()), id: \.element.id) { index, entry in
                             if index > 0 {
                                 Rectangle()
-                                    .fill(HudHairline.subtle)
+                                    .fill(ScoutHairline.subtle)
                                     .frame(height: HudStrokeWidth.thin)
                                     .padding(.leading, HudSpacing.xl)
                             }
@@ -539,7 +538,7 @@ private struct NotificationStateTag: View {
             .padding(.vertical, 1.5)
             .overlay(
                 RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .stroke(entry.state.isOurs ? ScoutVibe.hairline : HudHairline.subtle,
+                    .stroke(entry.state.isOurs ? ScoutVibe.hairline : ScoutHairline.subtle,
                             lineWidth: HudStrokeWidth.thin)
             )
     }
@@ -595,7 +594,7 @@ private struct NotificationActions: View {
             Button(action: onOpenChat) {
                 Text("Open chat")
                     .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
-                    .foregroundStyle(HudPalette.bg)
+                    .foregroundStyle(ScoutPalette.bg)
                     .padding(.horizontal, HudSpacing.md)
                     .padding(.vertical, 5)
                     .background(
@@ -612,7 +611,7 @@ private struct NotificationActions: View {
                 Button(action: onAnswer) {
                     Text("Answer")
                         .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
-                        .foregroundStyle(HudPalette.bg)
+                        .foregroundStyle(ScoutPalette.bg)
                         .padding(.horizontal, HudSpacing.md)
                         .padding(.vertical, 5)
                         .background(
@@ -667,7 +666,7 @@ private struct NotificationActions: View {
         Button { Task { await action() } } label: {
             Text(title)
                 .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
-                .foregroundStyle(prominent ? HudPalette.bg : ScoutInk.muted)
+                .foregroundStyle(prominent ? ScoutPalette.bg : ScoutInk.muted)
                 .padding(.horizontal, HudSpacing.md)
                 .padding(.vertical, 5)
                 .background(
@@ -829,7 +828,7 @@ private struct NotificationDetailView: View {
                 .padding(.horizontal, layout.surfacePadding)
                 .padding(.vertical, HudSpacing.lg)
             } else {
-                HudEmptyState(
+                ScoutEmptyState(
                     title: "Notification unavailable",
                     subtitle: "This entry is no longer in the ledger.",
                     icon: "bell.slash"
@@ -837,7 +836,7 @@ private struct NotificationDetailView: View {
                 .padding(HudSpacing.xxl)
             }
         }
-        .background(HudPalette.bg.ignoresSafeArea())
+        .background(ScoutPalette.bg.ignoresSafeArea())
         .navigationTitle("Notification")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -851,7 +850,7 @@ private struct NotificationDetailView: View {
         let store = model.notifications
         VStack(spacing: 0) {
             Rectangle()
-                .fill(HudHairline.subtle)
+                .fill(ScoutHairline.subtle)
                 .frame(height: HudStrokeWidth.thin)
                 .padding(.bottom, HudSpacing.sm)
             HStack(spacing: HudSpacing.md) {
@@ -892,7 +891,7 @@ private struct NotificationDetailView: View {
     private func provenance(_ entry: ScoutNotification) -> some View {
         VStack(spacing: 0) {
             Rectangle()
-                .fill(HudHairline.subtle)
+                .fill(ScoutHairline.subtle)
                 .frame(height: HudStrokeWidth.thin)
                 .padding(.bottom, HudSpacing.sm)
             provenanceRow("state", value: stateValue(entry), accent: entry.isOpen)

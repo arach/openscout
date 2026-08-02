@@ -33,7 +33,9 @@ struct AppSettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var tab: String
+    @AppStorage(ScoutAppearance.storageKey) private var appearance = ScoutAppearance.default.rawValue
     @AppStorage(ScoutTone.storageKey) private var tone = ScoutTone.default.rawValue
+    @AppStorage(ScoutTailLayout.storageKey) private var tailLayout = ScoutTailLayout.default.rawValue
     @AppStorage(ScoutNavMode.storageKey) private var navMode = ScoutNavMode.default.rawValue
     @AppStorage(ScoutHomeStyle.storageKey) private var homeStyle = ScoutHomeStyle.default.rawValue
     @State private var renamingMachine: AppModel.PairedMachine?
@@ -180,15 +182,29 @@ struct AppSettingsView: View {
                 }
             }
         case .tail:
-            surfaceContextPanel(
-                title: "Tail",
-                rows: [
-                    ("Source", "Recent activity", "all reachable Macs"),
-                    ("Window", "50 events", "historical snapshot + live updates"),
-                    ("Refresh", "5 seconds", "poll interval"),
-                    ("Follow", "Automatic", "detach when you scroll away")
-                ]
-            )
+            VStack(alignment: .leading, spacing: 0) {
+                HudInspectorSection("Tail") {
+                    HudInspectorCycleRow(
+                        "Layout",
+                        selection: $tailLayout,
+                        choices: ScoutTailLayout.allCases.map {
+                            HudInspectorChoice(id: $0.rawValue, title: $0.title)
+                        },
+                        hint: "group provenance into bursts, or show every line"
+                    )
+                    HudInspectorFieldRow("Source", value: "Recent activity", hint: "all reachable Macs")
+                    HudInspectorFieldRow("Window", value: "50 events", hint: "historical snapshot + live updates")
+                    HudInspectorFieldRow("Refresh", value: "5 seconds", hint: "poll interval")
+                    HudInspectorFieldRow("Follow", value: "Automatic", hint: "detach when you scroll away")
+                }
+                HudInspectorSection("About") {
+                    HudInspectorFieldRow(
+                        "Context",
+                        value: "Active surface",
+                        hint: "shared app settings remain available in the rail"
+                    )
+                }
+            }
         case .home:
             VStack(alignment: .leading, spacing: 0) {
                 HudInspectorSection("Home") {
@@ -359,11 +375,11 @@ struct AppSettingsView: View {
                 .padding(HudSpacing.md)
                 .background(
                     RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                        .fill(Color.black.opacity(0.4))
+                        .fill(ScoutSignalSurface.bottom)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                        .strokeBorder(HudHairline.standard, lineWidth: HudStrokeWidth.thin)
+                        .strokeBorder(ScoutHairline.standard, lineWidth: HudStrokeWidth.thin)
                 )
                 #if canImport(UIKit)
                 HudInspectorActionRow(
@@ -592,15 +608,22 @@ struct AppSettingsView: View {
     private var appearancePanel: some View {
         VStack(alignment: .leading, spacing: 0) {
             HudInspectorSection("Canvas") {
+                HudInspectorCycleRow(
+                    "Mode",
+                    selection: $appearance,
+                    choices: ScoutAppearance.allCases.map {
+                        HudInspectorChoice(id: $0.rawValue, title: $0.title)
+                    },
+                    hint: "light, dark, or follow this iPhone"
+                )
                 // Live control: cycling re-tones the whole app (canvas + cards
                 // read the same `scout.tone` default) without leaning on accent.
                 HudInspectorCycleRow(
                     "Tone",
                     selection: $tone,
                     choices: ScoutTone.allCases.map { HudInspectorChoice(id: $0.rawValue, title: $0.title) },
-                    hint: "warm or cool the charcoal"
+                    hint: "warm or cool the surface neutrals"
                 )
-                HudInspectorFieldRow("Mode", value: "Dark", hint: "cockpit, always")
             }
             HudInspectorSection("Navigation") {
                 // Opt-in: swaps the tab bar + status strip for the summonable crown.
@@ -741,11 +764,11 @@ struct AppSettingsView: View {
                 .padding(.horizontal, HudSpacing.md)
                 .background(
                     RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                        .fill(Color.black.opacity(0.4))
+                        .fill(ScoutSignalSurface.bottom)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                        .strokeBorder(HudHairline.standard, lineWidth: HudStrokeWidth.thin)
+                        .strokeBorder(ScoutHairline.standard, lineWidth: HudStrokeWidth.thin)
                 )
 
                 #if canImport(UIKit)
@@ -755,7 +778,7 @@ struct AppSettingsView: View {
                             Text("OPEN LOG")
                                 .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                                 .tracking(0.8)
-                                .foregroundStyle(HudPalette.accent)
+                                .foregroundStyle(ScoutPalette.accent)
                         }
                         .buttonStyle(.plain)
 
@@ -763,7 +786,7 @@ struct AppSettingsView: View {
                             Text(copiedLogs ? "COPIED" : "COPY LOG")
                                 .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                                 .tracking(0.8)
-                                .foregroundStyle(HudPalette.accent)
+                                .foregroundStyle(ScoutPalette.accent)
                         }
                         .buttonStyle(.plain)
                     }
@@ -801,13 +824,13 @@ struct AppSettingsView: View {
         // would render it muted — make those events read as a warning regardless,
         // matching ConnectionView's event-aware coloring.
         switch entry.event {
-        case .routeDisabled, .routeUnavailable, .reconnect, .network: return HudPalette.statusWarn
+        case .routeDisabled, .routeUnavailable, .reconnect, .network: return ScoutPalette.statusWarn
         default: break
         }
         switch entry.level {
-        case .error:   return HudPalette.statusError
-        case .warning: return HudPalette.statusWarn
-        case .success: return HudPalette.accent
+        case .error:   return ScoutPalette.statusError
+        case .warning: return ScoutPalette.statusWarn
+        case .success: return ScoutPalette.accent
         case .info:    return entry.event == .lifecycle ? ScoutInk.dim : ScoutInk.muted
         }
     }
@@ -970,27 +993,26 @@ private struct BrokerRequestLogViewer: View {
             VStack(spacing: 0) {
                 header
                 Divider()
-                    .overlay(HudHairline.subtle)
+                    .overlay(ScoutHairline.subtle)
                 requestList
             }
-            .background(HudPalette.bg)
+            .background(ScoutPalette.bg)
             .navigationTitle("Broker requests")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Done") { dismiss() }
                         .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                        .foregroundStyle(HudPalette.accent)
+                        .foregroundStyle(ScoutPalette.accent)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Clear") { log.clear() }
                         .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                        .foregroundStyle(HudPalette.statusWarn)
+                        .foregroundStyle(ScoutPalette.statusWarn)
                         .disabled(log.entries.isEmpty)
                 }
             }
         }
-        .preferredColorScheme(.dark)
     }
 
     private var header: some View {
@@ -998,7 +1020,7 @@ private struct BrokerRequestLogViewer: View {
             HStack(spacing: HudSpacing.md) {
                 Text("\(log.entries.count) recent")
                     .font(HudFont.mono(HudTextSize.sm, weight: .semibold))
-                    .foregroundStyle(HudPalette.ink)
+                    .foregroundStyle(ScoutPalette.ink)
                 Spacer()
                 Text("MAX 200")
                     .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
@@ -1040,12 +1062,12 @@ private struct BrokerRequestLogViewer: View {
                 Text(requestTime(entry))
                     .foregroundStyle(ScoutInk.dim)
                 Text(entry.operation)
-                    .foregroundStyle(HudPalette.ink)
+                    .foregroundStyle(ScoutPalette.ink)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: HudSpacing.sm)
                 Text(entry.outcome == .success ? "OK" : "FAIL")
-                    .foregroundStyle(entry.outcome == .success ? HudPalette.accent : HudPalette.statusError)
+                    .foregroundStyle(entry.outcome == .success ? ScoutPalette.accent : ScoutPalette.statusError)
             }
             .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
 
@@ -1057,7 +1079,7 @@ private struct BrokerRequestLogViewer: View {
                 Text("· \(durationLabel(entry.durationMilliseconds))")
                 if let failure = entry.failureCategory {
                     Text("· \(failure)")
-                        .foregroundStyle(HudPalette.statusWarn)
+                        .foregroundStyle(ScoutPalette.statusWarn)
                 }
             }
             .font(HudFont.mono(HudTextSize.micro))
@@ -1066,7 +1088,7 @@ private struct BrokerRequestLogViewer: View {
         .padding(.vertical, HudSpacing.md)
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(HudHairline.subtle)
+                .fill(ScoutHairline.subtle)
                 .frame(height: HudStrokeWidth.thin)
         }
         .accessibilityElement(children: .combine)
@@ -1094,21 +1116,20 @@ private struct ConnectionLogViewer: View {
             VStack(spacing: 0) {
                 logHeader
                 Divider()
-                    .overlay(HudHairline.subtle)
+                    .overlay(ScoutHairline.subtle)
                 logBody
             }
-            .background(HudPalette.bg)
+            .background(ScoutPalette.bg)
             .navigationTitle("Connection log")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Done") { dismiss() }
                         .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                        .foregroundStyle(HudPalette.accent)
+                        .foregroundStyle(ScoutPalette.accent)
                 }
             }
         }
-        .preferredColorScheme(.dark)
     }
 
     private var logHeader: some View {
@@ -1116,7 +1137,7 @@ private struct ConnectionLogViewer: View {
             HudStatusDot(color: model.statusTint, size: 8, pulses: model.statusPulses)
             Text(model.statusShortLabel)
                 .font(HudFont.ui(HudTextSize.sm, weight: .medium))
-                .foregroundStyle(HudPalette.ink)
+                .foregroundStyle(ScoutPalette.ink)
                 .lineLimit(1)
             Spacer()
             Text("\(model.connectionLog.entries.count) entries")
@@ -1141,13 +1162,13 @@ private struct TailnetPairTargetRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: HudSpacing.sm) {
-            HudStatusDot(color: target.isOnline ? HudPalette.accent : ScoutInk.dim, size: 7, pulses: target.isOnline)
+            HudStatusDot(color: target.isOnline ? ScoutPalette.accent : ScoutInk.dim, size: 7, pulses: target.isOnline)
                 .frame(width: 12)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(target.displayName)
                     .font(HudFont.ui(HudTextSize.md))
-                    .foregroundStyle(target.isOnline ? HudPalette.ink : ScoutInk.muted)
+                    .foregroundStyle(target.isOnline ? ScoutPalette.ink : ScoutInk.muted)
                     .lineLimit(1)
                 Text(target.detail)
                     .font(HudFont.mono(HudTextSize.micro))
@@ -1162,13 +1183,13 @@ private struct TailnetPairTargetRow: View {
                 Text(isPairing ? "PAIRING" : "PAIR")
                     .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                     .tracking(0.8)
-                    .foregroundStyle(target.isOnline ? HudPalette.accent : ScoutInk.dim)
+                    .foregroundStyle(target.isOnline ? ScoutPalette.accent : ScoutInk.dim)
                     .padding(.horizontal, HudSpacing.sm)
                     .padding(.vertical, HudSpacing.xxs)
                     .overlay(
                         Capsule()
                             .strokeBorder(
-                                HudSurface.tintBorder(target.isOnline ? HudPalette.accent : ScoutInk.dim),
+                                HudSurface.tintBorder(target.isOnline ? ScoutPalette.accent : ScoutInk.dim),
                                 lineWidth: HudStrokeWidth.thin
                             )
                     )
@@ -1179,7 +1200,7 @@ private struct TailnetPairTargetRow: View {
         .frame(height: HudLayout.rowHeightRegular)
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(HudHairline.subtle)
+                .fill(ScoutHairline.subtle)
                 .frame(height: HudStrokeWidth.thin)
         }
         .accessibilityElement(children: .combine)
@@ -1212,13 +1233,13 @@ private struct MacConnectionRow: View {
             HStack(alignment: .center, spacing: HudSpacing.sm) {
                 Text(machine.name)
                     .font(HudFont.ui(HudTextSize.md))
-                    .foregroundStyle(machine.isOnline ? HudPalette.ink : ScoutInk.muted)
+                    .foregroundStyle(machine.isOnline ? ScoutPalette.ink : ScoutInk.muted)
                     .lineLimit(1)
                     .layoutPriority(2)
 
                 Text("· \(hint)")
                     .font(HudFont.ui(HudTextSize.sm, weight: .light))
-                    .foregroundStyle(machine.isActive ? HudPalette.accent : ScoutInk.dim)
+                    .foregroundStyle(machine.isActive ? ScoutPalette.accent : ScoutInk.dim)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .layoutPriority(0)
@@ -1238,13 +1259,13 @@ private struct MacConnectionRow: View {
                     Text("FORGET")
                         .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                         .tracking(0.8)
-                        .foregroundStyle(HudPalette.accent)
+                        .foregroundStyle(ScoutPalette.accent)
                         .padding(.horizontal, HudSpacing.sm)
                         .padding(.vertical, HudSpacing.xxs)
                         .overlay(
                             Capsule()
                                 .strokeBorder(
-                                    HudSurface.tintBorder(HudPalette.accent),
+                                    HudSurface.tintBorder(ScoutPalette.accent),
                                     lineWidth: HudStrokeWidth.thin
                                 )
                         )
@@ -1256,7 +1277,7 @@ private struct MacConnectionRow: View {
         .frame(height: HudLayout.rowHeightRegular)
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(HudHairline.subtle)
+                .fill(ScoutHairline.subtle)
                 .frame(height: HudStrokeWidth.thin)
         }
         .contentShape(Rectangle())
@@ -1275,11 +1296,11 @@ private struct MacConnectionRow: View {
     private var statusColor: Color {
         switch machine.connectionState {
         case .connected:
-            return HudPalette.accent
+            return ScoutPalette.accent
         case .connecting:
-            return HudPalette.statusWarn
+            return ScoutPalette.statusWarn
         case .failed:
-            return HudPalette.statusError
+            return ScoutPalette.statusError
         case .idle:
             return ScoutInk.dim
         }
@@ -1288,11 +1309,11 @@ private struct MacConnectionRow: View {
     private var valueTint: Color {
         switch machine.connectionState {
         case .connected:
-            return HudPalette.accent
+            return ScoutPalette.accent
         case .connecting:
-            return HudPalette.statusWarn
+            return ScoutPalette.statusWarn
         case .failed:
-            return HudPalette.statusError
+            return ScoutPalette.statusError
         case .idle:
             return ScoutInk.dim
         }

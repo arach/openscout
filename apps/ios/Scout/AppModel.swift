@@ -2484,15 +2484,15 @@ final class AppModel {
 
     var statusTint: Color {
         if !networkAvailable, reconnectMachineId != nil || reconnectAttempt > 0 {
-            return HudPalette.statusWarn
+            return ScoutPalette.statusWarn
         }
         if reconnectAttempt > 0 || nextReconnectAt != nil {
-            return HudPalette.statusWarn
+            return ScoutPalette.statusWarn
         }
         switch connectionState {
-        case .connected: return HudPalette.accent
+        case .connected: return ScoutPalette.accent
         case .connecting: return ScoutInk.muted
-        case .failed: return HudPalette.statusError
+        case .failed: return ScoutPalette.statusError
         case .idle: return ScoutInk.muted
         }
     }

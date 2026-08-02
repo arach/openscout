@@ -1,7 +1,15 @@
 ---
 name: Scout for iOS
-description: The phone dialect of the Lit Control Room — a genuinely lit cockpit canvas with tone, grain, and chamfered signal instrumentation.
+description: The adaptive phone dialect of the Lit Control Room — warm paper by day, a genuinely lit cockpit after dark, and chamfered signal instrumentation in both.
 colors:
+  light-canvas: "rgb(246, 243, 237)"
+  light-surface: "rgb(255, 253, 249)"
+  light-chrome: "rgb(242, 238, 230)"
+  light-ink: "rgb(35, 33, 29)"
+  light-muted: "rgb(88, 83, 75)"
+  light-dim: "rgb(105, 99, 90)"
+  light-border: "rgb(205, 197, 184)"
+  light-accent: "rgb(7, 120, 91)"
   warm-canvas-top: "rgb(16, 14, 11)"
   warm-canvas-floor: "rgb(6, 5, 4)"
   warm-key-light: "rgb(255, 240, 219)"
@@ -109,31 +117,30 @@ components:
 literal of the three.
 
 Where web and macOS express the control room through restraint, iOS expresses it
-through **light and material**. The phone is held close, glanced at in seconds,
-and usually read in a dark room; a flat near-black would look dead at that
-distance. So the canvas is genuinely lit: a faint top key-light over a deep floor,
-a fine film grain composited in soft-light, gradient card fills with solid lifted
-edges, and shallow drop shadows. This is a peer depth doctrine, not an exception
-to the system.
+through **light and material**. The phone is held close and glanced at in many
+ambient conditions, so appearance is a first-class axis: warm paper in Light and
+a genuinely lit cockpit in Dark. Light is not a color inversion; it is ivory
+canvas, parchment surfaces, dark ink, restrained edges, and shallow shadows. Dark
+keeps the faint top key-light, deep floor, film grain, lifted cards, and graphite
+depth that established the surface.
 
 The canvas also has **temperature**. Three user-selectable tones — Warm (default),
-Neutral, Cool — shift the key-light, the canvas top and floor, and every card and
-inset fill together by a few points. Crucially the warmth lives in the *neutrals*,
-not in the accent: Warm pairs an amber key-light against a cool emerald accent for
-a deliberate temperature contrast, and Neutral reproduces the original de-greened
-palette exactly.
+Neutral, Cool — shift the canvas, key-light, cards, and inset fills together in
+either appearance. Crucially the warmth lives in the *neutrals*, not the accent.
+Appearance defaults to Light; operators can choose Dark or System in Settings.
 
 The surface's signature is the **signal panel** — a chamfered eight-sided frame
 with corner registration marks and a single datum line. It is the sharpest
-statement of the instrument metaphor anywhere in Scout, and it deliberately
-refuses the canvas tone: signal panels sit on neutral graphite even when the room
-is warm, because instrumentation should not look like furniture.
+statement of the instrument metaphor anywhere in Scout. Signal panels remain
+neutral rather than following Warm/Cool: graphite in Dark and instrument paper in
+Light, because instrumentation should not look like furniture.
 
 **Key Characteristics:**
 
-- A lit canvas: key-light, deep floor, and 2.8%-opacity film grain
+- Light-default appearance with Light / Dark / System controls
+- Warm ivory paper by day; key-light, deep floor, and 2.8%-opacity grain in Dark
 - Three canvas tones (Warm default / Neutral / Cool) that move the neutrals, not the accent
-- Solid toned fills everywhere — white-alpha is banned on dark surfaces
+- Solid semantic fills everywhere — no hardcoded dark pixels in Scout surfaces
 - Emerald→teal accent gradient so the accent reads as one light source
 - A second, brighter "Vibe" palette scoped to the Home dashboard
 - Chamfered signal panels with registration marks and a state-carrying datum
@@ -148,10 +155,16 @@ is warm, because instrumentation should not look like furniture.
   shared by the brand mark and primary CTAs so the accent reads as a single light
   source rather than a flat fill.
 
-### Neutral — the three tones
+### Appearance and neutral tones
 
-Each tone is a complete eight-token set. Values below are Warm (the default);
-Neutral and Cool shift the same slots.
+Light starts at canvas `rgb(246,243,237)`, surface `rgb(255,253,249)`, and chrome
+`rgb(242,238,230)`, with ink `rgb(35,33,29)`. The accent deepens to
+`rgb(7,120,91)` so small text and controls clear contrast on paper. Status colors
+also use their deeper light variants. Dark preserves the established palette.
+
+Each tone is a complete eight-token set in both appearances. Values below describe
+the Dark Warm set; Neutral and Cool shift the same slots, while Light maps those
+slots to ivory, parchment, or cool paper.
 
 - **Canvas top** (`rgb(16,14,11)`) → **canvas floor** (`rgb(6,5,4)`): a vertical
   wash so the screen reads lit rather than printed.
@@ -168,25 +181,29 @@ Neutral and Cool shift the same slots.
 
 ### Text
 
-- **Muted** (`rgb(184,184,184)`) and **Dim** (`rgb(150,150,150)`): both lifted a
+- **Dark Muted** (`rgb(184,184,184)`) and **Dark Dim** (`rgb(150,150,150)`): both lifted a
   notch above the shared HudsonKit values, which sat at or below the AA floor for
   small mono labels on the near-black canvas. This is app-level only — the shared
   palette and the macOS app are untouched.
+- **Light Muted** (`rgb(88,83,75)`) and **Light Dim** (`rgb(105,99,90)`): warm
+  dark neutrals that remain legible on paper without reading as pure black.
 
 ### Tertiary — the Vibe palette
 
-Home's fleet dashboard runs a brighter, higher-energy set that pops against the
-dark canvas: **Lime** (`#9ce86b`) as the canvas signature, **Amber** (`#f2b34d`)
+Home's fleet dashboard runs a higher-energy set. Dark uses **Lime** (`#9ce86b`)
+as the canvas signature and **Amber** (`#f2b34d`)
 for permission/confirm, **Coral** (`#f2725b`) for blocked, **Sky** (`#7cc4f2`) for
 decision, a brighter **ink** (`#eef0f2`), a crisper **hairline** (`rgb(58,58,62)`),
-and a deliberately **neutral** card fill (`rgb(34,34,37)`) — because the tone's
-warm `cardTop` reads brownish at dashboard density.
+and a deliberately **neutral** card fill (`rgb(34,34,37)`). Light resolves the
+same roles to darker accessible hues on an off-white card; status meaning does
+not change with appearance.
 
 ### Signal surface
 
-A narrower, deliberately non-tonal set for instrumentation: top `rgb(19,21,22)`,
-bottom `rgb(11,13,14)`, edge `rgb(58,62,63)`, rule `rgb(42,46,47)`, neutral mark
-`rgb(118,124,125)`.
+A narrower, deliberately non-tonal set for instrumentation. Dark uses graphite:
+top `rgb(19,21,22)`, bottom `rgb(11,13,14)`, edge `rgb(58,62,63)`. Light uses
+instrument paper: top `rgb(255,254,250)`, bottom `rgb(243,239,231)`, edge
+`rgb(195,188,176)`.
 
 ### Named Rules
 
@@ -194,13 +211,12 @@ bottom `rgb(11,13,14)`, edge `rgb(58,62,63)`, rule `rgb(42,46,47)`, neutral mark
 cards, and insets — never to the accent. A tone change must not shift what the
 accent means or how status reads.
 
-**The No-White-Alpha Rule.** Chips, pills, fields, insets, and card edges use
-solid toned fills, never `white.opacity()`. White alpha desaturates the tone back
-to grey, which is precisely what the tone system exists to prevent. This is the
-single most load-bearing color rule on this surface.
+**The Semantic-Pixel Rule.** Chips, pills, fields, insets, text, and card edges
+resolve through Scout's adaptive palette. Do not introduce raw dark-only fills or
+white-alpha controls; both break one appearance and desaturate the tone system.
 
-**The Signal-Stays-Graphite Rule.** Signal panels keep their neutral graphite
-plane regardless of the active canvas tone. A warm room must not turn the
+**The Signal-Stays-Neutral Rule.** Signal panels ignore the Warm/Cool canvas tone:
+graphite in Dark, instrument paper in Light. A warm room must not turn the
 instruments brown.
 
 **The Vibe-Is-Scoped Rule.** The Vibe palette belongs to Home's fleet dashboard.
@@ -245,8 +261,10 @@ system's expression:
 
 - Content lays out inside the **safe-area insets**. Nothing sits under the Dynamic
   Island, the home indicator, or the rounded corners.
-- The **tab bar** carries top-level sections (Home · Agents · New · Tail ·
-  Terminal), never actions. Hierarchy uses a navigation stack; self-contained
+- The floating **tab rail** carries top-level sections (Home · Agents · Tail ·
+  Comms · Shell · New), never actions. It is a tall system-glass capsule with
+  one fixed-width tinted-glass selection seat per column; the seat never changes
+  shape to fit a longer label. Hierarchy uses a navigation stack; self-contained
   tasks use sheets.
 - The **left-edge back gesture** stays alive. It is never disabled or overlaid.
 - Every tappable control clears **44×44pt** with breathing room between adjacent
@@ -262,6 +280,10 @@ first-activation choreography.
 
 The canvas key-light animates on a 1.4–1.6s ease-in-out when fleet-live state
 changes. Everything is gated on `accessibilityReduceMotion`.
+
+Tab selection is the intentionally faster exception: the seat travels on a
+short `spring(response: 0.18, dampingFraction: 0.88)` while the destination
+crossfades in 100ms. It should feel attached to the finger, not choreographed.
 
 ### Named Rules
 
@@ -301,6 +323,10 @@ edge, because instrumentation should sit *in* the panel rather than float above 
 - **Card lift** (`color: black 33%, radius: 9, y: 3`): genuine cards and
   containers.
 - **Signal lift** (`color: black 24%, radius: 4, y: 2`): instrument frames.
+- **Light floating chrome**: a broad warm ambient shadow around 10% plus a tiny
+  7–8% contact shadow. Never use one dense black halo on paper.
+- **Floating tab rail**: native regular Liquid Glass, a faint semantic backing,
+  and a top-to-bottom rim. Do not recreate its blur by hand.
 
 ### Named Rules
 
@@ -375,6 +401,9 @@ white-alpha surface tokens.
 - **Do** own entrance phase at the surface, not the row.
 - **Do** lay out inside the safe area, keep the tab bar to sections, and leave the
   edge-swipe back gesture alive.
+- **Do** keep every tab selection seat the same width and use compact rail copy
+  ("Shell" in the rail, "Terminal" as the destination name) when a label would
+  distort that rhythm.
 - **Do** clear 44×44pt on every tappable control.
 - **Do** honor `accessibilityReduceMotion` on every animation.
 

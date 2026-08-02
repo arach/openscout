@@ -33,7 +33,7 @@ struct MessageMarkupView: View {
             heading(block.text, depth: depth)
         case .rule:
             Rectangle()
-                .fill(HudHairline.standard)
+                .fill(ScoutHairline.standard)
                 .frame(height: HudStrokeWidth.standard)
                 .padding(.vertical, HudSpacing.xs)
         case .list(let ordered, let items):
@@ -69,7 +69,7 @@ struct MessageMarkupView: View {
         }
         for range in codeRanges {
             attributed[range].font = HudFont.mono(HudTextSize.sm)
-            attributed[range].backgroundColor = HudPalette.ink.opacity(0.08)
+            attributed[range].backgroundColor = ScoutPalette.ink.opacity(0.08)
         }
         return attributed
     }
@@ -77,8 +77,8 @@ struct MessageMarkupView: View {
     private func paragraph(_ text: String) -> some View {
         Text(inline(text.isEmpty ? "…" : text))
             .font(HudFont.ui(HudTextSize.md))
-            .foregroundStyle(HudPalette.ink)
-            .tint(HudPalette.accent)
+            .foregroundStyle(ScoutPalette.ink)
+            .tint(ScoutPalette.accent)
             .lineSpacing(3)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -89,8 +89,8 @@ struct MessageMarkupView: View {
         let weight: Font.Weight = depth <= 1 ? .bold : .semibold
         return Text(inline(text))
             .font(HudFont.ui(size, weight: weight))
-            .foregroundStyle(HudPalette.ink)
-            .tint(HudPalette.accent)
+            .foregroundStyle(ScoutPalette.ink)
+            .tint(ScoutPalette.accent)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, HudSpacing.xs)
@@ -106,8 +106,8 @@ struct MessageMarkupView: View {
                         .frame(minWidth: ordered ? 20 : 12, alignment: .leading)
                     Text(inline(item))
                         .font(HudFont.ui(HudTextSize.md))
-                        .foregroundStyle(HudPalette.ink)
-                        .tint(HudPalette.accent)
+                        .foregroundStyle(ScoutPalette.ink)
+                        .tint(ScoutPalette.accent)
                         .lineSpacing(2)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -119,7 +119,7 @@ struct MessageMarkupView: View {
     private func blockquote(_ text: String) -> some View {
         HStack(alignment: .top, spacing: HudSpacing.sm) {
             Rectangle()
-                .fill(HudPalette.accent.opacity(0.6))
+                .fill(ScoutPalette.accent.opacity(0.6))
                 .frame(width: 2)
             Text(inline(text))
                 .font(HudFont.ui(HudTextSize.md))
@@ -136,7 +136,7 @@ struct MessageMarkupView: View {
                 Text(language.uppercased())
                     .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                     .tracking(0.8)
-                    .foregroundStyle(ScoutInk.muted)
+                    .foregroundStyle(HudPalette.muted)
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -153,9 +153,14 @@ struct MessageMarkupView: View {
         }
         .padding(HudSpacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Hudson's syntax colors are intentionally tuned for its dark code
+        // canvas. Keep the entire fenced-code surface dark in both app
+        // appearances so base text, token colors, and the language label stay
+        // a coherent high-contrast set instead of mixing dark syntax with a
+        // light adaptive card.
         .background(
             RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                .fill(ScoutSurface.raised)
+                .fill(HudPalette.bg)
         )
         .overlay(
             RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
@@ -168,7 +173,7 @@ struct MessageMarkupView: View {
             tableRow(headers, isHeader: true)
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 Rectangle()
-                    .fill(HudHairline.standard)
+                    .fill(ScoutHairline.standard)
                     .frame(height: HudStrokeWidth.standard)
                 tableRow(row, isHeader: false)
             }
@@ -179,7 +184,7 @@ struct MessageMarkupView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                .stroke(HudHairline.standard, lineWidth: HudStrokeWidth.standard)
+                .stroke(ScoutHairline.standard, lineWidth: HudStrokeWidth.standard)
         )
     }
 
@@ -188,7 +193,7 @@ struct MessageMarkupView: View {
             ForEach(Array(cells.enumerated()), id: \.offset) { _, cell in
                 Text(inline(cell))
                     .font(HudFont.ui(HudTextSize.sm, weight: isHeader ? .semibold : .regular))
-                    .foregroundStyle(isHeader ? HudPalette.ink : ScoutInk.muted)
+                    .foregroundStyle(isHeader ? ScoutPalette.ink : ScoutInk.muted)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -312,7 +317,7 @@ struct MessageAttachmentCard: View {
         .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(ScoutSurface.raised.opacity(0.7)))
         .overlay(
             RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                .stroke(HudHairline.subtle, lineWidth: HudStrokeWidth.standard)
+                .stroke(ScoutHairline.subtle, lineWidth: HudStrokeWidth.standard)
         )
     }
 
@@ -320,11 +325,11 @@ struct MessageAttachmentCard: View {
         HStack(spacing: HudSpacing.sm) {
             Image(systemName: "doc")
                 .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
-                .foregroundStyle(HudPalette.accent)
+                .foregroundStyle(ScoutPalette.accent)
             VStack(alignment: .leading, spacing: 2) {
                 Text(displayName)
                     .font(HudFont.ui(HudTextSize.sm, weight: .medium))
-                    .foregroundStyle(HudPalette.ink)
+                    .foregroundStyle(ScoutPalette.ink)
                     .lineLimit(1)
                 Text(attachment.mediaType)
                     .font(HudFont.mono(HudTextSize.micro))
@@ -342,7 +347,7 @@ struct MessageAttachmentCard: View {
         .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(ScoutSurface.inset))
         .overlay(
             RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                .stroke(HudHairline.standard, lineWidth: HudStrokeWidth.standard)
+                .stroke(ScoutHairline.standard, lineWidth: HudStrokeWidth.standard)
         )
     }
 
@@ -370,7 +375,7 @@ private struct AttachmentPreview: View {
         .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(ScoutSurface.inset))
         .overlay(
             RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                .stroke(HudHairline.subtle, lineWidth: HudStrokeWidth.standard)
+                .stroke(ScoutHairline.subtle, lineWidth: HudStrokeWidth.standard)
         )
         .clipShape(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous))
     }
