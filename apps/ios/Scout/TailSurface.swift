@@ -3,10 +3,11 @@ import Foundation
 import HudsonUI
 import ScoutCapabilities
 
-/// Tail — the cross-agent file log. Its visual grammar intentionally matches
-/// the original flat renderer: timestamp · /project:session · kind glyph · line.
-/// Events are oldest → newest and the viewport follows the bottom until the
-/// reader scrolls away, at which point it becomes explicitly detached.
+/// Tail — the cross-agent file log. The default renderer groups consecutive
+/// events from one origin into compact bursts: provenance appears once, then the
+/// log gets the full phone width. The original flat line renderer remains
+/// available in Settings. Events are oldest → newest and the viewport follows
+/// the bottom until the reader scrolls away, then becomes explicitly detached.
 struct TailSurface: View {
     let model: AppModel
     let isActive: Bool
@@ -19,7 +20,6 @@ struct TailSurface: View {
     private static let bottomAnchorID = "tail-bottom"
     private static let scrollSpace = "tail-scroll-space"
     private static let bottomTolerance: CGFloat = 24
-    private static let pathFixedLen = 14
 
     @State private var events: [MachineTailEvent] = []
     @State private var lastUpdated: Date?
@@ -31,6 +31,7 @@ struct TailSurface: View {
     @State private var autoScrollGeneration = 0
     @State private var scrollToBottomToken = 0
     @State private var refreshToken = 0
+    @AppStorage(ScoutTailLayout.storageKey) private var layoutRaw = ScoutTailLayout.default.rawValue
     @StateObject private var entrance = CockpitEntrancePhase()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -39,6 +40,45 @@ struct TailSurface: View {
         let machineId: String
         let machineName: String
         let event: TailEvent
+    }
+
+    private struct TailBurst: Identifiable {
+        let id: String
+        let originKey: String
+        var endMs: Int64
+        var rows: [MachineTailEvent]
+
+        var startMs: Int64 { rows.first?.event.tsMs ?? endMs }
+    }
+
+    private var layout: ScoutTailLayout { ScoutTailLayout.resolve(layoutRaw) }
+
+    /// Derived on render from the same ordered event window used by the flat
+    /// view. Adjacency is intentional: sources never jump across an intervening
+    /// event. Time does not split a burst—the provenance changes only when the
+    /// actual origin changes, which is the space-saving promise of this layout.
+    private var bursts: [TailBurst] {
+        var result: [TailBurst] = []
+        for row in events {
+            let key = originKey(for: row)
+            if var last = result.last,
+               last.originKey == key,
+               row.event.tsMs >= last.endMs {
+                last.rows.append(row)
+                last.endMs = row.event.tsMs
+                result[result.count - 1] = last
+            } else {
+                result.append(
+                    TailBurst(
+                        id: row.id,
+                        originKey: key,
+                        endMs: row.event.tsMs,
+                        rows: [row]
+                    )
+                )
+            }
+        }
+        return result
     }
 
     private var reloadKey: String {
@@ -85,7 +125,7 @@ struct TailSurface: View {
 
     private var header: some View {
         HStack(spacing: HudSpacing.sm) {
-            HudSectionLabel("Tail")
+            ScoutSectionLabel("Tail")
             Spacer(minLength: HudSpacing.sm)
             if let lastUpdated {
                 Text("updated \(Self.hmFormatter.string(from: lastUpdated))")
@@ -95,7 +135,7 @@ struct TailSurface: View {
             if failedMachineReads > 0 {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(HudPalette.statusWarn)
+                    .foregroundStyle(ScoutPalette.statusWarn)
                     .accessibilityLabel("Some tail sources could not be refreshed")
             }
             followState
@@ -103,7 +143,7 @@ struct TailSurface: View {
                 Text("↻")
                     .font(.system(size: 14, weight: .semibold, design: .monospaced))
                     .foregroundStyle(ScoutInk.muted)
-                    .frame(width: 24, height: 24)
+                    .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -121,7 +161,7 @@ struct TailSurface: View {
         } else if isFollowing {
             HStack(spacing: 5) {
                 Circle()
-                    .fill(HudPalette.statusOk)
+                    .fill(ScoutPalette.statusOk)
                     .frame(width: 5, height: 5)
                 Text("Following")
             }
@@ -133,7 +173,7 @@ struct TailSurface: View {
             Button(action: resumeFollowing) {
                 HStack(spacing: 5) {
                     Circle()
-                        .fill(HudPalette.statusWarn)
+                        .fill(ScoutPalette.statusWarn)
                         .frame(width: 5, height: 5)
                     Text("Detached")
                 }
@@ -143,13 +183,14 @@ struct TailSurface: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Detached from latest tail events")
             .accessibilityHint("Jumps to the newest event and resumes following")
+            .frame(minHeight: 44)
         }
     }
 
     @ViewBuilder
     private var content: some View {
         if events.isEmpty {
-            HudEmptyState(
+            ScoutEmptyState(
                 title: hasLoadedInitialSnapshot ? "No recent activity" : "Loading recent activity",
                 subtitle: hasLoadedInitialSnapshot
                     ? "Cross-agent events will appear here."
@@ -167,11 +208,23 @@ struct TailSurface: View {
             GeometryReader { viewport in
                 ScrollViewReader { proxy in
                     ScrollView(.vertical, showsIndicators: false) {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(Array(events.enumerated()), id: \.element.id) { index, row in
-                                logRow(row)
-                                    .id(row.id)
-                                    .cockpitEntrance(index: index + 1, phase: entrance)
+                        LazyVStack(
+                            alignment: .leading,
+                            spacing: 0,
+                            pinnedViews: layout == .rethought ? [.sectionHeaders] : []
+                        ) {
+                            if layout == .rethought {
+                                ForEach(Array(bursts.enumerated()), id: \.element.id) { index, burst in
+                                    burstSection(burst)
+                                        .id(burst.id)
+                                        .cockpitEntrance(index: index + 1, phase: entrance)
+                                }
+                            } else {
+                                ForEach(Array(events.enumerated()), id: \.element.id) { index, row in
+                                    refinedLogRow(row)
+                                        .id(row.id)
+                                        .cockpitEntrance(index: index + 1, phase: entrance)
+                                }
                             }
                             bottomMarker
                         }
@@ -182,6 +235,17 @@ struct TailSurface: View {
                     .onAppear {
                         guard isFollowing else { return }
                         scrollToBottom(using: proxy, animated: false)
+                    }
+                    .onChange(of: layoutRaw) { _, _ in
+                        // A renderer swap changes the list height without any
+                        // reader gesture. Keep an attached reader attached; a
+                        // deliberately detached reader stays exactly where it is.
+                        guard isFollowing else { return }
+                        isAutoScrolling = true
+                        Task { @MainActor in
+                            await Task.yield()
+                            requestScrollToBottom()
+                        }
                     }
                     .onChange(of: scrollToBottomToken) { _, _ in
                         scrollToBottom(using: proxy, animated: false)
@@ -200,42 +264,123 @@ struct TailSurface: View {
         }
     }
 
-    private func logRow(_ row: MachineTailEvent) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
+    private func refinedLogRow(_ row: MachineTailEvent) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: HudSpacing.xs) {
             Text(timeLabel(row.event.tsMs))
                 .font(HudFont.mono(HudTextSize.micro))
                 .foregroundStyle(ScoutInk.dim)
-                .frame(width: 54, alignment: .leading)
+                .frame(width: 47, alignment: .leading)
             handleText(row.event)
                 .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                .fixedSize(horizontal: true, vertical: false)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(width: 82, alignment: .leading)
             Text(kindGlyph(row.event.kind))
                 .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
                 .foregroundStyle(kindColor(row.event.kind))
                 .fixedSize()
             Text(row.event.summary)
                 .font(HudFont.mono(HudTextSize.xs))
-                .foregroundStyle(HudPalette.ink)
+                .foregroundStyle(ScoutPalette.ink)
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, HudSpacing.xs)
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(alignment: .bottom) {
-            HudDivider(color: HudHairline.subtle)
+            HudDivider(color: ScoutHairline.subtle)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(timeLabel(row.event.tsMs)), \(projectRootedPath(cwd: row.event.cwd, project: row.event.project)), \(row.event.summary)")
     }
 
+    private func burstSection(_ burst: TailBurst) -> some View {
+        Section {
+            VStack(alignment: .leading, spacing: HudSpacing.xxs) {
+                ForEach(burst.rows) { row in
+                    HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
+                        Text(kindGlyph(row.event.kind))
+                            .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                            .foregroundStyle(kindColor(row.event.kind))
+                            .frame(width: 12, alignment: .center)
+                        Text(row.event.summary)
+                            .font(HudFont.mono(HudTextSize.xs))
+                            .foregroundStyle(ScoutPalette.ink)
+                            .lineLimit(3)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.vertical, HudSpacing.xxs)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("\(kindAccessibilityLabel(row.event.kind)): \(row.event.summary)")
+                }
+            }
+            .padding(.leading, HudSpacing.xxs)
+            .padding(.bottom, HudSpacing.xs)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .bottom) {
+                HudDivider(color: ScoutHairline.subtle)
+            }
+            .accessibilityElement(children: .contain)
+        } header: {
+            burstHeader(burst)
+                .padding(.top, HudSpacing.sm)
+                .padding(.bottom, HudSpacing.xxs)
+                .background(ScoutPalette.bg)
+                .zIndex(1)
+        }
+    }
+
+    private func burstHeader(_ burst: TailBurst) -> some View {
+        let first = burst.rows[0]
+        let count = burst.rows.count
+        return HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
+            Text(burstTimeLabel(burst))
+                .font(HudFont.mono(HudTextSize.micro, weight: .medium))
+                .foregroundStyle(ScoutInk.dim)
+                .fixedSize(horizontal: true, vertical: false)
+            handleText(first.event)
+                .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                .foregroundStyle(ScoutPalette.ink)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: HudSpacing.xs)
+            if count > 1 {
+                Text("\(count) events")
+                    .font(HudFont.mono(HudTextSize.micro, weight: .medium))
+                    .foregroundStyle(ScoutInk.dim)
+                    .fixedSize()
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            "\(burstTimeLabel(burst)), \(sourceDescription(for: first)), \(count) event\(count == 1 ? "" : "s")"
+        )
+    }
+
     /// `/project-rooted-path:sessionlast4` — e.g. `/openscout:9688`.
     private func handleText(_ event: TailEvent) -> Text {
-        var path = projectRootedPath(cwd: event.cwd, project: event.project)
-        if path.count > Self.pathFixedLen { path = String(path.prefix(Self.pathFixedLen)) }
-        let base = Text(path).foregroundStyle(HudPalette.ink)
+        let path = projectRootedPath(cwd: event.cwd, project: event.project)
+        let base = Text(path).foregroundStyle(ScoutPalette.ink)
         let last4 = String((event.conversationId ?? "").suffix(4))
         guard !last4.isEmpty else { return base }
-        return base + Text(":\(last4)").foregroundStyle(ScoutInk.muted)
+        let session = Text(":\(last4)").foregroundStyle(ScoutInk.muted)
+        return Text("\(base)\(session)")
+    }
+
+    private func originKey(for row: MachineTailEvent) -> String {
+        [
+            row.machineId,
+            row.event.source,
+            projectRootedPath(cwd: row.event.cwd, project: row.event.project),
+            row.event.conversationId ?? ""
+        ].joined(separator: "\u{1f}")
+    }
+
+    private func sourceDescription(for row: MachineTailEvent) -> String {
+        let handle = projectRootedPath(cwd: row.event.cwd, project: row.event.project)
+        let session = String((row.event.conversationId ?? "").suffix(4))
+        let renderedHandle = session.isEmpty ? handle : "\(handle):\(session)"
+        return "\(renderedHandle), \(row.event.source), on \(row.machineName)"
     }
 
     private func projectRootedPath(cwd: String?, project: String?) -> String {
@@ -262,17 +407,39 @@ struct TailSurface: View {
 
     private func kindColor(_ kind: TailEvent.Kind) -> Color {
         switch kind {
-        case .user: return Color(red: 0.50, green: 0.68, blue: 0.95)
-        case .assistant: return Color(red: 0.45, green: 0.78, blue: 0.55)
-        case .tool: return Color(red: 0.88, green: 0.62, blue: 0.38)
-        case .toolResult: return Color(red: 0.52, green: 0.72, blue: 0.70)
+        case .user: return ScoutPalette.statusInfo
+        case .assistant: return ScoutPalette.statusOk
+        case .tool: return ScoutPalette.statusWarn
+        case .toolResult: return ScoutPalette.accent
         case .system: return ScoutInk.muted
         case .other: return ScoutInk.dim
         }
     }
 
+    private func kindAccessibilityLabel(_ kind: TailEvent.Kind) -> String {
+        switch kind {
+        case .user: "operator"
+        case .assistant: "agent"
+        case .tool: "tool call"
+        case .toolResult: "tool result"
+        case .system: "system"
+        case .other: "event"
+        }
+    }
+
     private func timeLabel(_ tsMs: Int64) -> String {
         Self.clockFormatter.string(from: Date(timeIntervalSince1970: Double(tsMs) / 1_000))
+    }
+
+    private func burstTimeLabel(_ burst: TailBurst) -> String {
+        let start = timeLabel(burst.startMs)
+        let end = timeLabel(burst.endMs)
+        guard start != end else { return start }
+        let startPrefix = String(start.prefix(6))
+        if end.hasPrefix(startPrefix) {
+            return "\(start)–\(end.suffix(2))"
+        }
+        return "\(start)–\(end)"
     }
 
     private var bottomMarker: some View {
@@ -293,11 +460,11 @@ struct TailSurface: View {
         Button(action: resumeFollowing) {
             Label("Resume", systemImage: "arrow.down.to.line")
                 .font(HudFont.mono(HudTextSize.xxs))
-                .foregroundStyle(HudPalette.ink)
+                .foregroundStyle(ScoutPalette.ink)
                 .padding(.horizontal, HudSpacing.md)
-                .frame(height: 30)
+                .frame(minWidth: 88, minHeight: 44)
                 .background(Capsule().fill(ScoutSurface.raised))
-                .overlay(Capsule().strokeBorder(HudPalette.border, lineWidth: 1))
+                .overlay(Capsule().strokeBorder(ScoutPalette.border, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .accessibilityHint("Jumps to the newest event and resumes following")

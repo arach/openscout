@@ -13,7 +13,7 @@ import UIKit
 /// (paragraph / heading / list / quote / code / table) over a forked copy of
 /// Hudson's parser; `HudMarkdownStyle.agent` exists precisely so that fork could
 /// be retired. What stays Scout-specific is the skin (`.scoutMessage`), the
-/// secondary inks (`.scout` theme), and the inline `code` treatment below.
+/// secondary inks from the app theme, and the inline `code` treatment below.
 struct MessageMarkupView: View {
     let text: String
 
@@ -26,8 +26,7 @@ struct MessageMarkupView: View {
             style: .scoutMessage,
             inlineTransform: Self.styleInlineCode
         )
-        .environment(\.hudTheme, .scout)
-        .tint(HudPalette.accent)
+        .tint(ScoutPalette.accent)
     }
 
     /// SwiftUI's markdown parser tags inline `code` spans with
@@ -69,19 +68,6 @@ private extension HudMarkdownStyle {
         style.bodyFont = { @Sendable _ in HudFont.ui(HudTextSize.md) }
         style.listMarkerColor = .muted
         return style
-    }
-}
-
-private extension HudTheme {
-    /// Hudson's default dark theme carrying Scout's brightened secondary inks,
-    /// so the shared renderer resolves `.muted` / `.dim` to the same values as
-    /// the rest of the app. Hudson's own defaults are darker and were failing
-    /// WCAG AA against this canvas — see `ScoutInk`.
-    static var scout: HudTheme {
-        var theme = HudTheme.default
-        theme.palette.muted = ScoutInk.muted
-        theme.palette.dim = ScoutInk.dim
-        return theme
     }
 }
 
@@ -200,7 +186,7 @@ struct MessageAttachmentCard: View {
         .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(ScoutSurface.raised.opacity(0.7)))
         .overlay(
             RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                .stroke(HudHairline.subtle, lineWidth: HudStrokeWidth.standard)
+                .stroke(ScoutHairline.subtle, lineWidth: HudStrokeWidth.standard)
         )
     }
 
@@ -208,11 +194,11 @@ struct MessageAttachmentCard: View {
         HStack(spacing: HudSpacing.sm) {
             Image(systemName: "doc")
                 .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
-                .foregroundStyle(HudPalette.accent)
+                .foregroundStyle(ScoutPalette.accent)
             VStack(alignment: .leading, spacing: 2) {
                 Text(displayName)
                     .font(HudFont.ui(HudTextSize.sm, weight: .medium))
-                    .foregroundStyle(HudPalette.ink)
+                    .foregroundStyle(ScoutPalette.ink)
                     .lineLimit(1)
                 Text(attachment.mediaType)
                     .font(HudFont.mono(HudTextSize.micro))
@@ -230,7 +216,7 @@ struct MessageAttachmentCard: View {
         .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(ScoutSurface.inset))
         .overlay(
             RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                .stroke(HudHairline.standard, lineWidth: HudStrokeWidth.standard)
+                .stroke(ScoutHairline.standard, lineWidth: HudStrokeWidth.standard)
         )
     }
 
@@ -258,7 +244,7 @@ private struct AttachmentPreview: View {
         .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(ScoutSurface.inset))
         .overlay(
             RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                .stroke(HudHairline.subtle, lineWidth: HudStrokeWidth.standard)
+                .stroke(ScoutHairline.subtle, lineWidth: HudStrokeWidth.standard)
         )
         .clipShape(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous))
     }

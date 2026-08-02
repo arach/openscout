@@ -31,7 +31,7 @@ struct ConnectScreen: View {
             .padding(.bottom, HudSpacing.xxxl)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(HudPalette.bg)
+        .background(ScoutPalette.bg)
         .task {
             // First browse trips the iOS Local Network prompt (empty until
             // granted) — one gentle retry self-heals once the user allows it.
@@ -49,15 +49,17 @@ struct ConnectScreen: View {
     private var brand: some View {
         VStack(spacing: HudSpacing.lg) {
             Image("ScoutWireMark")
+                .renderingMode(.template)
                 .resizable()
                 .scaledToFit()
+                .foregroundStyle(ScoutPalette.ink)
                 .accessibilityLabel("Scout")
             .frame(width: 104, height: 100)
 
             VStack(spacing: HudSpacing.xs) {
                 Text("Scout")
                     .font(HudFont.ui(HudTextSize.xxl, weight: .semibold))
-                    .foregroundStyle(HudPalette.ink)
+                    .foregroundStyle(ScoutPalette.ink)
                 Text("Connect to your Mac to see your fleet.")
                     .font(HudFont.ui(HudTextSize.sm))
                     .foregroundStyle(ScoutInk.muted)
@@ -91,11 +93,11 @@ struct ConnectScreen: View {
                 } else if let error = model.lanPairError {
                     Text(error)
                         .font(HudFont.mono(HudTextSize.micro))
-                        .foregroundStyle(HudPalette.statusError)
+                        .foregroundStyle(ScoutPalette.statusError)
                 }
             } else if model.isRefreshingLanPairTargets {
                 HStack(spacing: HudSpacing.sm) {
-                    ProgressView().controlSize(.small).tint(HudPalette.accent)
+                    ProgressView().controlSize(.small).tint(ScoutPalette.accent)
                     Text("Looking for your Mac on this network…")
                         .font(HudFont.ui(HudTextSize.sm))
                         .foregroundStyle(ScoutInk.muted)
@@ -185,7 +187,7 @@ struct ConnectScreen: View {
                 }
             } else if model.isRefreshingOpenScoutNetworkPairTargets {
                 HStack(spacing: HudSpacing.sm) {
-                    ProgressView().controlSize(.small).tint(HudPalette.accent)
+                    ProgressView().controlSize(.small).tint(ScoutPalette.accent)
                     Text("Checking OpenScout Network…")
                         .font(HudFont.ui(HudTextSize.sm))
                         .foregroundStyle(ScoutInk.muted)
@@ -194,7 +196,7 @@ struct ConnectScreen: View {
             } else if let error = model.openScoutNetworkPairError {
                 Text(error)
                     .font(HudFont.mono(HudTextSize.micro))
-                    .foregroundStyle(HudPalette.statusError)
+                    .foregroundStyle(ScoutPalette.statusError)
             } else {
                 Text("No Macs are publishing through OpenScout Network.")
                     .font(HudFont.ui(HudTextSize.sm))
@@ -242,7 +244,7 @@ struct ConnectScreen: View {
                model.lanPairError == nil {
                 Text(message)
                     .font(HudFont.mono(HudTextSize.xs))
-                    .foregroundStyle(HudPalette.statusError)
+                    .foregroundStyle(ScoutPalette.statusError)
                     .multilineTextAlignment(.center)
             }
 
@@ -346,13 +348,13 @@ private struct LanPairTargetRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: HudSpacing.sm) {
-            HudStatusDot(color: HudPalette.accent, size: 7, pulses: true)
+            HudStatusDot(color: ScoutPalette.accent, size: 7, pulses: true)
                 .frame(width: 12)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(target.displayName)
                     .font(HudFont.ui(HudTextSize.md))
-                    .foregroundStyle(HudPalette.ink)
+                    .foregroundStyle(ScoutPalette.ink)
                     .lineLimit(1)
                 Text(isAwaitingApproval ? "waiting for approval · \(target.hostName)" : target.detail)
                     .font(HudFont.mono(HudTextSize.micro))
@@ -367,12 +369,12 @@ private struct LanPairTargetRow: View {
                 Text(label)
                     .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                     .tracking(0.8)
-                    .foregroundStyle(HudPalette.accent)
+                    .foregroundStyle(ScoutPalette.accent)
                     .padding(.horizontal, HudSpacing.sm)
                     .padding(.vertical, HudSpacing.xxs)
                     .overlay(
                         Capsule()
-                            .strokeBorder(HudSurface.tintBorder(HudPalette.accent), lineWidth: HudStrokeWidth.thin)
+                            .strokeBorder(HudSurface.tintBorder(ScoutPalette.accent), lineWidth: HudStrokeWidth.thin)
                     )
             }
             .buttonStyle(.plain)
@@ -381,7 +383,7 @@ private struct LanPairTargetRow: View {
         .frame(height: HudLayout.rowHeightRegular)
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(HudHairline.subtle)
+                .fill(ScoutHairline.subtle)
                 .frame(height: HudStrokeWidth.thin)
         }
         .accessibilityElement(children: .combine)
@@ -397,13 +399,13 @@ private struct OpenScoutNetworkPairTargetRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: HudSpacing.sm) {
-            HudStatusDot(color: HudPalette.accent, size: 7, pulses: true)
+            HudStatusDot(color: ScoutPalette.accent, size: 7, pulses: true)
                 .frame(width: 12)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(target.displayName)
                     .font(HudFont.ui(HudTextSize.md))
-                    .foregroundStyle(HudPalette.ink)
+                    .foregroundStyle(ScoutPalette.ink)
                     .lineLimit(1)
                 Text(target.detail)
                     .font(HudFont.mono(HudTextSize.micro))
@@ -418,12 +420,12 @@ private struct OpenScoutNetworkPairTargetRow: View {
                 Text(isPairing ? "PAIRING" : "PAIR")
                     .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                     .tracking(0.8)
-                    .foregroundStyle(HudPalette.accent)
+                    .foregroundStyle(ScoutPalette.accent)
                     .padding(.horizontal, HudSpacing.sm)
                     .padding(.vertical, HudSpacing.xxs)
                     .overlay(
                         Capsule()
-                            .strokeBorder(HudSurface.tintBorder(HudPalette.accent), lineWidth: HudStrokeWidth.thin)
+                            .strokeBorder(HudSurface.tintBorder(ScoutPalette.accent), lineWidth: HudStrokeWidth.thin)
                     )
             }
             .buttonStyle(.plain)
@@ -432,7 +434,7 @@ private struct OpenScoutNetworkPairTargetRow: View {
         .frame(height: HudLayout.rowHeightRegular)
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(HudHairline.subtle)
+                .fill(ScoutHairline.subtle)
                 .frame(height: HudStrokeWidth.thin)
         }
         .accessibilityElement(children: .combine)

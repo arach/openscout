@@ -60,11 +60,11 @@ private enum UserSendPhase: Equatable {
     var tint: Color {
         switch self {
         case .failed, .cancelled:
-            return HudPalette.statusError
+            return ScoutPalette.statusError
         case .waiting, .recoverable:
-            return HudPalette.accent
+            return ScoutPalette.accent
         case .acknowledged, .working, .completed:
-            return HudPalette.statusOk
+            return ScoutPalette.statusOk
         default:
             return ScoutInk.muted
         }
@@ -170,7 +170,7 @@ struct ConversationSurface: View {
             header
             transcript
         }
-        .background(HudPalette.bg)
+        .background(ScoutPalette.bg)
         .safeAreaInset(edge: .bottom) { composer }
         .toolbar(.hidden, for: .navigationBar)
         .task(id: conversationId) {
@@ -233,7 +233,7 @@ struct ConversationSurface: View {
                 model: projection.state?.session.model
             )
         }
-        .background(HudPalette.bg)
+        .background(ScoutPalette.bg)
         .photosPicker(
             isPresented: $showPhotoPicker,
             selection: $selectedPhotoItems,
@@ -291,10 +291,10 @@ struct ConversationSurface: View {
         HStack(spacing: HudSpacing.md) {
             Button { onClose() } label: {
                 Glyphic.chevron(.leading, size: 17)
-                    .foregroundStyle(HudPalette.ink)
+                    .foregroundStyle(ScoutPalette.ink)
                     .frame(width: 32, height: 32)
                     .background(Circle().fill(ScoutSurface.inset))
-                    .overlay(Circle().stroke(HudHairline.standard, lineWidth: HudStrokeWidth.standard))
+                    .overlay(Circle().stroke(ScoutHairline.standard, lineWidth: HudStrokeWidth.standard))
             }
             .buttonStyle(.plain)
 
@@ -302,14 +302,14 @@ struct ConversationSurface: View {
             // here was the same fact twice on one screen.
             Text(title)
                 .font(HudFont.ui(HudTextSize.lg, weight: .semibold))
-                .foregroundStyle(HudPalette.ink)
+                .foregroundStyle(ScoutPalette.ink)
                 .lineLimit(1)
             Spacer()
             // Only the active state earns a badge. Once you're inside a specific
             // agent, an "idle" tag is just noise — a settled agent reads as idle
             // by absence, so the header stays quiet until something's running.
             if isStreaming {
-                HudBadge("streaming", tint: HudPalette.statusOk, dot: true)
+                HudBadge("streaming", tint: ScoutPalette.statusOk, dot: true)
             }
             Button { showSettings = true } label: {
                 Glyphic(kind: .gear, size: 18)
@@ -342,10 +342,10 @@ struct ConversationSurface: View {
             Spacer(minLength: 0)
             switch loadPhase {
             case .loading:
-                HudEmptyState(title: "Loading conversation", icon: "ellipsis.bubble")
+                ScoutEmptyState(title: "Loading conversation", icon: "ellipsis.bubble")
             case .failed:
                 VStack(spacing: HudSpacing.lg) {
-                    HudEmptyState(
+                    ScoutEmptyState(
                         title: "Couldn’t load conversation",
                         subtitle: "The bridge didn’t return a transcript for this session.",
                         icon: "exclamationmark.bubble"
@@ -355,7 +355,7 @@ struct ConversationSurface: View {
                     }
                 }
             case .loaded:
-                HudEmptyState(
+                ScoutEmptyState(
                     title: "No messages yet",
                     subtitle: "Steer the agent below to begin.",
                     icon: "bubble.left.and.bubble.right"
@@ -880,7 +880,7 @@ private struct TurnView: View {
                 if turn.status == .error {
                     Text("· error")
                         .font(HudFont.mono(HudTextSize.xxs))
-                        .foregroundStyle(HudPalette.statusError)
+                        .foregroundStyle(ScoutPalette.statusError)
                 }
             }
             ForEach(turn.blocks, id: \.block.id) { blockState in
@@ -901,7 +901,7 @@ private struct TurnView: View {
                             onRecover(clientMessageId, action)
                         }
                         .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
-                        .foregroundStyle(HudPalette.accent)
+                        .foregroundStyle(ScoutPalette.accent)
                         .buttonStyle(.plain)
                     }
                 }
@@ -912,7 +912,7 @@ private struct TurnView: View {
     }
 
     // User turns read as neutral; the agent is the one accented voice.
-    private var roleColor: Color { isUser ? ScoutInk.muted : HudPalette.accent }
+    private var roleColor: Color { isUser ? ScoutInk.muted : ScoutPalette.accent }
 }
 
 // MARK: - Block
@@ -939,7 +939,7 @@ private struct BlockView: View {
         case .question:
             questionCard
         case .error:
-            textCard(block.message ?? "Error", fill: HudPalette.statusError.opacity(0.10), accent: HudPalette.statusError)
+            textCard(block.message ?? "Error", fill: ScoutPalette.statusError.opacity(0.10), accent: ScoutPalette.statusError)
         case .file:
             attachmentCard
         }
@@ -963,7 +963,7 @@ private struct BlockView: View {
         HudCard(padding: HudSpacing.lg, fill: fill) {
             Text(text.isEmpty ? "…" : text)
                 .font(HudFont.ui(HudTextSize.md))
-                .foregroundStyle(accent ?? HudPalette.ink)
+                .foregroundStyle(accent ?? ScoutPalette.ink)
                 .lineSpacing(3)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
@@ -999,7 +999,7 @@ private struct BlockView: View {
                         .foregroundStyle(ScoutInk.muted)
                     Text(actionTitle(action))
                         .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                        .foregroundStyle(HudPalette.ink)
+                        .foregroundStyle(ScoutPalette.ink)
                         .lineLimit(1)
                     Spacer()
                     if let status = action?.status {
@@ -1027,7 +1027,7 @@ private struct BlockView: View {
             if let description = approval.description, !description.isEmpty {
                 Text(description)
                     .font(HudFont.ui(HudTextSize.xs))
-                    .foregroundStyle(HudPalette.ink)
+                    .foregroundStyle(ScoutPalette.ink)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             HStack(spacing: HudSpacing.sm) {
@@ -1049,23 +1049,23 @@ private struct BlockView: View {
     private func riskColor(_ risk: ApprovalRisk) -> Color {
         switch risk {
         case .low: return ScoutInk.muted
-        case .medium: return HudPalette.statusWarn
-        case .high: return HudPalette.statusError
+        case .medium: return ScoutPalette.statusWarn
+        case .high: return ScoutPalette.statusError
         }
     }
 
     private var questionCard: some View {
-        HudCard(padding: HudSpacing.lg, fill: HudPalette.statusWarn.opacity(0.08)) {
+        HudCard(padding: HudSpacing.lg, fill: ScoutPalette.statusWarn.opacity(0.08)) {
             VStack(alignment: .leading, spacing: HudSpacing.md) {
                 if let header = block.header {
                     Text(header.uppercased())
                         .font(HudFont.mono(HudTextSize.xxs, weight: .bold))
                         .tracking(1.5)
-                        .foregroundStyle(HudPalette.statusWarn)
+                        .foregroundStyle(ScoutPalette.statusWarn)
                 }
                 Text(block.question ?? "")
                     .font(HudFont.ui(HudTextSize.sm, weight: .medium))
-                    .foregroundStyle(HudPalette.ink)
+                    .foregroundStyle(ScoutPalette.ink)
                 let answered = block.questionStatus == .answered
                 let optionStyle: HudButtonStyle = answered ? .secondary : .primary(.amber)
                 ForEach(block.options ?? [], id: \.label) { option in
@@ -1105,10 +1105,10 @@ private struct BlockView: View {
 
     private func actionStatusColor(_ status: ActionStatus) -> Color {
         switch status {
-        case .completed: return HudPalette.accent        // green == success
+        case .completed: return ScoutPalette.accent        // green == success
         case .running, .pending: return ScoutInk.muted
-        case .failed: return HudPalette.statusError       // red == genuine failure
-        case .awaitingApproval: return HudPalette.statusWarn  // amber == needs you
+        case .failed: return ScoutPalette.statusError       // red == genuine failure
+        case .awaitingApproval: return ScoutPalette.statusWarn  // amber == needs you
         }
     }
 }
