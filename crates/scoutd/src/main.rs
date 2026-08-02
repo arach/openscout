@@ -2715,6 +2715,15 @@ fn inspect_runtime_freshness(config: &Config, raw_daemon_state: Option<&str>) ->
     let running = running_runtime_artifact(raw_daemon_state);
     let pin = env_nonempty("OPENSCOUT_RUNTIME_BUILD_PIN");
     let pin_reason = env_nonempty("OPENSCOUT_RUNTIME_BUILD_PIN_REASON");
+    evaluate_runtime_freshness(configured, running, pin, pin_reason)
+}
+
+fn evaluate_runtime_freshness(
+    configured: RuntimeArtifactIdentity,
+    running: Option<RuntimeArtifactIdentity>,
+    pin: Option<String>,
+    pin_reason: Option<String>,
+) -> RuntimeFreshness {
     let expected_commit = pin.clone().or_else(|| configured.commit.clone());
     let basis = if pin.is_some() {
         "explicit_pin"
@@ -2742,11 +2751,31 @@ fn inspect_runtime_freshness(config: &Config, raw_daemon_state: Option<&str>) ->
     };
 
     let actual_commit = actual.commit.clone();
-    let matches_expected = actual_commit
-        .as_deref()
-        .zip(expected_commit.as_deref())
-        .map(|(actual, expected)| commits_match(actual, expected))
-        .unwrap_or(false);
+    let Some((actual_commit_value, expected_commit_value)) =
+        actual_commit.as_deref().zip(expected_commit.as_deref())
+    else {
+        return RuntimeFreshness {
+            state: "unverified".to_string(),
+            intentional: false,
+            basis: basis.to_string(),
+            artifact_commit: actual_commit,
+            expected_commit,
+            pin,
+            pin_reason,
+            manifest_path: actual.manifest_path.or(configured.manifest_path),
+            version: actual.version.or(configured.version),
+            built_at: actual.built_at,
+            source_dirty: actual.source_dirty,
+            detail: if actual.commit.is_none() {
+                "The running runtime has no artifact commit; restart scoutd once after installing a runtime manifest to establish a comparable identity."
+                    .to_string()
+            } else {
+                "Scoutd cannot determine the expected runtime commit from the configured source or installed artifact."
+                    .to_string()
+            },
+        };
+    };
+    let matches_expected = commits_match(actual_commit_value, expected_commit_value);
 
     let (state, intentional, detail) = if pin.is_some() && matches_expected {
         (
@@ -2764,13 +2793,9 @@ fn inspect_runtime_freshness(config: &Config, raw_daemon_state: Option<&str>) ->
         (
             "stale",
             false,
-            match (actual_commit.as_deref(), expected_commit.as_deref()) {
-                (Some(actual), Some(expected)) => format!(
-                    "Running runtime commit {actual} does not match expected commit {expected}. Rebuild/restart, or set OPENSCOUT_RUNTIME_BUILD_PIN={actual} with a reason to make the older build intentional."
-                ),
-                (None, _) => "The running runtime has no artifact commit. Rebuild the CLI/runtime bundle and restart scoutd.".to_string(),
-                (_, None) => "Scoutd cannot determine the expected runtime commit.".to_string(),
-            },
+            format!(
+                "Running runtime commit {actual_commit_value} does not match expected commit {expected_commit_value}. Rebuild/restart, or set OPENSCOUT_RUNTIME_BUILD_PIN={actual_commit_value} with a reason to make the older build intentional."
+            ),
         )
     } else if actual.mode == "bundle"
         && configured.built_at.is_some()
@@ -3246,16 +3271,17 @@ fn xml_escape(value: &str) -> String {
 mod tests {
     use super::{
         build_identity_json, build_identity_text, command_invokes_scoutd_daemon, commits_match,
-        elapsed_seconds, health_body_reports_ok, legacy_service_labels, legacy_service_targets,
-        openscout_pairing_advertisement_key, parse_daemon_state_telemetry, parse_health_response,
-        parse_http_status_code, process_snapshot_filter, read_last_log_line_from,
-        resolve_advertise_scope_value, resolve_broker_host_value, resolve_broker_url_value,
-        resolve_push_relay_child_environment, restart_telemetry_warnings,
+        elapsed_seconds, evaluate_runtime_freshness, health_body_reports_ok, legacy_service_labels,
+        legacy_service_targets, openscout_pairing_advertisement_key, parse_daemon_state_telemetry,
+        parse_health_response, parse_http_status_code, process_snapshot_filter,
+        read_last_log_line_from, resolve_advertise_scope_value, resolve_broker_host_value,
+        resolve_broker_url_value, resolve_push_relay_child_environment, restart_telemetry_warnings,
         rotate_child_log_if_needed, rotated_child_log_path, running_runtime_artifact,
         scoutd_owned_child_log_path, stale_pairing_advertisement_pids, Config, ManagedProcessLease,
-        ProcessInfo, BUILD_VERSION, CHILD_LOG_ROTATE_LIMIT, DAEMON_NAME, DEFAULT_BROKER_HOST,
-        DEFAULT_BROKER_HOST_MESH, DEFAULT_BROKER_PORT, DEFAULT_OPENSCOUT_PUSH_RELAY_URL,
-        LEGACY_DAEMON_NAME, LOG_TAIL_WINDOW, REPO_WATCH_WARM_PATH,
+        ProcessInfo, RuntimeArtifactIdentity, BUILD_VERSION, CHILD_LOG_ROTATE_LIMIT, DAEMON_NAME,
+        DEFAULT_BROKER_HOST, DEFAULT_BROKER_HOST_MESH, DEFAULT_BROKER_PORT,
+        DEFAULT_OPENSCOUT_PUSH_RELAY_URL, LEGACY_DAEMON_NAME, LOG_TAIL_WINDOW,
+        REPO_WATCH_WARM_PATH,
     };
     use std::env;
     use std::fs;
@@ -3596,6 +3622,113 @@ mod tests {
         assert_eq!(identity.mode, "bundle");
         assert_eq!(identity.commit.as_deref(), Some("abcdef1"));
         assert_eq!(identity.source_dirty, Some(false));
+    }
+
+    fn runtime_artifact(
+        mode: &str,
+        commit: Option<&str>,
+        built_at: Option<&str>,
+        source_dirty: Option<bool>,
+    ) -> RuntimeArtifactIdentity {
+        RuntimeArtifactIdentity {
+            mode: mode.to_string(),
+            commit: commit.map(str::to_string),
+            version: Some("0.2.78".to_string()),
+            source_dirty,
+            built_at: built_at.map(str::to_string),
+            manifest_path: (mode == "bundle")
+                .then(|| "/opt/openscout/dist/build-manifest.json".to_string()),
+        }
+    }
+
+    #[test]
+    fn runtime_freshness_marks_installed_artifact_update_stale_before_restart() {
+        let freshness = evaluate_runtime_freshness(
+            runtime_artifact(
+                "bundle",
+                Some("new-runtime-commit"),
+                Some("2026-08-02T12:00:00.000Z"),
+                Some(false),
+            ),
+            Some(runtime_artifact(
+                "bundle",
+                Some("old-runtime-commit"),
+                Some("2026-08-01T12:00:00.000Z"),
+                Some(false),
+            )),
+            None,
+            None,
+        );
+
+        assert_eq!(freshness.state, "stale");
+        assert!(!freshness.intentional);
+        assert_eq!(freshness.basis, "installed_artifact");
+        assert_eq!(
+            freshness.expected_commit.as_deref(),
+            Some("new-runtime-commit")
+        );
+    }
+
+    #[test]
+    fn runtime_freshness_marks_same_commit_installed_artifact_rebuild_stale() {
+        let freshness = evaluate_runtime_freshness(
+            runtime_artifact(
+                "bundle",
+                Some("same-runtime-commit"),
+                Some("2026-08-02T12:00:00.000Z"),
+                Some(false),
+            ),
+            Some(runtime_artifact(
+                "bundle",
+                Some("same-runtime-commit"),
+                Some("2026-08-01T12:00:00.000Z"),
+                Some(false),
+            )),
+            None,
+            None,
+        );
+
+        assert_eq!(freshness.state, "stale");
+        assert_eq!(freshness.basis, "installed_artifact");
+        assert!(freshness.detail.contains("newer bundle"));
+    }
+
+    #[test]
+    fn runtime_freshness_keeps_missing_commit_unverified() {
+        let freshness = evaluate_runtime_freshness(
+            runtime_artifact("bundle", None, None, None),
+            Some(runtime_artifact(
+                "bundle",
+                Some("running-runtime-commit"),
+                Some("2026-08-01T12:00:00.000Z"),
+                Some(false),
+            )),
+            None,
+            None,
+        );
+
+        assert_eq!(freshness.state, "unverified");
+        assert!(!freshness.intentional);
+        assert_eq!(freshness.basis, "installed_artifact");
+        assert_eq!(freshness.expected_commit, None);
+    }
+
+    #[test]
+    fn runtime_freshness_keeps_dirty_source_checkout_unverified() {
+        let freshness = evaluate_runtime_freshness(
+            runtime_artifact("source", Some("workspace-head"), None, Some(true)),
+            Some(runtime_artifact(
+                "source",
+                Some("workspace-head"),
+                None,
+                Some(true),
+            )),
+            None,
+            None,
+        );
+
+        assert_eq!(freshness.state, "unverified");
+        assert_eq!(freshness.basis, "workspace_head");
     }
 
     #[test]
