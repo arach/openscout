@@ -2715,6 +2715,10 @@ fn commits_match(left: &str, right: &str) -> bool {
         && (left == right || left.starts_with(right) || right.starts_with(left))
 }
 
+fn comparable_commit(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|commit| !commit.is_empty())
+}
+
 fn is_canonical_build_timestamp(value: &str) -> bool {
     let bytes = value.as_bytes();
     bytes.len() == 24
@@ -2782,7 +2786,8 @@ fn evaluate_runtime_freshness(
     let actual_commit = actual.commit.clone();
     let actual_built_at = actual.built_at.clone();
     let Some((actual_commit_value, expected_commit_value)) =
-        actual_commit.as_deref().zip(expected_commit.as_deref())
+        comparable_commit(actual_commit.as_deref())
+            .zip(comparable_commit(expected_commit.as_deref()))
     else {
         return RuntimeFreshness {
             state: "unverified".to_string(),
@@ -2799,7 +2804,7 @@ fn evaluate_runtime_freshness(
             expected_built_at,
             built_at: actual_built_at,
             source_dirty: actual.source_dirty,
-            detail: if actual.commit.is_none() {
+            detail: if comparable_commit(actual.commit.as_deref()).is_none() {
                 "The running runtime has no artifact commit; restart scoutd once after installing a runtime manifest to establish a comparable identity."
                     .to_string()
             } else {
@@ -3915,6 +3920,24 @@ mod tests {
         assert!(!freshness.intentional);
         assert_eq!(freshness.basis, "installed_artifact");
         assert_eq!(freshness.expected_commit, None);
+    }
+
+    #[test]
+    fn runtime_freshness_keeps_blank_commit_unverified() {
+        let freshness = evaluate_runtime_freshness(
+            runtime_artifact("bundle", Some("   "), None, Some(false)),
+            Some(runtime_artifact(
+                "bundle",
+                Some("running-runtime-commit"),
+                Some("2026-08-01T12:00:00.000Z"),
+                Some(false),
+            )),
+            None,
+            None,
+        );
+
+        assert_eq!(freshness.state, "unverified");
+        assert_eq!(freshness.expected_commit.as_deref(), Some("   "));
     }
 
     #[test]
