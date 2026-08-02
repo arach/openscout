@@ -2773,7 +2773,7 @@ fn evaluate_runtime_freshness(
             version: configured.version,
             actual_built_at: None,
             expected_built_at,
-            built_at: configured.built_at,
+            built_at: None,
             source_dirty: configured.source_dirty,
             detail: "No running runtime artifact identity is recorded; restart scoutd once to establish it.".to_string(),
         };
@@ -3915,6 +3915,29 @@ mod tests {
         assert!(!freshness.intentional);
         assert_eq!(freshness.basis, "installed_artifact");
         assert_eq!(freshness.expected_commit, None);
+    }
+
+    #[test]
+    fn runtime_freshness_does_not_alias_expected_timestamp_as_running() {
+        let freshness = evaluate_runtime_freshness(
+            runtime_artifact(
+                "bundle",
+                Some("configured-runtime-commit"),
+                Some("2026-08-02T12:00:00.000Z"),
+                Some(false),
+            ),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(freshness.state, "unverified");
+        assert_eq!(freshness.actual_built_at, None);
+        assert_eq!(freshness.built_at, None);
+        assert_eq!(
+            freshness.expected_built_at.as_deref(),
+            Some("2026-08-02T12:00:00.000Z")
+        );
     }
 
     #[test]
