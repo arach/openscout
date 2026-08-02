@@ -136,7 +136,7 @@ struct MessageMarkupView: View {
                 Text(language.uppercased())
                     .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                     .tracking(0.8)
-                    .foregroundStyle(ScoutInk.muted)
+                    .foregroundStyle(HudPalette.muted)
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -153,13 +153,18 @@ struct MessageMarkupView: View {
         }
         .padding(HudSpacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Hudson's syntax colors are intentionally tuned for its dark code
+        // canvas. Keep the entire fenced-code surface dark in both app
+        // appearances so base text, token colors, and the language label stay
+        // a coherent high-contrast set instead of mixing dark syntax with a
+        // light adaptive card.
         .background(
             RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                .fill(ScoutSurface.raised)
+                .fill(HudPalette.bg)
         )
         .overlay(
             RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                .stroke(ScoutHairline.standard, lineWidth: HudStrokeWidth.standard)
+                .stroke(HudHairline.standard, lineWidth: HudStrokeWidth.standard)
         )
     }
 

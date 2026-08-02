@@ -912,7 +912,7 @@ struct HomeSurface: View {
         HStack(spacing: HudSpacing.sm) {
             TextField("Ask the fleet…", text: $askDraft, axis: .vertical)
                 .font(HudFont.ui(HudTextSize.sm))
-                .foregroundStyle(HudPalette.ink)
+                .foregroundStyle(ScoutPalette.ink)
                 .lineLimit(1...4)
                 .focused($askFocused)
                 .submitLabel(.send)
