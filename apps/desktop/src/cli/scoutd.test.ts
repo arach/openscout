@@ -1,11 +1,18 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  nativeScoutdCommandTimeoutMs,
   normalizeNativeScoutdDoctorReport,
   renderNativeScoutdDoctorSection,
 } from "./scoutd.ts";
 
 describe("native scoutd doctor helpers", () => {
+  test("allows the native restart lifecycle to reach its own stop and start deadlines", () => {
+    expect(nativeScoutdCommandTimeoutMs("status")).toBe(20_000);
+    expect(nativeScoutdCommandTimeoutMs("restart")).toBe(180_000);
+    expect(nativeScoutdCommandTimeoutMs("restart", 1_000)).toBe(1_000);
+  });
+
   test("normalizes current scoutd doctor JSON with warnings and process observations", () => {
     const report = normalizeNativeScoutdDoctorReport({
       scoutdPath: "/opt/openscout/scoutd",

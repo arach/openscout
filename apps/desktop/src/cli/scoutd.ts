@@ -8,6 +8,7 @@ import {
 } from "@openscout/runtime";
 
 import { extractBuildIdentityFromScoutdPayload } from "./uptodate.ts";
+import { SCOUTD_RESTART_TIMEOUT_MS } from "./scoutd-timing.ts";
 
 export type NativeScoutdCommand = "status" | "doctor" | "restart";
 
@@ -95,7 +96,6 @@ export type NativeScoutdJsonOutcome =
     };
 
 const SCOUTD_JSON_TIMEOUT_MS = 20_000;
-const SCOUTD_RESTART_TIMEOUT_MS = 45_000;
 const SCOUTD_MAX_BUFFER = 2 * 1024 * 1024;
 const SCOUTD_KILL_GRACE_MS = 250;
 
@@ -129,7 +129,7 @@ function buildNativeScoutdEnvironment(
   return nextEnv;
 }
 
-function timeoutForCommand(command: NativeScoutdCommand, timeoutMs?: number): number {
+export function nativeScoutdCommandTimeoutMs(command: NativeScoutdCommand, timeoutMs?: number): number {
   if (typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0) {
     return timeoutMs;
   }
@@ -172,7 +172,7 @@ export async function runNativeScoutdJson(
   }
 
   const args = [command, "--json", ...(options.flags ?? [])];
-  const timeoutMs = timeoutForCommand(command, options.timeoutMs);
+  const timeoutMs = nativeScoutdCommandTimeoutMs(command, options.timeoutMs);
   const childEnv = buildNativeScoutdEnvironment(config, scoutd.path, env);
 
   return new Promise((resolvePromise) => {
