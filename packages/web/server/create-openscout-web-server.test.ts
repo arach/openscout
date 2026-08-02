@@ -25,9 +25,12 @@ import {
 // persisted a live bearer token into the runner's REAL home. The store now
 // refuses to write without this set, so it is set for the whole file rather
 // than per test — every restore below restores to this, not to the operator's
-// home.
+// home. Keep the control-plane writer in the same isolated tree as well; a
+// clean CI runner has no ambient control-plane directory for SQLite to open.
 const isolatedTestHome = mkdtempSync(join(tmpdir(), "openscout-web-server-test-home-"));
 process.env.OPENSCOUT_HOME = join(isolatedTestHome, ".openscout");
+process.env.OPENSCOUT_CONTROL_HOME = join(isolatedTestHome, ".openscout", "control-plane");
+mkdirSync(process.env.OPENSCOUT_CONTROL_HOME, { recursive: true });
 
 const originalFetch = globalThis.fetch;
 const originalHome = process.env.HOME;

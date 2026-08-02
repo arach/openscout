@@ -16,6 +16,7 @@ const { renderToStaticMarkup } = ReactDomServer;
 mock.module("react", () => React);
 mock.module("react/jsx-runtime", () => ReactJsxRuntime);
 mock.module("react/jsx-dev-runtime", () => ReactJsxDevRuntime);
+mock.module("react-dom", () => ({ createPortal: (children: unknown) => children }));
 
 const { ChatHistory } = await import("./ScoutbotChat.tsx");
 

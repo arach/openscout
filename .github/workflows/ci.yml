@@ -24,6 +24,29 @@ on:
       - "package.json"
       - "bun.lock"
       - "tsconfig*.json"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/*.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "apps/cloud/**"
+      - "apps/desktop/**"
+      - "apps/mesh-front-door/**"
+      - "crates/**"
+      - "packages/agent-sessions/**"
+      - "packages/cli/**"
+      - "packages/protocol/**"
+      - "packages/runtime/**"
+      - "packages/session-trace/**"
+      - "packages/session-trace-react/**"
+      - "packages/web/**"
+      - "scripts/cargo.sh"
+      - "scripts/scoutd-verify.sh"
+      - "scripts/**"
+      - "package.json"
+      - "bun.lock"
+      - "tsconfig*.json"
   workflow_call:
 
 permissions:
