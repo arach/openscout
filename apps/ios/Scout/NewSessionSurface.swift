@@ -497,7 +497,7 @@ struct NewSessionSurface: View {
 
     private var rule: some View {
         Rectangle()
-            .fill(HudHairline.standard)
+            .fill(ScoutHairline.standard)
             .frame(height: HudStrokeWidth.thin)
     }
 
@@ -520,7 +520,7 @@ struct NewSessionSurface: View {
                     .foregroundStyle(ScoutInk.dim)
             } else if machines.count == 1, let only = machines.first {
                 HStack(spacing: HudSpacing.xs) {
-                    HudStatusDot(color: only.isOnline ? HudPalette.accent : ScoutInk.dim, size: 6)
+                    HudStatusDot(color: only.isOnline ? ScoutPalette.accent : ScoutInk.dim, size: 6)
                     Text(only.name)
                         .font(HudFont.ui(HudTextSize.sm, weight: .medium))
                         .foregroundStyle(ScoutInk.muted)
@@ -559,10 +559,10 @@ struct NewSessionSurface: View {
             selectedMachineId = machine.id
         } label: {
             HStack(spacing: HudSpacing.xs) {
-                HudStatusDot(color: machine.isOnline ? HudPalette.accent : ScoutInk.dim, size: 5)
+                HudStatusDot(color: machine.isOnline ? ScoutPalette.accent : ScoutInk.dim, size: 5)
                 Text(machine.name)
                     .font(HudFont.mono(10.5, weight: .medium))
-                    .foregroundStyle(selected ? HudPalette.ink : ScoutInk.muted)
+                    .foregroundStyle(selected ? ScoutPalette.ink : ScoutInk.muted)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: 108, alignment: .leading)
@@ -570,7 +570,7 @@ struct NewSessionSurface: View {
             .padding(.horizontal, HudSpacing.sm)
             .padding(.vertical, 3)
             .background(plate.fill(selected ? ScoutSurface.raised : ScoutSurface.inset))
-            .overlay(plate.stroke(selected ? ScoutInk.dim : HudHairline.standard, lineWidth: HudStrokeWidth.thin))
+            .overlay(plate.stroke(selected ? ScoutInk.dim : ScoutHairline.standard, lineWidth: HudStrokeWidth.thin))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Start on \(machine.name)")
@@ -593,8 +593,8 @@ struct NewSessionSurface: View {
             TextField("Filter projects, or type a path", text: $projectQuery)
                 .textFieldStyle(.plain)
                 .font(HudFont.ui(HudTextSize.sm))
-                .foregroundStyle(HudPalette.ink)
-                .tint(HudPalette.accent)
+                .foregroundStyle(ScoutPalette.ink)
+                .tint(ScoutPalette.accent)
                 .focused($searchFocused)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -657,7 +657,7 @@ struct NewSessionSurface: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .overlay(alignment: .top) {
                 Rectangle()
-                    .fill(HudHairline.subtle)
+                    .fill(ScoutHairline.subtle)
                     .frame(height: HudStrokeWidth.thin)
             }
             .contentShape(Rectangle())
@@ -967,7 +967,7 @@ struct NewSessionSurface: View {
                 // A fixed slot whether or not there is a mark, so every name in
                 // the list starts on one x.
                 .frame(width: 14)
-                .foregroundStyle(selected ? HudPalette.accent : ScoutInk.dim)
+                .foregroundStyle(selected ? ScoutPalette.accent : ScoutInk.dim)
 
                 // The name holds the row. It takes layout priority over the
                 // path, so under pressure the PATH is the side that gives —
@@ -975,7 +975,7 @@ struct NewSessionSurface: View {
                 // `/private/tmp` tail overlapped outright.
                 Text(name)
                     .font(HudFont.ui(HudTextSize.sm, weight: selected ? .semibold : .medium))
-                    .foregroundStyle(selected ? HudPalette.ink : ScoutInk.muted)
+                    .foregroundStyle(selected ? ScoutPalette.ink : ScoutInk.muted)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .layoutPriority(2)
@@ -990,7 +990,7 @@ struct NewSessionSurface: View {
                         .padding(.vertical, 1)
                         .overlay(
                             RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                .stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin)
+                                .stroke(ScoutHairline.standard, lineWidth: HudStrokeWidth.thin)
                         )
                         .fixedSize()
                         .layoutPriority(1)
@@ -1001,7 +1001,7 @@ struct NewSessionSurface: View {
                 Text(isTyped ? "USE THIS PATH" : abbreviate((path as NSString).deletingLastPathComponent))
                     .font(HudFont.mono(isTyped ? HudTextSize.micro : HudTextSize.xxs, weight: isTyped ? .semibold : .regular))
                     .tracking(isTyped ? 0.6 : 0)
-                    .foregroundStyle(isTyped ? HudPalette.accent : ScoutInk.dim)
+                    .foregroundStyle(isTyped ? ScoutPalette.accent : ScoutInk.dim)
                     .lineLimit(1)
                     .truncationMode(.head)
                     .frame(maxWidth: 128, alignment: .trailing)
@@ -1013,7 +1013,7 @@ struct NewSessionSurface: View {
             .background(alignment: .leading) {
                 if selected {
                     Capsule()
-                        .fill(HudPalette.accent)
+                        .fill(ScoutPalette.accent)
                         .frame(width: 2, height: 18)
                         .matchedGeometryEffect(id: "project-marker", in: projectMarker)
                 }
@@ -1161,11 +1161,11 @@ struct NewSessionSurface: View {
         return HudCard {
             VStack(alignment: .leading, spacing: HudSpacing.md) {
                 HStack(spacing: HudSpacing.md) {
-                    HudStatusDot(color: promptSent ? HudPalette.statusOk : HudPalette.statusWarn, size: HudDotSize.medium)
+                    HudStatusDot(color: promptSent ? ScoutPalette.statusOk : ScoutPalette.statusWarn, size: HudDotSize.medium)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(promptSent ? "Prompt sent" : "Session ready")
                             .font(HudFont.ui(HudTextSize.md, weight: .semibold))
-                            .foregroundStyle(HudPalette.ink)
+                            .foregroundStyle(ScoutPalette.ink)
                         Text(resultSummary(promptSent: promptSent))
                             .font(HudFont.ui(HudTextSize.xs))
                             .foregroundStyle(ScoutInk.muted)
@@ -1207,7 +1207,7 @@ struct NewSessionSurface: View {
                 .frame(width: 96, alignment: .leading)
             Text(value ?? "—")
                 .font(HudFont.mono(HudTextSize.xs))
-                .foregroundStyle(HudPalette.ink)
+                .foregroundStyle(ScoutPalette.ink)
             Spacer(minLength: 0)
         }
     }

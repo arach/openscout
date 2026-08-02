@@ -106,7 +106,7 @@ struct ComposerRecipientField: View {
                 } else {
                     TextField("Agent, @handle, or search…", text: $search)
                         .font(HudFont.ui(HudTextSize.sm))
-                        .foregroundStyle(HudPalette.ink)
+                        .foregroundStyle(ScoutPalette.ink)
                         .focused($focused)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -140,7 +140,7 @@ struct ComposerRecipientField: View {
             }
             Text(recipient.title)
                 .font(HudFont.ui(HudTextSize.sm, weight: .medium))
-                .foregroundStyle(HudPalette.ink)
+                .foregroundStyle(ScoutPalette.ink)
                 .lineLimit(1)
             Button {
                 selection = nil
@@ -155,8 +155,8 @@ struct ComposerRecipientField: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
-        .background(Capsule().fill(Color.white.opacity(0.08)))
-        .overlay(Capsule().stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin))
+        .background(Capsule().fill(ScoutSurface.raised))
+        .overlay(Capsule().stroke(ScoutHairline.standard, lineWidth: HudStrokeWidth.thin))
     }
 
     private var recentsStrip: some View {
@@ -177,7 +177,7 @@ struct ComposerRecipientField: View {
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background(Capsule().fill(Color.white.opacity(0.06)))
+                        .background(Capsule().fill(ScoutSurface.inset))
                     }
                     .buttonStyle(.plain)
                 }
@@ -206,7 +206,7 @@ struct ComposerRecipientField: View {
                                 .frame(width: 7, height: 7)
                             Text(agent.title)
                                 .font(HudFont.ui(HudTextSize.sm, weight: .medium))
-                                .foregroundStyle(HudPalette.ink)
+                                .foregroundStyle(ScoutPalette.ink)
                                 .lineLimit(1)
                             Text([agent.harness, agent.projectName].compactMap { $0 }.joined(separator: " · "))
                                 .font(HudFont.ui(HudTextSize.xs))
@@ -418,7 +418,7 @@ struct ScoutMessageComposer<Tools: View>: View {
             if let error {
                 Text(error)
                     .font(HudFont.mono(HudTextSize.xxs))
-                    .foregroundStyle(HudPalette.statusError)
+                    .foregroundStyle(ScoutPalette.statusError)
                     .lineLimit(2)
             }
             if let notice { noticeRow(notice) }
@@ -525,7 +525,7 @@ struct ScoutMessageComposer<Tools: View>: View {
         .background(shellShape.fill(ScoutSurface.raised))
         .overlay(
             shellShape.stroke(
-                focused ? ScoutCanvas.cardEdgeTop : HudHairline.standard,
+                focused ? ScoutCanvas.cardEdgeTop : ScoutHairline.standard,
                 lineWidth: HudStrokeWidth.thin
             )
         )
@@ -541,8 +541,8 @@ struct ScoutMessageComposer<Tools: View>: View {
             .textFieldStyle(.plain)
             .lineLimit(rows...maxRows)
             .font(HudFont.ui(bodySize))
-            .foregroundStyle(HudPalette.ink)
-            .tint(HudPalette.accent)
+            .foregroundStyle(ScoutPalette.ink)
+            .tint(ScoutPalette.accent)
             .focused($focused)
             .disabled(disabled || sending)
             // `autocorrectionType = .no` is what actually retires the system
@@ -583,7 +583,7 @@ struct ScoutMessageComposer<Tools: View>: View {
                 .font(HudFont.ui(HudTextSize.sm, weight: .medium))
                 .foregroundStyle(ScoutInk.muted)
                 .frame(width: controlSide, height: controlSide)
-                .background(Circle().stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin))
+                .background(Circle().stroke(ScoutHairline.standard, lineWidth: HudStrokeWidth.thin))
         }
         .disabled(disabled || sending)
         .accessibilityLabel("Add attachment")
@@ -596,7 +596,7 @@ struct ScoutMessageComposer<Tools: View>: View {
         Button { voice.toggleFromUserIntent() } label: {
             ZStack {
                 if voice.isListening {
-                    Circle().fill(HudPalette.accent.opacity(micPulse ? 0.22 : 0.08))
+                    Circle().fill(ScoutPalette.accent.opacity(micPulse ? 0.22 : 0.08))
                 }
                 MicGlyph()
                     .stroke(
@@ -613,7 +613,7 @@ struct ScoutMessageComposer<Tools: View>: View {
             .frame(width: controlSide, height: controlSide)
             .background(
                 Circle().stroke(
-                    voice.isListening ? HudPalette.accent.opacity(0.5) : HudHairline.standard,
+                    voice.isListening ? ScoutPalette.accent.opacity(0.5) : ScoutHairline.standard,
                     lineWidth: HudStrokeWidth.thin
                 )
             )
@@ -632,12 +632,12 @@ struct ScoutMessageComposer<Tools: View>: View {
     private var sendButton: some View {
         Button(action: onSend) {
             Glyphic.arrow(.top, size: controlSide * 0.5)
-                .foregroundStyle(armed ? HudPalette.bg : (sendRestsVisible ? ScoutInk.muted : ScoutInk.dim))
+                .foregroundStyle(armed ? ScoutPalette.bg : (sendRestsVisible ? ScoutInk.muted : ScoutInk.dim))
                 .frame(width: controlSide, height: controlSide)
-                .background(Circle().fill(armed ? HudPalette.ink : ScoutSurface.inset))
+                .background(Circle().fill(armed ? ScoutPalette.ink : ScoutSurface.inset))
                 .overlay {
                     if !armed, sendRestsVisible {
-                        Circle().stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin)
+                        Circle().stroke(ScoutHairline.standard, lineWidth: HudStrokeWidth.thin)
                     }
                 }
         }
@@ -652,13 +652,13 @@ struct ScoutMessageComposer<Tools: View>: View {
         HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
             Text(notice.text)
                 .font(HudFont.mono(HudTextSize.xxs))
-                .foregroundStyle(HudPalette.accent)
+                .foregroundStyle(ScoutPalette.accent)
                 .lineLimit(3)
             Spacer(minLength: HudSpacing.sm)
             if let label = notice.actionLabel, let action = notice.action {
                 Button(label, action: action)
                     .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
-                    .foregroundStyle(HudPalette.accent)
+                    .foregroundStyle(ScoutPalette.accent)
                     .buttonStyle(.plain)
             }
         }
@@ -674,7 +674,7 @@ struct ScoutMessageComposer<Tools: View>: View {
                 Text(voice.isListening ? "LISTENING" : "TRANSCRIBING")
                     .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                     .tracking(1.2)
-                    .foregroundStyle(voice.isListening ? HudPalette.accent : ScoutInk.muted)
+                    .foregroundStyle(voice.isListening ? ScoutPalette.accent : ScoutInk.muted)
                 Text(voice.isListening ? voice.partialText : "Finalizing transcript…")
                     .font(HudFont.ui(HudTextSize.xs))
                     .foregroundStyle(ScoutInk.muted)
@@ -720,7 +720,7 @@ struct ScoutMessageComposer<Tools: View>: View {
 
     private var micColor: Color {
         switch voice.state {
-        case .listening:                return HudPalette.accent
+        case .listening:                return ScoutPalette.accent
         case .transcribing, .preparing: return ScoutInk.muted
         case .unavailable:              return ScoutInk.dim.opacity(0.5)
         case .idle:                     return ScoutInk.muted
@@ -848,7 +848,7 @@ private struct ScoutDictationWave: View {
         HStack(alignment: .center, spacing: 2) {
             ForEach(Array(samples.enumerated()), id: \.offset) { _, sample in
                 Capsule()
-                    .fill(live ? HudPalette.accent : ScoutInk.dim)
+                    .fill(live ? ScoutPalette.accent : ScoutInk.dim)
                     .frame(width: 2.5, height: max(2, side * sample))
                     .opacity(live ? 0.4 + Double(sample) * 0.55 : 0.28)
                     // Each bar takes an equal share of the width and stays
@@ -932,7 +932,7 @@ struct ScoutRuntimeChip: View {
                 // trigger's divider (`h-2.5 w-px`), which separates the two
                 // runs without adding a third piece of punctuation.
                 Rectangle()
-                    .fill(HudHairline.standard)
+                    .fill(ScoutHairline.standard)
                     .frame(width: HudStrokeWidth.thin, height: 10)
                 Text(effortLabel.uppercased())
                     .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
@@ -942,7 +942,7 @@ struct ScoutRuntimeChip: View {
             }
             if onPick != nil {
                 Glyphic.chevron(.bottom, size: 9)
-                    .foregroundStyle(isPicking ? HudPalette.accent : ScoutInk.dim)
+                    .foregroundStyle(isPicking ? ScoutPalette.accent : ScoutInk.dim)
                     // Points at the panel while the panel is up: the caret is
                     // the one part of the chip that says which way this opens.
                     .rotationEffect(.degrees(isPicking ? 180 : 0))
@@ -977,7 +977,7 @@ struct ScoutRuntimeChip: View {
         // One rationed hairline of accent ties the key to the panel above it.
         .overlay(
             chipShape.stroke(
-                HudPalette.accent.opacity(isPicking ? 0.55 : 0),
+                ScoutPalette.accent.opacity(isPicking ? 0.55 : 0),
                 lineWidth: HudStrokeWidth.thin
             )
         )
@@ -1044,7 +1044,7 @@ private struct ScoutComposerPreview: View {
 
     var body: some View {
         ZStack {
-            HudPalette.bg.ignoresSafeArea()
+            ScoutPalette.bg.ignoresSafeArea()
             VStack(spacing: HudSpacing.huge) {
                 ScoutMessageComposer(
                     text: $resting,

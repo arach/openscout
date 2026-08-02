@@ -178,6 +178,7 @@ struct TerminalSurface: View {
     /// prompt. Engine is Parakeet (Vox) when warm, Apple Speech otherwise.
     @Environment(HudDictation.self) private var voice
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
     /// Ticks once per delivered transcript so the keyboard flashes a success check.
     @State private var dictationSuccessPulse = 0
     @StateObject private var entrance = CockpitEntrancePhase()
@@ -191,7 +192,11 @@ struct TerminalSurface: View {
     /// Font cells even when a patched family is registered and selected; that
     /// remaining fix belongs in the renderer artifact rather than app chrome.
     private var terminalAppearance: HudTerminalAppearance {
-        HudTerminalAppearance(fontSize: 8, fontFamily: nil)
+        HudTerminalAppearance.hudsonDefault(
+            for: colorScheme,
+            fontSize: 8,
+            fontFamily: nil
+        )
     }
 
     private enum KeyboardPresentation: Equatable {
@@ -237,7 +242,7 @@ struct TerminalSurface: View {
     var body: some View {
         content
         .cockpitEntrance(index: 0, phase: entrance)
-        .background(HudPalette.bg)
+        .background(ScoutPalette.bg)
         // The hosted keyboard IS the keyboard now (no system QWERTY underneath);
         // it rides the bottom safe area and the terminal lays out above it.
         .safeAreaInset(edge: .bottom, spacing: 0) { terminalKeyboard }
@@ -324,7 +329,7 @@ struct TerminalSurface: View {
                 // the inset terminal grid instead of clipping at either edge.
                 .padding(.horizontal, HudSpacing.xxl)
             }
-            .background(HudPalette.bg)
+            .background(ScoutPalette.bg)
         }
     }
 
@@ -336,7 +341,7 @@ struct TerminalSurface: View {
             } label: {
                 Image(systemName: "keyboard")
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(HudPalette.ink)
+                    .foregroundStyle(ScoutPalette.ink)
                     .frame(width: 38, height: 34)
                     .background(
                         RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
@@ -344,7 +349,7 @@ struct TerminalSurface: View {
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                            .stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin)
+                            .stroke(ScoutHairline.standard, lineWidth: HudStrokeWidth.thin)
                     )
             }
             .buttonStyle(.plain)
@@ -386,7 +391,7 @@ struct TerminalSurface: View {
         .frame(height: 30)
         .overlay(alignment: .top) {
             Rectangle()
-                .fill(HudHairline.standard)
+                .fill(ScoutHairline.standard)
                 .frame(height: HudStrokeWidth.thin)
         }
     }
@@ -444,7 +449,7 @@ struct TerminalSurface: View {
         switch workspace.status {
         case .connecting:
             blockingOverlay {
-                ProgressView().tint(HudPalette.accent)
+                ProgressView().tint(ScoutPalette.accent)
                 Text(workspace.statusMessage.isEmpty ? "Connecting…" : workspace.statusMessage)
                     .font(HudFont.mono(HudTextSize.xxs))
                     .foregroundStyle(ScoutInk.muted)
@@ -467,7 +472,7 @@ struct TerminalSurface: View {
 
     private func blockingOverlay<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         ZStack {
-            HudPalette.bg.opacity(0.92)
+            ScoutPalette.bg.opacity(0.92)
             VStack(spacing: HudSpacing.md) {
                 content()
             }
@@ -479,7 +484,7 @@ struct TerminalSurface: View {
         blockingOverlay {
             Text(title)
                 .font(HudFont.ui(HudTextSize.md, weight: .semibold))
-                .foregroundStyle(HudPalette.ink)
+                .foregroundStyle(ScoutPalette.ink)
             Text(detail)
                 .font(HudFont.ui(HudTextSize.sm))
                 .foregroundStyle(ScoutInk.muted)
@@ -508,11 +513,11 @@ struct TerminalSurface: View {
         VStack(spacing: HudSpacing.lg) {
             Spacer()
             if showsSpinner {
-                ProgressView().tint(HudPalette.accent)
+                ProgressView().tint(ScoutPalette.accent)
             }
             Text(title)
                 .font(HudFont.ui(HudTextSize.md, weight: .semibold))
-                .foregroundStyle(HudPalette.ink)
+                .foregroundStyle(ScoutPalette.ink)
             Text(detail)
                 .font(HudFont.ui(HudTextSize.sm))
                 .foregroundStyle(ScoutInk.muted)

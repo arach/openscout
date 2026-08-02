@@ -49,15 +49,15 @@ enum ScoutNavMode: String, CaseIterable {
 enum CrownTheme {
     /// Signal lime (#A6EF87) — LED pips/dots, hot quota fills, the inner seats'
     /// active ring.
-    static let signal = Color(red: 166.0/255, green: 239.0/255, blue: 135.0/255)
+    static let signal = scoutAdaptive(light: (42, 126, 61), dark: (166, 239, 135))
     /// Active-count text (#3FF0B0) — a cooler read than the lime so the number
     /// stays distinct from the pips beside it.
-    static let activeText = Color(red: 63.0/255, green: 240.0/255, blue: 176.0/255)
+    static let activeText = scoutAdaptive(light: (5, 117, 84), dark: (63, 240, 176))
     /// Instrument well fill / rim (#070A09 / #1E231F).
-    static let well = Color(red: 7.0/255, green: 10.0/255, blue: 9.0/255)
-    static let wellEdge = Color(red: 30.0/255, green: 35.0/255, blue: 31.0/255)
-    static let pipOff = Color(red: 20.0/255, green: 29.0/255, blue: 24.0/255)
-    static let dimLED = Color(red: 86.0/255, green: 96.0/255, blue: 88.0/255)
+    static let well = scoutAdaptive(light: (238, 235, 228), dark: (7, 10, 9))
+    static let wellEdge = scoutAdaptive(light: (198, 193, 183), dark: (30, 35, 31))
+    static let pipOff = scoutAdaptive(light: (211, 207, 198), dark: (20, 29, 24))
+    static let dimLED = scoutAdaptive(light: (98, 94, 85), dark: (86, 96, 88))
 }
 
 // MARK: - Hex mark
@@ -131,7 +131,7 @@ struct CrownHexMark: View {
                 .scale(0.52)
                 .stroke(loading ? CrownTheme.signal.opacity(0.4) : ScoutSignalSurface.neutralSignal.opacity(0.22), lineWidth: 1)
             Circle()
-                .fill(loading ? CrownTheme.signal : (lit ? HudPalette.ink.opacity(0.9) : ScoutInk.dim.opacity(0.6)))
+                .fill(loading ? CrownTheme.signal : (lit ? ScoutPalette.ink.opacity(0.9) : ScoutInk.dim.opacity(0.6)))
                 .frame(width: size * 0.2, height: size * 0.2)
                 .shadow(color: loading ? CrownTheme.signal.opacity(0.8) : .clear, radius: 3)
         }
@@ -152,7 +152,7 @@ struct CrownHexMark: View {
 
     private var rimColor: Color {
         if loading { return CrownTheme.signal }
-        return HudPalette.ink.opacity(lit ? 0.8 : 0.5)
+        return ScoutPalette.ink.opacity(lit ? 0.8 : 0.5)
     }
 }
 
@@ -366,7 +366,7 @@ private struct LEDCore: View {
                                 .shadow(color: host.online ? CrownTheme.signal.opacity(0.7) : .clear, radius: 2)
                             Text(host.name.uppercased())
                                 .font(HudFont.mono(9, weight: .semibold)).tracking(0.4)
-                                .foregroundStyle(host.online ? HudPalette.ink : ScoutInk.dim)
+                                .foregroundStyle(host.online ? ScoutPalette.ink : ScoutInk.dim)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                                 .frame(maxWidth: 88, alignment: .leading)
@@ -386,7 +386,7 @@ private struct LEDCore: View {
                         .shadow(color: hostsOnline > 0 ? CrownTheme.signal.opacity(0.7) : .clear, radius: 2)
                     Text(hostLabel)
                         .font(HudFont.mono(compact ? 8.5 : 10, weight: .semibold)).tracking(0.5)
-                        .foregroundStyle(hostsOnline > 0 ? HudPalette.ink : ScoutInk.muted)
+                        .foregroundStyle(hostsOnline > 0 ? ScoutPalette.ink : ScoutInk.muted)
                 }
             }
             divider
@@ -556,7 +556,7 @@ private struct MorphLED: View {
                         Circle().fill(CrownTheme.signal).frame(width: 4, height: 4)
                         Text(agent.harness?.lowercased() ?? "agent")
                             .font(HudFont.mono(8.5, weight: .semibold))
-                            .foregroundStyle(HudPalette.ink)
+                            .foregroundStyle(ScoutPalette.ink)
                         if let project = agent.projectName, !project.isEmpty {
                             Text(project)
                                 .font(HudFont.mono(8.5, weight: .regular))
@@ -692,7 +692,7 @@ private struct CrownCornerButton: View {
                 .modifier(CrownMachined(shape: Circle(), rimBoost: isActive ? 0.15 : 0))
                 // Machined grain, clipped to the disc.
                 .overlay(ScoutFilmGrain(grainOpacity: 0.06).clipShape(Circle()))
-                .overlay(Glyphic(kind: glyph, size: glyphSize).foregroundStyle(isActive ? HudPalette.ink : ScoutInk.muted))
+                .overlay(Glyphic(kind: glyph, size: glyphSize).foregroundStyle(isActive ? ScoutPalette.ink : ScoutInk.muted))
                 // Layered drop shadow (contact + the study's 0 5px 13px @ .55
                 // ambient) so the corner floats over the canvas like the
                 // crown-complications.tsx reference.
@@ -977,7 +977,6 @@ struct CrownNavChrome: View {
             try? await Task.sleep(for: .seconds(8))
             dismissIdleHint()
         }
-        .environment(\.colorScheme, .dark)
     }
 
     /// The one-time IdleHide explainer — a small card in the crown's own
@@ -995,7 +994,7 @@ struct CrownNavChrome: View {
             }
             Text("After \(Int(IdleHide.timeout))s idle it sinks out of view —\ntap the bottom edge to bring it back.")
                 .font(HudFont.mono(10.5, weight: .medium))
-                .foregroundStyle(HudPalette.ink)
+                .foregroundStyle(ScoutPalette.ink)
                 .multilineTextAlignment(.center)
                 .lineSpacing(3)
             Glyphic(kind: .chevron, size: 9, rotation: .degrees(180))
@@ -1306,7 +1305,7 @@ struct CrownVitalsPanel: View {
                     HudStatusDot(color: model.statusTint, size: 7, pulses: model.statusPulses)
                     Text(model.statusLabel.uppercased())
                         .font(HudFont.mono(11, weight: .semibold)).tracking(0.5)
-                        .foregroundStyle(HudPalette.ink)
+                        .foregroundStyle(ScoutPalette.ink)
                     Spacer()
                     Text("FETCHED \(ageLabel(from: model.lastSuccessfulFetchAt, now: context.date))")
                         .font(HudFont.mono(9, weight: .medium))
@@ -1391,8 +1390,7 @@ struct CrownVitalsPanel: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .presentationDetents([.height(panelHeight)])
         .presentationDragIndicator(.visible)
-        .presentationBackground(HudPalette.chrome)
-        .preferredColorScheme(.dark)
+        .presentationBackground(ScoutPalette.chrome)
         // Same idempotent LAN browse the Connect screen runs on appear — surfaces
         // any not-yet-paired Scout Macs on this Wi-Fi. No broker RPC.
         .task { await model.refreshLanPairTargets() }
@@ -1415,15 +1413,15 @@ struct CrownVitalsPanel: View {
 
     private func hostRow(_ machine: AppModel.PairedMachine) -> some View {
         HStack(spacing: 10) {
-            HudStatusDot(color: machine.isOnline ? HudPalette.accent : ScoutInk.dim, size: 6, pulses: false)
+            HudStatusDot(color: machine.isOnline ? ScoutPalette.accent : ScoutInk.dim, size: 6, pulses: false)
             Text(machine.name)
                 .font(HudFont.mono(11, weight: .medium))
-                .foregroundStyle(machine.isOnline ? HudPalette.ink : ScoutInk.muted)
+                .foregroundStyle(machine.isOnline ? ScoutPalette.ink : ScoutInk.muted)
                 .lineLimit(1)
             Spacer(minLength: 8)
             Text(machine.route?.label ?? "offline")
                 .font(HudFont.mono(9, weight: .medium))
-                .foregroundStyle(machine.isOnline ? HudPalette.accent : ScoutInk.dim)
+                .foregroundStyle(machine.isOnline ? ScoutPalette.accent : ScoutInk.dim)
             if let seen = lastSeenLabel(machine.lastSeen) {
                 Text(seen)
                     .font(HudFont.mono(9, weight: .regular))
@@ -1453,7 +1451,7 @@ struct CrownVitalsPanel: View {
                 Spacer(minLength: 8)
                 Text("PAIR")
                     .font(HudFont.mono(8, weight: .semibold)).tracking(0.8)
-                    .foregroundStyle(HudPalette.accent.opacity(0.85))
+                    .foregroundStyle(ScoutPalette.accent.opacity(0.85))
                 Glyphic(kind: .chevron, size: 10).foregroundStyle(ScoutInk.dim)
             }
             .padding(.vertical, 8)
@@ -1471,7 +1469,7 @@ struct CrownVitalsPanel: View {
             HStack(spacing: 10) {
                 Text((budget.label.isEmpty ? budget.provider : budget.label).uppercased())
                     .font(HudFont.mono(10, weight: .semibold)).tracking(0.4)
-                    .foregroundStyle(HudPalette.ink)
+                    .foregroundStyle(ScoutPalette.ink)
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 if !budget.plan.isEmpty {
@@ -1503,13 +1501,13 @@ struct CrownVitalsPanel: View {
                 Glyphic(kind: glyph, size: 13)
                 Text(title).font(HudFont.mono(10, weight: .semibold)).tracking(0.4)
             }
-            .foregroundStyle(accent ? HudPalette.accent : ScoutInk.muted)
+            .foregroundStyle(accent ? ScoutPalette.accent : ScoutInk.muted)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 11)
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(ScoutSurface.inset))
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(accent ? HudPalette.accent.opacity(0.4) : HudHairline.standard, lineWidth: HudStrokeWidth.thin)
+                    .stroke(accent ? ScoutPalette.accent.opacity(0.4) : ScoutHairline.standard, lineWidth: HudStrokeWidth.thin)
             )
         }
         .buttonStyle(.plain)

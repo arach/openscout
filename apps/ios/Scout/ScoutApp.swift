@@ -103,7 +103,17 @@ final class ScoutAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
 struct ScoutApp: App {
     @UIApplicationDelegateAdaptor(ScoutAppDelegate.self) private var appDelegate
     @State private var model = AppModel()
+    @AppStorage(ScoutAppearance.storageKey) private var appearanceRaw = ScoutAppearance.default.rawValue
     @Environment(\.scenePhase) private var scenePhase
+
+    private var preferredColorScheme: ColorScheme? {
+        #if DEBUG
+        if let override = ProcessInfo.processInfo.environment["SCOUT_APPEARANCE"] {
+            return ScoutAppearance.resolve(override).colorScheme
+        }
+        #endif
+        return ScoutAppearance.resolve(appearanceRaw).colorScheme
+    }
 
     init() {
         HudLoggerSinks.install(HudLogStore.shared)
@@ -121,10 +131,11 @@ struct ScoutApp: App {
             .hudsonAppManifest(
                 HudAppManifest(name: "Scout", version: "0.2.70", tint: .green, targetLabel: "Agent")
             )
+            .hudTheme(ScoutHudTheme.adaptive)
             // Shared dictation controller — the composer and Settings both read
             // and drive the same on-device transcription state.
             .environment(model.dictation)
-            .preferredColorScheme(.dark)
+            .preferredColorScheme(preferredColorScheme)
             // Pairing presents from both phases (Connect screen CTA and the
             // in-shell Connection sheet), so it lives at the app root.
             .sheet(isPresented: $model.showPairing) {

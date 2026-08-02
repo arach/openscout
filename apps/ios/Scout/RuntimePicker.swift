@@ -213,18 +213,18 @@ struct ComposerEffortOption: Identifiable, Hashable {
 // glass bar's seat — and so it holds up under every canvas tone.
 
 enum ModelPickerTone {
-    static let ink = Color(red: 242.0/255, green: 244.0/255, blue: 239.0/255)          // #f2f4ef
-    static let muted = Color(red: 170.0/255, green: 177.0/255, blue: 167.0/255)        // #aab1a7
-    static let dim = Color(red: 119.0/255, green: 126.0/255, blue: 117.0/255)          // #777e75
-    static let faint = Color(red: 76.0/255, green: 85.0/255, blue: 78.0/255)           // #4c554e
-    static let accent = Color(red: 166.0/255, green: 239.0/255, blue: 135.0/255)       // #a6ef87
+    static let ink = scoutAdaptive(light: (35, 33, 29), dark: (242, 244, 239))
+    static let muted = scoutAdaptive(light: (88, 83, 75), dark: (170, 177, 167))
+    static let dim = scoutAdaptive(light: (105, 99, 90), dark: (119, 126, 117))
+    static let faint = scoutAdaptive(light: (151, 143, 131), dark: (76, 85, 78))
+    static let accent = scoutAdaptive(light: (7, 134, 97), dark: (166, 239, 135))
     static let accentDim = accent.opacity(0.5)
     static let accentSoft = accent.opacity(0.09)
     static let scrim = Color(red: 3.0/255, green: 4.0/255, blue: 3.0/255).opacity(0.5) // rgba(3,4,3,.5)
-    static let chipFill = Color(red: 11.0/255, green: 14.0/255, blue: 12.0/255)        // #0b0e0c
-    static let insetFill = Color(red: 7.0/255, green: 9.0/255, blue: 7.0/255)          // #070907
-    static let insetEdge = Color(red: 24.0/255, green: 29.0/255, blue: 25.0/255)       // #181d19
-    static let tokenEdge = Color(red: 32.0/255, green: 38.0/255, blue: 31.0/255)       // #20261f
+    static let chipFill = scoutAdaptive(light: (245, 241, 233), dark: (11, 14, 12))
+    static let insetFill = scoutAdaptive(light: (239, 235, 227), dark: (7, 9, 7))
+    static let insetEdge = scoutAdaptive(light: (203, 196, 184), dark: (24, 29, 25))
+    static let tokenEdge = scoutAdaptive(light: (193, 185, 173), dark: (32, 38, 31))
 }
 
 // MARK: - Anchor
@@ -524,13 +524,13 @@ struct ScoutRuntimePanel: View {
             HStack(spacing: 0) {
                 rail
                 Rectangle()
-                    .fill(HudHairline.standard)
+                    .fill(ScoutHairline.standard)
                     .frame(width: HudStrokeWidth.thin)
                 models
             }
             .frame(height: bodyHeight)
             Rectangle()
-                .fill(HudHairline.standard)
+                .fill(ScoutHairline.standard)
                 .frame(height: HudStrokeWidth.thin)
             effortLadder
         }
@@ -587,10 +587,10 @@ struct ScoutRuntimePanel: View {
                 } label: {
                     HStack(spacing: HudSpacing.md) {
                         HarnessMark(harness: entry.id, size: 14)
-                            .foregroundStyle(on ? HudPalette.accent : ScoutInk.dim)
+                            .foregroundStyle(on ? ScoutPalette.accent : ScoutInk.dim)
                         Text(entry.short)
                             .font(HudFont.mono(HudTextSize.xs, weight: on ? .semibold : .medium))
-                            .foregroundStyle(on ? HudPalette.ink : ScoutInk.muted)
+                            .foregroundStyle(on ? ScoutPalette.ink : ScoutInk.muted)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                         Spacer(minLength: 0)
@@ -600,9 +600,9 @@ struct ScoutRuntimePanel: View {
                     .frame(height: row)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(alignment: .leading) {
-                        if on {
-                            Capsule()
-                                .fill(HudPalette.accent)
+                            if on {
+                                Capsule()
+                                    .fill(ScoutPalette.accent)
                                 .frame(width: 2, height: 18)
                                 .matchedGeometryEffect(id: "rail-marker", in: railMarker)
                         }
@@ -640,12 +640,12 @@ struct ScoutRuntimePanel: View {
                     } label: {
                         HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
                             Circle()
-                                .fill(on ? HudPalette.accent : .clear)
+                                .fill(on ? ScoutPalette.accent : .clear)
                                 .frame(width: 5, height: 5)
                                 .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
                             Text(family.label)
                                 .font(HudFont.mono(HudTextSize.sm, weight: on ? .semibold : .medium))
-                                .foregroundStyle(on ? HudPalette.ink : ScoutInk.muted)
+                                .foregroundStyle(on ? ScoutPalette.ink : ScoutInk.muted)
                                 .lineLimit(1)
                             if !family.sublabel.isEmpty {
                                 Text(family.sublabel)
@@ -713,14 +713,14 @@ struct ScoutRuntimePanel: View {
                         Capsule()
                             .fill(
                                 current
-                                    ? HudPalette.accent
-                                    : (filled ? HudPalette.accent.opacity(0.34) : HudHairline.standard)
+                                    ? ScoutPalette.accent
+                                    : (filled ? ScoutPalette.accent.opacity(0.34) : ScoutHairline.standard)
                             )
                             .frame(height: 3)
                         Text(option.label.uppercased())
                             .font(HudFont.mono(HudTextSize.micro, weight: current ? .bold : .medium))
                             .tracking(0.7)
-                            .foregroundStyle(current ? HudPalette.ink : ScoutInk.dim)
+                            .foregroundStyle(current ? ScoutPalette.ink : ScoutInk.dim)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                     }
@@ -791,7 +791,7 @@ private struct RuntimePickerPreviewStage: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 21, style: .continuous)
-                    .stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin)
+                    .stroke(ScoutHairline.standard, lineWidth: HudStrokeWidth.thin)
             )
             .scoutRuntimeLane()
             .padding(.horizontal, HudSpacing.xxl)
@@ -830,7 +830,7 @@ private struct ScoutRuntimePanelPreview: View {
 
     var body: some View {
         ZStack {
-            HudPalette.bg.ignoresSafeArea()
+            ScoutPalette.bg.ignoresSafeArea()
             ScoutRuntimePanel(
                 harnesses: ComposerModelHarness.catalog,
                 effortOptions: ComposerEffortOption.catalog,

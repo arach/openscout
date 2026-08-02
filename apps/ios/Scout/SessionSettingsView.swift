@@ -56,7 +56,7 @@ struct SessionSettingsView: View {
                 .popover(isPresented: $showLifecycleInfo, arrowEdge: .top) {
                     lifecycleInfo
                         .presentationCompactAdaptation(.popover)
-                        .presentationBackground(HudPalette.surface)
+                        .presentationBackground(ScoutPalette.surface)
                 }
             }
         }
@@ -81,7 +81,7 @@ struct SessionSettingsView: View {
         VStack(alignment: .leading, spacing: HudSpacing.xxs) {
             Text(term)
                 .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
-                .foregroundStyle(HudPalette.ink)
+                .foregroundStyle(ScoutPalette.ink)
             Text(desc)
                 .font(HudFont.ui(HudTextSize.xs))
                 .foregroundStyle(ScoutInk.muted)

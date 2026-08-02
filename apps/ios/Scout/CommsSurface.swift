@@ -51,12 +51,12 @@ struct CommsSurface: View {
     var body: some View {
         ScrollView {
             if isLoading {
-                HudEmptyState(title: "Loading comms", icon: "bubble.left.and.bubble.right")
+                ScoutEmptyState(title: "Loading comms", icon: "bubble.left.and.bubble.right")
                     .frame(maxWidth: .infinity)
                     .padding(.top, HudSpacing.huge)
                     .padding(HudSpacing.xxl)
             } else if conversations.isEmpty {
-                HudEmptyState(
+                ScoutEmptyState(
                     title: "No conversations",
                     subtitle: "Channels and DMs with your agents will appear here.",
                     icon: "bubble.left.and.bubble.right"
@@ -73,7 +73,7 @@ struct CommsSurface: View {
                         .padding(.horizontal, HudSpacing.xxl)
                         .padding(.top, HudSpacing.lg)
                         .cockpitEntrance(index: 0, phase: entrance)
-                    HudField("Search conversations", text: $searchText, icon: "magnifyingglass")
+                    ScoutField("Search conversations", text: $searchText, icon: "magnifyingglass")
                         .padding(.horizontal, HudSpacing.xxl)
                         .padding(.top, HudSpacing.md)
                         .padding(.bottom, HudSpacing.lg)
@@ -135,7 +135,7 @@ struct CommsSurface: View {
         let channels = conversations.filter { $0.conversation.kind == .channel || $0.conversation.kind == .system }.count
         let directs = conversations.filter { $0.conversation.kind == .direct }.count
         return HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
-            HudSectionLabel("Scout broker", tint: ScoutInk.muted)
+            ScoutSectionLabel("Scout broker", tint: ScoutInk.muted)
             Spacer(minLength: HudSpacing.md)
             Text("\(channels) CH · \(directs) DM")
                 .font(HudFont.mono(HudTextSize.micro, weight: .medium))
@@ -246,7 +246,7 @@ private struct CommsRow: View {
 
                     Text(displayTitle)
                         .font(HudFont.ui(HudTextSize.md, weight: unread ? .semibold : .medium))
-                        .foregroundStyle(HudPalette.ink)
+                        .foregroundStyle(ScoutPalette.ink)
                         .lineLimit(1)
                         .truncationMode(.tail)
                         // Fixed ~third-of-screen column: names never dominate, and a
@@ -280,10 +280,10 @@ private struct CommsRow: View {
                         Text("\(conversation.unreadCount)")
                             .font(HudFont.mono(HudTextSize.micro, weight: .bold))
                             .monospacedDigit()
-                            .foregroundStyle(HudPalette.bg)
+                            .foregroundStyle(ScoutPalette.bg)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
-                            .background(Capsule().fill(HudPalette.accent))
+                            .background(Capsule().fill(ScoutPalette.accent))
                     }
                 }
                 .padding(.horizontal, HudSpacing.xxl)
@@ -296,7 +296,7 @@ private struct CommsRow: View {
 
                 if showDivider {
                     Rectangle()
-                        .fill(HudHairline.subtle)
+                        .fill(ScoutHairline.subtle)
                         .frame(height: 0.5)
                         // Inset under the name (past the type glyph) for a list read.
                         .padding(.leading, HudSpacing.huge + HudSpacing.md)
@@ -386,7 +386,7 @@ private struct CommsPeekCard: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(fullTitle)
                     .font(HudFont.ui(HudTextSize.lg, weight: .semibold))
-                    .foregroundStyle(HudPalette.ink)
+                    .foregroundStyle(ScoutPalette.ink)
                     .lineLimit(2)
                 if let subtitle {
                     Text(subtitle)
@@ -396,7 +396,7 @@ private struct CommsPeekCard: View {
                 }
             }
 
-            Rectangle().fill(HudHairline.subtle).frame(height: 0.5)
+            Rectangle().fill(ScoutHairline.subtle).frame(height: 0.5)
 
             if recent.isEmpty {
                 Text(loaded ? "No messages yet" : "Loading…")
@@ -408,10 +408,10 @@ private struct CommsPeekCard: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(message.authorLabel)
                                 .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                                .foregroundStyle(message.isOperator ? HudPalette.accent : ScoutInk.muted)
+                                .foregroundStyle(message.isOperator ? ScoutPalette.accent : ScoutInk.muted)
                             Text(message.body)
                                 .font(HudFont.ui(HudTextSize.sm))
-                                .foregroundStyle(HudPalette.ink)
+                                .foregroundStyle(ScoutPalette.ink)
                                 .lineLimit(3)
                                 .multilineTextAlignment(.leading)
                         }
@@ -421,7 +421,7 @@ private struct CommsPeekCard: View {
         }
         .padding(HudSpacing.xl)
         .frame(width: 300, alignment: .leading)
-        .background(HudPalette.bg)
+        .background(ScoutPalette.bg)
         .task {
             // oldest → newest; take the latest few for the peek.
             let msgs = (try? await client.conversationMessages(conversationId: conversation.id, limit: 24)) ?? []
@@ -486,10 +486,10 @@ private struct CommsStatusGlyph: View {
         case .ask:
             Text("?")
                 .font(HudFont.mono(HudTextSize.sm, weight: .bold))
-                .foregroundStyle(HudPalette.accent)
+                .foregroundStyle(ScoutPalette.accent)
         case .working:
             BrailleSpinner()
-                .foregroundStyle(HudPalette.accent)
+                .foregroundStyle(ScoutPalette.accent)
         case .awaiting:
             Text("›")
                 .font(HudFont.mono(HudTextSize.sm, weight: .semibold))
@@ -628,7 +628,7 @@ struct CommsThreadView: View {
             header
             transcript
         }
-        .background(HudPalette.bg)
+        .background(ScoutPalette.bg)
         .navigationBarBackButtonHidden(true)
         // Hiding the system back button (for our custom chevron) also disables
         // the native left-edge swipe-to-go-back. Re-enable it so the chevron is
@@ -649,17 +649,17 @@ struct CommsThreadView: View {
         HStack(spacing: HudSpacing.md) {
             Button { onClose() } label: {
                 Glyphic.chevron(.leading, size: 17)
-                    .foregroundStyle(HudPalette.ink)
+                    .foregroundStyle(ScoutPalette.ink)
                     .frame(width: 32, height: 32)
                     .background(Circle().fill(ScoutSurface.inset))
-                    .overlay(Circle().stroke(HudHairline.standard, lineWidth: HudStrokeWidth.standard))
+                    .overlay(Circle().stroke(ScoutHairline.standard, lineWidth: HudStrokeWidth.standard))
             }
             .buttonStyle(.plain)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(threadTitle)
                     .font(HudFont.ui(HudTextSize.lg, weight: .semibold))
-                    .foregroundStyle(HudPalette.ink)
+                    .foregroundStyle(ScoutPalette.ink)
                     .lineLimit(1)
                 if let sub = threadSubtitle {
                     Text(sub)
@@ -700,11 +700,11 @@ struct CommsThreadView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: HudSpacing.lg) {
                         if isLoading {
-                            HudEmptyState(title: "Loading", icon: "bubble.left.and.bubble.right")
+                            ScoutEmptyState(title: "Loading", icon: "bubble.left.and.bubble.right")
                                 .frame(maxWidth: .infinity)
                                 .padding(.top, HudSpacing.huge)
                         } else if messages.isEmpty {
-                            HudEmptyState(
+                            ScoutEmptyState(
                                 title: "No messages yet",
                                 subtitle: "Say something to get the thread going.",
                                 icon: "bubble.left"
@@ -768,7 +768,7 @@ struct CommsThreadView: View {
             density: .thread,
             appearance: .pill
         )
-        .background(HudPalette.bg)
+        .background(ScoutPalette.bg)
         .photosPicker(
             isPresented: $showPhotoPicker,
             selection: $selectedPhotoItems,
@@ -1022,11 +1022,11 @@ private struct CommsBubble: View {
                 .padding(.vertical, HudSpacing.md)
                 .background(
                     RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                        .fill(message.isOperator ? HudPalette.accent.opacity(0.16) : ScoutSurface.inset)
+                        .fill(message.isOperator ? ScoutPalette.accent.opacity(0.16) : ScoutSurface.inset)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                        .stroke(message.isOperator ? HudPalette.accent.opacity(0.4) : HudHairline.subtle,
+                        .stroke(message.isOperator ? ScoutPalette.accent.opacity(0.4) : ScoutHairline.subtle,
                                 lineWidth: HudStrokeWidth.standard)
                 )
             }
@@ -1036,9 +1036,9 @@ private struct CommsBubble: View {
 
     private var authorColor: Color {
         switch message.authorKind {
-        case .agent: return HudPalette.accent
+        case .agent: return ScoutPalette.accent
         case .system: return ScoutInk.muted
-        default: return HudPalette.ink
+        default: return ScoutPalette.ink
         }
     }
 
