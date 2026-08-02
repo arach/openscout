@@ -122,6 +122,7 @@ describe("terminal relay binding", () => {
 
   test("maps pi harnesses to relay agent kind", () => {
     expect(relayAgentForHarness("pi")).toBe("pi");
+    expect(relayAgentForHarness("codex")).toBe("codex");
     expect(relayAgentForHarness("claude")).toBeUndefined();
   });
 

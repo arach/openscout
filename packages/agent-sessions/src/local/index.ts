@@ -13,10 +13,10 @@ import type { SessionState, TurnState } from "../state.js";
 import {
   getOrCreateCodexAppServerClient,
   shutdownCodexAppServerLocalAgent,
-  normalizeCodexAppServerLaunchArgs,
   type CodexAppServerClient,
   type CodexAppServerSessionOptions,
 } from "./transports/codex-app-server.js";
+import { buildLocalCodexLaunchArgs } from "./codex-launch-args.js";
 
 export {
   CodexAppServerClient,
@@ -90,6 +90,7 @@ export type CompleteLocalAgentTurnOptions = {
   systemPrompt?: string;
   input: string;
   model?: string;
+  reasoningEffort?: string;
   timeoutMs?: number;
   signal?: AbortSignal;
 };
@@ -107,6 +108,9 @@ export type CreateLocalAgentClientOptions = {
   adapterOptions?: Record<string, unknown>;
   warmth?: LocalAgentWarmth;
   model?: string;
+  /** Codex reasoning effort ("low" | "medium" | ...) — translated to a
+   * model_reasoning_effort config override in the app-server launch args. */
+  reasoningEffort?: string;
   timeoutMs?: number;
   signal?: AbortSignal;
 };
@@ -508,15 +512,12 @@ function codexLocalSessionPaths(sessionId: string): {
   };
 }
 
-function codexLaunchArgsForModel(model: string | undefined): string[] {
-  return model ? normalizeCodexAppServerLaunchArgs(["--model", model]) : [];
-}
-
 function buildCodexSessionOptions(options: {
   sessionId: string;
   cwd: string;
   systemPrompt?: string;
   model?: string;
+  reasoningEffort?: string;
 }): CodexAppServerSessionOptions {
   const paths = codexLocalSessionPaths(options.sessionId);
   return {
@@ -526,7 +527,10 @@ function buildCodexSessionOptions(options: {
     systemPrompt: options.systemPrompt?.trim() || "You are a helpful local Codex agent.",
     runtimeDirectory: paths.runtimeDirectory,
     logsDirectory: paths.logsDirectory,
-    launchArgs: codexLaunchArgsForModel(options.model),
+    launchArgs: buildLocalCodexLaunchArgs({
+      model: options.model,
+      reasoningEffort: options.reasoningEffort,
+    }),
     clientInfo: {
       name: "openscout-agent-sessions",
       title: "OpenScout Agent Sessions",
@@ -577,6 +581,7 @@ async function createCodexLocalAgentClient(
     cwd: options.cwd,
     systemPrompt: options.systemPrompt,
     model: options.model,
+    reasoningEffort: options.reasoningEffort,
   });
   let client = getOrCreateCodexAppServerClient(currentSessionOptions);
   let closed = false;
@@ -601,6 +606,7 @@ async function createCodexLocalAgentClient(
       cwd: options.cwd,
       systemPrompt: options.systemPrompt,
       model,
+      reasoningEffort: options.reasoningEffort,
     });
     currentSessionOptions = nextSessionOptions;
     client = getOrCreateCodexAppServerClient(nextSessionOptions);
@@ -789,6 +795,7 @@ export async function completeLocalAgentTurn(
     cwd: options.cwd,
     systemPrompt: options.systemPrompt,
     model: options.model,
+    reasoningEffort: options.reasoningEffort,
     timeoutMs: options.timeoutMs,
     signal: options.signal,
     warmth: "lazy",

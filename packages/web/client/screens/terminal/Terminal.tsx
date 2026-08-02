@@ -227,6 +227,13 @@ const TERMINAL_LAYOUT_MODES: readonly TerminalLayoutModeOption[] = [
   { mode: "grid", label: "Grid", detail: "Rows and columns", minimumCells: 4 },
 ];
 
+const TERMINAL_FRESH_AGENT_OPTIONS: readonly { value: TerminalAgentKind; label: string }[] = [
+  { value: "shell", label: "Shell" },
+  { value: "codex", label: "Codex" },
+  { value: "claude", label: "Claude" },
+  { value: "pi", label: "Pi" },
+];
+
 const DEFAULT_TERMINAL_FONT_FAMILY = "'JetBrainsMono Nerd Font', 'JetBrainsMonoNL Nerd Font', 'MesloLGS Nerd Font Mono', 'Hack Nerd Font Mono', 'JetBrains Mono', monospace";
 const ignoreReadOnlyTerminalInput = (_value: string) => {};
 const ignoreReadOnlyTerminalRestart = () => {};
@@ -1772,8 +1779,8 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
         pickerSort={pickerSort}
         onPickerView={setPickerView}
         onPickerSort={sortPickerBy}
-        onAssignFresh={(backend) => setWorkspaceDraftCells((current) => current.map((cell, index) =>
-          index === workspaceDraftSlot ? { id: cell.id, kind: "fresh", backend, agent: "shell" } : cell
+        onAssignFresh={(backend, agent = "shell") => setWorkspaceDraftCells((current) => current.map((cell, index) =>
+          index === workspaceDraftSlot ? { id: cell.id, kind: "fresh", backend, agent } : cell
         ))}
         onAssignRegistered={(item) => setWorkspaceDraftCells((current) => current.map((cell, index) =>
           index === workspaceDraftSlot
@@ -1833,6 +1840,15 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
             >
               <Plus size={14} strokeWidth={1.9} />
               <span>Shell</span>
+            </button>
+            <button
+              type="button"
+              className="s-term-workspace-action s-term-workspace-action--primary"
+              onClick={() => addFreshTile("pty", "codex")}
+              title="Add a Codex TUI tile"
+            >
+              <Plus size={14} strokeWidth={1.9} />
+              <span>Codex</span>
             </button>
             <button
               type="button"
@@ -2132,7 +2148,7 @@ function TerminalWorkspaceBuilder({
   pickerSort: TerminalSessionSort;
   onPickerView: (view: TerminalPickerView) => void;
   onPickerSort: (column: TerminalSessionColumn) => void;
-  onAssignFresh: (backend: TerminalCellBackend) => void;
+  onAssignFresh: (backend: TerminalCellBackend, agent?: TerminalAgentKind) => void;
   onAssignRegistered: (item: TerminalHomeListItem) => void;
   onCancel: () => void;
   onSave: () => void;
@@ -2293,11 +2309,20 @@ function TerminalWorkspaceBuilder({
               <span>Cell {String(selectedSlot + 1).padStart(2, "0")}</span>
               <h3>Start something new</h3>
               <div className="s-term-workspace-builder-source-actions">
-                {startOptions.map((option) => (
+                {TERMINAL_FRESH_AGENT_OPTIONS.map((option) => (
                   <button
                     type="button"
                     key={option.value}
-                    onClick={() => onAssignFresh(option.value as TerminalCellBackend)}
+                    onClick={() => onAssignFresh("pty", option.value)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+                {startOptions.filter((option) => option.value !== "pty").map((option) => (
+                  <button
+                    type="button"
+                    key={option.value}
+                    onClick={() => onAssignFresh(option.value as TerminalCellBackend, "shell")}
                     title={option.relayAttach
                       ? option.detail
                       : `${option.detail} — Scout starts it; open it in ${option.label} to use it`}
@@ -3311,7 +3336,13 @@ function freshTerminalLabel(
   backend: TerminalCellBackend,
   agent: NonNullable<TerminalRoute["terminalAgent"]>,
 ): { title: string; detail: string } {
-  const agentLabel = agent === "shell" ? "Shell" : agent === "pi" ? "Pi" : "Claude";
+  const agentLabel = agent === "shell"
+    ? "Shell"
+    : agent === "codex"
+      ? "Codex"
+      : agent === "pi"
+        ? "Pi"
+        : "Claude";
   if (backend === "pty") {
     return { title: agentLabel, detail: "fresh PTY tab" };
   }

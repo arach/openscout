@@ -957,6 +957,11 @@ export function NewChatComposer({
           message: committedMessage,
           attachments,
         });
+        // The composer can be shown again without a remount. A successful
+        // route must not leave its prior task text in the next draft.
+        setMessage("");
+        setFiles([]);
+        setAttachmentFeedback(null);
         navigate({
           view: "agents-v2",
           agentId: result.agentId,
@@ -999,6 +1004,9 @@ export function NewChatComposer({
           createdAt: submittedAt,
         });
       }
+      // Keep the text on failures for retry, but clear it once the first
+      // message has been accepted so the next new chat begins blank.
+      setMessage("");
       navigate({
         view: "conversation",
         conversationId,

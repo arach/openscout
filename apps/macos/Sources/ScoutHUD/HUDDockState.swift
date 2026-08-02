@@ -127,6 +127,31 @@ public final class HUDDockState: ObservableObject {
         }
     }
 
+    /// Stop whichever voice action currently owns the HUD. This is deliberately
+    /// non-destructive: stopping spoken output preserves the spoken-replies
+    /// preference, while stopping dictation discards only the in-flight capture.
+    @discardableResult
+    func stopActiveVoiceAction() -> Bool {
+        if voiceSendArmed {
+            cancelHoldToTalk()
+            return true
+        }
+
+        let voice = HudVoiceService.shared
+        if voice.state.isCaptureActive || voice.state.isProcessing {
+            voice.cancel()
+            voice.consumeFinalText()
+            return true
+        }
+
+        let speaker = ScoutReplySpeaker.shared
+        if speaker.isSpeaking {
+            speaker.stopSpeaking()
+            return true
+        }
+        return false
+    }
+
     // MARK: - Hold to talk (push-to-talk)
 
     /// The three ways an armed hold's final transcript can resolve.
@@ -432,18 +457,10 @@ public final class HUDDockState: ObservableObject {
             dismissSuggestions()
             return true
         }
-        // A hold-to-talk in progress cancels cleanly — stop the mic, discard
-        // the pending transcript, disarm, send nothing.
-        if voiceSendArmed {
-            cancelHoldToTalk()
-            return true
-        }
-        // Dictation in progress trumps everything — operator pressing ESC
-        // while the mic is hot expects the recording to stop, not their
-        // composed text to vanish.
-        let voice = HudVoiceService.shared
-        if voice.state == .recording || voice.state == .starting {
-            voice.cancel()
+        // Active voice work trumps everything — Escape stops capture,
+        // transcription, or spoken output without clearing the draft or
+        // disabling future spoken replies.
+        if stopActiveVoiceAction() {
             return true
         }
         if !text.isEmpty {

@@ -226,27 +226,6 @@ private struct ScoutDiffSheetRequest {
     }
 }
 
-private struct ScoutMessageRenderBlock: Identifiable {
-    let root: ScoutMessage
-    let replies: [ScoutMessage]
-
-    var id: String { root.id }
-}
-
-private enum ScoutMessageRenderItem: Identifiable {
-    case inline(ScoutMessage)
-    case chain(ScoutMessageRenderBlock)
-
-    var id: String {
-        switch self {
-        case .inline(let message):
-            return "inline:\(message.id)"
-        case .chain(let block):
-            return "chain:\(block.root.id)"
-        }
-    }
-}
-
 private struct ScoutThreadStartResponse: Decodable {
     let id: String?
     let conversationId: String?
@@ -278,18 +257,26 @@ private struct ScoutThreadParticipantFaces: View {
     }
 }
 
+/// Compact avatar-led turn used for reply chains and expanded sub-threads.
+/// The smaller tile, absent bubble, and tighter type make a reply cluster read
+/// as one unit under its parent rather than a second mainline turn.
 private struct ScoutThreadCompactMessageRow: View {
     let message: ScoutMessage
     let baseDirectory: String?
+    var onReply: (() -> Void)? = nil
+    var onStartThread: (() -> Void)? = nil
+    var onNewFromMessage: (() -> Void)? = nil
+
+    @State private var isHovering = false
 
     var body: some View {
         HStack(alignment: .top, spacing: HudSpacing.md) {
-            SpriteAvatarView(name: message.actorName, size: 22, tile: true)
+            SpriteAvatarView(name: message.actorName, size: ScoutCommsMetrics.compactReplyAvatar, tile: true)
                 .overlay(
                     RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
                         .stroke(message.isOperator ? ScoutPalette.accent.opacity(0.5) : Color.clear, lineWidth: HudStrokeWidth.thin)
                 )
-            VStack(alignment: .leading, spacing: HudSpacing.xs) {
+            VStack(alignment: .leading, spacing: HudSpacing.xxs) {
                 HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
                     Text(message.actorName)
                         .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
@@ -297,6 +284,10 @@ private struct ScoutThreadCompactMessageRow: View {
                     Text(ScoutRelativeTime.format(message.createdAt))
                         .font(HudFont.mono(HudTextSize.micro))
                         .foregroundStyle(ScoutPalette.dim)
+                    Spacer(minLength: 0)
+                    if isHovering, onReply != nil {
+                        compactReplyButton
+                    }
                 }
                 if message.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text(message.attachments.isEmpty ? "Empty message" : "\(message.attachments.count) attachment\(message.attachments.count == 1 ? "" : "s")")
@@ -316,6 +307,52 @@ private struct ScoutThreadCompactMessageRow: View {
             .frame(maxWidth: ScoutCommsMetrics.messageReadingMeasure, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: isHovering)
+        .contextMenu {
+            if let onReply {
+                Button(action: onReply) {
+                    Label("Reply", systemImage: "arrowshape.turn.up.left")
+                }
+            }
+            if let onStartThread {
+                Button(action: onStartThread) {
+                    Label("Start thread", systemImage: "text.bubble")
+                }
+            }
+            if let onNewFromMessage {
+                Button(action: onNewFromMessage) {
+                    Label("New chat from this message…", systemImage: "bubble.left.and.text.bubble.right")
+                }
+            }
+        }
+    }
+
+    private var compactReplyButton: some View {
+        Button {
+            onReply?()
+        } label: {
+            HStack(spacing: HudSpacing.xs) {
+                Image(systemName: "arrowshape.turn.up.left")
+                    .font(.system(size: 10, weight: .semibold))
+                Text("Reply")
+                    .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+            }
+            .foregroundStyle(ScoutPalette.muted)
+            .padding(.horizontal, HudSpacing.sm)
+            .padding(.vertical, HudSpacing.xxs)
+            .background(
+                RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                    .fill(ScoutPalette.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                    .stroke(ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin)
+            )
+        }
+        .buttonStyle(.plain).scoutPointerCursor()
+        .help("Reply to this message")
     }
 }
 
@@ -2152,125 +2189,64 @@ struct ScoutRootView: View {
     }
 
     private var messageRenderItems: [ScoutMessageRenderItem] {
-        Self.messageRenderItems(for: store.messages)
+        ScoutMessageRenderPlanner.items(for: store.messages)
     }
 
     private var latestMessageIdForFullDisplay: String? {
-        store.messages.last(where: Self.isReplyGatherCandidate)?.id
-    }
-
-    private static func messageRenderItems(for messages: [ScoutMessage]) -> [ScoutMessageRenderItem] {
-        var messagesById: [String: ScoutMessage] = [:]
-        var indexById: [String: Int] = [:]
-        for (index, message) in messages.enumerated() {
-            messagesById[message.id] = message
-            indexById[message.id] = index
-        }
-
-        var gatheredIds = Set<String>()
-        var repliesByRoot: [String: [ScoutMessage]] = [:]
-
-        for message in messages {
-            guard isReplyGatherCandidate(message),
-                  let parentId = message.replyToMessageId?.nilIfEmpty,
-                  let parent = messagesById[parentId],
-                  isReplyGatherCandidate(parent),
-                  let messageIndex = indexById[message.id],
-                  let parentIndex = indexById[parentId] else {
-                continue
-            }
-
-            // Rule A: plain adjacency already reads as a reply. Only pull a
-            // reply into a chain when its parent is elsewhere in the rendered
-            // chronological stream.
-            guard parentIndex != messageIndex - 1 else { continue }
-            guard let rootId = chainRootId(for: message, messagesById: messagesById),
-                  rootId != message.id else {
-                continue
-            }
-
-            gatheredIds.insert(message.id)
-            repliesByRoot[rootId, default: []].append(message)
-        }
-
-        for rootId in repliesByRoot.keys {
-            repliesByRoot[rootId]?.sort {
-                (indexById[$0.id] ?? Int.max) < (indexById[$1.id] ?? Int.max)
-            }
-        }
-
-        return messages.compactMap { message in
-            if gatheredIds.contains(message.id) {
-                return nil
-            }
-            if let replies = repliesByRoot[message.id], !replies.isEmpty {
-                return .chain(ScoutMessageRenderBlock(root: message, replies: replies))
-            }
-            return .inline(message)
-        }
-    }
-
-    private static func chainRootId(
-        for message: ScoutMessage,
-        messagesById: [String: ScoutMessage]
-    ) -> String? {
-        var current = message
-        var visited = Set([message.id])
-
-        while let parentId = current.replyToMessageId?.nilIfEmpty {
-            guard let parent = messagesById[parentId] else {
-                return current.id
-            }
-            guard !visited.contains(parent.id), isReplyGatherCandidate(parent) else {
-                return nil
-            }
-            visited.insert(parent.id)
-            current = parent
-        }
-
-        return current.id
-    }
-
-    private static func isReplyGatherCandidate(_ message: ScoutMessage) -> Bool {
-        let messageClass = message.messageClass.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return messageClass != "status" && messageClass != "system"
+        store.messages.last(where: ScoutMessageRenderPlanner.isReplyGatherCandidate)?.id
     }
 
     @ViewBuilder
     private func messageRow(
         _ message: ScoutMessage,
         showCustodyCaption: Bool = true,
-        showThreadAffordances: Bool = true
+        showThreadAffordances: Bool = true,
+        compact: Bool = false
     ) -> some View {
         let allowThreadActions = showThreadAffordances && !isChildConversationId(message.cId)
+        let replyAction = {
+            withAnimation(.easeOut(duration: 0.14)) {
+                store.replyTarget = message
+            }
+            composerFocused = true
+        }
         VStack(alignment: .leading, spacing: HudSpacing.sm) {
-            ScoutMessageRow(
-                message: message,
-                agent: agent(for: message),
-                readReceipts: readReceipts(for: message),
-                baseDirectory: fileBaseDirectory(for: message),
-                isLatestMessage: message.id == latestMessageIdForFullDisplay,
-                showCustodyCaption: showCustodyCaption,
-                showThreadActions: allowThreadActions,
-                previewAgent: previewAgent,
-                onReply: {
-                    withAnimation(.easeOut(duration: 0.14)) {
-                        store.replyTarget = message
+            if compact {
+                // Adjacent reply-to: compact density so a direct answer hugs its
+                // parent instead of landing as another full bubble turn.
+                ScoutThreadCompactMessageRow(
+                    message: message,
+                    baseDirectory: fileBaseDirectory(for: message),
+                    onReply: replyAction,
+                    onStartThread: allowThreadActions ? { startThread(from: message) } : nil,
+                    onNewFromMessage: {
+                        startConversationFromMessage(message, agent: agent(for: message))
                     }
-                    composerFocused = true
-                },
-                onStartThread: {
-                    startThread(from: message)
-                },
-                onNewFromMessage: {
-                    startConversationFromMessage(message, agent: agent(for: message))
-                }
-            )
+                )
+            } else {
+                ScoutMessageRow(
+                    message: message,
+                    agent: agent(for: message),
+                    readReceipts: readReceipts(for: message),
+                    baseDirectory: fileBaseDirectory(for: message),
+                    isLatestMessage: message.id == latestMessageIdForFullDisplay,
+                    showCustodyCaption: showCustodyCaption,
+                    showThreadActions: allowThreadActions,
+                    previewAgent: previewAgent,
+                    onReply: replyAction,
+                    onStartThread: {
+                        startThread(from: message)
+                    },
+                    onNewFromMessage: {
+                        startConversationFromMessage(message, agent: agent(for: message))
+                    }
+                )
+            }
             if allowThreadActions,
                let summary = message.threadSummary,
                let child = primaryThreadChannel(for: message) {
                 threadStub(message: message, summary: summary, child: child)
-                    .padding(.leading, CGFloat(28) + HudSpacing.xl)
+                    .padding(.leading, ScoutCommsMetrics.turnContentLeading)
             }
         }
     }
@@ -2279,27 +2255,87 @@ struct ScoutRootView: View {
         store.channels.first(where: { $0.cId == cId })?.parentConversationId?.nilIfEmpty != nil
     }
 
+    /// True when this message replies to the immediately previous stream turn.
+    /// Rule A leaves those inline (no rail regrouping); we still render them
+    /// compact so a reply hugs its parent instead of another full mainline gap.
+    private func isAdjacentReply(_ message: ScoutMessage) -> Bool {
+        guard ScoutMessageRenderPlanner.isReplyGatherCandidate(message),
+              let replyTo = message.replyToMessageId?.nilIfEmpty,
+              let index = store.messages.firstIndex(where: { $0.id == message.id }),
+              index > 0 else {
+            return false
+        }
+        let parent = store.messages[index - 1]
+        return parent.id == replyTo && ScoutMessageRenderPlanner.isReplyGatherCandidate(parent)
+    }
+
+    @ViewBuilder
+    private func streamItem(_ item: ScoutMessageRenderItem) -> some View {
+        switch item {
+        case .inline(let message):
+            messageRow(
+                message,
+                showCustodyCaption: !isAdjacentReply(message),
+                compact: isAdjacentReply(message)
+            )
+            .id(message.id)
+        case .chain(let block):
+            replyChainBlock(block)
+        }
+    }
+
+    /// Roomier gap between independent turns; tight gap when the next item is
+    /// an adjacent reply-to so the answer sits under its parent.
+    private func streamGap(before item: ScoutMessageRenderItem) -> CGFloat {
+        switch item {
+        case .inline(let message) where isAdjacentReply(message):
+            return ScoutCommsMetrics.replyClusterGap
+        case .inline, .chain:
+            return ScoutCommsMetrics.streamTurnGap
+        }
+    }
+
     private func replyChainBlock(_ block: ScoutMessageRenderBlock) -> some View {
-        VStack(alignment: .leading, spacing: HudSpacing.md) {
-            messageRow(block.root)
+        // Tuck replies under the root with a hairline rail at the content edge
+        // and compact turns stacked on replyClusterGap. The root may itself be
+        // an adjacent reply-to, so the rail hangs under that denser row.
+        VStack(alignment: .leading, spacing: ScoutCommsMetrics.replyClusterGap) {
+            messageRow(
+                block.root,
+                showCustodyCaption: !isAdjacentReply(block.root),
+                compact: isAdjacentReply(block.root)
+            )
                 .id(block.root.id)
 
-            HStack(alignment: .top, spacing: HudSpacing.lg) {
+            HStack(alignment: .top, spacing: HudSpacing.md) {
                 Rectangle()
                     .fill(ScoutDesign.hairlineStrong)
                     .frame(width: HudStrokeWidth.thin)
                     .frame(maxHeight: .infinity)
                     .allowsHitTesting(false)
 
-                VStack(alignment: .leading, spacing: HudSpacing.xl) {
+                VStack(alignment: .leading, spacing: ScoutCommsMetrics.replyClusterGap) {
                     ForEach(block.replies) { reply in
-                        messageRow(reply, showCustodyCaption: false)
-                            .id(reply.id)
+                        ScoutThreadCompactMessageRow(
+                            message: reply,
+                            baseDirectory: fileBaseDirectory(for: reply),
+                            onReply: {
+                                withAnimation(.easeOut(duration: 0.14)) {
+                                    store.replyTarget = reply
+                                }
+                                composerFocused = true
+                            },
+                            onStartThread: isChildConversationId(reply.cId) ? nil : { startThread(from: reply) },
+                            onNewFromMessage: {
+                                startConversationFromMessage(reply, agent: agent(for: reply))
+                            }
+                        )
+                        .id(reply.id)
                     }
                 }
             }
-            .padding(.leading, CGFloat(28) + HudSpacing.xl)
-            .padding(.top, -HudSpacing.sm)
+            .padding(.leading, ScoutCommsMetrics.turnContentLeading)
+            .padding(.top, -HudSpacing.xxs)
         }
     }
 
@@ -2363,14 +2399,14 @@ struct ScoutRootView: View {
     }
 
     private func threadExpandedRail(child: ScoutChannel) -> some View {
-        HStack(alignment: .top, spacing: HudSpacing.lg) {
+        HStack(alignment: .top, spacing: HudSpacing.md) {
             Rectangle()
                 .fill(ScoutDesign.hairlineStrong)
                 .frame(width: HudStrokeWidth.thin)
                 .frame(maxHeight: .infinity)
                 .allowsHitTesting(false)
 
-            VStack(alignment: .leading, spacing: HudSpacing.md) {
+            VStack(alignment: .leading, spacing: ScoutCommsMetrics.replyClusterGap) {
                 if loadingThreadConversationIds.contains(child.cId) && threadMessages[child.cId] == nil {
                     HStack(spacing: HudSpacing.sm) {
                         ProgressView()
@@ -2625,7 +2661,10 @@ struct ScoutRootView: View {
     private var nativeMessageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: HudSpacing.xxxl) {
+                // spacing: 0 + per-item top padding so adjacent reply-to turns
+                // can hug their parent (replyClusterGap) while independent
+                // turns keep the roomier streamTurnGap.
+                LazyVStack(alignment: .leading, spacing: 0) {
                     if store.messages.isEmpty {
                         // While the transcript fetch is in flight, ghost turns —
                         // not an empty state falsely claiming "no messages yet".
@@ -2680,14 +2719,14 @@ struct ScoutRootView: View {
                             }
                         }
 
-                        ForEach(messageRenderItems) { item in
-                            switch item {
-                            case .inline(let message):
-                                messageRow(message)
-                                    .id(message.id)
-                            case .chain(let block):
-                                replyChainBlock(block)
-                            }
+                        ForEach(Array(messageRenderItems.enumerated()), id: \.element.id) { index, item in
+                            streamItem(item)
+                                .padding(
+                                    .top,
+                                    index == 0
+                                        ? (store.hasEarlierMessages ? ScoutCommsMetrics.streamTurnGap : 0)
+                                        : streamGap(before: item)
+                                )
                         }
 
                         // The agent's still-running turn, rendered as a transient
@@ -2696,6 +2735,7 @@ struct ScoutRootView: View {
                         if let activeTurn = store.activeTurn {
                             ScoutInFlightTurnRow(turn: activeTurn)
                                 .id(Self.activeTurnAnchor)
+                                .padding(.top, store.messages.isEmpty ? 0 : ScoutCommsMetrics.streamTurnGap)
                                 .transition(.opacity)
                         }
 
@@ -2920,9 +2960,11 @@ struct ScoutRootView: View {
     }
 
     private func composerReplyBand(_ target: ScoutMessage) -> some View {
+        // A flat band inside the well, with compact padding so it does not
+        // dominate the composer once Reply is armed.
         HStack(spacing: HudSpacing.sm) {
             Image(systemName: "arrowshape.turn.up.left")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(ScoutPalette.accent)
             Text("REPLYING TO")
                 .font(HudFont.mono(HudTextSize.micro, weight: .bold))
@@ -2932,7 +2974,7 @@ struct ScoutRootView: View {
                 .foregroundStyle(ScoutPalette.muted)
                 .lineLimit(1)
                 .truncationMode(.tail)
-            Spacer(minLength: HudSpacing.md)
+            Spacer(minLength: HudSpacing.sm)
             Button {
                 withAnimation(.easeOut(duration: 0.14)) {
                     store.clearReplyTarget()
@@ -2941,17 +2983,17 @@ struct ScoutRootView: View {
                 Text("×")
                     .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
                     .foregroundStyle(ScoutPalette.dim)
-                    .frame(width: 20, height: 20)
+                    .frame(width: 18, height: 18)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain).scoutPointerCursor()
             .help("Clear reply target")
         }
-        .padding(.leading, HudSpacing.xl)
-        .padding(.trailing, HudSpacing.md)
-        .padding(.vertical, HudSpacing.sm)
+        .padding(.leading, HudSpacing.lg)
+        .padding(.trailing, HudSpacing.sm)
+        .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(ScoutPalette.accentSoft.opacity(0.62))
+        .background(ScoutPalette.accentSoft.opacity(0.55))
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(ScoutDesign.hairline)

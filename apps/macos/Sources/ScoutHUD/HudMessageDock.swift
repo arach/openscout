@@ -612,9 +612,8 @@ private extension MessageSendChipStyle {
 /// release to send the transcript to the target. Visual state mirrors
 /// HudVoiceService.state:
 ///   idle/probing      → faint ink stroke
-///   starting          → ink stroke + soft pulse
-///   recording         → accent stroke + halo + pulse
-///   processing        → faint stroke + spinner-ish pulse
+///   starting/recording → stop square + accent halo
+///   processing         → stop square (tap cancels transcription)
 ///   unavailable       → very dim + dashed (and a `.help` tooltip with
 ///                       the reason; tapping re-probes)
 private struct MicButton: View {
@@ -647,9 +646,9 @@ private struct MicButton: View {
         switch voice.state {
         case .probing:               return "Preparing voice…"
         case .idle:                  return "Tap to dictate · hold to talk-and-send to the target"
-        case .starting:              return "Starting recording…"
-        case .recording:             return "Recording — release to send, or tap to commit"
-        case .processing:            return "Transcribing…"
+        case .starting:              return "Starting recording — tap to stop"
+        case .recording:             return "Recording — tap to stop"
+        case .processing:            return "Transcribing — tap to stop"
         case .unavailable(let r):    return r
         }
     }
@@ -706,18 +705,23 @@ private struct MicButton: View {
                     .fill(HUDChrome.accent.opacity(pulse ? 0.20 : 0.08))
                     .frame(width: box, height: box)
             }
-            MicGlyphShape()
-                .stroke(
-                    strokeColor,
-                    style: StrokeStyle(
-                        lineWidth: isRecording ? 1.4 : 1,
-                        lineCap: .round,
-                        lineJoin: .round,
-                        dash: isUnavailable ? [1.5, 1.5] : []
+            if isRecording || isProcessing {
+                RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                    .fill(HUDChrome.accent)
+                    .frame(width: glyph * 0.58, height: glyph * 0.58)
+            } else {
+                MicGlyphShape()
+                    .stroke(
+                        strokeColor,
+                        style: StrokeStyle(
+                            lineWidth: 1,
+                            lineCap: .round,
+                            lineJoin: .round,
+                            dash: isUnavailable ? [1.5, 1.5] : []
+                        )
                     )
-                )
-                .frame(width: glyph, height: glyph)
-                .opacity(isProcessing && pulse ? 0.55 : 1.0)
+                    .frame(width: glyph, height: glyph)
+            }
         }
         .frame(width: box, height: box)
         .contentShape(Rectangle())
@@ -797,10 +801,10 @@ private struct MicGlyphShape: Shape {
 
 // ─── Speaker toggle (spoken agent replies) ──────────────────────────
 
-/// One obvious switch for spoken agent replies. Toggles the UserDefaults
-/// gate "scout.voiceRepliesEnabled" via ScoutReplySpeaker (default OFF).
-/// Accent stroke when ON; a soft halo pulses while a reply is actually
-/// being spoken. Same hand-drawn stroke family as MicGlyphShape.
+/// One obvious switch for spoken agent replies. When idle it toggles the
+/// UserDefaults gate "scout.voiceRepliesEnabled" via ScoutReplySpeaker (default
+/// OFF). While speaking, it becomes a stop square that ends only the current
+/// response and leaves the preference on for future replies.
 private struct SpeakerButton: View {
     let box: CGFloat
     let glyph: CGFloat
@@ -815,35 +819,51 @@ private struct SpeakerButton: View {
     }
 
     private var tooltip: String {
-        isOn
+        if speaker.isSpeaking {
+            return "Stop spoken response"
+        }
+        return isOn
             ? "Spoken replies on — tap to mute the agent's voice"
             : "Spoken replies off — tap to hear agent replies aloud"
     }
 
     var body: some View {
-        Button(action: { speaker.toggle() }) {
+        Button(action: {
+            if speaker.isSpeaking {
+                speaker.stopSpeaking()
+            } else {
+                speaker.toggle()
+            }
+        }) {
             ZStack {
                 if isOn && speaker.isSpeaking {
                     Circle()
                         .fill(HUDChrome.accent.opacity(pulse ? 0.20 : 0.06))
                         .frame(width: box, height: box)
                 }
-                SpeakerGlyphShape(muted: !isOn)
-                    .stroke(
-                        strokeColor,
-                        style: StrokeStyle(
-                            lineWidth: isOn ? 1.4 : 1,
-                            lineCap: .round,
-                            lineJoin: .round
+                if speaker.isSpeaking {
+                    RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                        .fill(HUDChrome.accent)
+                        .frame(width: glyph * 0.58, height: glyph * 0.58)
+                } else {
+                    SpeakerGlyphShape(muted: !isOn)
+                        .stroke(
+                            strokeColor,
+                            style: StrokeStyle(
+                                lineWidth: isOn ? 1.4 : 1,
+                                lineCap: .round,
+                                lineJoin: .round
+                            )
                         )
-                    )
-                    .frame(width: glyph, height: glyph)
+                        .frame(width: glyph, height: glyph)
+                }
             }
             .frame(width: box, height: box)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help(tooltip)
+        .accessibilityLabel(speaker.isSpeaking ? "Stop spoken response" : tooltip)
         .onChange(of: speaker.isSpeaking) { _, speaking in
             pulse = false
             if speaking {

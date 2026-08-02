@@ -1239,6 +1239,10 @@ function QuietStartPanel({
           },
         }),
       });
+      // This screen stays alive while navigation moves into the conversation.
+      // Clear only after Scout accepted the send, so returning here starts a
+      // genuinely new message while a failed request remains available to retry.
+      setPrompt("");
       const routedChatId = result.conversationId ?? conversationId;
       navigate({ view: "conversation", conversationId: routedChatId });
     } catch (submitError) {

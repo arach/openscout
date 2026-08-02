@@ -142,7 +142,6 @@ struct HUDRunnerComposer: View {
         .disabled(
             runner.isPreparingVoice
                 || voice.state == .probing
-                || voice.state.isProcessing
         )
         .focused(focus, equals: .voice)
         .help(voiceHelp)
@@ -280,7 +279,7 @@ struct HUDRunnerComposer: View {
         switch voice.state {
         case .starting, .recording: return "Stop voice dictation"
         case .probing: return "Preparing voice dictation"
-        case .processing: return "Transcribing voice"
+        case .processing: return "Stop voice transcription"
         case .idle: return "Start voice dictation"
         case .unavailable: return "Voice dictation unavailable"
         }
@@ -289,8 +288,8 @@ struct HUDRunnerComposer: View {
     private var voiceSymbol: String {
         if runner.isPreparingVoice { return "waveform" }
         switch voice.state {
-        case .starting, .recording: return "mic.fill"
-        case .probing, .processing: return "waveform"
+        case .starting, .recording, .processing: return "stop.fill"
+        case .probing: return "waveform"
         case .unavailable: return "mic.badge.xmark"
         case .idle: return "mic.fill"
         }
@@ -300,7 +299,7 @@ struct HUDRunnerComposer: View {
         if runner.isPreparingVoice { return "Preparing voice dictation" }
         if case .unavailable(let reason) = voice.state { return reason }
         if voice.state.isCaptureActive { return "Stop voice dictation" }
-        if voice.state.isProcessing { return "Transcribing voice" }
+        if voice.state.isProcessing { return "Stop voice transcription" }
         return "Start voice dictation"
     }
 }

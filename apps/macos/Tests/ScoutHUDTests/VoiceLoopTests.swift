@@ -1,22 +1,12 @@
 import Testing
+import Foundation
 import ScoutAppCore
 @testable import ScoutHUD
 
 // Unit tests for the voice-loop decision cores.
 //
-// NOTE: these cover the *pure* decision functions that back the feature —
-// they are deliberately dependency-free so no network / audio / mic mock is
-// needed. They are NOT wired into the build yet: apps/macos does not have a
-// ScoutHUD test target, and Package.swift is outside this change's scope. To
-// run them, add:
-//
-//     .testTarget(
-//         name: "ScoutHUDTests",
-//         dependencies: ["ScoutHUD", "ScoutAppCore"],
-//         path: "Tests/ScoutHUDTests"
-//     )
-//
-// to apps/macos/Package.swift, then:
+// These mostly cover the pure decision functions that back the feature, so no
+// network / audio / mic mock is needed. Run them with:
 //
 //     HUDSONKIT_WITH_VOICE=1 HUDSONKIT_WITH_TERMINAL=1 \
 //         swift test --filter VoiceLoop
@@ -106,6 +96,21 @@ import ScoutAppCore
     spoken.formUnion(firstPass.map(\.id))
     let secondPass = ScoutReplySpeaker.newMessagesToSpeak(thread: thread, spoken: spoken)
     #expect(secondPass.isEmpty)
+}
+
+// Stopping the current spoken response is transport control, not a preference
+// change: the next fresh reply should still be eligible for speech.
+@MainActor
+@Test func stoppingSpeechPreservesReplyPreference() {
+    let suiteName = "ScoutReplySpeakerTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let speaker = ScoutReplySpeaker(defaults: defaults, compose: .shared)
+
+    speaker.setEnabled(true)
+    speaker.stopSpeaking()
+
+    #expect(speaker.enabled)
 }
 
 // Markdown flattening drops code blocks, emphasis, and reduces links.
