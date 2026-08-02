@@ -13,6 +13,8 @@ const fixtureNames = [
   "scoutd-status-pinned.json",
   "scoutd-status-pin-mismatch.json",
   "scoutd-status-stale-intentional-defensive.json",
+  "scoutd-status-stale-explicit-pin-defensive.json",
+  "scoutd-status-stale-workspace-head.json",
 ] as const;
 
 function readFixture(name: (typeof fixtureNames)[number]): unknown {
@@ -120,6 +122,32 @@ describe("scoutd runtime freshness contract", () => {
       state: "stale",
       intentional: true,
       basis: "installed_artifact",
+    });
+    expect(shouldRestartBrokerForRuntimeFreshness(freshness)).toBe(false);
+  });
+
+  test("defensively rejects a stale explicit-pin verdict although scoutd no longer emits it", () => {
+    const freshness = extractRuntimeFreshnessDecisionFromScoutdPayload(
+      readFixture("scoutd-status-stale-explicit-pin-defensive.json"),
+    );
+
+    expect(freshness).toMatchObject({
+      state: "stale",
+      intentional: false,
+      basis: "explicit_pin",
+    });
+    expect(shouldRestartBrokerForRuntimeFreshness(freshness)).toBe(false);
+  });
+
+  test("a stale workspace checkout cannot authorize automatic restart", () => {
+    const freshness = extractRuntimeFreshnessDecisionFromScoutdPayload(
+      readFixture("scoutd-status-stale-workspace-head.json"),
+    );
+
+    expect(freshness).toMatchObject({
+      state: "stale",
+      intentional: false,
+      basis: "workspace_head",
     });
     expect(shouldRestartBrokerForRuntimeFreshness(freshness)).toBe(false);
   });

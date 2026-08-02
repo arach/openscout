@@ -58,5 +58,9 @@ export function extractRuntimeFreshnessDecisionFromScoutdPayload(
 export function shouldRestartBrokerForRuntimeFreshness(
   freshness: ScoutdRuntimeFreshnessDecision | null,
 ): boolean {
-  return freshness?.state === "stale" && freshness.intentional === false;
+  return (
+    freshness?.state === "stale" &&
+    freshness.intentional === false &&
+    freshness.basis === "installed_artifact"
+  );
 }

@@ -25,6 +25,8 @@ const fixtureNames = [
   "scoutd-status-stale.json",
   "scoutd-status-pinned.json",
   "scoutd-status-pin-mismatch.json",
+  "scoutd-status-stale-explicit-pin-defensive.json",
+  "scoutd-status-stale-workspace-head.json",
 ] as const;
 
 afterEach(() => {
@@ -193,6 +195,55 @@ describe("CLI broker update coordination", () => {
     expect(reports).toHaveLength(1);
     expect(reports[0]).toContain(
       "not authorized: state=unverified intentional=false basis=explicit_pin reasonCode=pin_mismatch",
+    );
+  });
+
+  test("defensively does not restart a stale explicit-pin verdict", async () => {
+    const checkpointPath = temporaryCheckpointPath();
+    const reports: string[] = [];
+    let restartCount = 0;
+
+    await ensureBrokerUptodate({
+      checkpointPath,
+      debug: true,
+      readCurrentMtime: () => 2_000,
+      report: (message) => reports.push(message),
+      restart: async () => {
+        restartCount += 1;
+        return { ok: true };
+      },
+      status: async () =>
+        statusFromFixture("scoutd-status-stale-explicit-pin-defensive.json"),
+    });
+
+    expect(restartCount).toBe(0);
+    expect(reports).toHaveLength(1);
+    expect(reports[0]).toContain(
+      "not authorized: state=stale intentional=false basis=explicit_pin",
+    );
+  });
+
+  test("does not restart for workspace source movement", async () => {
+    const checkpointPath = temporaryCheckpointPath();
+    const reports: string[] = [];
+    let restartCount = 0;
+
+    await ensureBrokerUptodate({
+      checkpointPath,
+      debug: true,
+      readCurrentMtime: () => 2_000,
+      report: (message) => reports.push(message),
+      restart: async () => {
+        restartCount += 1;
+        return { ok: true };
+      },
+      status: async () => statusFromFixture("scoutd-status-stale-workspace-head.json"),
+    });
+
+    expect(restartCount).toBe(0);
+    expect(reports).toHaveLength(1);
+    expect(reports[0]).toContain(
+      "not authorized: state=stale intentional=false basis=workspace_head",
     );
   });
 
