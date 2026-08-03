@@ -11,6 +11,7 @@ import {
   normalizeAgentState,
 } from "../../lib/agent-state.ts";
 import { stateColor } from "../../lib/colors.ts";
+import { isSameCalendarDay } from "../../lib/thread-days.ts";
 import type { OutgoingAttachment } from "../../lib/media-blobs.ts";
 import {
   TERMINAL_CONVERSATION_FLIGHT_STATES,
@@ -335,6 +336,141 @@ export function deriveWorkingDurationStage(
   return "brief";
 }
 
+/* ── Fan-out dispatches ───────────────────────────────────────────────────
+ *
+ * One kickoff addressed to a channel's agents is recorded as one delivery per
+ * recipient, each attributed to the agent it was delivered to. The transcript
+ * therefore showed the same paragraph six or seven times over, once under each
+ * agent's name — which reads as six agents having independently said the same
+ * thing rather than as one operator having said it once.
+ *
+ * These rows are collapsed back into the single event they came from. The
+ * grouping is read off the record, never inferred from the prose: a run is
+ * consecutive rows that each carry a `deliveryRequestId` (so they are delivery
+ * records, not authored turns), share a byte-identical body, land inside one
+ * dispatch window measured from the head, and address a recipient the run has
+ * not already covered. Anything that fails a condition stays its own row.
+ *
+ * There is deliberately no correlation id in the test. A fan-out is N separate
+ * `/v1/deliver` calls, and the broker stamps each one its own
+ * `deliveryRequestId` (see `deliveryRequestId()` in the broker service and the
+ * message metadata built in `broker-delivery-acceptance-service.ts`); nothing
+ * on the record ties the legs of one dispatch together. Recipient identity is
+ * the strongest signal the record actually carries, and it is the one that
+ * matters: one dispatch reaches each recipient exactly once, so a repeat of a
+ * recipient is a second send and must keep its own row. */
+
+/// How far a run may stretch, measured head to tail rather than step to step —
+/// otherwise a chain of near-misses walks the window forward indefinitely and a
+/// "60-second" run spans ten minutes. Real fan-outs land inside a few hundred
+/// milliseconds; the minute is slack for a broker that has to wake each target
+/// before it can deliver.
+const FAN_OUT_WINDOW_MS = 60_000;
+
+export type ConversationFeedRow =
+  | { kind: "message"; key: string; message: Message; previousCreatedAt: number | null }
+  | {
+    kind: "fanout";
+    key: string;
+    messages: Message[];
+    recipients: string[];
+    createdAt: number;
+    previousCreatedAt: number | null;
+  };
+
+function dispatchDeliveryId(message: Message): string | null {
+  const value = message.metadata?.["deliveryRequestId"];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/// Who the delivery was addressed to. The target's display name is the label
+/// the operator picked the recipient by; the routing id and the actor name are
+/// fallbacks so a recipient is never rendered as blank.
+function dispatchRecipient(message: Message): string {
+  for (const key of ["targetDisplayName", "relayTarget"]) {
+    const value = message.metadata?.[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return message.actorName;
+}
+
+/// The recipient's routing identity rather than its label. `relayTarget` is the
+/// id the broker actually delivered to, so it stays stable across renames and
+/// distinguishes two agents that happen to share a display name.
+function dispatchRecipientKey(message: Message): string {
+  for (const key of ["relayTarget", "targetDisplayName"]) {
+    const value = message.metadata?.[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return message.actorId?.trim() || message.actorName;
+}
+
+function isSameFanOut(
+  candidate: Message,
+  head: Message,
+  coveredRecipients: ReadonlySet<string>,
+): boolean {
+  return dispatchDeliveryId(candidate) !== null
+    && candidate.body === head.body
+    && candidate.class === head.class
+    && Math.abs(candidate.createdAt - head.createdAt) <= FAN_OUT_WINDOW_MS
+    && !coveredRecipients.has(dispatchRecipientKey(candidate));
+}
+
+/// The feed's rows: every message in order, with fan-out runs of two or more
+/// deliveries folded into one row that still owns all of its messages.
+export function buildConversationFeedRows(messages: Message[]): ConversationFeedRow[] {
+  const rows: ConversationFeedRow[] = [];
+  let previousCreatedAt: number | null = null;
+  let index = 0;
+
+  while (index < messages.length) {
+    const head = messages[index]!;
+    let end = index + 1;
+    if (dispatchDeliveryId(head) !== null) {
+      const coveredRecipients = new Set([dispatchRecipientKey(head)]);
+      while (end < messages.length && isSameFanOut(messages[end]!, head, coveredRecipients)) {
+        coveredRecipients.add(dispatchRecipientKey(messages[end]!));
+        end += 1;
+      }
+    }
+
+    const run = messages.slice(index, end);
+    if (run.length > 1) {
+      rows.push({
+        kind: "fanout",
+        key: `fanout-${head.id}`,
+        messages: run,
+        recipients: run.map(dispatchRecipient),
+        createdAt: head.createdAt,
+        previousCreatedAt,
+      });
+    } else {
+      rows.push({ kind: "message", key: head.id, message: head, previousCreatedAt });
+    }
+
+    previousCreatedAt = run.at(-1)!.createdAt;
+    index = end;
+  }
+
+  return rows;
+}
+
+/// When a row was written, whichever kind it is.
+export function feedRowCreatedAt(row: ConversationFeedRow): number {
+  return row.kind === "fanout" ? row.createdAt : row.message.createdAt;
+}
+
+/// Whether a row opens a new calendar day and so carries the divider.
+///
+/// Shared by both row kinds on purpose. A collapsed fan-out is as likely to be
+/// the first thing that happened on a day as an authored turn is, and a row
+/// that skips the divider silently backdates everything under it to the day
+/// before — which is exactly what folding used to do.
+export function shouldShowThreadDayDivider(row: ConversationFeedRow, index: number): boolean {
+  return index === 0 || !isSameCalendarDay(row.previousCreatedAt, feedRowCreatedAt(row));
+}
+
 /// Whether the feed should jump to the bottom on this commit.
 ///
 /// Autoscroll is a claim on the reader's viewport, so it has to be spent only
@@ -353,11 +489,13 @@ export function resolveConversationAutoscroll(input: {
   previousShowTyping: boolean;
   historyRestorePending: boolean;
   initialScrollDone: boolean;
+  nearBottom: boolean;
 }): ConversationAutoscrollDecision {
   if (input.historyRestorePending) return "none";
   const hasVisibleRow = Boolean(input.newestMessageId) || input.showTyping;
   if (!hasVisibleRow) return "none";
   if (!input.initialScrollDone) return "instant";
+  if (!input.nearBottom) return "none";
   if (input.newestMessageId && input.newestMessageId !== input.previousNewestMessageId) {
     return "smooth";
   }
