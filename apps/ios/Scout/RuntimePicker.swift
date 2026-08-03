@@ -529,6 +529,10 @@ struct ScoutRuntimePanel: View {
                 models
             }
             .frame(height: bodyHeight)
+            // The invariant, stated once: nothing in the two columns may reach
+            // the effort ladder. Both of them clip already — this is the frame
+            // that actually owns the promise.
+            .clipped()
             Rectangle()
                 .fill(ScoutHairline.standard)
                 .frame(height: HudStrokeWidth.thin)
@@ -568,56 +572,68 @@ struct ScoutRuntimePanel: View {
 
     /// One marker travels between rows instead of every row growing an edge —
     /// the studio's rule, and the reason the rail reads as a single control.
+    ///
+    /// Scrolls and clips on the same terms as the model column. A plain stack
+    /// here was fine only while the panel always had room for every harness:
+    /// once `bodyHeight` clamps — a chip lower down the screen, or simply more
+    /// harnesses than rungs — an unclipped stack overdraws the frame it was
+    /// given and the last rail rows land ON TOP of the effort ladder.
     private var rail: some View {
-        VStack(spacing: 0) {
-            ForEach(harnesses) { entry in
-                let on = entry.id == harness.id
-                Button {
-                    pick {
-                        harnessId = entry.id
-                        familyId = entry.defaultFamily.id
-                        let selectedModel = entry.defaultFamily.value
-                        let supported = supportedEfforts(harnessId: entry.id, model: selectedModel)
-                        if !supported.contains(where: { $0.id == effortId }) {
-                            effortId = supported.first(where: { $0.id == "medium" })?.id
-                                ?? supported.first?.id
-                                ?? ComposerEffortOption.defaultId
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 0) {
+                ForEach(harnesses) { entry in
+                    let on = entry.id == harness.id
+                    Button {
+                        pick {
+                            harnessId = entry.id
+                            familyId = entry.defaultFamily.id
+                            let selectedModel = entry.defaultFamily.value
+                            let supported = supportedEfforts(harnessId: entry.id, model: selectedModel)
+                            if !supported.contains(where: { $0.id == effortId }) {
+                                effortId = supported.first(where: { $0.id == "medium" })?.id
+                                    ?? supported.first?.id
+                                    ?? ComposerEffortOption.defaultId
+                            }
                         }
-                    }
-                } label: {
-                    HStack(spacing: HudSpacing.md) {
-                        HarnessMark(harness: entry.id, size: 14)
-                            .foregroundStyle(on ? ScoutPalette.accent : ScoutInk.dim)
-                        Text(entry.short)
-                            .font(HudFont.mono(HudTextSize.xs, weight: on ? .semibold : .medium))
-                            .foregroundStyle(on ? ScoutPalette.ink : ScoutInk.muted)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.leading, HudSpacing.lg)
-                    .padding(.trailing, HudSpacing.md)
-                    .frame(height: row)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(alignment: .leading) {
+                    } label: {
+                        HStack(spacing: HudSpacing.md) {
+                            HarnessMark(harness: entry.id, size: 14)
+                                .foregroundStyle(on ? ScoutPalette.accent : ScoutInk.dim)
+                            Text(entry.short)
+                                .font(HudFont.mono(HudTextSize.xs, weight: on ? .semibold : .medium))
+                                .foregroundStyle(on ? ScoutPalette.ink : ScoutInk.muted)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.leading, HudSpacing.lg)
+                        .padding(.trailing, HudSpacing.md)
+                        .frame(height: row)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(alignment: .leading) {
                             if on {
                                 Capsule()
                                     .fill(ScoutPalette.accent)
-                                .frame(width: 2, height: 18)
-                                .matchedGeometryEffect(id: "rail-marker", in: railMarker)
+                                    .frame(width: 2, height: 18)
+                                    .matchedGeometryEffect(id: "rail-marker", in: railMarker)
+                            }
                         }
+                        .contentShape(Rectangle())
                     }
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(entry.label)
+                    .accessibilityAddTraits(on ? .isSelected : [])
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(entry.label)
-                .accessibilityAddTraits(on ? .isSelected : [])
+                // No trailing Spacer: a scroll view proposes nil height, so one
+                // would collapse to nothing anyway. Scroll content is top-aligned,
+                // which is the alignment the Spacer was buying.
             }
-            Spacer(minLength: 0)
+            .padding(.vertical, columnPad)
+            .animation(ScoutMotion.honoring(reduceMotion, ScoutMotion.travel), value: harness.id)
         }
+        .scrollBounceBehavior(.basedOnSize)
         .frame(width: railWidth)
-        .padding(.vertical, columnPad)
-        .animation(ScoutMotion.honoring(reduceMotion, ScoutMotion.travel), value: harness.id)
+        .clipped()
     }
 
     // MARK: Models

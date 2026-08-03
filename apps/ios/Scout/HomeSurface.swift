@@ -85,7 +85,6 @@ struct HomeSurface: View {
     @State private var tailIsFetching = false
     @StateObject private var entrance = CockpitEntrancePhase()
     @State private var askDraft = ""
-    @FocusState private var askFocused: Bool
     /// Entry only: the recent conversations the whisper lane reads from (the
     /// same list the Comms tab shows). Not fetched in the fleet dashboard.
     @State private var conversations: [HomeConversation] = []
@@ -97,19 +96,21 @@ struct HomeSurface: View {
     /// accessory line rides this, not the request above, so tapping back into
     /// the field after a dismiss brings the line back with the keyboard.
     @State private var entryComposerFocused = false
-    /// Entry only: the runtime the ask will start on. A real creation-time
-    /// choice — it rides the seed onto `SessionInitiationSpec.Execution`.
-    @State private var entryHarnessId = ComposerModelHarness.catalog[0].id
-    @State private var entryFamilyId = ComposerModelHarness.catalog[0].defaultFamily.id
-    @State private var entryEffortId = ComposerEffortOption.defaultId
-    @State private var entryRuntimeCatalog: RuntimeCapabilityCatalog? = ComposerRuntimeCatalogCache.load()
-    @State private var showEntryModelPicker = false
-    /// Entry only: attachments staged on the front door, handed to New with the
-    /// prompt (the paperclip is real — see `NewSessionSeed`).
-    @State private var entryAttachments: [ScoutComposerAttachment] = []
-    @State private var entryPhotoItems: [PhotosPickerItem] = []
-    @State private var showEntryPhotoPicker = false
-    @State private var showEntryFileImporter = false
+    /// The runtime the ask will start on — SHARED by both front doors, because
+    /// both now compose on `ScoutMessageComposer` with the runtime chip in its
+    /// tools slot. A real creation-time choice: it rides the seed onto
+    /// `SessionInitiationSpec.Execution`.
+    @State private var askHarnessId = ComposerModelHarness.catalog[0].id
+    @State private var askFamilyId = ComposerModelHarness.catalog[0].defaultFamily.id
+    @State private var askEffortId = ComposerEffortOption.defaultId
+    @State private var askRuntimeCatalog: RuntimeCapabilityCatalog? = ComposerRuntimeCatalogCache.load()
+    @State private var showAskModelPicker = false
+    /// Attachments staged on the front door, handed to New with the prompt (the
+    /// paperclip is real — see `NewSessionSeed`). Shared, as above.
+    @State private var askAttachments: [ScoutComposerAttachment] = []
+    @State private var askPhotoItems: [PhotosPickerItem] = []
+    @State private var showAskPhotoPicker = false
+    @State private var showAskFileImporter = false
     @AppStorage(ScoutHomeStyle.storageKey) private var homeStyleRaw = ScoutHomeStyle.default.rawValue
     // Modular home sections (see ScoutHomeSection) — each switch gates its
     // section's rendering below; the tail switch also gates its 5s fetch.
@@ -148,6 +149,41 @@ struct HomeSurface: View {
             case .entry: entrySurface
             }
         }
+        // The composer plumbing lives HERE, not on either front door: both now
+        // compose on `ScoutMessageComposer` with the same runtime chip and the
+        // same paperclip, and the runtime panel has to be hosted by a container
+        // that ENCLOSES the chip — that container is the coordinate space the
+        // chip's anchor is read in.
+        .scoutRuntimePicker(
+            isPresented: $showAskModelPicker,
+            harnesses: askRuntimeHarnesses,
+            efforts: askRuntimeEfforts,
+            harnessId: $askHarnessId,
+            familyId: $askFamilyId,
+            effortId: $askEffortId
+        )
+        .photosPicker(isPresented: $showAskPhotoPicker, selection: $askPhotoItems, maxSelectionCount: 8, matching: .images)
+        .onChange(of: askPhotoItems) { _, items in
+            guard !items.isEmpty else { return }
+            Task { await addAskPhotos(items) }
+        }
+        .fileImporter(isPresented: $showAskFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+            addAskFiles(result)
+        }
+        #if DEBUG
+        // Sim verification hook, sibling to RootView's `SCOUT_OPEN_VITALS` /
+        // `SCOUT_OPEN_SETTINGS`: the runtime panel is a touch-only state, so
+        // `SCOUT_OPEN_RUNTIME=1` opens it on launch and a headless capture can
+        // photograph the real thing instead of a preview of it. Never ships in
+        // release behavior.
+        .onAppear {
+            guard ProcessInfo.processInfo.environment["SCOUT_OPEN_RUNTIME"] == "1" else { return }
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(600))
+                showAskModelPicker = true
+            }
+        }
+        #endif
         // The style is part of the key: flipping to Entry has to go fetch the
         // whisper lane's conversations, which the dashboard never reads.
         .task(id: "\(reloadKey)|\(isActive)|\(homeStyleRaw)") {
@@ -225,20 +261,26 @@ struct HomeSurface: View {
                         workingSection
                             .cockpitEntrance(index: 2, phase: entrance, motionEnabled: motionEnabled)
                     }
+                    // The one WRITE lane, above the read-only logs. Low enough
+                    // that the attention lanes still open the page, high enough
+                    // to clear the fold — the old position put it under an
+                    // Activity lane that can run the length of the screen, so on
+                    // a busy fleet you never saw it at all. It also needs room
+                    // ABOVE it: the runtime panel grows upward out of its chip.
+                    askSection
+                        .cockpitEntrance(index: 3, phase: entrance, motionEnabled: motionEnabled)
                     if activityEnabled, !recentActivity.isEmpty || lastActivityReadFailed {
                         activitySection
-                            .cockpitEntrance(index: 3, phase: entrance, motionEnabled: motionEnabled)
+                            .cockpitEntrance(index: 4, phase: entrance, motionEnabled: motionEnabled)
                     }
                     if isNotConnected {
                         notConnectedState
-                            .cockpitEntrance(index: 3, phase: entrance, motionEnabled: motionEnabled)
+                            .cockpitEntrance(index: 4, phase: entrance, motionEnabled: motionEnabled)
                     }
                     if terminalsEnabled, !model.recentTerminals.isEmpty {
                         terminalsSection
-                            .cockpitEntrance(index: 4, phase: entrance, motionEnabled: motionEnabled)
+                            .cockpitEntrance(index: 5, phase: entrance, motionEnabled: motionEnabled)
                     }
-                    askSection
-                        .cockpitEntrance(index: 5, phase: entrance, motionEnabled: motionEnabled)
                     if tailEnabled {
                         tailSection
                             .cockpitEntrance(index: 6, phase: entrance, motionEnabled: motionEnabled)
@@ -252,7 +294,7 @@ struct HomeSurface: View {
             .padding(.top, layout.surfaceTopPadding)
             .padding(.bottom, HudSpacing.md)
         }
-        .animation(.easeOut(duration: 0.22), value: isLoading)
+        .animation(ScoutMotion.honoring(reduceMotion, ScoutMotion.fade), value: isLoading)
         .refreshable { if isActive { await load() } }
     }
 
@@ -289,40 +331,7 @@ struct HomeSurface: View {
             entryDock
             entryAccessoryLine
         }
-        .animation(.easeOut(duration: 0.22), value: isLoading)
-        // The runtime panel grows out of the composer's chip, in place. It has
-        // to be attached HERE — the surface that contains the chip — because
-        // that container is the coordinate space the chip's anchor is read in.
-        .scoutRuntimePicker(
-            isPresented: $showEntryModelPicker,
-            harnesses: entryRuntimeHarnesses,
-            efforts: entryRuntimeEfforts,
-            harnessId: $entryHarnessId,
-            familyId: $entryFamilyId,
-            effortId: $entryEffortId
-        )
-        .photosPicker(isPresented: $showEntryPhotoPicker, selection: $entryPhotoItems, maxSelectionCount: 8, matching: .images)
-        .onChange(of: entryPhotoItems) { _, items in
-            guard !items.isEmpty else { return }
-            Task { await addEntryPhotos(items) }
-        }
-        .fileImporter(isPresented: $showEntryFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
-            addEntryFiles(result)
-        }
-        #if DEBUG
-        // Sim verification hook, sibling to RootView's `SCOUT_OPEN_VITALS` /
-        // `SCOUT_OPEN_SETTINGS`: the runtime panel is a touch-only state, so
-        // `SCOUT_OPEN_RUNTIME=1` opens it on launch and a headless capture can
-        // photograph the real thing instead of a preview of it. Never ships in
-        // release behavior.
-        .onAppear {
-            guard ProcessInfo.processInfo.environment["SCOUT_OPEN_RUNTIME"] == "1" else { return }
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(600))
-                showEntryModelPicker = true
-            }
-        }
-        #endif
+        .animation(ScoutMotion.honoring(reduceMotion, ScoutMotion.fade), value: isLoading)
         .onChange(of: isActive) { _, active in
             // Coming back to Home re-arms the composing posture; leaving hands
             // the keyboard back so it can't hover over another surface.
@@ -489,10 +498,10 @@ struct HomeSurface: View {
             autoFocus: entryDockHoldsKeyboard,
             onSend: sendAskDraft,
             attach: ScoutComposerAttach(
-                onPhoto: { showEntryPhotoPicker = true },
-                onFile: { showEntryFileImporter = true }
+                onPhoto: { showAskPhotoPicker = true },
+                onFile: { showAskFileImporter = true }
             ),
-            attachments: $entryAttachments,
+            attachments: $askAttachments,
             // Our accessory line takes that line; two suggestion bars stacked
             // is one too many.
             predictions: false,
@@ -507,17 +516,17 @@ struct HomeSurface: View {
             appearance: .pill
         ) {
             ScoutRuntimeChip(
-                harness: entryHarnessId,
-                model: entryFamily.value,
-                effort: entryEffort.label,
-                isPicking: showEntryModelPicker,
+                harness: askHarnessId,
+                model: askFamily.value,
+                effort: askEffort.label,
+                isPicking: showAskModelPicker,
                 onPick: {
                     // The keyboard STAYS. The panel opens upward out of the
                     // chip, which is already sitting above the keys — dropping
                     // them would move the composer out from under the operator
                     // mid-gesture, and losing the draft line is exactly what
                     // the anchored panel exists to stop.
-                    showEntryModelPicker.toggle()
+                    showAskModelPicker.toggle()
                 }
             )
         }
@@ -561,46 +570,46 @@ struct HomeSurface: View {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 
-    // MARK: Entry runtime
+    // MARK: Ask runtime (both front doors)
 
-    private var entryRuntimeHarnesses: [ComposerModelHarness] {
-        let fetched = entryRuntimeCatalog?.composerHarnesses ?? []
+    private var askRuntimeHarnesses: [ComposerModelHarness] {
+        let fetched = askRuntimeCatalog?.composerHarnesses ?? []
         return fetched.isEmpty ? ComposerModelHarness.catalog : fetched
     }
 
-    private var entryRuntimeEfforts: [ComposerEffortOption] {
-        entryRuntimeCatalog?.composerEfforts ?? ComposerEffortOption.catalog
+    private var askRuntimeEfforts: [ComposerEffortOption] {
+        askRuntimeCatalog?.composerEfforts ?? ComposerEffortOption.catalog
     }
 
-    private var entryHarness: ComposerModelHarness {
-        entryRuntimeHarnesses.first { $0.id == entryHarnessId } ?? entryRuntimeHarnesses[0]
+    private var askHarness: ComposerModelHarness {
+        askRuntimeHarnesses.first { $0.id == askHarnessId } ?? askRuntimeHarnesses[0]
     }
 
-    private var entryFamily: ComposerModelFamily {
-        entryHarness.families.first { $0.id == entryFamilyId } ?? entryHarness.defaultFamily
+    private var askFamily: ComposerModelFamily {
+        askHarness.families.first { $0.id == askFamilyId } ?? askHarness.defaultFamily
     }
 
-    private var entryEffort: ComposerEffortOption {
-        ComposerEffortOption.catalog.first { $0.id == entryEffortId } ?? ComposerEffortOption.catalog[0]
+    private var askEffort: ComposerEffortOption {
+        ComposerEffortOption.catalog.first { $0.id == askEffortId } ?? ComposerEffortOption.catalog[0]
     }
 
-    // MARK: Entry attachments
+    // MARK: Ask attachments (both front doors)
 
     @MainActor
-    private func addEntryPhotos(_ items: [PhotosPickerItem]) async {
-        defer { entryPhotoItems = [] }
+    private func addAskPhotos(_ items: [PhotosPickerItem]) async {
+        defer { askPhotoItems = [] }
         for item in items {
             guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
             let type = item.supportedContentTypes.first { $0.conforms(to: .image) }
             let mediaType = type?.preferredMIMEType ?? "image/jpeg"
             let ext = type?.preferredFilenameExtension ?? (mediaType == "image/png" ? "png" : "jpg")
-            entryAttachments.append(
-                ScoutComposerAttachment(data: data, mediaType: mediaType, fileName: "photo-\(entryAttachments.count + 1).\(ext)")
+            askAttachments.append(
+                ScoutComposerAttachment(data: data, mediaType: mediaType, fileName: "photo-\(askAttachments.count + 1).\(ext)")
             )
         }
     }
 
-    private func addEntryFiles(_ result: Result<[URL], Error>) {
+    private func addAskFiles(_ result: Result<[URL], Error>) {
         guard let urls = try? result.get() else { return }
         for url in urls {
             let scoped = url.startAccessingSecurityScopedResource()
@@ -608,7 +617,7 @@ struct HomeSurface: View {
             guard let data = try? Data(contentsOf: url) else { continue }
             let type = UTType(filenameExtension: url.pathExtension)
             let mediaType = type?.preferredMIMEType ?? "application/octet-stream"
-            entryAttachments.append(
+            askAttachments.append(
                 ScoutComposerAttachment(data: data, mediaType: mediaType, fileName: url.lastPathComponent)
             )
         }
@@ -901,52 +910,50 @@ struct HomeSurface: View {
         }
     }
 
-    /// Ask-the-fleet — a classic inline composer sitting directly on home. Send
-    /// does exactly what the old dock's tap did — routes to the New composer —
-    /// carrying the typed text across as the seeded prompt (Home itself still
-    /// submits nothing; harness/project/effort stay the New surface's call).
+    /// Ask-the-fleet — the dashboard's ONE action, and the only lane here that
+    /// writes rather than reads. It is the standard `ScoutMessageComposer`, the
+    /// same component the Entry front door docks and the same one the atoms page
+    /// documents — not a hand-rolled field. That is what buys it the controls the
+    /// old strip was missing: the runtime chip (harness · model · effort) in the
+    /// tools slot, the paperclip, on-device dictation, and a send that rests
+    /// visible instead of appearing only once you have typed.
+    ///
+    /// Named with a lane header like every other section, and raised in the
+    /// scroll order (above Activity), because an unlabelled well at the bottom of
+    /// a dashboard reads as a footer, not as the thing you came to do.
+    ///
+    /// Send still routes to the New composer rather than submitting from here —
+    /// but it now carries the runtime pick and any staged attachments across on
+    /// the seed, so the controls are real, not decoration.
     private var askSection: some View {
-        HStack(spacing: HudSpacing.sm) {
-            TextField("Ask the fleet…", text: $askDraft, axis: .vertical)
-                .font(HudFont.ui(HudTextSize.sm))
-                .foregroundStyle(ScoutPalette.ink)
-                .lineLimit(1...4)
-                .focused($askFocused)
-                .submitLabel(.send)
-                .onSubmit { sendAskDraft() }
-                .toolbar {
-                    ToolbarItemGroup(placement: .keyboard) {
-                        Spacer()
-                        Button("Done") { askFocused = false }
-                    }
-                }
-            Button(action: sendAskDraft) {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(HudPalette.bg)
-                    .frame(width: 28, height: 28)
-                    .background(Circle().fill(askDraftCanSend ? ScoutVibe.accent : ScoutInk.dim.opacity(0.35)))
+        VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            laneHeader("Ask the fleet", signal: ScoutVibe.accent)
+            ScoutMessageComposer(
+                text: $askDraft,
+                placeholder: "Ask the fleet…",
+                rows: 1,
+                onSend: sendAskDraft,
+                attach: ScoutComposerAttach(
+                    onPhoto: { showAskPhotoPicker = true },
+                    onFile: { showAskFileImporter = true }
+                ),
+                attachments: $askAttachments,
+                density: .lead,
+                appearance: .panel
+            ) {
+                ScoutRuntimeChip(
+                    harness: askHarnessId,
+                    model: askFamily.value,
+                    effort: askEffort.label,
+                    isPicking: showAskModelPicker,
+                    onPick: { showAskModelPicker.toggle() }
+                )
             }
-            .buttonStyle(.plain)
-            .disabled(!askDraftCanSend)
-            .accessibilityLabel("Send to the fleet")
+            // The panel takes its left and right edges from the composer, so the
+            // two read as one column when it opens.
+            .scoutRuntimeLane()
         }
-        .padding(.leading, HudSpacing.md)
-        .padding(.trailing, HudSpacing.xs)
-        .padding(.vertical, HudSpacing.xs)
-        .frame(width: laneWidth)
-        // The same recessed-well language as the Working terminal panel: the
-        // picker's near-black inset, a thin edge, darkness pooled at the rim.
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(ModelPickerTone.insetFill)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(ModelPickerTone.insetEdge, lineWidth: HudStrokeWidth.thin)
-        )
-        .overlay(TerminalInsetShadow(shape: RoundedRectangle(cornerRadius: 20, style: .continuous), color: .black.opacity(0.9), radius: 2, y: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .frame(width: laneWidth, alignment: .leading)
     }
 
     private var askDraftCanSend: Bool {
@@ -957,19 +964,18 @@ struct HomeSurface: View {
         let text = askDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         askDraft = ""
-        askFocused = false
-        // Entry carries the runtime the chip is showing and anything staged on
-        // its paperclip; the dashboard's strip names neither, so New keeps its
-        // own workspace default there.
-        guard homeStyle == .entry else { return onCompose(NewSessionSeed(prompt: text)) }
-        let staged = entryAttachments
-        entryAttachments = []
+        // BOTH front doors carry the runtime the chip is showing and anything
+        // staged on the paperclip. The dashboard used to name neither and fell
+        // back to New's workspace default; it names both now, and a control that
+        // says "opus · high" has to actually start opus · high.
+        let staged = askAttachments
+        askAttachments = []
         onCompose(
             NewSessionSeed(
                 prompt: text,
-                harnessId: entryHarnessId,
-                familyId: entryFamilyId,
-                effortId: entryEffortId,
+                harnessId: askHarnessId,
+                familyId: askFamilyId,
+                effortId: askEffortId,
                 attachments: staged
             )
         )
@@ -1248,7 +1254,10 @@ struct HomeSurface: View {
                     HomeConversation(id: "\(machine.id)::\(conversation.id)", client: client, conversation: conversation)
                 })
             }
-            if readsConversations, freshRuntimeCatalog == nil,
+            // NOT gated on the style any more: the dashboard's ask lane shows
+            // the same runtime chip, and a chip fed only by the static fallback
+            // catalog would offer harnesses this fleet may not even have.
+            if freshRuntimeCatalog == nil,
                let catalog = try? await client.runtimeCapabilities(projectRoot: nil),
                catalog.schemaVersion == "openscout.runtime-capabilities.v1" {
                 freshRuntimeCatalog = catalog
@@ -1258,16 +1267,16 @@ struct HomeSurface: View {
         guard !Task.isCancelled, loadKey == reloadKey else { return }
 
         if let freshRuntimeCatalog {
-            entryRuntimeCatalog = freshRuntimeCatalog
+            askRuntimeCatalog = freshRuntimeCatalog
             ComposerRuntimeCatalogCache.save(freshRuntimeCatalog)
             let harnesses = freshRuntimeCatalog.composerHarnesses
-            if let selectedHarness = harnesses.first(where: { $0.id == entryHarnessId }) {
-                if !selectedHarness.families.contains(where: { $0.id == entryFamilyId }) {
-                    entryFamilyId = selectedHarness.defaultFamily.id
+            if let selectedHarness = harnesses.first(where: { $0.id == askHarnessId }) {
+                if !selectedHarness.families.contains(where: { $0.id == askFamilyId }) {
+                    askFamilyId = selectedHarness.defaultFamily.id
                 }
             } else if let firstHarness = harnesses.first {
-                entryHarnessId = firstHarness.id
-                entryFamilyId = firstHarness.defaultFamily.id
+                askHarnessId = firstHarness.id
+                askFamilyId = firstHarness.defaultFamily.id
             }
         }
 
