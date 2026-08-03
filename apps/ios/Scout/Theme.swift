@@ -1004,7 +1004,11 @@ private struct SignalCornerMark: Shape {
     let corner: SignalCorner
 
     func path(in rect: CGRect) -> Path {
-        let inset: CGFloat = 4
+        // Registration marks replace the frame at each corner; they should not
+        // float inside it and create a second, competing corner. The half-point
+        // keeps the 1 pt stroke inside the clipping boundary while reading as
+        // exactly edge-seated.
+        let inset: CGFloat = 0.5
         let length: CGFloat = 9
         var path = Path()
         switch corner {
