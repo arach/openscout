@@ -104,6 +104,8 @@ struct ScoutApp: App {
     @UIApplicationDelegateAdaptor(ScoutAppDelegate.self) private var appDelegate
     @State private var model = AppModel()
     @AppStorage(ScoutAppearance.storageKey) private var appearanceRaw = ScoutAppearance.default.rawValue
+    // Experimental v3 navigation root (off by default; see V3RootView).
+    @AppStorage(ScoutV3.storageKey) private var v3Navigation = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -129,8 +131,15 @@ struct ScoutApp: App {
                     ConnectScreen(model: model)
                         .transition(.opacity)
                 case .shell:
-                    RootView(model: model)
-                        .transition(.opacity)
+                    // Additive v3 navigation slice: the toggle swaps ONLY the
+                    // root; every shipped surface stays as-is underneath.
+                    if v3Navigation {
+                        V3RootView(model: model)
+                            .transition(.opacity)
+                    } else {
+                        RootView(model: model)
+                            .transition(.opacity)
+                    }
                 }
             }
             .animation(ScoutMotion.honoring(reduceMotion, ScoutMotion.fade), value: model.phase)
