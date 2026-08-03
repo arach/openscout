@@ -432,6 +432,19 @@ struct ScoutRootView: View {
     @State private var realtimeVoiceResizeStartSize: CGSize?
     @State private var realtimeVoicePanelExpanded = false
     @State private var section: ScoutSection = .comms
+    /// The section `g b` returns to. Only `goTo` writes it, so a chord that
+    /// lands where you already are doesn't destroy the way back.
+    @State private var previousSection: ScoutSection = .agents
+    /// The `g` prefix. Armed by `g`, spent by the next key. See
+    /// `ScoutChordMachine` for why the armed branch must never fall through.
+    @State private var chordMachine = ScoutChordMachine<ScoutChordDestination>()
+    /// Armed *and* held long enough to be worth showing. Fast chords never
+    /// flash the palette; a hesitation gets taught the letters.
+    @State private var chordPaletteVisible = false
+    @State private var chordPaletteToken = 0
+    /// ⌘ held past the reveal delay — the conversation list stamps its digits.
+    @State private var jumpTargetsVisible = false
+    @State private var jumpRevealToken = 0
     /// Web-embed sections mounted at least once. Kept alive (hidden) across
     /// nav switches so Projects/Dispatch/Lanes/Code do not cold-load every visit.
     @State private var visitedWebEmbedSections: Set<ScoutSection> = []
@@ -618,7 +631,31 @@ struct ScoutRootView: View {
         }
     }
 
+    /// The rail, plus the chord palette stacked on its exact frame. Overlaying
+    /// here (rather than at the window level with hand-computed geometry) is
+    /// what makes the palette land on the rail no matter how the user has
+    /// resized or collapsed it.
     private func navigationSidebar(layout: ScoutShellLayout) -> some View {
+        navigationSidebarRail(layout: layout)
+            // `.overlay`, not a ZStack: the palette wants to fill its frame, and
+            // in a ZStack that proposal sizes the *stack*, shoving the whole
+            // conversation column right. An overlay is measured by the rail, so
+            // the palette can only ever be exactly as wide as the rail is.
+            .overlay(alignment: .topLeading) {
+                if chordPaletteVisible {
+                    ScoutChordPalette(
+                        isCompact: effectiveRailCompact(layout: layout),
+                        activeSection: section
+                    ) { next in
+                        disarmChord()
+                        goTo(next)
+                    }
+                    .transition(.opacity)
+                }
+            }
+    }
+
+    private func navigationSidebarRail(layout: ScoutShellLayout) -> some View {
         HudResizableNavigationSidebar(
             selection: Binding(
                 get: { section },
@@ -881,6 +918,35 @@ struct ScoutRootView: View {
                 .frame(width: 0, height: 0)
                 .accessibilityHidden(true)
         )
+        .background(
+            // The ⌘ hold has no key event of its own, so the jump targets read
+            // `.flagsChanged` directly. Never consumes: modifiers must keep
+            // flowing to everything downstream.
+            ScoutKeyboardEventMonitor(isActive: true, mask: .flagsChanged) { event in
+                handleModifierChange(event)
+                return false
+            }
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+        )
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
+            // A local monitor only sees events aimed at this app, so ⌘-up after
+            // a ⌘⇥ away never arrives — without this the digits stay stamped on
+            // a window the user has already left, and a pending chord waits
+            // forever to eat their next keystroke here.
+            disarmChord()
+            clearJumpTargets()
+        }
+        .onChange(of: section) { previous, _ in
+            // Recorded centrally rather than inside `goTo`, so `g b` returns
+            // from *any* navigation — rail click, deep link, menu, chord — not
+            // only from the ones that happened to route through the chord.
+            previousSection = previous
+            // A section change also spends any pending hint state. Otherwise
+            // the palette can outlive the chord that opened it.
+            disarmChord()
+            clearJumpTargets()
+        }
     }
 
     private func syncScopedStoreLifecycles() {
@@ -931,7 +997,11 @@ struct ScoutRootView: View {
         case .toggleDesignPreview:
             showDesignPreview.toggle()
         case .openSettings:
-            section = .settings
+            goTo(.settings)
+        case .jumpToRecent(let ordinal):
+            jumpToRecentConversation(ordinal)
+        case .goToSection(let next):
+            goTo(next)
         }
     }
 
@@ -960,6 +1030,11 @@ struct ScoutRootView: View {
             showCheatsheet = false
             return true
         }
+        // Escape spends a pending chord before anything downstream sees it.
+        if event.keyCode == 53, chordMachine.isArmed {
+            disarmChord()
+            return true
+        }
         guard !modalPresented, bareKeysAvailable else { return false }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let disallowed: NSEvent.ModifierFlags = [.command, .control, .option, .function]
@@ -972,11 +1047,36 @@ struct ScoutRootView: View {
             return true
         }
         guard let key else { return false }
-        if hasShift {
-            guard key == "g" else { return false }
+
+        // ── The go-prefix. `g` no longer means "first row" on its own: it buys
+        // nine destinations for the same keystroke, and `g g` keeps the vim
+        // reading of "top". Runs before the single-key table so an armed chord
+        // owns the next key outright.
+        if hasShift, key == "g" {
+            // ⇧G is "last", never a chord — but it still spends a pending arm
+            // rather than being swallowed by it.
+            disarmChord()
             moveSelectionToEdge(last: true)
             return true
         }
+        if !hasShift {
+            switch chordMachine.handle(key: key, resolve: ScoutKeyMap.resolveChord) {
+            case .armed:
+                armChordPalette()
+                return true
+            case .resolved(let destination):
+                hideChordPalette()
+                apply(destination)
+                return true
+            case .cancelled:
+                hideChordPalette()
+                return true
+            case .ignored:
+                break
+            }
+        }
+
+        guard !hasShift else { return false }
         switch key {
         case "j":
             moveSelection(1)
@@ -986,12 +1086,108 @@ struct ScoutRootView: View {
             moveRight()
         case "h":
             moveLeft()
-        case "g":
-            moveSelectionToEdge(last: false)
         default:
             return false
         }
         return true
+    }
+
+    /// Resolves a chord to the thing it names.
+    private func apply(_ destination: ScoutChordDestination) {
+        switch destination {
+        case .section(let next):
+            goTo(next)
+        case .listStart:
+            moveSelectionToEdge(last: false)
+        case .back:
+            goTo(previousSection)
+        }
+    }
+
+    /// Navigate. `previousSection` is maintained by the `onChange` on `section`,
+    /// so this stays a plain assignment and every other write site behaves the
+    /// same way.
+    private func goTo(_ next: ScoutSection) {
+        guard next != section else { return }
+        section = next
+    }
+
+    private func armChordPalette() {
+        chordPaletteToken += 1
+        let token = chordPaletteToken
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: ScoutKeyboardTiming.chordHintNanoseconds)
+            guard token == chordPaletteToken, chordMachine.isArmed else { return }
+            withAnimation(.easeOut(duration: 0.1)) { chordPaletteVisible = true }
+        }
+    }
+
+    private func hideChordPalette() {
+        chordPaletteToken += 1
+        if chordPaletteVisible {
+            withAnimation(.easeOut(duration: 0.1)) { chordPaletteVisible = false }
+        }
+    }
+
+    private func disarmChord() {
+        chordMachine.disarm()
+        hideChordPalette()
+    }
+
+    // MARK: ⌘-digit jump targets
+
+    /// cId → 1…9 over the conversation list in its own recency order. Empty
+    /// unless the modifier is actually held, so the rows stay artwork the rest
+    /// of the time.
+    private var jumpTargetMap: [String: Int] {
+        guard jumpTargetsVisible, section == .comms else { return [:] }
+        var map: [String: Int] = [:]
+        for (offset, channel) in commsListChannels.prefix(ScoutKeyMap.jumpTargetCount).enumerated() {
+            map[channel.cId] = offset + 1
+        }
+        return map
+    }
+
+    /// ⌘1…⌘9 — land in the Nth most recent conversation. Fires from anywhere,
+    /// including mid-sentence in the composer: leaving a conversation is
+    /// exactly the thing you want to do from inside one.
+    private func jumpToRecentConversation(_ ordinal: Int) {
+        let channels = commsListChannels
+        guard ordinal >= 1, ordinal <= channels.count else { return }
+        goTo(.comms)
+        store.selectChannel(channels[ordinal - 1].cId)
+        clearJumpTargets()
+    }
+
+    /// ⌘ went down. Reveal the targets only if it is *held* — a ⌘K on the way
+    /// past shouldn't flash the list.
+    private func armJumpTargets() {
+        guard section == .comms, !modalPresented, !showCheatsheet else { return }
+        jumpRevealToken += 1
+        let token = jumpRevealToken
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: ScoutKeyboardTiming.jumpRevealNanoseconds)
+            guard token == jumpRevealToken else { return }
+            withAnimation(.easeOut(duration: 0.1)) { jumpTargetsVisible = true }
+        }
+    }
+
+    private func clearJumpTargets() {
+        jumpRevealToken += 1
+        if jumpTargetsVisible {
+            withAnimation(.easeOut(duration: 0.1)) { jumpTargetsVisible = false }
+        }
+    }
+
+    /// ⌘ up/down, straight off `.flagsChanged`. Also fires on window resign,
+    /// which is what keeps the targets from painting onto a background window.
+    private func handleModifierChange(_ event: NSEvent) {
+        let held = event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command)
+        if held {
+            armJumpTargets()
+        } else {
+            clearJumpTargets()
+        }
     }
 
     private func openChannelFromExternalCommand(_ cId: String) {
@@ -1881,6 +2077,7 @@ struct ScoutRootView: View {
                 pendingConversations: visiblePendingConversations,
                 selectedCId: store.selectedCId,
                 newChannelIds: store.newChannelIds,
+                jumpTargets: jumpTargetMap,
                 hasActivity: store.workingAgentCount > 0,
                 serviceHealth: store.serviceHealth,
                 isStartingBroker: store.isStartingBroker,

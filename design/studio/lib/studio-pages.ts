@@ -1338,6 +1338,36 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "One inspector card flexed across the contexts it serves (switch at top): your own DM (one bound session elevated, Engage strip removed, Runtime promoted into a Session block with Traces · Watch · Take over, no Message); an agent↔agent DM (two sides, each its own session, Message returns as Interject); and the agent view with no DM (sessions as a peer list, Message present). The rule that unifies them: Message shows only when you're not already a participant. Includes the Current ↔ Proposed before/after.",
   },
   {
+    href: "/studies/scout-keyboard-sheet",
+    label: "Keyboard Sheet",
+    bucket: "studies",
+    surface: "macos",
+    family: "scout-macos-shell",
+    status: "draft",
+    source: [
+      "design/studio/views/scout-keyboard-sheet.tsx",
+      "apps/macos/Sources/Scout/ScoutKeyboardCheatsheet.swift",
+    ],
+    blurb:
+      "The `?` overlay, designed rather than tabulated. The structural defect in the shipped sheet: Scout's keyboard has two grammars — ⌘N is simultaneous, `g c` is sequential — and it draws them identically, so the one genuinely new idea arrives looking like every shortcut the user already knew. Every treatment encodes the beat in form (keys in a beat butt together at 2px, beats open to 10px with the pause drawn), splits the phrases that were wearing keycaps (⌥⌘1 2 3, ↵ · ⇧↵, g g · ⇧G), and subordinates modifier ink to the letter it modifies. Three directions: 01 Instrument (flat, boxless, keys right-aligned into a seam), 02 Rail (the sheet as a picture of the app — rail metrics on the left, nine numbered tiles for the jump strip), 03 Keycap (the physical metaphor done properly, one key per cap). Companion to /studies/scout-keyboard-nav, which owns the grammar.",
+  },
+  {
+    href: "/studies/scout-keyboard-nav",
+    label: "Keyboard Navigation",
+    bucket: "studies",
+    surface: "macos",
+    family: "scout-macos-shell",
+    status: "draft",
+    source: [
+      "design/studio/views/scout-keyboard-nav.tsx",
+      "apps/macos/Sources/Scout/ScoutRootView.swift",
+      "apps/macos/Sources/Scout/ScoutCommands.swift",
+      "apps/macos/Sources/Scout/ScoutKeyboardCheatsheet.swift",
+    ],
+    blurb:
+      "Chord-based keyboard navigation for the macOS app, live and drivable. Three layers on one keymap table: `g` promoted from \"first row\" to a go-prefix that reveals its palette *in the rail itself* (icons swap to chord letters in place — the hint lives where the destination lives); a held modifier that stamps jump targets onto the conversation list (digits 1–9 for the nine most recent, name-derived letter tags for the rest, resolving even while the composer has focus); and a `?` sheet regenerated from the same table it binds — two columns, where-can-I-go on the stable left, what-works-here on the volatile right. Toggle the jump plane between ⌥ (free, carries digits + letters) and ⌘ (macOS-idiomatic, but evicts the ⌘1–3 filters and can't carry letters). Tail takes `f` (tail -f) and Code takes `e` (editor) so Terminals and Comms keep their initials.",
+  },
+  {
     href: "/studies/agents-tree",
     label: "Agents Tree",
     bucket: "studies",

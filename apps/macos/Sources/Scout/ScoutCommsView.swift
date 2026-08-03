@@ -390,6 +390,10 @@ struct ScoutConversationListBar: View {
     let pendingConversations: [ScoutPendingConversation]
     let selectedCId: String?
     let newChannelIds: Set<String>
+    /// cId → ⌘-digit while the jump modifier is held; empty otherwise. Keyed by
+    /// id rather than index so a row that moves between renders keeps its
+    /// target — the digit you saw is the digit that fires.
+    let jumpTargets: [String: Int]
     let hasActivity: Bool
     let serviceHealth: ScoutServiceHealth
     let isStartingBroker: Bool
@@ -475,10 +479,29 @@ struct ScoutConversationListBar: View {
         }
     }
 
+    /// A flat list item — either a bucket header or a channel row. One flat
+    /// ForEach keeps every row's SwiftUI identity pinned to its cId no matter
+    /// which recency bucket it currently falls in. Nesting rows in per-bucket
+    /// Sections gave a row a different structural identity each time it aged
+    /// across a bucket boundary, and that identity churn (under the reorder
+    /// animation) could strand a row's last render — leaving a deselected row
+    /// still painted with the selected wash.
+    private enum ListItem: Identifiable {
+        case header(RecencyBucket)
+        case channel(ScoutChannel)
+
+        var id: String {
+            switch self {
+            case .header(let bucket): return "bucket-\(bucket.rawValue)"
+            case .channel(let channel): return channel.cId
+            }
+        }
+    }
+
     /// Channels partitioned by recency of last activity, preserving the parent's
     /// sort within each bucket. "Now" = last 15 min · "Today" = same calendar
     /// day · else "Earlier". Turns a flat scroll into a scannable hierarchy.
-    private var groupedChannels: [(bucket: RecencyBucket, channels: [ScoutChannel])] {
+    private var listItems: [ListItem] {
         let now = Date()
         let calendar = Calendar.current
         var buckets: [RecencyBucket: [ScoutChannel]] = [:]
@@ -486,9 +509,9 @@ struct ScoutConversationListBar: View {
             let bucket = recencyBucket(for: channel, now: now, calendar: calendar)
             buckets[bucket, default: []].append(channel)
         }
-        return RecencyBucket.allCases.compactMap { bucket in
-            guard let rows = buckets[bucket], !rows.isEmpty else { return nil }
-            return (bucket, rows)
+        return RecencyBucket.allCases.flatMap { bucket -> [ListItem] in
+            guard let rows = buckets[bucket], !rows.isEmpty else { return [] }
+            return [.header(bucket)] + rows.map { .channel($0) }
         }
     }
 
@@ -542,7 +565,7 @@ struct ScoutConversationListBar: View {
             }
         } else {
             ScrollView {
-                LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                LazyVStack(spacing: 0) {
                     ForEach(pendingConversations) { pending in
                         ScoutPendingConversationRow(
                             pending: pending,
@@ -551,20 +574,20 @@ struct ScoutConversationListBar: View {
                             onSelect: { onSelectPending(pending) }
                         )
                     }
-                    ForEach(groupedChannels, id: \.bucket) { group in
-                        Section {
-                            ForEach(group.channels) { channel in
-                                ScoutConversationRow(
-                                    channel: channel,
-                                    isSelected: selectedCId == channel.cId,
-                                    isNew: newChannelIds.contains(channel.cId),
-                                    markRead: { onMarkRead(channel) }
-                                ) {
-                                    select(channel)
-                                }
+                    ForEach(listItems) { item in
+                        switch item {
+                        case .header(let bucket):
+                            recencyHeader(bucket)
+                        case .channel(let channel):
+                            ScoutConversationRow(
+                                channel: channel,
+                                isSelected: selectedCId == channel.cId,
+                                isNew: newChannelIds.contains(channel.cId),
+                                jumpTarget: jumpTargets[channel.cId],
+                                markRead: { onMarkRead(channel) }
+                            ) {
+                                select(channel)
                             }
-                        } header: {
-                            recencyHeader(group.bucket)
                         }
                     }
                 }
@@ -1024,6 +1047,10 @@ struct ScoutConversationRow: View {
     let channel: ScoutChannel
     let isSelected: Bool
     var isNew: Bool = false
+    /// 1…9 while the ⌘ jump targets are revealed. Stamps over the avatar tile
+    /// rather than beside it, so the row keeps its exact height and the list
+    /// doesn't shift under the user mid-reveal.
+    var jumpTarget: Int?
     let markRead: () -> Void
     let action: () -> Void
 
@@ -1143,8 +1170,22 @@ struct ScoutConversationRow: View {
     /// Studio `.avatar` — a 32×32 rounded tile. DMs fill solid accent with a
     /// bg-color initial; channels read as a `#` glyph on a surface tile with a
     /// hairline-strong edge. Replaces the old 20pt SF Symbol.
-    @ViewBuilder
+    /// Artwork or target. While the jump modifier is held the chip takes the
+    /// tile's exact 32pt footprint, so the reveal is a swap in place rather
+    /// than a badge that grows the row.
     private var avatarTile: some View {
+        ZStack {
+            avatarArtwork
+                .opacity(jumpTarget == nil ? 1 : 0)
+            if let jumpTarget {
+                ScoutJumpTargetChip(index: jumpTarget)
+            }
+        }
+        .frame(width: 32, height: 32)
+    }
+
+    @ViewBuilder
+    private var avatarArtwork: some View {
         if isChannel {
             Text("#")
                 .font(HudFont.mono(HudTextSize.base, weight: .bold))
