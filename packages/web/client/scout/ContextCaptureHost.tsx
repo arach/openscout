@@ -168,6 +168,8 @@ export function ContextCaptureHost({
           initialIntent={restoredDraft?.intent}
           initialProjectPath={restoredDraft?.projectPath}
           initialProjectQuery={restoredDraft?.projectQuery}
+          initialForwardContext={restoredDraft?.forwardContext}
+          initialForwardContextMode={restoredDraft?.forwardContextMode}
           defaultMode={restoredDraft?.mode}
           draftRestored={contextCaptureDraftHasContent(draft)}
           onDraftChange={setDraft}
