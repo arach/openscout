@@ -6,199 +6,68 @@ import UIKit
 #endif
 
 /// Renders a conversation text block's raw markdown as native, styled SwiftUI —
-/// not a wall of literal `**`, `#`, and ``` ` ```. It splits the text into
-/// semantic blocks via the shared `MessageMarkupParser` (same parse as macOS),
-/// then renders each kind with Hudson atoms: paragraphs/headings/lists carry
-/// inline emphasis through `AttributedString(markdown:)`, and fenced code gets
-/// real per-line syntax highlighting via `HudCodeHighlighter`.
+/// not a wall of literal `**`, `#`, and ``` ` ```.
+///
+/// This is a thin adapter over Hudson's standard `HudMarkdownView`, not a second
+/// renderer. Scout used to carry its own copy of the whole block switch
+/// (paragraph / heading / list / quote / code / table) over a forked copy of
+/// Hudson's parser; `HudMarkdownStyle.agent` exists precisely so that fork could
+/// be retired. What stays Scout-specific is the skin (`.scoutMessage`), the
+/// secondary inks from the app theme, and the inline `code` treatment below.
 struct MessageMarkupView: View {
     let text: String
 
     var body: some View {
-        let blocks = MessageMarkupParser.parse(text)
-        VStack(alignment: .leading, spacing: HudSpacing.md) {
-            ForEach(blocks) { block in
-                view(for: block)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    @ViewBuilder
-    private func view(for block: MessageMarkupBlock) -> some View {
-        switch block.kind {
-        case .paragraph:
-            paragraph(block.text)
-        case .heading(let depth):
-            heading(block.text, depth: depth)
-        case .rule:
-            Rectangle()
-                .fill(ScoutHairline.standard)
-                .frame(height: HudStrokeWidth.standard)
-                .padding(.vertical, HudSpacing.xs)
-        case .list(let ordered, let items):
-            list(items, ordered: ordered)
-        case .blockquote:
-            blockquote(block.text)
-        case .code(let language):
-            codeBlock(block.text, language: language)
-        case .table(let headers, let rows):
-            table(headers: headers, rows: rows)
-        }
-    }
-
-    // MARK: - Inline
-
-    /// Parse inline emphasis (bold/italic/`code`/links) but keep block splitting
-    /// to the parser. Falls back to the raw string if markdown can't parse.
-    private func inline(_ string: String) -> AttributedString {
-        let options = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        HudMarkdownView(
+            text: text,
+            // `contentSize` reaches the fenced-code body (`HudCodeBlock`); the
+            // prose sizes come from the style, which ignores it.
+            contentSize: HudTextSize.sm,
+            style: .scoutMessage,
+            inlineTransform: Self.styleInlineCode
         )
-        guard var attributed = try? AttributedString(markdown: string, options: options) else {
-            return AttributedString(string)
-        }
-        // SwiftUI does not style inline `code` spans on its own — the markdown
-        // parser only tags them with `.inlinePresentationIntent.code`. Give those
-        // runs a monospaced face and a faint chip background so inline code,
-        // identifiers, and paths read as code instead of plain prose. Foreground
-        // is left to the surrounding context (ink in body, muted in quotes).
-        let codeRanges = attributed.runs.compactMap { run -> Range<AttributedString.Index>? in
+        .tint(ScoutPalette.accent)
+    }
+
+    /// SwiftUI's markdown parser tags inline `code` spans with
+    /// `.inlinePresentationIntent.code` but gives them no styling of their own,
+    /// so the treatment is ours to supply.
+    ///
+    /// It is deliberately face-only. The previous version also painted each run
+    /// with a background color, which `Text` draws as an unpadded band the full
+    /// height of the line — so a long inline path like
+    /// `apps/mac/Sources/Core/System/DiagnosticLog.swift` wrapped into ragged
+    /// grey slabs that broke mid-token and collided with the line above. There
+    /// is no way to pad or round a background inside a single `Text`, so the
+    /// monospaced face carries the signal instead, one step down from the sans
+    /// body so it sits optically level rather than looming.
+    private static func styleInlineCode(_ input: AttributedString) -> AttributedString {
+        var output = input
+        // Collect first: mutating `output` while iterating its own runs would
+        // invalidate the indices mid-walk.
+        let codeRanges = output.runs.compactMap { run -> Range<AttributedString.Index>? in
             guard let intent = run.inlinePresentationIntent, intent.contains(.code) else { return nil }
             return run.range
         }
         for range in codeRanges {
-            attributed[range].font = HudFont.mono(HudTextSize.sm)
-            attributed[range].backgroundColor = ScoutPalette.ink.opacity(0.08)
+            output[range].font = HudFont.mono(HudTextSize.sm)
         }
-        return attributed
+        return output
     }
+}
 
-    private func paragraph(_ text: String) -> some View {
-        Text(inline(text.isEmpty ? "…" : text))
-            .font(HudFont.ui(HudTextSize.md))
-            .foregroundStyle(ScoutPalette.ink)
-            .tint(ScoutPalette.accent)
-            .lineSpacing(3)
-            .textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func heading(_ text: String, depth: Int) -> some View {
-        let size: CGFloat = depth <= 1 ? HudTextSize.lg : (depth == 2 ? HudTextSize.md : HudTextSize.base)
-        let weight: Font.Weight = depth <= 1 ? .bold : .semibold
-        return Text(inline(text))
-            .font(HudFont.ui(size, weight: weight))
-            .foregroundStyle(ScoutPalette.ink)
-            .tint(ScoutPalette.accent)
-            .textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, HudSpacing.xs)
-    }
-
-    private func list(_ items: [String], ordered: Bool) -> some View {
-        VStack(alignment: .leading, spacing: HudSpacing.xs) {
-            ForEach(Array(items.enumerated()), id: \.offset) { idx, item in
-                HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
-                    Text(ordered ? "\(idx + 1)." : "•")
-                        .font(HudFont.mono(HudTextSize.sm, weight: ordered ? .regular : .bold))
-                        .foregroundStyle(ScoutInk.muted)
-                        .frame(minWidth: ordered ? 20 : 12, alignment: .leading)
-                    Text(inline(item))
-                        .font(HudFont.ui(HudTextSize.md))
-                        .foregroundStyle(ScoutPalette.ink)
-                        .tint(ScoutPalette.accent)
-                        .lineSpacing(2)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-        }
-    }
-
-    private func blockquote(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: HudSpacing.sm) {
-            Rectangle()
-                .fill(ScoutPalette.accent.opacity(0.6))
-                .frame(width: 2)
-            Text(inline(text))
-                .font(HudFont.ui(HudTextSize.md))
-                .foregroundStyle(ScoutInk.muted)
-                .lineSpacing(3)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private func codeBlock(_ code: String, language: String?) -> some View {
-        VStack(alignment: .leading, spacing: HudSpacing.xs) {
-            if let language, !language.isEmpty {
-                Text(language.uppercased())
-                    .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                    .tracking(0.8)
-                    .foregroundStyle(HudPalette.muted)
-            }
-            ScrollView(.horizontal, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(Array(code.components(separatedBy: "\n").enumerated()), id: \.offset) { _, line in
-                        // Render blank lines as a space so they keep their height
-                        // instead of collapsing and compressing the block.
-                        Text(HudCodeHighlighter.highlight(line.isEmpty ? " " : line, language: language))
-                            .font(HudFont.mono(HudTextSize.sm))
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                }
-            }
-        }
-        .padding(HudSpacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // Hudson's syntax colors are intentionally tuned for its dark code
-        // canvas. Keep the entire fenced-code surface dark in both app
-        // appearances so base text, token colors, and the language label stay
-        // a coherent high-contrast set instead of mixing dark syntax with a
-        // light adaptive card.
-        .background(
-            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                .fill(HudPalette.bg)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                .stroke(HudHairline.standard, lineWidth: HudStrokeWidth.standard)
-        )
-    }
-
-    private func table(headers: [String], rows: [[String]]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            tableRow(headers, isHeader: true)
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                Rectangle()
-                    .fill(ScoutHairline.standard)
-                    .frame(height: HudStrokeWidth.standard)
-                tableRow(row, isHeader: false)
-            }
-        }
-        .background(
-            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                .fill(ScoutSurface.raised)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                .stroke(ScoutHairline.standard, lineWidth: HudStrokeWidth.standard)
-        )
-    }
-
-    private func tableRow(_ cells: [String], isHeader: Bool) -> some View {
-        HStack(alignment: .top, spacing: HudSpacing.md) {
-            ForEach(Array(cells.enumerated()), id: \.offset) { _, cell in
-                Text(inline(cell))
-                    .font(HudFont.ui(HudTextSize.sm, weight: isHeader ? .semibold : .regular))
-                    .foregroundStyle(isHeader ? ScoutPalette.ink : ScoutInk.muted)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .padding(.horizontal, HudSpacing.md)
-        .padding(.vertical, HudSpacing.sm)
+private extension HudMarkdownStyle {
+    /// Hudson's `.agent` preset (sans prose, mono markers and code) with two
+    /// deliberate deviations for a phone-sized message surface:
+    ///   • body one step up to `md` — message prose is the primary read here,
+    ///     not chrome, and `base` is tuned for dense desktop panes;
+    ///   • muted list markers instead of accent, so a ten-item numbered list
+    ///     doesn't spend the app's one rationed accent on its bullets.
+    static var scoutMessage: HudMarkdownStyle {
+        var style = HudMarkdownStyle.agent
+        style.bodyFont = { @Sendable _ in HudFont.ui(HudTextSize.md) }
+        style.listMarkerColor = .muted
+        return style
     }
 }
 
