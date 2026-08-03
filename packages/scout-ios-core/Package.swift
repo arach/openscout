@@ -22,6 +22,7 @@ let package = Package(
             name: "ScoutIOSCore",
             dependencies: [
                 .product(name: "ScoutCapabilities", package: "scout-native-core"),
+                .product(name: "HudsonBridge", package: "hudson"),
                 .product(name: "HudsonObservability", package: "hudson"),
             ]
         ),

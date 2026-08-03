@@ -5,6 +5,7 @@
 // permitted by the user's route settings (Tailnet / OpenScout Network toggles).
 
 import Foundation
+import HudsonBridge
 
 // MARK: - String helper (ported from Models/Primitives.swift)
 
@@ -121,39 +122,18 @@ public struct BridgeRouteSummary: Equatable, Sendable {
 
 public func classifyTransport(host: String) -> TransportKind {
     let lower = host.lowercased()
-    // `localhost` and IPv6 loopback `::1` are local-only — the `a == 127` IPv4
-    // check below never sees `::1` (it has no dotted quads), so name it here to
-    // stay consistent with `isLocalOnlyRelayHost`.
-    if lower == "localhost" || lower == "::1" {
-        return .loopback
-    }
-    // Tailscale MagicDNS hostnames look like `<machine>.<tailnet>.ts.net`.
-    if lower.hasSuffix(".ts.net") {
-        return .tailnet
-    }
+    // OSN is a provider-owned managed front door. Hudson deliberately does not
+    // carry a product-specific case, so classify it before mapping Hudson's
+    // shared LAN/Tailscale boundary.
     if isOpenScoutNetworkRelayHost(lower) {
         return .oscout
     }
-    // Bonjour / mDNS hostnames (`<host>.local`) are by definition link-local LAN.
-    if lower.hasSuffix(".local") {
-        return .lan
+    switch HudPairingEndpoint.classify(host: host) {
+    case .loopback: return .loopback
+    case .localNetwork: return .lan
+    case .tailscale: return .tailnet
+    case .remote, .manual: return .remote
     }
-
-    let parts = host.split(separator: ".").compactMap { UInt8($0) }
-    guard parts.count == 4 else {
-        // Hostname or IPv6 we can't classify cheaply — fall through to remote.
-        return .remote
-    }
-
-    let a = parts[0], b = parts[1]
-    if a == 127 { return .loopback }
-    if a == 10 { return .lan }
-    if a == 192 && b == 168 { return .lan }
-    if a == 172 && (16...31).contains(b) { return .lan }
-    if a == 169 && b == 254 { return .lan }
-    // Tailscale CGNAT: 100.64.0.0/10 → 100.64.x.x through 100.127.x.x.
-    if a == 100 && (64...127).contains(b) { return .tailnet }
-    return .remote
 }
 
 /// Classify a full relay URL string by parsing out its host.
@@ -345,11 +325,5 @@ func isOpenScoutNetworkRelayHost(_ host: String) -> Bool {
 }
 
 func isTailscaleAddress(_ host: String) -> Bool {
-    let components = host.split(separator: ".")
-    guard components.count == 4,
-          let first = Int(components[0]),
-          let second = Int(components[1]) else {
-        return false
-    }
-    return first == 100 && (64...127).contains(second)
+    HudPairingEndpoint.classify(host: host) == .tailscale
 }
