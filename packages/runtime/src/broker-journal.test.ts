@@ -142,6 +142,30 @@ describe("FileBackedBrokerJournal", () => {
     expect(lines.filter((entry) => entry.kind === "agent.upsert")).toHaveLength(1);
   });
 
+  test("skips identical flight records while preserving state transitions", async () => {
+    const { journal, journalPath } = createJournal();
+    await journal.load();
+    const running = sampleFlight();
+    const completed = {
+      ...running,
+      state: "completed" as const,
+      summary: "Issue work complete.",
+      completedAt: running.startedAt + 1_000,
+    };
+
+    expect(await journal.appendEntries({ kind: "flight.record", flight: running })).toHaveLength(1);
+    expect(await journal.appendEntries({ kind: "flight.record", flight: structuredClone(running) })).toHaveLength(0);
+    expect(await journal.appendEntries({ kind: "flight.record", flight: completed })).toHaveLength(1);
+    expect(await journal.appendEntries({ kind: "flight.record", flight: structuredClone(completed) })).toHaveLength(0);
+
+    const flightEntries = readFileSync(journalPath, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { kind: string; flight?: FlightRecord })
+      .filter((entry) => entry.kind === "flight.record");
+    expect(flightEntries.map((entry) => entry.flight?.state)).toEqual(["running", "completed"]);
+  });
+
   test("compacts superseded upserts on load while preserving non-upsert entries", async () => {
     const { journal, journalPath } = createJournal();
     const actor = sampleActor();
@@ -167,6 +191,37 @@ describe("FileBackedBrokerJournal", () => {
     expect(compactedEntries.filter((entry) => entry.kind === "actor.upsert")).toHaveLength(1);
     expect(compactedEntries.filter((entry) => entry.kind === "message.record")).toHaveLength(1);
     expect(journal.snapshot().actors["agent-1"]?.displayName).toBe("Agent One Updated");
+  });
+
+  test("compacts identical flight records on load while preserving transitions", async () => {
+    const { journal, journalPath } = createJournal();
+    const running = sampleFlight();
+    const completed = {
+      ...running,
+      state: "completed" as const,
+      summary: "Issue work complete.",
+      completedAt: running.startedAt + 1_000,
+    };
+
+    writeFileSync(
+      journalPath,
+      [
+        running,
+        structuredClone(running),
+        completed,
+        structuredClone(completed),
+      ].map((flight) => JSON.stringify({ kind: "flight.record", flight })).join("\n") + "\n",
+      "utf8",
+    );
+
+    await journal.load();
+
+    const compactedEntries = await journal.readEntries();
+    expect(compactedEntries).toHaveLength(2);
+    expect(compactedEntries.map((entry) => (
+      entry.kind === "flight.record" ? entry.flight.state : entry.kind
+    ))).toEqual(["running", "completed"]);
+    expect(journal.snapshot().flights["flt-1"]?.state).toBe("completed");
   });
 
   test("replays invocation records into snapshots", async () => {
