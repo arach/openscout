@@ -91,7 +91,13 @@ struct HomeSurface: View {
     /// Entry only: whether the dock should be holding the keyboard. Starts up
     /// (composing IS the resting posture) and drops when the operator dismisses
     /// it; re-arms whenever Home becomes the page again.
-    @State private var entryKeyboardRequested = true
+    @State private var entryKeyboardRequested = {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["SCOUT_HOME_KEYBOARD"] != "hidden"
+        #else
+        true
+        #endif
+    }()
     /// Entry only: the dock's REAL focus, reported by the composer. The
     /// accessory line rides this, not the request above, so tapping back into
     /// the field after a dismiss brings the line back with the keyboard.
@@ -112,6 +118,7 @@ struct HomeSurface: View {
     @State private var showAskPhotoPicker = false
     @State private var showAskFileImporter = false
     @AppStorage(ScoutHomeStyle.storageKey) private var homeStyleRaw = ScoutHomeStyle.default.rawValue
+    @AppStorage(ScoutHomeLabPreset.storageKey) private var homeLabPresetRaw = ScoutHomeLabPreset.default.rawValue
     // Modular home sections (see ScoutHomeSection) — each switch gates its
     // section's rendering below; the tail switch also gates its 5s fetch.
     @AppStorage(ScoutHomeSection.vitalsKey) private var vitalsEnabled = true
@@ -141,6 +148,14 @@ struct HomeSurface: View {
     }
 
     private var homeStyle: ScoutHomeStyle { ScoutHomeStyle.resolve(homeStyleRaw) }
+
+    private var homeLabPreset: ScoutHomeLabPreset {
+        #if DEBUG
+        ScoutHomeLabPreset.resolve(homeLabPresetRaw)
+        #else
+        .current
+        #endif
+    }
 
     var body: some View {
         Group {
@@ -413,14 +428,35 @@ struct HomeSurface: View {
                                 if action.opensKeyboard { entryKeyboardRequested = true }
                             } label: {
                                 Text(action.label)
-                                    .font(HudFont.ui(12.5, weight: .medium))
-                                    .foregroundStyle(ScoutInk.muted)
+                                    .font(
+                                        HudFont.ui(
+                                            12.5,
+                                            weight: homeLabPreset.isPrecision ? homeLabPreset.uiWeight : .medium
+                                        )
+                                    )
+                                    .tracking(homeLabPreset.isPrecision ? homeLabPreset.labelTracking : 0)
+                                    .foregroundStyle(
+                                        homeLabPreset.isPrecision ? homeLabPreset.secondaryInk : ScoutInk.muted
+                                    )
                                     .lineLimit(1)
                                     .fixedSize()
                                     .padding(.horizontal, HudSpacing.xxl)
                                     .frame(height: entryAccessoryControl)
-                                    .background(Capsule().fill(ScoutSurface.card))
-                                    .overlay(Capsule().stroke(ScoutHairline.standard, lineWidth: HudStrokeWidth.thin))
+                                    .background {
+                                        Capsule().fill(
+                                            homeLabPreset.isPrecision
+                                                ? homeLabPreset.surfaceFill
+                                                : ScoutSurface.card
+                                        )
+                                    }
+                                    .overlay {
+                                        Capsule().stroke(
+                                            homeLabPreset.isPrecision
+                                                ? homeLabPreset.border
+                                                : ScoutHairline.standard,
+                                            lineWidth: HudStrokeWidth.thin
+                                        )
+                                    }
                                     .contentShape(Capsule())
                             }
                             .buttonStyle(.plain)
@@ -513,13 +549,14 @@ struct HomeSurface: View {
                 entryKeyboardRequested = focused
             },
             density: .lead,
-            appearance: .pill
+            appearance: homeLabPreset.isPrecision ? .precision : .pill
         ) {
             ScoutRuntimeChip(
                 harness: askHarnessId,
                 model: askFamily.value,
                 effort: askEffort.label,
                 isPicking: showAskModelPicker,
+                precision: homeLabPreset.isPrecision,
                 onPick: {
                     // The keyboard STAYS. The panel opens upward out of the
                     // chip, which is already sitting above the keys — dropping
@@ -695,25 +732,54 @@ struct HomeSurface: View {
     /// column past the screen edge.
     private var laneWidth: CGFloat { max(0, layout.designWidth - layout.surfacePadding * 2) }
 
+    @ViewBuilder
     private var notConnectedState: some View {
+        currentNotConnectedState
+    }
+
+    private var currentNotConnectedState: some View {
         VStack(spacing: HudSpacing.md) {
             Image(systemName: "macbook.and.iphone")
                 .font(.system(size: 22, weight: .light))
-                .foregroundStyle(ScoutInk.muted)
+                .foregroundStyle(homeLabPreset.isPrecision ? homeLabPreset.secondaryInk : ScoutInk.muted)
             Text("Connect a Mac to bring your fleet online.")
-                .font(HudFont.mono(HudTextSize.xs))
-                .foregroundStyle(ScoutInk.muted)
+                .font(
+                    homeLabPreset.isPrecision
+                        ? HudFont.ui(HudTextSize.xs, weight: homeLabPreset.uiWeight)
+                        : HudFont.mono(HudTextSize.xs)
+                )
+                .foregroundStyle(homeLabPreset.isPrecision ? homeLabPreset.secondaryInk : ScoutInk.muted)
                 .multilineTextAlignment(.center)
             Button(action: onConnect) {
                 HStack(spacing: HudSpacing.xs) {
                     Image(systemName: "link")
                     Text("Connect")
                 }
-                .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                .foregroundStyle(ScoutPalette.bg)
+                .font(
+                    HudFont.mono(
+                        HudTextSize.xs,
+                        weight: homeLabPreset.isPrecision ? homeLabPreset.monoWeight : .semibold
+                    )
+                )
+                .tracking(homeLabPreset.isPrecision ? homeLabPreset.labelTracking : 0)
+                .foregroundStyle(
+                    homeLabPreset.isPrecision ? homeLabPreset.primaryActionInk : ScoutPalette.bg
+                )
                 .padding(.horizontal, HudSpacing.lg)
                 .padding(.vertical, HudSpacing.sm)
-                .background(Capsule().fill(ScoutVibe.accent))
+                .background(
+                    Capsule().fill(
+                        homeLabPreset.isPrecision ? homeLabPreset.primaryActionFill : ScoutVibe.accent
+                    )
+                )
+                .overlay {
+                    if homeLabPreset.isPrecision {
+                        Capsule().stroke(
+                            homeLabPreset.primaryActionBorder,
+                            lineWidth: HudStrokeWidth.thin
+                        )
+                    }
+                }
                 .contentShape(Capsule())
             }
             .buttonStyle(.plain)
@@ -723,11 +789,14 @@ struct HomeSurface: View {
         .padding(.vertical, HudSpacing.xxl)
         .background(
             RoundedRectangle(cornerRadius: ScoutVibe.cardRadius, style: .continuous)
-                .fill(ScoutVibe.card)
+                .fill(homeLabPreset.isPrecision ? homeLabPreset.surfaceFill : ScoutVibe.card)
         )
         .overlay(
             RoundedRectangle(cornerRadius: ScoutVibe.cardRadius, style: .continuous)
-                .stroke(ScoutVibe.hairline, lineWidth: HudStrokeWidth.thin)
+                .stroke(
+                    homeLabPreset.isPrecision ? homeLabPreset.border : ScoutVibe.hairline,
+                    lineWidth: HudStrokeWidth.thin
+                )
         )
     }
 

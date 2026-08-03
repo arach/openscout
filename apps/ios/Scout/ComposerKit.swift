@@ -298,7 +298,10 @@ private let scoutComposerWaveBars = 40
 /// controls, a one-line body. With nothing on the base row (no `attach`, no
 /// `tools`) the controls fold up beside the input and the whole thing is a
 /// single ~44pt line — the classic ask box. Adding `tools` unfolds it again.
-enum ScoutComposerAppearance { case panel, pill }
+///
+/// `precision` — the Home finish lab. Geometry is deliberately identical to
+/// `pill`; only type, fill, edge contrast and shadow/material treatment change.
+enum ScoutComposerAppearance { case panel, pill, precision }
 
 /// Attach anchors the base row's left end. The host owns the pickers — and so
 /// the error surfacing when a file can't be read — which is why this is two
@@ -369,9 +372,11 @@ struct ScoutMessageComposer<Tools: View>: View {
 
     @Environment(HudDictation.self) private var voice
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(ScoutHomeLabPreset.storageKey) private var homeLabPresetRaw = ScoutHomeLabPreset.default.rawValue
     @FocusState private var focused: Bool
     @State private var micPulse = false
     @State private var wave = [CGFloat](repeating: 0.04, count: scoutComposerWaveBars)
+    private var homeLabPreset: ScoutHomeLabPreset { ScoutHomeLabPreset.resolve(homeLabPresetRaw) }
 
     init(
         text: Binding<String>,
@@ -522,10 +527,12 @@ struct ScoutMessageComposer<Tools: View>: View {
                 baseRow
             }
         }
-        .background(shellShape.fill(ScoutSurface.raised))
+        .background(shellShape.fill(appearance == .precision ? homeLabPreset.surfaceFill : ScoutSurface.raised))
         .overlay(
             shellShape.stroke(
-                focused ? ScoutCanvas.cardEdgeTop : ScoutHairline.standard,
+                focused
+                    ? (appearance == .precision ? homeLabPreset.border.opacity(1.5) : ScoutCanvas.cardEdgeTop)
+                    : (appearance == .precision ? homeLabPreset.border : ScoutHairline.standard),
                 lineWidth: HudStrokeWidth.thin
             )
         )
@@ -533,16 +540,22 @@ struct ScoutMessageComposer<Tools: View>: View {
     }
 
     private var shellShape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: appearance == .pill ? 21 : HudRadius.card, style: .continuous)
+        let radius: CGFloat
+        switch appearance {
+        case .pill: radius = 21
+        case .panel: radius = HudRadius.card
+        case .precision: radius = 21
+        }
+        return RoundedRectangle(cornerRadius: radius, style: .continuous)
     }
 
     private var field: some View {
         TextField(placeholder, text: $text, axis: .vertical)
             .textFieldStyle(.plain)
             .lineLimit(rows...maxRows)
-            .font(HudFont.ui(bodySize))
-            .foregroundStyle(ScoutPalette.ink)
-            .tint(ScoutPalette.accent)
+            .font(HudFont.ui(bodySize, weight: appearance == .precision ? homeLabPreset.uiWeight : .regular))
+            .foregroundStyle(appearance == .precision ? homeLabPreset.primaryInk : ScoutPalette.ink)
+            .tint(appearance == .precision ? homeLabPreset.accent : ScoutPalette.accent)
             .focused($focused)
             .disabled(disabled || sending)
             // `autocorrectionType = .no` is what actually retires the system
@@ -565,7 +578,7 @@ struct ScoutMessageComposer<Tools: View>: View {
     }
 
     private var controls: some View {
-        HStack(spacing: appearance == .pill ? HudSpacing.xs : HudSpacing.sm) {
+        HStack(spacing: appearance == .panel ? HudSpacing.sm : HudSpacing.xs) {
             tools
             if showDictation { micButton }
             sendButton
@@ -581,9 +594,9 @@ struct ScoutMessageComposer<Tools: View>: View {
         } label: {
             Image(systemName: "paperclip")
                 .font(HudFont.ui(HudTextSize.sm, weight: .medium))
-                .foregroundStyle(ScoutInk.muted)
+                .foregroundStyle(appearance == .precision ? homeLabPreset.secondaryInk : ScoutInk.muted)
                 .frame(width: controlSide, height: controlSide)
-                .background(Circle().stroke(ScoutHairline.standard, lineWidth: HudStrokeWidth.thin))
+                .background(controlShape.stroke(controlEdge, lineWidth: HudStrokeWidth.thin))
         }
         .disabled(disabled || sending)
         .accessibilityLabel("Add attachment")
@@ -596,7 +609,10 @@ struct ScoutMessageComposer<Tools: View>: View {
         Button { voice.toggleFromUserIntent() } label: {
             ZStack {
                 if voice.isListening {
-                    Circle().fill(ScoutPalette.accent.opacity(micPulse ? 0.22 : 0.08))
+                    Circle().fill(
+                        (appearance == .precision ? homeLabPreset.accent : ScoutPalette.accent)
+                            .opacity(micPulse ? 0.22 : 0.08)
+                    )
                 }
                 MicGlyph()
                     .stroke(
@@ -612,12 +628,14 @@ struct ScoutMessageComposer<Tools: View>: View {
             }
             .frame(width: controlSide, height: controlSide)
             .background(
-                Circle().stroke(
-                    voice.isListening ? ScoutPalette.accent.opacity(0.5) : ScoutHairline.standard,
+                controlShape.stroke(
+                    voice.isListening
+                        ? (appearance == .precision ? homeLabPreset.accent : ScoutPalette.accent).opacity(0.5)
+                        : controlEdge,
                     lineWidth: HudStrokeWidth.thin
                 )
             )
-            .contentShape(Circle())
+            .contentShape(controlShape)
         }
         .buttonStyle(.plain)
         .disabled(disabled || sending)
@@ -632,12 +650,24 @@ struct ScoutMessageComposer<Tools: View>: View {
     private var sendButton: some View {
         Button(action: onSend) {
             Glyphic.arrow(.top, size: controlSide * 0.5)
-                .foregroundStyle(armed ? ScoutPalette.bg : (sendRestsVisible ? ScoutInk.muted : ScoutInk.dim))
+                .foregroundStyle(
+                    armed
+                        ? (appearance == .precision ? homeLabPreset.primaryActionInk : ScoutPalette.bg)
+                        : (sendRestsVisible
+                            ? (appearance == .precision ? homeLabPreset.secondaryInk : ScoutInk.muted)
+                            : ScoutInk.dim)
+                )
                 .frame(width: controlSide, height: controlSide)
-                .background(Circle().fill(armed ? ScoutPalette.ink : ScoutSurface.inset))
+                .background(
+                    controlShape.fill(
+                        armed
+                            ? (appearance == .precision ? homeLabPreset.primaryActionFill : ScoutPalette.ink)
+                            : (appearance == .precision ? homeLabPreset.surfaceFill : ScoutSurface.inset)
+                    )
+                )
                 .overlay {
                     if !armed, sendRestsVisible {
-                        Circle().stroke(ScoutHairline.standard, lineWidth: HudStrokeWidth.thin)
+                        controlShape.stroke(controlEdge, lineWidth: HudStrokeWidth.thin)
                     }
                 }
         }
@@ -700,7 +730,7 @@ struct ScoutMessageComposer<Tools: View>: View {
     /// beside the input and the composer is one ~44pt line. Dictation unfolds
     /// it again — the waveform needs the full width.
     private var foldsInline: Bool {
-        appearance == .pill && attach == nil && !hasTools && !voiceIsActive
+        appearance != .panel && attach == nil && !hasTools && !voiceIsActive
     }
 
     private var voiceIsActive: Bool {
@@ -720,15 +750,24 @@ struct ScoutMessageComposer<Tools: View>: View {
 
     private var micColor: Color {
         switch voice.state {
-        case .listening:                return ScoutPalette.accent
-        case .transcribing, .preparing: return ScoutInk.muted
+        case .listening:
+            return appearance == .precision ? homeLabPreset.accent : ScoutPalette.accent
+        case .transcribing, .preparing:
+            return appearance == .precision ? homeLabPreset.secondaryInk : ScoutInk.muted
         case .unavailable:              return ScoutInk.dim.opacity(0.5)
-        case .idle:                     return ScoutInk.muted
+        case .idle:
+            return appearance == .precision ? homeLabPreset.secondaryInk : ScoutInk.muted
         }
     }
 
-    private var controlSide: CGFloat { appearance == .pill ? 28 : 32 }
-    private var bodyInset: CGFloat { appearance == .pill ? HudSpacing.xxl : HudSpacing.xl }
+    private var controlSide: CGFloat { appearance == .panel ? 32 : 28 }
+    private var bodyInset: CGFloat { appearance == .panel ? HudSpacing.xl : HudSpacing.xxl }
+    private var controlShape: AnyShape {
+        AnyShape(Circle())
+    }
+    private var controlEdge: Color {
+        appearance == .precision ? homeLabPreset.border : ScoutHairline.standard
+    }
 
     private var bodySize: CGFloat {
         switch density {
@@ -889,10 +928,15 @@ struct ScoutRuntimeChip: View {
     /// the panel grows out of it and it stays as the live readout — so it takes
     /// an active state instead: a rimmed seat and a flipped chevron.
     var isPicking: Bool = false
+    /// Home's finish lab removes the chip's material and shadow while keeping
+    /// its exact capsule geometry. Default false keeps other surfaces stable.
+    var precision = false
     /// Non-nil only where the pick genuinely takes effect (see above).
     var onPick: (() -> Void)? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(ScoutHomeLabPreset.storageKey) private var homeLabPresetRaw = ScoutHomeLabPreset.default.rawValue
+    private var homeLabPreset: ScoutHomeLabPreset { ScoutHomeLabPreset.resolve(homeLabPresetRaw) }
 
     var body: some View {
         if identifies {
@@ -925,24 +969,33 @@ struct ScoutRuntimeChip: View {
     private var chip: some View {
         HStack(spacing: HudSpacing.sm) {
             HarnessMark(harness: harness, size: 13)
-                .foregroundStyle(ScoutInk.muted)
+                .foregroundStyle(precision ? homeLabPreset.secondaryInk : ScoutInk.muted)
             if let label = modelLabel { modelText(label) }
             if let effortLabel {
                 // A hairline rule, not a middot — the studio RuntimePicker
                 // trigger's divider (`h-2.5 w-px`), which separates the two
                 // runs without adding a third piece of punctuation.
                 Rectangle()
-                    .fill(ScoutHairline.standard)
+                    .fill(precision ? homeLabPreset.border : ScoutHairline.standard)
                     .frame(width: HudStrokeWidth.thin, height: 10)
                 Text(effortLabel.uppercased())
-                    .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                    .tracking(0.6)
-                    .foregroundStyle(ScoutInk.dim)
+                    .font(
+                        HudFont.mono(
+                            HudTextSize.micro,
+                            weight: precision ? homeLabPreset.monoWeight : .semibold
+                        )
+                    )
+                    .tracking(precision ? homeLabPreset.labelTracking : 0.6)
+                    .foregroundStyle(precision ? homeLabPreset.secondaryInk : ScoutInk.dim)
                     .fixedSize()
             }
             if onPick != nil {
                 Glyphic.chevron(.bottom, size: 9)
-                    .foregroundStyle(isPicking ? ScoutPalette.accent : ScoutInk.dim)
+                    .foregroundStyle(
+                        isPicking
+                            ? (precision ? homeLabPreset.accent : ScoutPalette.accent)
+                            : (precision ? homeLabPreset.secondaryInk : ScoutInk.dim)
+                    )
                     // Points at the panel while the panel is up: the caret is
                     // the one part of the chip that says which way this opens.
                     .rotationEffect(.degrees(isPicking ? 180 : 0))
@@ -965,19 +1018,25 @@ struct ScoutRuntimeChip: View {
         // Every layer shares one `chipShape`, so the radius interpolates rather
         // than cutting between two different rectangles.
         .background {
-            ZStack {
-                // At rest: a step LIGHTER than the shell — the chip lifts off
-                // the capsule, where the unarmed Send recesses into it.
-                chipShape.fill(ScoutSurface.card)
-                ScoutMachinedPlate(shape: chipShape, rimBoost: 0.1, lightReach: 26, grainOpacity: 0.05)
-                    .opacity(isPicking ? 1 : 0)
+            if precision {
+                chipShape.fill(homeLabPreset.surfaceFill)
+            } else {
+                ZStack {
+                    // At rest: a step LIGHTER than the shell — the chip lifts off
+                    // the capsule, where the unarmed Send recesses into it.
+                    chipShape.fill(ScoutSurface.card)
+                    ScoutMachinedPlate(shape: chipShape, rimBoost: 0.1, lightReach: 26, grainOpacity: 0.05)
+                        .opacity(isPicking ? 1 : 0)
+                }
+                .shadow(color: .black.opacity(isPicking ? 0.45 : 0), radius: 4, y: 1.5)
             }
-            .shadow(color: .black.opacity(isPicking ? 0.45 : 0), radius: 4, y: 1.5)
         }
         // One rationed hairline of accent ties the key to the panel above it.
         .overlay(
             chipShape.stroke(
-                ScoutPalette.accent.opacity(isPicking ? 0.55 : 0),
+                precision
+                    ? homeLabPreset.border.opacity(isPicking ? 1.5 : 1)
+                    : ScoutPalette.accent.opacity(isPicking ? 0.55 : 0),
                 lineWidth: HudStrokeWidth.thin
             )
         )
@@ -991,8 +1050,14 @@ struct ScoutRuntimeChip: View {
     @ViewBuilder
     private func modelText(_ label: String) -> some View {
         let base = Text(label)
-            .font(HudFont.mono(HudTextSize.xs, weight: .medium))
-            .foregroundStyle(ScoutInk.muted)
+            .font(
+                HudFont.mono(
+                    HudTextSize.xs,
+                    weight: precision ? homeLabPreset.monoWeight : .medium
+                )
+            )
+            .tracking(precision ? homeLabPreset.labelTracking : 0)
+            .foregroundStyle(precision ? homeLabPreset.secondaryInk : ScoutInk.muted)
             .lineLimit(1)
             .truncationMode(.tail)
         if onPick == nil {

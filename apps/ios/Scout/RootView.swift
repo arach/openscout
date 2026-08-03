@@ -19,6 +19,9 @@ struct RootView: View {
     @AppStorage(ScoutHomeFX.grainKey) private var homeGrainEnabled = true
     @AppStorage(ScoutHomeFX.motionKey) private var homeMotionEnabled = true
     @AppStorage(ScoutHomeFX.identityKey) private var homeIdentityEnabled = true
+    @AppStorage(ScoutHomeLabPreset.storageKey) private var homeLabPresetRaw = ScoutHomeLabPreset.default.rawValue
+    @State private var homeLabExpanded = false
+    @State private var homeLabVisible = true
     // Opt-in alternative navigation. `.tabs` keeps the shipped chrome (titleBar +
     // dockedTabBar + status strip) exactly; `.crown` swaps in the summonable crown.
     @AppStorage(ScoutNavMode.storageKey) private var navModeRaw = ScoutNavMode.default.rawValue
@@ -64,6 +67,21 @@ struct RootView: View {
     /// home, never entangled with crown mode (the crown owns the bottom on its
     /// own terms and is unchanged by this).
     private var usesGlassChrome: Bool { navMode == .tabs && isEntryHome }
+
+    private var homeLabPreset: ScoutHomeLabPreset {
+        #if DEBUG
+        ScoutHomeLabPreset.resolve(homeLabPresetRaw)
+        #else
+        .current
+        #endif
+    }
+
+    /// The lab re-authors Home only. Leaving Home immediately restores the
+    /// app's normal shared chrome, which keeps the experiment from leaking into
+    /// product surfaces it was never designed against.
+    private var homePrecisionIsActive: Bool {
+        surface == .home && homeLabPreset.isPrecision
+    }
 
     private var client: any ScoutBrokerClient { model.client }
 
@@ -443,11 +461,22 @@ struct RootView: View {
                 ScoutCanvas(
                     isFleetLive: model.activeAgentCount > 0,
                     grainEnabled: homeGrainEnabled,
-                    motionEnabled: homeMotionEnabled
+                    motionEnabled: homeMotionEnabled,
+                    precisionBlack: homePrecisionIsActive
                 )
                 .ignoresSafeArea()
             }
+            #if DEBUG
+            .overlay(alignment: .bottomTrailing) {
+                if surface == .home, homeLabVisible {
+                    homeLabControl
+                        .padding(.trailing, 12)
+                        .padding(.bottom, 92)
+                }
+            }
+            #endif
         }
+        .preferredColorScheme(homePrecisionIsActive ? .dark : nil)
         .sheet(isPresented: $showConnection) {
             ConnectionView(model: model)
         }
@@ -499,6 +528,13 @@ struct RootView: View {
                ScoutNavMode(rawValue: nav) != nil {
                 navModeRaw = nav
             }
+            if let preset = ProcessInfo.processInfo.environment["SCOUT_HOME_PRESET"],
+               ScoutHomeLabPreset(rawValue: preset) != nil {
+                homeLabPresetRaw = preset
+            }
+            let homeLabMode = ProcessInfo.processInfo.environment["SCOUT_HOME_LAB"]
+            homeLabVisible = homeLabMode != "hidden"
+            homeLabExpanded = homeLabMode == "expanded"
             // `SCOUT_CROWN=collapsed` starts crown mode collapsed for the paired capture.
             if ProcessInfo.processInfo.environment["SCOUT_CROWN"] == "collapsed" {
                 crownAssembled = false
@@ -672,6 +708,7 @@ struct RootView: View {
     /// The current tab is seated on the same machined plate the masthead
     /// complications are cut from — graphite instruments in a glass rail, so
     /// the top-left and the bottom read as one system.
+    @ViewBuilder
     private func glassTabBar(_ layout: ScoutLayoutMetrics) -> some View {
         let tabs = visibleSurfaces(layout)
         let sideInset = layout.isNarrowPhone ? HudSpacing.xxl : HudSpacing.xxxl
@@ -679,7 +716,7 @@ struct RootView: View {
         // tab so "Terminal" shrinks inside its column instead of overflowing.
         let barWidth = max(0, layout.designWidth - sideInset * 2)
         let tabWidth = max(0, (barWidth - HudSpacing.sm * 2) / CGFloat(max(1, tabs.count)))
-        return VStack(spacing: HudSpacing.xs) {
+        VStack(spacing: HudSpacing.xs) {
             glassStatusLine
             tabRail(tabs, layout: layout, tabWidth: tabWidth, barWidth: barWidth)
         }
@@ -714,24 +751,18 @@ struct RootView: View {
         // still doing the refraction and most of the opacity.
         .background {
             Capsule()
-                .fill(ScoutPalette.chrome.opacity(colorScheme == .dark ? 0.08 : 0.12))
-        }
-        .hudLiquidBarMaterial(tint: .regular)
-        .overlay {
-            Capsule()
-                .stroke(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(colorScheme == .dark ? 0.19 : 0.72),
-                            ScoutHairline.standard.opacity(colorScheme == .dark ? 0.55 : 0.78),
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: HudStrokeWidth.thin
+                .fill(
+                    homePrecisionIsActive
+                        ? homeLabPreset.chromeFill
+                        : ScoutPalette.chrome.opacity(colorScheme == .dark ? 0.08 : 0.12)
                 )
         }
-        .scoutFloatingSurface(.navigation)
+        .modifier(HomeLabGlassMaterial(enabled: !homePrecisionIsActive))
+        .overlay {
+            Capsule()
+                .stroke(homeTabRailBorder, lineWidth: HudStrokeWidth.thin)
+        }
+        .modifier(HomeLabNavigationDepth(enabled: !homePrecisionIsActive))
     }
 
     /// One glass-bar tab. Selection reads exactly as it does on the docked bar
@@ -750,17 +781,38 @@ struct RootView: View {
             VStack(spacing: HudSpacing.xxs) {
                 Glyphic(kind: s.glyph, size: layout.tabGlyphSize)
                 Text(s.navigationLabel)
-                    .font(HudFont.mono(layout.tabLabelSize, weight: .medium))
+                    .font(
+                        HudFont.mono(
+                            layout.tabLabelSize,
+                            weight: homePrecisionIsActive ? homeLabPreset.monoWeight : .medium
+                        )
+                    )
+                    .tracking(homePrecisionIsActive ? homeLabPreset.labelTracking : 0)
                     .lineLimit(1)
             }
-            .foregroundStyle(isSelected ? ScoutPalette.accent : ScoutInk.muted)
+            .foregroundStyle(
+                isSelected
+                    ? (homePrecisionIsActive ? homeLabPreset.accent : ScoutPalette.accent)
+                    : (homePrecisionIsActive ? homeLabPreset.secondaryInk : ScoutInk.muted)
+            )
             // Every selected droplet has exactly one column's footprint. The
             // shape no longer breathes wider for Terminal or narrower for Tail;
             // only the content inside it changes.
             .frame(width: width, height: layout.tabButtonHeight)
             .background {
                 if isSelected {
-                    ScoutLiquidNavigationSeat()
+                    Group {
+                        if homePrecisionIsActive {
+                            Capsule()
+                                .fill(homeLabPreset.surfaceFill)
+                                .overlay {
+                                    Capsule()
+                                        .stroke(homeLabPreset.border, lineWidth: HudStrokeWidth.thin)
+                                }
+                        } else {
+                            ScoutLiquidNavigationSeat()
+                        }
+                    }
                     // One seat, shared identity: SwiftUI interpolates the frame
                     // between the tab that had it and the tab taking it, so the
                     // plate slides and stretches to its new label's width
@@ -775,6 +827,22 @@ struct RootView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(s.rawValue)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var homeTabRailBorder: AnyShapeStyle {
+        if homePrecisionIsActive {
+            return AnyShapeStyle(homeLabPreset.border)
+        }
+        return AnyShapeStyle(
+            LinearGradient(
+                colors: [
+                    Color.white.opacity(colorScheme == .dark ? 0.19 : 0.72),
+                    ScoutHairline.standard.opacity(colorScheme == .dark ? 0.55 : 0.78),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
     }
 
     /// What the absorbed cockpit strip still owes you, and nothing else: one
@@ -1023,7 +1091,7 @@ struct RootView: View {
             }
             .frame(width: barWidth)
             Rectangle()
-                .fill(ScoutHairline.standard)
+                .fill(homePrecisionIsActive ? homeLabPreset.border : ScoutHairline.standard)
                 .frame(width: barWidth, height: HudStrokeWidth.thin)
         }
         .padding(.horizontal, layout.titleHorizontalPadding)
@@ -1122,17 +1190,127 @@ struct RootView: View {
     /// than as outlined icons. Calmer than the crown only where the masthead
     /// demands it: a single contact shadow instead of the crown's floating
     /// pair. Never the accent — the rule the crown study set.
+    @ViewBuilder
     private func complicationDisc(
         _ glyph: GlyphShape.Kind,
         layout: ScoutLayoutMetrics,
         tint: Color = ScoutInk.muted
     ) -> some View {
         let sizing = CrownSizing.resolve(layout)
-        return ScoutMachinedPlate(shape: Circle(), lightReach: sizing.seat, grainOpacity: 0.035)
-            .overlay(Glyphic(kind: glyph, size: sizing.seatGlyph).foregroundStyle(tint))
+        if homePrecisionIsActive {
+            Circle()
+                .fill(homeLabPreset.surfaceFill)
+                .overlay {
+                    Circle()
+                        .stroke(homeLabPreset.border, lineWidth: HudStrokeWidth.thin)
+                }
+                .overlay {
+                    Glyphic(kind: glyph, size: sizing.seatGlyph)
+                        .foregroundStyle(homeLabPreset.secondaryInk)
+                }
             .frame(width: sizing.seat, height: sizing.seat)
-            .scoutFloatingSurface(.control)
+            .contentShape(Circle())
+        } else {
+            ScoutMachinedPlate(shape: Circle(), lightReach: sizing.seat, grainOpacity: 0.035)
+                .overlay(Glyphic(kind: glyph, size: sizing.seatGlyph).foregroundStyle(tint))
+                .frame(width: sizing.seat, height: sizing.seat)
+                .scoutFloatingSurface(.control)
+        }
     }
+
+    #if DEBUG
+    /// A simulator/developer overlay, never release chrome. It switches complete
+    /// art-direction systems rather than isolated tokens, so every row is a
+    /// meaningful permutation the team can judge in context.
+    @ViewBuilder
+    private var homeLabControl: some View {
+        if homeLabExpanded {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: HudSpacing.sm) {
+                    Text("HOME STYLE LAB")
+                        .font(HudFont.mono(9, weight: .light))
+                        .tracking(1.5)
+                        .foregroundStyle(Color.white.opacity(0.56))
+                    Spacer(minLength: HudSpacing.md)
+                    Button("DONE") { homeLabExpanded = false }
+                        .font(HudFont.mono(9, weight: .light))
+                        .tracking(0.8)
+                        .foregroundStyle(ScoutPalette.accent)
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .padding(.leading, HudSpacing.lg)
+
+                Rectangle()
+                    .fill(Color.white.opacity(0.16))
+                    .frame(height: HudStrokeWidth.thin)
+
+                ForEach(ScoutHomeLabPreset.allCases) { preset in
+                    Button {
+                        homeLabPresetRaw = preset.rawValue
+                    } label: {
+                        HStack(spacing: HudSpacing.md) {
+                            Text(preset.code)
+                                .font(HudFont.mono(9, weight: .light))
+                                .tracking(0.8)
+                                .foregroundStyle(
+                                    preset == homeLabPreset
+                                        ? ScoutPalette.accent
+                                        : Color.white.opacity(0.36)
+                                )
+                                .frame(width: 32, alignment: .leading)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(preset.title)
+                                    .font(HudFont.ui(12, weight: .light))
+                                    .foregroundStyle(Color.white.opacity(0.88))
+                                Text(preset.blurb)
+                                    .font(HudFont.mono(8.5, weight: .light))
+                                    .foregroundStyle(Color.white.opacity(0.38))
+                            }
+                            Spacer(minLength: 0)
+                            Rectangle()
+                                .fill(preset == homeLabPreset ? ScoutPalette.accent : Color.clear)
+                                .frame(width: 13, height: HudStrokeWidth.thin)
+                        }
+                        .padding(.horizontal, HudSpacing.lg)
+                        .frame(height: 48)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .background(preset == homeLabPreset ? Color.white.opacity(0.035) : Color.clear)
+                    .overlay(alignment: .bottom) {
+                        Rectangle()
+                            .fill(Color.white.opacity(0.08))
+                            .frame(height: HudStrokeWidth.thin)
+                    }
+                }
+            }
+            .frame(width: 286)
+            .background(Color.black.opacity(0.96))
+            .overlay(Rectangle().stroke(Color.white.opacity(0.20), lineWidth: HudStrokeWidth.thin))
+        } else {
+            Button { homeLabExpanded = true } label: {
+                HStack(spacing: HudSpacing.sm) {
+                    Text("LAB")
+                        .foregroundStyle(Color.white.opacity(0.42))
+                    Rectangle()
+                        .fill(ScoutPalette.accent)
+                        .frame(width: 8, height: HudStrokeWidth.thin)
+                    Text(homeLabPreset.code)
+                        .foregroundStyle(Color.white.opacity(0.82))
+                }
+                .font(HudFont.mono(9, weight: .light))
+                .tracking(0.8)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 44)
+                .background(Color.black.opacity(0.94))
+                .overlay(Rectangle().stroke(Color.white.opacity(0.18), lineWidth: HudStrokeWidth.thin))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open Home style lab, \(homeLabPreset.title) selected")
+        }
+    }
+    #endif
 
     /// A literal map of the bottom rail: identical destinations, order, names,
     /// and glyphs. Notifications and Settings already have masthead controls;
@@ -1347,6 +1525,34 @@ private struct EtchedScoutWordmark: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Scout")
+    }
+}
+
+/// Keeps the Home finish studies on the exact same capsule geometry while
+/// allowing the material and depth stack to be switched off independently.
+private struct HomeLabGlassMaterial: ViewModifier {
+    let enabled: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if enabled {
+            content.hudLiquidBarMaterial(tint: .regular)
+        } else {
+            content
+        }
+    }
+}
+
+private struct HomeLabNavigationDepth: ViewModifier {
+    let enabled: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if enabled {
+            content.scoutFloatingSurface(.navigation)
+        } else {
+            content
+        }
     }
 }
 
