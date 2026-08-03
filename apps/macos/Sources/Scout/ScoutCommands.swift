@@ -7,7 +7,7 @@ import WebKit
 import Termini
 #endif
 
-enum ScoutAppCommand: String {
+enum ScoutAppCommand: RawRepresentable {
     case newConversation
     case moveDown
     case moveUp
@@ -22,6 +22,66 @@ enum ScoutAppCommand: String {
     case toggleCheatsheet
     case toggleDesignPreview
     case openSettings
+    /// ⌘1…⌘9 — the Nth most recent conversation.
+    case jumpToRecent(Int)
+    /// The `g`-chord destinations, also reachable from the Go menu.
+    case goToSection(ScoutSection)
+
+    private static let jumpPrefix = "jumpToRecent:"
+    private static let goPrefix = "goToSection:"
+
+    var rawValue: String {
+        switch self {
+        case .newConversation: return "newConversation"
+        case .moveDown: return "moveDown"
+        case .moveUp: return "moveUp"
+        case .focusSearch: return "focusSearch"
+        case .focusComposer: return "focusComposer"
+        case .refresh: return "refresh"
+        case .filterAll: return "filterAll"
+        case .filterDirect: return "filterDirect"
+        case .filterShared: return "filterShared"
+        case .observeSelectedAgent: return "observeSelectedAgent"
+        case .openSelectedAgentChannel: return "openSelectedAgentChannel"
+        case .toggleCheatsheet: return "toggleCheatsheet"
+        case .toggleDesignPreview: return "toggleDesignPreview"
+        case .openSettings: return "openSettings"
+        case .jumpToRecent(let ordinal): return "\(Self.jumpPrefix)\(ordinal)"
+        case .goToSection(let section): return "\(Self.goPrefix)\(section.rawValue)"
+        }
+    }
+
+    init?(rawValue: String) {
+        if rawValue.hasPrefix(Self.jumpPrefix) {
+            guard let ordinal = Int(rawValue.dropFirst(Self.jumpPrefix.count)) else { return nil }
+            self = .jumpToRecent(ordinal)
+            return
+        }
+        if rawValue.hasPrefix(Self.goPrefix) {
+            guard let section = ScoutSection(rawValue: String(rawValue.dropFirst(Self.goPrefix.count))) else {
+                return nil
+            }
+            self = .goToSection(section)
+            return
+        }
+        switch rawValue {
+        case "newConversation": self = .newConversation
+        case "moveDown": self = .moveDown
+        case "moveUp": self = .moveUp
+        case "focusSearch": self = .focusSearch
+        case "focusComposer": self = .focusComposer
+        case "refresh": self = .refresh
+        case "filterAll": self = .filterAll
+        case "filterDirect": self = .filterDirect
+        case "filterShared": self = .filterShared
+        case "observeSelectedAgent": self = .observeSelectedAgent
+        case "openSelectedAgentChannel": self = .openSelectedAgentChannel
+        case "toggleCheatsheet": self = .toggleCheatsheet
+        case "toggleDesignPreview": self = .toggleDesignPreview
+        case "openSettings": self = .openSettings
+        default: return nil
+        }
+    }
 
     func post() {
         NotificationCenter.default.post(name: .scoutAppCommand, object: rawValue)
@@ -146,6 +206,36 @@ struct ScoutCommands: Commands {
             .keyboardShortcut("l", modifiers: .command)
         }
 
+        // The `g`-chord destinations, spelled out. The chord is the fast path;
+        // this menu is how it gets discovered, and how it stays reachable from
+        // the mouse. Chord letters ride in the titles because SwiftUI cannot
+        // express a two-key sequence as a `keyboardShortcut`.
+        CommandMenu("Go") {
+            ForEach(ScoutKeyMap.destinations) { entry in
+                Button("\(entry.section.title)    g \(entry.chord)") {
+                    ScoutAppCommand.goToSection(entry.section).post()
+                }
+            }
+        }
+
+        // ⌘1…⌘9 — the macOS idiom for "nth thing", pointed at conversations.
+        // Fires while typing, which is the point: you jump out of a chat from
+        // inside it. ⌘1–3 still yield to the HUD's tabs when the HUD is up, so
+        // that surface keeps the bindings it has always had.
+        CommandMenu("Jump") {
+            ForEach(1...ScoutKeyMap.jumpTargetCount, id: \.self) { ordinal in
+                Button("Recent Conversation \(ordinal)") {
+                    switch ordinal {
+                    case 1 where selectHUDTabIfVisible(.focus): return
+                    case 2 where selectHUDTabIfVisible(.threads): return
+                    case 3 where selectHUDTabIfVisible(.tail): return
+                    default: ScoutAppCommand.jumpToRecent(ordinal).post()
+                    }
+                }
+                .keyboardShortcut(KeyEquivalent(Character("\(ordinal)")), modifiers: .command)
+            }
+        }
+
         CommandMenu("Comms") {
             Button("Refresh") {
                 ScoutAppCommand.refresh.post()
@@ -154,23 +244,21 @@ struct ScoutCommands: Commands {
 
             Divider()
 
+            // Relocated from ⌘1–3, which now carry the conversation jump.
             Button("Show All Chats") {
-                guard !selectHUDTabIfVisible(.focus) else { return }
                 ScoutAppCommand.filterAll.post()
             }
-            .keyboardShortcut("1", modifiers: .command)
+            .keyboardShortcut("1", modifiers: [.command, .option])
 
             Button("Show Direct Chats") {
-                guard !selectHUDTabIfVisible(.threads) else { return }
                 ScoutAppCommand.filterDirect.post()
             }
-            .keyboardShortcut("2", modifiers: .command)
+            .keyboardShortcut("2", modifiers: [.command, .option])
 
             Button("Show Shared Chats") {
-                guard !selectHUDTabIfVisible(.tail) else { return }
                 ScoutAppCommand.filterShared.post()
             }
-            .keyboardShortcut("3", modifiers: .command)
+            .keyboardShortcut("3", modifiers: [.command, .option])
 
             Divider()
 
@@ -198,10 +286,13 @@ struct ScoutCommands: Commands {
 
 struct ScoutKeyboardEventMonitor: NSViewRepresentable {
     var isActive: Bool
+    /// Which events to intercept. `.keyDown` for bindings; `.flagsChanged` for
+    /// the held-modifier reveals, which never produce a key event at all.
+    var mask: NSEvent.EventTypeMask = .keyDown
     var handler: (NSEvent) -> Bool
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(isActive: isActive, handler: handler)
+        Coordinator(isActive: isActive, mask: mask, handler: handler)
     }
 
     func makeNSView(context: Context) -> NSView {
@@ -222,11 +313,13 @@ struct ScoutKeyboardEventMonitor: NSViewRepresentable {
 
     final class Coordinator {
         var isActive: Bool
+        let mask: NSEvent.EventTypeMask
         var handler: (NSEvent) -> Bool
         private var monitor: Any?
 
-        init(isActive: Bool, handler: @escaping (NSEvent) -> Bool) {
+        init(isActive: Bool, mask: NSEvent.EventTypeMask, handler: @escaping (NSEvent) -> Bool) {
             self.isActive = isActive
+            self.mask = mask
             self.handler = handler
         }
 
@@ -236,7 +329,7 @@ struct ScoutKeyboardEventMonitor: NSViewRepresentable {
 
         func install() {
             guard monitor == nil else { return }
-            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            monitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
                 guard let self else { return event }
                 guard self.isActive else { return event }
                 return self.handler(event) ? nil : event
