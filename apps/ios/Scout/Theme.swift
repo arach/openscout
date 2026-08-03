@@ -493,6 +493,166 @@ enum ScoutHomeFX {
     static let identityKey = "scout.home.fx.identity"
 }
 
+/// DEBUG-only Home finish lab. Every study keeps the same component anatomy,
+/// corner radii, spacing and navigation behavior. Only type, hairlines and the
+/// black/graphite/accent palette move, so comparisons answer the question the
+/// lab is actually meant to answer instead of smuggling in a redesign.
+enum ScoutHomeLabPreset: String, CaseIterable, Identifiable {
+    case current
+    case datum
+    case plate
+    case inset
+    case typeset
+
+    static let storageKey = "scout.home.lab.preset"
+    static let `default`: ScoutHomeLabPreset = .datum
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .current: "Current"
+        case .datum: "Rule"
+        case .plate: "Graphite"
+        case .inset: "Signal"
+        case .typeset: "Ink"
+        }
+    }
+
+    var code: String {
+        switch self {
+        case .current: "CUR"
+        case .datum: "RUL"
+        case .plate: "GRF"
+        case .inset: "SIG"
+        case .typeset: "INK"
+        }
+    }
+
+    var blurb: String {
+        switch self {
+        case .current: "warm field · standard weight"
+        case .datum: "true black · one hairline · state accent"
+        case .plate: "graphite fill · regular type · clear rim"
+        case .inset: "true black · tracked labels · green signal"
+        case .typeset: "true black · wide type ramp · faint rim"
+        }
+    }
+
+    var isPrecision: Bool { self != .current }
+
+    var surfaceFill: Color {
+        switch self {
+        case .current: ScoutSurface.raised
+        case .datum: Color.black
+        case .plate: Color(red: 14.0 / 255, green: 14.0 / 255, blue: 16.0 / 255)
+        case .inset: Color(red: 15.0 / 255, green: 17.0 / 255, blue: 17.0 / 255)
+        case .typeset: Color(red: 10.0 / 255, green: 10.0 / 255, blue: 12.0 / 255)
+        }
+    }
+
+    var chromeFill: Color {
+        switch self {
+        case .current: ScoutPalette.chrome.opacity(0.08)
+        case .datum: Color.white.opacity(0.025)
+        case .plate: Color(red: 0.072, green: 0.074, blue: 0.080)
+        case .inset: Color.white.opacity(0.032)
+        case .typeset: Color.black
+        }
+    }
+
+    var primaryInk: Color {
+        switch self {
+        case .current: ScoutPalette.ink
+        case .datum: Color.white.opacity(0.92)
+        case .plate: Color.white.opacity(0.90)
+        case .inset: Color.white.opacity(0.94)
+        case .typeset: Color.white.opacity(0.86)
+        }
+    }
+
+    var secondaryInk: Color {
+        switch self {
+        case .current: ScoutInk.muted
+        case .datum: Color.white.opacity(0.56)
+        case .plate: Color.white.opacity(0.62)
+        case .inset: Color.white.opacity(0.54)
+        case .typeset: Color.white.opacity(0.44)
+        }
+    }
+
+    var border: Color {
+        switch self {
+        case .current: ScoutHairline.standard
+        case .datum: Color.white.opacity(0.16)
+        case .plate: Color(red: 35.0 / 255, green: 35.0 / 255, blue: 38.0 / 255)
+        case .inset: Color(red: 42.0 / 255, green: 46.0 / 255, blue: 47.0 / 255)
+        case .typeset: Color.white.opacity(0.09)
+        }
+    }
+
+    var accent: Color {
+        switch self {
+        case .current, .datum, .plate: ScoutPalette.accent
+        case .inset: Color(red: 0.18, green: 0.88, blue: 0.65)
+        case .typeset: Color.white.opacity(0.78)
+        }
+    }
+
+    var primaryActionFill: Color {
+        switch self {
+        case .current: ScoutVibe.accent
+        case .plate: accent
+        case .datum, .inset, .typeset: surfaceFill
+        }
+    }
+
+    var primaryActionInk: Color {
+        switch self {
+        case .current, .plate: Color.black
+        case .datum, .inset: accent
+        case .typeset: primaryInk
+        }
+    }
+
+    var primaryActionBorder: Color {
+        switch self {
+        case .current: Color.clear
+        case .datum, .inset: accent.opacity(0.55)
+        case .plate: accent.opacity(0.72)
+        case .typeset: border
+        }
+    }
+
+    var uiWeight: Font.Weight {
+        switch self {
+        case .current, .plate: .regular
+        case .datum, .inset, .typeset: .light
+        }
+    }
+
+    var monoWeight: Font.Weight {
+        switch self {
+        case .current: .medium
+        case .plate: .regular
+        case .datum, .inset, .typeset: .light
+        }
+    }
+
+    var labelTracking: CGFloat {
+        switch self {
+        case .current, .plate: 0
+        case .datum: 0.25
+        case .inset: 0.85
+        case .typeset: 0.15
+        }
+    }
+
+    static func resolve(_ raw: String?) -> ScoutHomeLabPreset {
+        ScoutHomeLabPreset(rawValue: raw ?? "") ?? .default
+    }
+}
+
 /// App-level surface fills that carry the active canvas tone. Resolved at access
 /// time from `scout.tone`; use these in place of hudson's neutral white-alpha
 /// `HudSurface.inset` / `.raised` so recessed and raised surfaces warm or cool
@@ -510,6 +670,9 @@ struct ScoutCanvas: View {
     var isFleetLive = false
     var grainEnabled = true
     var motionEnabled = true
+    /// Home precision studies use an optically flat black field. There is no
+    /// hidden texture, key light, gradient or reactive glow in this branch.
+    var precisionBlack = false
 
     @AppStorage(ScoutTone.storageKey) private var toneRaw = ScoutTone.default.rawValue
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -519,35 +682,39 @@ struct ScoutCanvas: View {
 
     var body: some View {
         ZStack {
-            ScoutPalette.bg
+            if precisionBlack {
+                Color.black
+            } else {
+                ScoutPalette.bg
 
-            // A faint top lift over a deep floor, both carrying the active tone,
-            // so the canvas reads rich-dark and lit rather than dead-black.
-            LinearGradient(
-                stops: [
-                    .init(color: tone.canvasTop, location: 0.0),
-                    .init(color: ScoutPalette.bg, location: 0.36),
-                    .init(color: tone.canvasFloor, location: 1.0)
-                ],
-                startPoint: .top, endPoint: .bottom
-            )
+                // A faint top lift over a deep floor, both carrying the active tone,
+                // so the canvas reads rich-dark and lit rather than dead-black.
+                LinearGradient(
+                    stops: [
+                        .init(color: tone.canvasTop, location: 0.0),
+                        .init(color: ScoutPalette.bg, location: 0.36),
+                        .init(color: tone.canvasFloor, location: 1.0)
+                    ],
+                    startPoint: .top, endPoint: .bottom
+                )
 
-            // A soft key-light across the top — tinted by the tone (warm amber /
-            // cold white / neutral). Over `.screen` on the dark canvas it resolves
-            // to a faint lit glow that de-greys the upper third.
-            RadialGradient(
-                colors: [
-                    tone.keyLight.opacity(reactiveLightIsLive ? 0.082 : 0.06),
-                    tone.keyLight.opacity(0.0)
-                ],
-                center: UnitPoint(x: 0.5, y: 0.0),
-                startRadius: 0,
-                endRadius: reactiveLightIsLive ? 392 : 360
-            )
-            .blendMode(colorScheme == .dark ? .screen : .normal)
+                // A soft key-light across the top — tinted by the tone (warm amber /
+                // cold white / neutral). Over `.screen` on the dark canvas it resolves
+                // to a faint lit glow that de-greys the upper third.
+                RadialGradient(
+                    colors: [
+                        tone.keyLight.opacity(reactiveLightIsLive ? 0.082 : 0.06),
+                        tone.keyLight.opacity(0.0)
+                    ],
+                    center: UnitPoint(x: 0.5, y: 0.0),
+                    startRadius: 0,
+                    endRadius: reactiveLightIsLive ? 392 : 360
+                )
+                .blendMode(colorScheme == .dark ? .screen : .normal)
 
-            if grainEnabled {
-                ScoutFilmGrain(grainOpacity: colorScheme == .dark ? 0.028 : 0.012)
+                if grainEnabled {
+                    ScoutFilmGrain(grainOpacity: colorScheme == .dark ? 0.028 : 0.012)
+                }
             }
         }
         .animation(
