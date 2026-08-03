@@ -109,9 +109,6 @@ public enum ScoutHUDRouter {
                 freshDraft: opensFreshDraft,
                 requiresProjectSelection: true
             )
-            if opensFreshDraft {
-                runner.toggleProjectChoices()
-            }
             HUDController.shared.show(captureAnchor: HUDCaptureAnchor(argument: value))
             return true
         case "task-capture":

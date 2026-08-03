@@ -49,6 +49,13 @@ import Testing
             projectChoiceCount: 1
         ) == NSSize(width: 600, height: 478)
     )
+    #expect(
+        HUDRunnerLayout.contentSize(
+            disclosure: .projectSearch,
+            hasCaptures: false,
+            projectChoiceCount: 0
+        ) == NSSize(width: 600, height: 620)
+    )
 }
 
 @MainActor
@@ -102,6 +109,7 @@ import Testing
     history.recordProject("  project-c  ")
     history.recordProject("   ")
     #expect(history.projectIDs == ["project-c", "project-d", "project-b"])
+    #expect(history.rankedProjectIDs == ["project-c", "project-d", "project-b", "project-a"])
 
     let claudeOpus = HUDRunnerRuntimePreset(
         harness: "claude",
@@ -141,18 +149,45 @@ import Testing
         isRuntimeValid: { $0.harness != "pi" }
     )
     #expect(history.projectIDs == ["project-c", "project-b"])
+    #expect(history.rankedProjectIDs == ["project-c", "project-b"])
     #expect(history.runtimePresets == [tunedClaude, codexSol])
+}
+
+@Test func projectHistoryBlendsRecencyWithSuccessfulUseFrequency() {
+    var history = HUDRunnerRecentHistory()
+    for _ in 0..<5 {
+        history.recordProject("frequent")
+    }
+    history.recordProject("one-off-a")
+    history.recordProject("one-off-b")
+
+    #expect(history.projectIDs == ["one-off-b", "one-off-a", "frequent"])
+    #expect(history.rankedProjectIDs == ["one-off-b", "frequent", "one-off-a"])
+    #expect(history.projectUsageLabel(for: "one-off-b") == "RECENT")
+    #expect(history.projectUsageLabel(for: "frequent") == "5 TASKS")
+}
+
+@Test func projectHistoryMigratesThePreviousRecentOnlyPayload() throws {
+    let data = try #require(
+        #"{"projectIDs":["project-a","project-b"],"runtimePresets":[]}"#
+            .data(using: .utf8)
+    )
+    let history = try JSONDecoder().decode(HUDRunnerRecentHistory.self, from: data)
+
+    #expect(history.projectIDs == ["project-a", "project-b"])
+    #expect(history.rankedProjectIDs == ["project-a", "project-b"])
 }
 
 @Test func focusOrderContainsOnlyControlsVisibleInEachDisclosure() throws {
     let attachmentID = try #require(UUID(uuidString: "11111111-1111-1111-1111-111111111111"))
     let common: [HUDRunnerFocusTarget] = [
         .instructions,
+        .runtimeSummary,
+        .create,
+        .voice,
+        .attach,
         .attachment(attachmentID),
         .reference("/repo/README.md"),
-        .attach,
-        .voice,
-        .create,
     ]
     func order(_ disclosure: HUDRunnerDisclosure) -> [HUDRunnerFocusTarget] {
         HUDRunnerFocusTarget.visibleOrder(
@@ -166,14 +201,7 @@ import Testing
 
     #expect(order(.none) == [
         .projectSummary,
-        .instructions,
-        .attachment(attachmentID),
-        .reference("/repo/README.md"),
-        .attach,
-        .voice,
-        .runtimeSummary,
-        .create,
-    ])
+    ] + common)
     #expect(order(.projectChoices) == [
         .disclosureBack,
         .projectChoice("project-a"),
@@ -181,12 +209,11 @@ import Testing
         .projectSearch,
     ] + common)
     #expect(order(.projectSearch) == [
-        .disclosureBack,
         .projectSearch,
+    ] + common + [
         .browseDirectory,
-        .projectChoice("project-a"),
-        .projectChoice("project-b"),
-    ] + common)
+        .disclosureBack,
+    ])
     #expect(order(.runtimeChoices) == [
         .disclosureBack,
         .runtimeChoice("runtime-a"),
@@ -213,6 +240,41 @@ import Testing
 
 @Suite(.serialized)
 struct HUDRunnerCaptureRegressionTests {
+    @MainActor
+    @Test func freshMenuTaskStartsInSearchAndTabCommitsTheAutosuggestion() throws {
+        _ = NSApplication.shared
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hud-runner-keyboard-flow-\(UUID().uuidString)", isDirectory: true)
+        let firstRoot = root.appendingPathComponent("project-a", isDirectory: true)
+        let secondRoot = root.appendingPathComponent("project-b", isDirectory: true)
+        try FileManager.default.createDirectory(at: firstRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: secondRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let runner = HUDRunnerState.shared
+        runner.options = try runnerOptions(defaultDirectory: firstRoot, projects: [
+            (id: "project-a", title: "Project A", root: firstRoot, harness: "claude"),
+            (id: "project-b", title: "Project B", root: secondRoot, harness: "codex"),
+        ])
+        runner.open(
+            closesHUDOnDismiss: false,
+            freshDraft: true,
+            requiresProjectSelection: true
+        )
+        defer { _ = runner.dismiss() }
+
+        #expect(runner.disclosure == .projectSearch)
+        #expect(runner.focusRequest.target == .projectSearch)
+        runner.projectInputFocused = true
+        runner.updateProjectSearchQuery("Project B")
+
+        #expect(runner.handleKey(keyCode: 48, modifiers: []))
+        #expect(runner.selectedProjectId == "project-b")
+        #expect(runner.directory == secondRoot.path)
+        #expect(runner.disclosure == .none)
+        #expect(runner.focusRequest.target == .instructions)
+    }
+
     @MainActor
     @Test func reopeningTaskCaptureMergesIntoTheExistingDraft() throws {
         _ = NSApplication.shared

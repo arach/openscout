@@ -183,6 +183,10 @@ struct HUDRunnerDisclosureHeader: View {
                 .font(HUDType.mono(9, weight: .semibold))
                 .tracking(HUDType.eyebrowTracking)
                 .foregroundStyle(HUDChrome.inkMuted)
+            Text("· \(detail)")
+                .font(HUDType.body(9))
+                .foregroundStyle(HUDChrome.inkFaint)
+                .lineLimit(1)
             Spacer()
         }
         .frame(height: 30)

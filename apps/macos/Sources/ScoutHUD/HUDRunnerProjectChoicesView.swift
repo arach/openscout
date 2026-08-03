@@ -14,7 +14,11 @@ struct HUDRunnerProjectChoices: View {
                     focus: focus
                 )
 
-                ForEach(runner.projectQuickChoices(limit: 3)) { project in
+                ForEach(
+                    runner.projectQuickChoices(
+                        limit: HUDRunnerKeyboardContract.visibleProjectSuggestionCount
+                    )
+                ) { project in
                     HUDRunnerProjectOptionRow(
                         project: project,
                         focus: focus

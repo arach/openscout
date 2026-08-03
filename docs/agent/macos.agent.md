@@ -81,12 +81,38 @@ Services-link HMAC: query `expires`+`nonce`+`sig`; SHA256 HMAC over `v1\nservice
 | Activation policy | Scout starts `.regular`; `--hud` launch starts `.accessory` and hides non-panel windows; last window close → `.accessory`, never terminates; reopen → `.regular` |
 | Hotkeys (Carbon, sig `OSCT`) | Scout id 1: Hyper+H → HUD toggle. Helper id 2: Hyper+C → `openComms`; id 3: Hyper+T → Tail mode; id 4: Hyper+A → new agent task. |
 | Task hot corner | Helper defaults to bottom-left with a 420ms hover dwell; dragging reveals an immediate nonactivating drop receiver. Right-click the menu icon → Task Hot Corner to choose any corner or Off. The chosen physical corner applies on every display, and the triggering display id is preserved for HUD placement. Bounded transient payloads plus the acknowledged command inbox carry cold-start drops to Scout; promised files from apps such as Mail and Photos are materialized in private TTL staging. The helper never hosts the composer. |
-| Quick task confirmation | A fresh task opened directly from the menu helper requires an explicit project choice; capture drops may still infer their project from the captured files. After the broker accepts the task, the composer stays open on a durable receipt showing project, runtime/model, effort, and a broker reference, with **Open task** and **Done** actions. |
+| Quick task confirmation | A fresh task opened directly from the menu helper requires an explicit project choice; capture drops may still infer their project from the captured files. After the broker accepts the task, the composer stays open on a durable receipt showing project, runtime/model, effort, and a broker reference, with **Open chat** and **Done** actions. **Open chat** selects the broker conversation id; flight and session ids remain secondary runtime references. |
 | Realtime Scoutbot voice | The microphone/WebRTC call is disposable transport over the selected durable Scoutbot assistant chat. Stopping or minimizing voice preserves the chat; **New** and the recent-chat picker change it explicitly, ending an active call before switching. An operator-requested `ask-agent` action dispatches immediately through the broker and reports its receipt or failure without a second voice-surface confirmation. |
 | HUD panel | `HUDController` singleton; non-activating `OverlayPanel`, mouse-screen centered, fade in/out, outside-click dismiss (220ms), Esc cascade (cheatsheet → dock text → chip → blur → unengage → dismiss) |
 | HUD keys | one shared `handleKeyDown` for panel `onKeyDown` + global monitor. The message composer's SwiftUI focus state is authoritative, with AppKit `firstResponder` as fallback; while focused, panel/host/global shortcut layers yield the complete keyboard stream to the field. Tabs 1-5 = focus/threads/tail/scout/scoutbot; sizes compact/medium/large via `[`/`]`/⌘-arrows |
 | Tail mode | `TailModeController` singleton; separate non-activating `OverlayPanel` using the shared `HUDTailView` tail logic with the overlay skin/wrapper. Persistent by default, no outside-click dismiss. Placement can be attached to the nearest edge or free-floating. |
 | Main-window keys | `ScoutKeyboardEventMonitor` (local NSEvent monitor) offers Esc + bare keys to `HUDController.handleHostKeyDown` first while HUD visible. A focused HUD message composer bypasses main-window bare-key navigation entirely; otherwise only unclaimed events drive window navigation. |
+
+### Quick-task keyboard contract
+
+`HUDRunnerKeyboardContract` is the shared source of truth for the native quick-task
+flow. Keep `HUDRunnerState`, `HUDRunnerOverlay`, `HUDController`, and
+`TaskCaptureTests` on that contract rather than adding view-local Tab behavior.
+
+| Input | Behavior |
+|---|---|
+| Fresh menu ask | Opens the project combobox immediately with three zero-query suggestions. |
+| Type in project search | Filters title, basename, and path; the first match becomes the active descendant. |
+| Up / Down | Moves the active project without moving focus out of the search field. The cursor is bounded to the same three rows the view renders. |
+| Return | Commits the active project and focuses the task message. |
+| Tab | From project search, commits the active project and focuses the task message. The primary path then continues to runtime and Create; suggestion rows never become a Tab gauntlet. Supporting controls remain later in the wrapping focus loop. |
+| Shift-Tab | Traverses the same focus loop in reverse without committing a suggestion. |
+| Command-R | Opens the full runtime configuration. Runtime choices, per-preset tuning controls, model versions, and efforts all participate in keyboard focus. Escape closes the picker and restores focus to its trigger. |
+| Command-D | Toggles task dictation even while a runner text field owns first responder. Bare `m` remains the HUD-level push-to-talk shortcut outside text editing. |
+| Command-Return | Creates the task from anywhere in the runner when validation passes. |
+| Escape | Cancels voice first, then unwinds runtime/disclosure state one level at a time, then dismisses. |
+
+Zero-query project suggestions are not alphabetical. `HUDRunnerRecentHistory`
+persists successful-use statistics and ranks candidates with a stable blend of
+recency (65%) and frequency (35%). A project is recorded only after the broker
+accepts task creation, never when a row is highlighted or provisionally selected.
+The decoder migrates the previous MRU-only payload by treating each retained id as
+one use, and the usage index is bounded to 64 valid project ids.
 
 ## Message composition and voice
 

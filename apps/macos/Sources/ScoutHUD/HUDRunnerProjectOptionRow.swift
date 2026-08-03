@@ -11,7 +11,11 @@ struct HUDRunnerProjectOptionRow: View {
         let target = HUDRunnerFocusTarget.projectChoice(project.id)
         let cursored = runner.disclosure == .projectSearch
             && runner.projectInputFocused
-            && runner.isProjectCursored(project, limit: 3)
+            && runner.isProjectCursored(
+                project,
+                limit: HUDRunnerKeyboardContract.visibleProjectSuggestionCount
+            )
+        let usageLabel = runner.projectUsageLabel(for: project)
         return Button {
             runner.chooseProject(project)
         } label: {
@@ -47,6 +51,11 @@ struct HUDRunnerProjectOptionRow: View {
                     Image(systemName: "checkmark")
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(HUDChrome.accent)
+                } else if let usageLabel {
+                    Text(usageLabel)
+                        .font(HUDType.mono(7.5, weight: .semibold))
+                        .tracking(HUDType.eyebrowMicro)
+                        .foregroundStyle(cursored ? HUDChrome.accent : HUDChrome.inkFaint)
                 }
             }
             .padding(.horizontal, 14)

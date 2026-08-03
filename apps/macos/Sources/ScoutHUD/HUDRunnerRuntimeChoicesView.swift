@@ -84,9 +84,10 @@ struct HUDRunnerRuntimePicker: View {
                 .buttonStyle(
                     HUDRunnerToolbarButtonStyle(
                         isActive: false,
-                        isFocused: false
+                        isFocused: focus.wrappedValue == .runtimePickerClose
                     )
                 )
+                .focused(focus, equals: .runtimePickerClose)
                 .accessibilityLabel("Close runtime picker")
             }
             .frame(height: 30)
@@ -247,16 +248,23 @@ private struct HUDRunnerRuntimeOptionRow: View {
                 parameterLabel("VERSION")
                 HStack(spacing: 5) {
                     ForEach(familyModels) { model in
+                        let resultPreset = HUDRunnerRuntimePreset(
+                            harness: preset.harness,
+                            model: model.option.id,
+                            effort: preset.effort
+                        )
+                        let target = HUDRunnerFocusTarget.runtimeModel(
+                            resultPreset.id,
+                            model.option.id
+                        )
                         parameterChip(
                             HUDRunnerRuntimeFormatter.versionDisplay(model.versionLabel),
-                            selected: model.option.id == preset.model
+                            selected: model.option.id == preset.model,
+                            target: target
                         ) {
                             runner.applyRuntimeTweak(
-                                HUDRunnerRuntimePreset(
-                                    harness: preset.harness,
-                                    model: model.option.id,
-                                    effort: preset.effort
-                                )
+                                resultPreset,
+                                focus: target
                             )
                         }
                     }
@@ -269,16 +277,23 @@ private struct HUDRunnerRuntimeOptionRow: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 5) {
                         ForEach(runner.availableEfforts(for: preset.harness)) { effort in
+                            let resultPreset = HUDRunnerRuntimePreset(
+                                harness: preset.harness,
+                                model: preset.model,
+                                effort: effort.id
+                            )
+                            let target = HUDRunnerFocusTarget.runtimeEffort(
+                                resultPreset.id,
+                                effort.id
+                            )
                             parameterChip(
                                 effort.label,
-                                selected: effort.id == preset.effort
+                                selected: effort.id == preset.effort,
+                                target: target
                             ) {
                                 runner.applyRuntimeTweak(
-                                    HUDRunnerRuntimePreset(
-                                        harness: preset.harness,
-                                        model: preset.model,
-                                        effort: effort.id
-                                    )
+                                    resultPreset,
+                                    focus: target
                                 )
                             }
                         }
@@ -307,6 +322,7 @@ private struct HUDRunnerRuntimeOptionRow: View {
     private func parameterChip(
         _ label: String,
         selected: Bool,
+        target: HUDRunnerFocusTarget,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -317,17 +333,28 @@ private struct HUDRunnerRuntimeOptionRow: View {
                 .frame(height: 23)
                 .background(
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(selected ? HUDChrome.accentWhisper : HUDChrome.canvasAlt.opacity(0.58))
+                        .fill(
+                            focus.wrappedValue == target
+                                ? HUDChrome.composerFieldLift
+                                : (selected
+                                    ? HUDChrome.accentWhisper
+                                    : HUDChrome.canvasAlt.opacity(0.58))
+                        )
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .stroke(
-                            selected ? HUDChrome.accent.opacity(0.44) : HUDChrome.borderSoft,
-                            lineWidth: 0.75
+                            focus.wrappedValue == target
+                                ? HUDChrome.accent.opacity(0.68)
+                                : (selected
+                                    ? HUDChrome.accent.opacity(0.44)
+                                    : HUDChrome.borderSoft),
+                            lineWidth: focus.wrappedValue == target ? 1 : 0.75
                         )
                 )
         }
         .buttonStyle(.plain)
+        .focused(focus, equals: target)
         .accessibilityValue(selected ? "Selected" : "Not selected")
     }
 
