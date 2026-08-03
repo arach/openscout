@@ -82,6 +82,14 @@ export interface CardlessSessionInput {
   launchArgs?: string[];
   /** Provenance only: the preset/card a cardless session was stamped with, if any. */
   viaCard?: string;
+  /**
+   * Flat session dispatch (mediated harness inject): no Scout agent identity
+   * semantics — plumbing endpoint only. Fleet/who surfaces should learn to
+   * exclude endpoints stamped with this metadata; nothing enforces that yet.
+   */
+  flatDispatch?: boolean;
+  /** Native harness session id when resuming an on-disk session. */
+  nativeSessionId?: string;
 }
 
 function resolveCardlessSessionPath(path: string): string {
@@ -169,6 +177,7 @@ export function buildCardlessSessionEndpoint(input: CardlessSessionInput): Agent
   const cwd = resolveCardlessSessionPath(input.cwd);
   const projectName = basename(projectRoot) || projectRoot;
   const externalSessionId = input.externalSessionId?.trim();
+  const nativeSessionId = input.nativeSessionId?.trim() || externalSessionId;
   const endpointSessionId = input.pairingSessionId?.trim() || input.sessionId;
   const launchArgs = input.launchArgs?.map((entry) => entry.trim()).filter(Boolean);
   const handle = cleanCardlessSessionHandle(input);
@@ -176,6 +185,7 @@ export function buildCardlessSessionEndpoint(input: CardlessSessionInput): Agent
   const displayName = input.displayName?.trim() || (input.handle?.trim()
     ? cardlessSessionDisplayName({ handle, projectName })
     : undefined);
+  const flatDispatch = input.flatDispatch === true;
   return {
     id: `endpoint.${input.sessionId}.${input.nodeId}.${input.transport}`,
     agentId: input.sessionId,
@@ -192,6 +202,7 @@ export function buildCardlessSessionEndpoint(input: CardlessSessionInput): Agent
       cardless: true,
       externalSource: "local-session",
       handle,
+      ...(flatDispatch ? { flatDispatch: true, mediated: true } : {}),
       ...(displayName ? { displayName } : {}),
       project: projectName,
       projectRoot,
@@ -201,6 +212,7 @@ export function buildCardlessSessionEndpoint(input: CardlessSessionInput): Agent
         externalSessionId,
         ...(input.transport === "codex_app_server" ? { threadId: externalSessionId } : {}),
       } : {}),
+      ...(nativeSessionId ? { nativeSessionId } : {}),
       ...(input.pairingSessionId?.trim() ? {
         pairingSessionId: input.pairingSessionId.trim(),
         pairingAdapterType: input.harness,

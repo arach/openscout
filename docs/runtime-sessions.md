@@ -328,14 +328,19 @@ existing harness session over many turns. Repeating the session id means
 the lightest usable fresh session for the request.
 
 The session id does not have to be broker-minted. It only has to be
-broker-known and exact. Scout resolves `targetSessionId` / `session:<id>`
-through endpoint aliases such as endpoint id, broker session id,
-`externalSessionId`, native harness thread id, and adapter-provided aliases.
-When a native id needs scope, use the harness-qualified form
+**harness-known** and exact (a live broker endpoint is sufficient but not
+required). Scout resolves `targetSessionId` / `session:<id>` through endpoint
+aliases such as endpoint id, broker session id, `externalSessionId`, native
+harness thread id, and adapter-provided aliases. When no live endpoint exists,
+Scout may locate the id in the harness session store (for example
+`~/.codex/sessions`) and wake a flat-dispatch cardless endpoint that resumes
+that exact thread. A session known to its harness but not yet to the broker is
+still resolvable; absence of a live endpoint is not evidence of absence of a
+session. When a native id needs scope, use the harness-qualified form
 `session:<harness>:<native-id>` or pass `execution.harness` with
-`targetSessionId`. Scout must fail closed on unknown, stale, unreachable, or
-ambiguous exact-session references; it must not silently reinterpret them as
-fresh project routing.
+`targetSessionId`. Scout must fail closed on unknown, ambiguous harness, cwd
+conflict, unresumable, or wake-failed exact-session references; it must not
+silently reinterpret them as fresh project or card routing.
 
 Agent cards and labels are fresh-session targets by default. A card carries
 identity, harness/profile/model hints, project root, and return-address

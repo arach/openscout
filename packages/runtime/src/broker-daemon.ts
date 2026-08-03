@@ -147,6 +147,8 @@ import {
   collectOccupiedDefinitionIdsFromBrokerSnapshot,
   resolveProjectProvisionalAgentName,
 } from "./provisional-agent-names.js";
+import { locateHarnessSession } from "./session-locator.js";
+import { findHarnessEntry } from "./harness-catalog.js";
 import { BrokerControlStreamService } from "./broker-control-stream-service.js";
 import { json } from "./broker-http-helpers.js";
 import { createBrokerHttpRouter } from "./broker-http-router.js";
@@ -455,6 +457,98 @@ const deliveryRouter = new BrokerDeliveryRouter({
   log: (message) => console.log(message),
   warn: (message) => console.warn(message),
   routeAliasService,
+  wakeExactHarnessSession: async (input) => {
+    const located = locateHarnessSession({
+      nativeSessionId: input.nativeSessionId,
+      harness: input.harness,
+      projectPath: input.projectPath,
+    });
+    if (!located.ok) {
+      return {
+        ok: false,
+        reason: located.reason,
+        detail: located.detail,
+        ...(located.remediation ? { remediation: located.remediation } : {}),
+      };
+    }
+
+    const session = located.session;
+    const harnessEntry = findHarnessEntry(session.harness);
+    if (!harnessEntry?.resume) {
+      return {
+        ok: false,
+        reason: "session_not_resumable",
+        detail: `harness "${session.harness}" does not advertise a resume command`,
+        remediation: `bring a ${session.harness} worker online first, or use a resumable harness`,
+      };
+    }
+
+    let spawn: ReturnType<typeof resolveCardlessSessionSpawnTarget>;
+    try {
+      spawn = resolveCardlessSessionSpawnTarget(session.harness);
+    } catch (error) {
+      return {
+        ok: false,
+        reason: "session_not_resumable",
+        detail: error instanceof Error ? error.message : String(error),
+      };
+    }
+
+    const cwd = session.cwd || input.projectPath?.trim();
+    if (!cwd) {
+      return {
+        ok: false,
+        reason: "session_not_resumable",
+        detail: `session ${session.nativeSessionId} has no cwd; pass --project`,
+        remediation: `scout ask --to session:${session.harness}:${session.nativeSessionId} --project <cwd>`,
+      };
+    }
+
+    // Stable scout session marker for this native id so re-asks hit the same endpoint.
+    const scoutSessionId = `flat-${session.harness}-${session.nativeSessionId}`;
+    const existing = Object.values(runtime.snapshot().endpoints).find((endpoint) => {
+      if (endpoint.nodeId !== nodeId) return false;
+      const aliases = [
+        endpoint.sessionId,
+        endpoint.metadata?.externalSessionId,
+        endpoint.metadata?.threadId,
+        endpoint.metadata?.nativeSessionId,
+      ].map((value) => (typeof value === "string" ? value.trim() : ""));
+      return aliases.includes(session.nativeSessionId) || endpoint.agentId === scoutSessionId;
+    });
+    if (existing && existing.state !== "offline" && existing.state !== "failed" && existing.state !== "stopped") {
+      return { ok: true };
+    }
+
+    try {
+      await registerCardlessSession({
+        upsertActor: upsertActorDurably,
+        upsertEndpoint: persistEndpoint,
+      }, {
+        sessionId: scoutSessionId,
+        handle: scoutSessionId,
+        transport: spawn.transport,
+        harness: spawn.harness,
+        cwd,
+        projectRoot: cwd,
+        nodeId,
+        externalSessionId: session.nativeSessionId,
+        nativeSessionId: session.nativeSessionId,
+        flatDispatch: true,
+        displayName: `${basename(cwd)}:${session.nativeSessionId.slice(0, 8)}`,
+      });
+      console.log(
+        `[openscout-runtime] flat-dispatch wake ${session.harness}:${session.nativeSessionId} via ${spawn.transport} cwd=${cwd}`,
+      );
+      return { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        reason: "session_wake_failed",
+        detail: error instanceof Error ? error.message : String(error),
+      };
+    }
+  },
   resolveRemoteRouteAlias: async (target, caller) => {
     const selector = target.scope?.nodeId?.trim();
     if (!selector) return null;

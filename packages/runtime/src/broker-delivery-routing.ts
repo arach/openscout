@@ -32,6 +32,22 @@ export type InvocationResolution =
   | (Extract<BrokerLabelResolution, { kind: "resolved_session" }> & { aliasResolution?: RouteAliasResolutionProof })
   | Exclude<BrokerLabelResolution, { kind: "resolved" | "resolved_session" }>;
 
+export type ExactSessionWakeInput = {
+  nativeSessionId: string;
+  harness?: AgentHarness;
+  projectPath?: string;
+  requesterId?: string;
+};
+
+export type ExactSessionWakeResult =
+  | { ok: true }
+  | {
+      ok: false;
+      reason: string;
+      detail: string;
+      remediation?: string;
+    };
+
 export type BrokerDeliveryRouterOptions = {
   runtimeSnapshot: () => RuntimeSnapshot;
   nodeId: string;
@@ -43,6 +59,12 @@ export type BrokerDeliveryRouterOptions = {
     target: Extract<ScoutRouteTarget, { kind: "route_alias" }>,
     caller: ScoutCallerContext,
   ) => Promise<RouteAliasDispatchResolution | null>;
+  /**
+   * When an exact session target is unknown in the live registry, attempt to
+   * locate/resume it (harness store → cardless flat-dispatch endpoint) and
+   * re-resolve. Must never invent a different agent/card target.
+   */
+  wakeExactHarnessSession?: (input: ExactSessionWakeInput) => Promise<ExactSessionWakeResult>;
 };
 
 export function callerContextForDelivery(
@@ -131,6 +153,34 @@ export function projectPathRouteTarget(input: BrokerRouteTargetInput): string | 
     return input.target.projectPath.trim() || undefined;
   }
   return undefined;
+}
+
+/** Exact harness session route — never demotes to project/card workers. */
+export function exactSessionRouteTarget(input: BrokerRouteTargetInput): {
+  nativeSessionId: string;
+  harness?: AgentHarness;
+  label: string;
+} | null {
+  if (input.target?.kind === "session_id") {
+    const nativeSessionId = input.target.sessionId.trim();
+    if (!nativeSessionId) return null;
+    const harness = input.target.harness ?? input.execution?.harness;
+    return {
+      nativeSessionId,
+      ...(harness ? { harness } : {}),
+      label: harness ? `session:${harness}:${nativeSessionId}` : `session:${nativeSessionId}`,
+    };
+  }
+  const bare = input.targetSessionId?.trim();
+  if (bare) {
+    const harness = input.execution?.harness;
+    return {
+      nativeSessionId: bare,
+      ...(harness ? { harness } : {}),
+      label: harness ? `session:${harness}:${bare}` : `session:${bare}`,
+    };
+  }
+  return null;
 }
 
 export function shouldMaterializeProjectAgent(input: {
@@ -292,6 +342,48 @@ export class BrokerDeliveryRouter {
       }
     }
     const native = this.resolveTarget(input);
+
+    // Exact session targets never fall through to project/label/capability
+    // routing. If unknown, try harness-store wake then re-resolve only that id.
+    const exactSession = exactSessionRouteTarget(input);
+    if (exactSession && native.kind === "unknown") {
+      if (!this.options.wakeExactHarnessSession) {
+        return {
+          kind: "unknown",
+          label: exactSession.label,
+          detail: native.detail
+            ?? `session ${exactSession.nativeSessionId} is not currently routable (no live endpoint and no wake path)`,
+        };
+      }
+      const wake = await this.options.wakeExactHarnessSession({
+        nativeSessionId: exactSession.nativeSessionId,
+        harness: exactSession.harness,
+        projectPath: resolveOptions.currentDirectory,
+        requesterId: resolveOptions.requesterId,
+      });
+      if (!wake.ok) {
+        return {
+          kind: "unknown",
+          label: exactSession.label,
+          detail: wake.detail || wake.reason,
+        };
+      }
+      const afterWake = this.resolveTarget(input);
+      if (afterWake.kind === "resolved" || afterWake.kind === "resolved_session") {
+        this.options.log?.(
+          `[openscout-runtime] woke exact harness session ${exactSession.label}`,
+        );
+        return afterWake;
+      }
+      return {
+        kind: "unknown",
+        label: exactSession.label,
+        detail: afterWake.kind === "unknown"
+          ? (afterWake.detail ?? `session ${exactSession.nativeSessionId} still not routable after wake`)
+          : `session ${exactSession.nativeSessionId} wake did not produce a session resolution`,
+      };
+    }
+
     if (native.kind !== "unknown" || !this.options.routeAliasService) return native;
     const label = target?.kind === "agent_label"
       ? target.label
