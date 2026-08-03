@@ -971,6 +971,24 @@ export const STUDIO_PAGES: StudioPage[] = [
       "An audit of the thread body, staged as a live A/B on one real information-heavy thread (#scout-web-theme, five turns, longest 2,816 chars) with the content held fixed. The headline defect is typographic and invisible to a screenshot: web renders 12px/1.5 across a 760px card — ~122 characters per line against a ~85 ceiling — so the page carries a ruler that measures chars-per-line off the live DOM at the current width. Seven more findings with file:line evidence (cards fighting content, right-aligned bubbles inside a multi-actor log, no same-author grouping, uniform weight regardless of length, accent-bordered code chips, relative-only time, ungated autoscroll). Cross-surface table shows web is the outlier against macOS and iOS, which are already flat and measured. §4 proposes the arrival transition — in-flight row and landed turn sharing one grid slot so the swap is a crossfade with zero layout shift — plus the unread rule no surface has.",
   },
   {
+    href: "/studies/observe-everything",
+    label: "Observe · Everything",
+    bucket: "studies",
+    surface: "cross",
+    family: "observe",
+    status: "concept",
+    source: [
+      "design/studio/views/observe-everything.tsx",
+      "design/studio/views/observe-everything.module.css",
+      "packages/protocol/src/observed-status.ts",
+      "packages/runtime/src/observed-status-projection.ts",
+      "packages/web/server/core/observe/service.ts",
+      "packages/web/server/observe-payload.ts",
+    ],
+    blurb:
+      "One evidence-backed yield ledger across every reachable host. A stable row is one session's latest meaningful completed turn; fixed project, agent, harness, action, and time columns make the stream dense to scan. Recent is chronological, Projects groups the same rows by workstream, host and harness are subtractive scope, and Scoutbot returns the same rows as numbered exact-turn citations. State remains row-level truth rather than a priority taxonomy. A live container-driven Desktop/Mobile preview preserves the same state and turns row selection into a pushed evidence view at 390px. Observed transcript material stays evidence, never Scout-authored conversation. Studio only; illustrative fixture.",
+  },
+  {
     href: "/studies/work-observability",
     label: "Scout · Work Observability",
     bucket: "studies",
