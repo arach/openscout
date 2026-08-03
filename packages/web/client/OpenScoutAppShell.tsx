@@ -65,7 +65,7 @@ import {
   useSidebarCollapse,
 } from "./scout/sidebar/useSidebarCollapse.ts";
 import { CollapsedRail } from "./scout/sidebar/CollapsedRail.tsx";
-import { InspectorCollapsedBody } from "./scout/sidebar/SideRailCollapsedBody.tsx";
+
 import { RailToggle } from "./components/RailToggle.tsx";
 import { useScoutbotState } from "./scout/scoutbot/ScoutbotStateContext.tsx";
 import {
@@ -1560,7 +1560,6 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                       edgeOffset={0}
                       top={contentTopOffset}
                       style={panelTopStyle}
-                      body={<InspectorCollapsedBody />}
                     />
                   );
                 }
