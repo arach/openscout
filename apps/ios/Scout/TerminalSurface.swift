@@ -587,10 +587,9 @@ struct TerminalSurface: View {
         phase = .preparing
         diagnostics.recordProvisioning(.authorizing)
 
-        let key = TerminalIdentity.loadOrCreate()
-        let publicKey = TerminalIdentity.opensshPublicKey(for: key, comment: "scout-ios")
-
         do {
+            let key = try TerminalIdentity.loadOrCreate()
+            let publicKey = TerminalIdentity.opensshPublicKey(for: key, comment: "scout-ios")
             let access = try await provisionWithRetry(provider, publicKey: publicKey)
             guard generation == preparationGeneration, !Task.isCancelled else { return }
             let hostKeyFingerprint = access.hostKeyFingerprint?.trimmingCharacters(in: .whitespacesAndNewlines)
