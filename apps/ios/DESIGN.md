@@ -266,6 +266,12 @@ system's expression:
   one fixed-width tinted-glass selection seat per column; the seat never changes
   shape to fit a longer label. Hierarchy uses a navigation stack; self-contained
   tasks use sheets.
+- The masthead **host scope** is a quiet pointy hex beside the Scout wordmark,
+  never a card, rail, or destination. Every paired host owns one facet dot:
+  filled means included in fleet-readable views, hollow means excluded, and
+  accent versus dim is the secondary online signal. A native menu edits any
+  non-empty subset; with one selected host the label names it, otherwise it
+  reports full count or subset coverage.
 - The **left-edge back gesture** stays alive. It is never disabled or overlaid.
 - Every tappable control clears **44×44pt** with breathing room between adjacent
   targets.

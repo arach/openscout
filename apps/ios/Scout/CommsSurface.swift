@@ -40,12 +40,7 @@ struct CommsSurface: View {
     }
 
     private var reloadKey: String {
-        let filter: String
-        switch model.machineFilter {
-        case .all: filter = "all"
-        case .machine(let id): filter = id
-        }
-        return "\(reloadToken).\(model.fleetRevision).\(filter)"
+        "\(reloadToken).\(model.fleetRevision).\(model.machineFilterKey)"
     }
 
     var body: some View {

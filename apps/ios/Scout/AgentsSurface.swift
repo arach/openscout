@@ -82,12 +82,7 @@ struct AgentsSurface: View {
     /// connection changing (`fleetRevision` — so an aggregated "All" picks up a Mac
     /// that connects in the background), or the filter itself moving.
     private var reloadKey: String {
-        let filter: String
-        switch model.machineFilter {
-        case .all: filter = "all"
-        case .machine(let id): filter = id
-        }
-        return "\(model.fleetDataReadyToken).\(model.fleetRevision).\(filter)"
+        "\(model.fleetDataReadyToken).\(model.fleetRevision).\(model.machineFilterKey)"
     }
 
     var body: some View {

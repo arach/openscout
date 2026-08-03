@@ -70,14 +70,15 @@ final class AppModel {
         case shell
     }
 
-    /// Which machine(s) the fleet surfaces (Home, Agents) show. `.all` aggregates
-    /// across every connected Mac; `.machine` narrows to one. Independent of the
-    /// *bound* Mac in the status bar (`focusedMachineId`): picking a specific Mac
-    /// focuses it, picking All leaves the binding alone. Defaults to All so a
-    /// multi-Mac fleet shows everything without hunting for what to toggle.
+    /// Which machine(s) the fleet-readable surfaces show. `.all` tracks the full
+    /// paired set, including Macs paired later; `.machines` is an explicit,
+    /// non-empty subset. Independent of the *bound* Mac in the status bar
+    /// (`focusedMachineId`): narrowing to one focuses it, while a broader subset
+    /// leaves the binding alone. Defaults to All so a multi-Mac fleet shows
+    /// everything without hunting for what to toggle.
     enum MachineFilter: Equatable {
         case all
-        case machine(String)   // lowercased public-key hex
+        case machines(Set<String>)   // lowercased public-key hexes
     }
 
     var phase: Phase = .connect
@@ -2114,14 +2115,62 @@ final class AppModel {
         await connectIfNeeded()
     }
 
-    /// Point the fleet surfaces at one Mac or the whole fleet. Picking a specific
-    /// Mac also focuses/binds it (single-client surfaces + the status bar follow);
-    /// picking All only changes what the lists aggregate — the bound Mac stays put.
-    /// `machineFilter` is observed, so the Agents stack reloads off the change.
+    /// Apply an explicit non-empty fleet scope. A one-Mac subset also
+    /// focuses/binds that Mac (single-client surfaces + the status bar follow);
+    /// broader subsets only change what the fleet-readable lists aggregate.
+    /// `machineFilter` is observed, so every participating surface reloads.
     func selectMachineFilter(_ filter: MachineFilter) async {
-        machineFilter = filter
-        if case .machine(let id) = filter {
-            await connect(toMachineId: id)
+        let available = Set(pairedMachines.map { $0.id.lowercased() })
+        switch filter {
+        case .all:
+            machineFilter = .all
+        case .machines(let requested):
+            let selected = Set(requested.map { $0.lowercased() }).intersection(available)
+            guard !selected.isEmpty else { return }
+            machineFilter = selected == available ? .all : .machines(selected)
+            if selected.count == 1, let id = selected.first {
+                await connect(toMachineId: id)
+            }
+        }
+    }
+
+    /// Toggle one host in the shared fleet scope without ever allowing an empty
+    /// view. Selecting the full known set normalizes back to `.all`, so a Mac
+    /// paired later joins the aggregate automatically.
+    func toggleMachineFilter(_ machineId: String) async {
+        let available = Set(pairedMachines.map { $0.id.lowercased() })
+        let id = machineId.lowercased()
+        guard available.contains(id) else { return }
+
+        var selected = selectedMachineIds
+        if selected.contains(id) {
+            guard selected.count > 1 else { return }
+            selected.remove(id)
+        } else {
+            selected.insert(id)
+        }
+        await selectMachineFilter(selected == available ? .all : .machines(selected))
+    }
+
+    /// The concrete selection represented by the filter right now, intersected
+    /// with paired truth so forgotten machines never remain visibly selected.
+    var selectedMachineIds: Set<String> {
+        let available = Set(pairedMachines.map { $0.id.lowercased() })
+        switch machineFilter {
+        case .all:
+            return available
+        case .machines(let ids):
+            return Set(ids.map { $0.lowercased() }).intersection(available)
+        }
+    }
+
+    /// Stable reload identity shared by Home, Agents, Comms, and Tail.
+    var machineFilterKey: String {
+        switch machineFilter {
+        case .all:
+            return "all"
+        case .machines(let ids):
+            return ids.map { $0.lowercased() }.sorted().joined(separator: ",")
         }
     }
 
@@ -2570,7 +2619,8 @@ final class AppModel {
 
     /// Machines the Agents surface should query, honoring `machineFilter`. `.all`
     /// returns every paired Mac (online ones first, each carrying a live client;
-    /// offline ones clientless, for a collapsed row); `.machine(id)` narrows to one.
+    /// offline ones clientless, for a collapsed row); `.machines(ids)` keeps the
+    /// explicitly selected subset.
     /// Online leads so the stack opens on live work, with recency preserved inside
     /// each group.
     func agentMachines() -> [AgentMachine] {
@@ -2578,8 +2628,9 @@ final class AppModel {
         switch machineFilter {
         case .all:
             scoped = pairedMachines
-        case .machine(let id):
-            scoped = pairedMachines.filter { $0.id == id.lowercased() }
+        case .machines(let ids):
+            let selected = Set(ids.map { $0.lowercased() })
+            scoped = pairedMachines.filter { selected.contains($0.id.lowercased()) }
         }
         let online = scoped.filter(\.isOnline)
         let offline = scoped.filter { !$0.isOnline }
@@ -2598,14 +2649,20 @@ final class AppModel {
     /// Forget a paired Mac: drop its trusted-bridge record from the keychain and
     /// tear down that keyed client. No-op if the id doesn't match.
     func forgetMachine(id hex: String) {
+        let forgottenId = hex.lowercased()
         guard let record = ((try? ScoutIdentity.getTrustedBridges()) ?? [])
-            .first(where: { $0.publicKeyHex.lowercased() == hex.lowercased() }) else { return }
-        if reconnectMachineId == hex.lowercased() {
+            .first(where: { $0.publicKeyHex.lowercased() == forgottenId }) else { return }
+        if reconnectMachineId == forgottenId {
             resetReconnectState()
         }
         try? ScoutIdentity.removeTrustedBridge(publicKey: record.publicKey)
         fleet.forget(machineId: hex)
-        BridgeBrokerClient.removeSavedConnectionInfo(publicKeyHex: hex.lowercased())
+        BridgeBrokerClient.removeSavedConnectionInfo(publicKeyHex: forgottenId)
+        if case .machines(let ids) = machineFilter {
+            let remaining = Set(trustedMachineIds.map { $0.lowercased() })
+            let selected = Set(ids.map { $0.lowercased() }).intersection(remaining)
+            machineFilter = selected.isEmpty || selected == remaining ? .all : .machines(selected)
+        }
         if let replacement = preferredFocusMachineId(in: trustedMachineIds) {
             fleet.focus(machineId: replacement)
         }

@@ -956,7 +956,7 @@ struct RootView: View {
                 // session lands is that surface's whole first half. Repeating
                 // the same machine in the masthead says it twice and makes the
                 // operator wonder whether they are two different settings.
-                if surface != .new {
+                if surface != .new, !model.pairedMachines.isEmpty {
                     machineArea
                         .frame(maxWidth: .infinity, alignment: .leading)
                         // Without the wordmark the chip would butt against the
@@ -965,9 +965,10 @@ struct RootView: View {
                         .padding(.leading, isEntryHome ? HudSpacing.sm : 0)
                 } else {
                     // An EXPLICIT spacer, because an empty `Group` does not take
-                    // part in layout however greedy a frame you hang on it — so
-                    // on New the row collapsed to its three discs and the
-                    // `.frame(width:)` centred them in the middle of the screen.
+                    // part in layout however greedy a frame you hang on it. New
+                    // has no host qualifier by design; an unpaired Home has no
+                    // machine content yet. Both still need the leading utility
+                    // and trailing utilities to own opposite screen edges.
                     // The complications seat on the EDGES: places top-left,
                     // bell + gear top-right, on every surface.
                     Spacer(minLength: 0)
@@ -985,66 +986,51 @@ struct RootView: View {
         .padding(.bottom, layout.titleBottomPadding)
     }
 
-    /// Host area next to the wordmark — which connected Mac you're looking at.
-    /// One paired Mac → a single compact host chip (an indicator, not a filter).
-    /// More than one → a horizontally-scrollable filter: "All" plus each Mac,
-    /// the active one lit. Nothing until at least one Mac is paired.
+    /// Shared host scope next to the wordmark. The quiet Scout hex owns one
+    /// facet dot per paired Mac: filled means included in fleet-readable views,
+    /// hollow means excluded, while accent/dim remains the secondary online
+    /// signal. The native menu edits any non-empty subset without turning hosts
+    /// into a standalone destination or a second masthead row.
     @ViewBuilder
     private var machineArea: some View {
         let machines = model.pairedMachines
-        if machines.count == 1 {
-            hostChip(name: machines[0].name, online: machines[0].isOnline, selected: false, action: nil)
-        } else if machines.count > 1 {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: HudSpacing.xs) {
-                    hostChip(
-                        name: "All",
-                        online: machines.contains(where: \.isOnline),
-                        selected: model.machineFilter == .all
-                    ) { Task { await model.selectMachineFilter(.all) } }
+        if !machines.isEmpty {
+            let selectedIds = model.selectedMachineIds
+            Menu {
+                Section("Hosts") {
                     ForEach(machines) { machine in
-                        hostChip(
-                            name: machine.name,
-                            online: machine.isOnline,
-                            selected: model.machineFilter == .machine(machine.id)
-                        ) { Task { await model.selectMachineFilter(.machine(machine.id)) } }
+                        let isSelected = selectedIds.contains(machine.id.lowercased())
+                        Button {
+                            Task { await model.toggleMachineFilter(machine.id) }
+                        } label: {
+                            Label(
+                                machine.name,
+                                systemImage: isSelected ? "checkmark.circle.fill" : "circle"
+                            )
+                        }
+                        .accessibilityLabel(
+                            "\(machine.name), \(machine.isOnline ? "online" : "offline"), \(isSelected ? "included" : "excluded")"
+                        )
+                        .disabled(isSelected && selectedIds.count == 1)
+                        .menuActionDismissBehavior(.disabled)
                     }
                 }
-                .padding(.trailing, HudSpacing.sm)
+                if selectedIds.count < machines.count {
+                    Button("Select all", systemImage: "checkmark.circle") {
+                        Task { await model.selectMachineFilter(.all) }
+                    }
+                    .menuActionDismissBehavior(.disabled)
+                }
+                Divider()
+                Button("Done") {}
+            } label: {
+                HostFacetQualifier(machines: machines, selectedIds: selectedIds)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
             }
-        }
-    }
-
-    /// One host chip: an online dot + name in a low-radius plate. `selected` signals the
-    /// active filter through contrast (lifted fill, ink text, brighter edge) — no
-    /// accent, so the row stays calm. Tappable only when an action is supplied.
-    @ViewBuilder
-    private func hostChip(name: String, online: Bool, selected: Bool, action: (() -> Void)?) -> some View {
-        // Near-square corners (not a capsule): the studio chrome is all crisp
-        // plates and hairlines, and a full stadium read as bubbly against it.
-        let plate = RoundedRectangle(cornerRadius: 5, style: .continuous)
-        let chip = HStack(spacing: HudSpacing.xs) {
-            Circle()
-                .fill(online ? ScoutPalette.accent : ScoutInk.dim)
-                .frame(width: 5, height: 5)
-            Text(name)
-                .font(HudFont.mono(10.5, weight: .medium))
-                .foregroundStyle(selected ? ScoutPalette.ink : ScoutInk.muted)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: 92, alignment: .leading)
-        }
-        .padding(.horizontal, HudSpacing.sm)
-        .padding(.vertical, 3)
-        .background(plate.fill(selected ? ScoutSurface.raised : ScoutSurface.inset))
-        .overlay(plate.stroke(selected ? ScoutInk.dim : ScoutHairline.standard, lineWidth: HudStrokeWidth.thin))
-
-        if let action {
-            Button(action: action) { chip }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Filter host \(name)")
-        } else {
-            chip.accessibilityLabel("Host \(name)")
+            .menuOrder(.fixed)
+            .buttonStyle(.plain)
+            .accessibilityHint("Choose which hosts appear in fleet views")
         }
     }
 
@@ -1176,6 +1162,108 @@ struct RootView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Settings")
+    }
+}
+
+/// The masthead's compact fleet scope. Its label names a single selected Mac,
+/// reports the full host count, or shows subset coverage; the mark itself keeps
+/// the richer one-dot-per-host selection state visible without another row.
+private struct HostFacetQualifier: View {
+    let machines: [AppModel.PairedMachine]
+    let selectedIds: Set<String>
+
+    private var selectedMachines: [AppModel.PairedMachine] {
+        machines.filter { selectedIds.contains($0.id.lowercased()) }
+    }
+
+    private var label: String {
+        if selectedMachines.count == 1, let machine = selectedMachines.first {
+            return machine.name
+        }
+        if selectedMachines.count == machines.count {
+            return "\(machines.count) hosts"
+        }
+        return "\(selectedMachines.count)/\(machines.count) hosts"
+    }
+
+    private var accessibilityValue: String {
+        let names = selectedMachines.map(\.name).joined(separator: ", ")
+        let online = selectedMachines.filter(\.isOnline).count
+        return "\(selectedMachines.count) of \(machines.count) selected: \(names). \(online) online."
+    }
+
+    var body: some View {
+        HStack(spacing: HudSpacing.sm) {
+            HostFacetMark(machines: machines, selectedIds: selectedIds)
+            Text(label)
+                .font(HudFont.mono(HudTextSize.xs, weight: .medium))
+                .foregroundStyle(ScoutPalette.ink)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: 92, alignment: .leading)
+            Image(systemName: "chevron.down")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(ScoutInk.dim)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Hosts")
+        .accessibilityValue(accessibilityValue)
+    }
+}
+
+/// Facets is the selected Studio geometry: the first four hosts occupy the
+/// pointy hex's top, right, bottom, and left facets. Larger fleets keep the
+/// one-dot-per-host promise by distributing all dots around the same inner ring.
+/// Fill is selection; stroke color is availability, so neither meaning relies
+/// on color alone.
+private struct HostFacetMark: View {
+    let machines: [AppModel.PairedMachine]
+    let selectedIds: Set<String>
+
+    private static let cardinalFacets = [
+        CGPoint(x: 0.50, y: 0.31),
+        CGPoint(x: 0.69, y: 0.50),
+        CGPoint(x: 0.50, y: 0.69),
+        CGPoint(x: 0.31, y: 0.50),
+    ]
+
+    private var points: [CGPoint] {
+        if machines.count <= Self.cardinalFacets.count {
+            return Array(Self.cardinalFacets.prefix(machines.count))
+        }
+        return machines.indices.map { index in
+            let angle = -.pi / 2 + (2 * .pi * CGFloat(index) / CGFloat(machines.count))
+            return CGPoint(x: 0.5 + cos(angle) * 0.22, y: 0.5 + sin(angle) * 0.22)
+        }
+    }
+
+    private var dotDiameter: CGFloat {
+        machines.count <= 4 ? 3.8 : max(2.2, 4.4 - CGFloat(machines.count) * 0.24)
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                ScoutHexagon()
+                    .stroke(ScoutInk.muted.opacity(0.82), lineWidth: 1)
+                ScoutHexagon()
+                    .scale(0.54)
+                    .stroke(ScoutInk.dim.opacity(0.58), lineWidth: 0.75)
+
+                ForEach(Array(machines.enumerated()), id: \.element.id) { index, machine in
+                    let isSelected = selectedIds.contains(machine.id.lowercased())
+                    let signal = machine.isOnline ? ScoutPalette.accent : ScoutInk.dim
+                    let point = points[index]
+                    Circle()
+                        .fill(isSelected ? signal : ScoutPalette.bg)
+                        .overlay(Circle().stroke(signal, lineWidth: 0.8))
+                        .frame(width: dotDiameter, height: dotDiameter)
+                        .position(x: proxy.size.width * point.x, y: proxy.size.height * point.y)
+                }
+            }
+        }
+        .frame(width: 20, height: 22)
+        .allowsHitTesting(false)
     }
 }
 
