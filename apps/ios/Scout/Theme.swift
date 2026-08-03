@@ -179,6 +179,56 @@ struct ScoutEmptyState: View {
     }
 }
 
+/// Scout's blocking-work indicator. The frame stays still while three unequal
+/// host facets circulate through it, so the motion reads as network activity
+/// rather than an indeterminate system control. Reduce Motion keeps the same
+/// complete mark and removes only the orbit.
+struct ScoutActivityIndicator: View {
+    var size: CGFloat = 40
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isSpinning = false
+
+    var body: some View {
+        ZStack {
+            ScoutHexagon()
+                .fill(ScoutPalette.accent.opacity(0.055))
+            ScoutHexagon()
+                .stroke(ScoutPalette.accent.opacity(0.42), lineWidth: 1.15)
+            ScoutHexagon()
+                .scale(0.54)
+                .stroke(ScoutPalette.accent.opacity(0.28), lineWidth: 0.8)
+
+            ZStack {
+                facet(angle: 0, diameter: 5.2, opacity: 1)
+                facet(angle: 120, diameter: 4.2, opacity: 0.58)
+                facet(angle: 240, diameter: 3.2, opacity: 0.28)
+            }
+            .rotationEffect(.degrees(isSpinning ? 360 : 0))
+            .animation(
+                reduceMotion
+                    ? nil
+                    : .linear(duration: 0.82).repeatForever(autoreverses: false),
+                value: isSpinning
+            )
+        }
+        .frame(width: size, height: size)
+        .onAppear { isSpinning = !reduceMotion }
+        .onChange(of: reduceMotion) { _, shouldReduce in
+            isSpinning = !shouldReduce
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func facet(angle: Double, diameter: CGFloat, opacity: Double) -> some View {
+        Circle()
+            .fill(ScoutPalette.accent.opacity(opacity))
+            .frame(width: diameter, height: diameter)
+            .offset(y: -size * 0.30)
+            .rotationEffect(.degrees(angle))
+    }
+}
+
 struct ScoutField: View {
     let placeholder: String
     var icon: String?

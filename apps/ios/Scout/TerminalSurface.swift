@@ -449,7 +449,7 @@ struct TerminalSurface: View {
         switch workspace.status {
         case .connecting:
             blockingOverlay {
-                ProgressView().tint(ScoutPalette.accent)
+                ScoutActivityIndicator(size: 32)
                 Text(workspace.statusMessage.isEmpty ? "Connecting…" : workspace.statusMessage)
                     .font(HudFont.mono(HudTextSize.xxs))
                     .foregroundStyle(ScoutInk.muted)
@@ -513,7 +513,8 @@ struct TerminalSurface: View {
         VStack(spacing: HudSpacing.lg) {
             Spacer()
             if showsSpinner {
-                ProgressView().tint(ScoutPalette.accent)
+                ScoutActivityIndicator(size: 42)
+                    .padding(.bottom, HudSpacing.sm)
             }
             Text(title)
                 .font(HudFont.ui(HudTextSize.md, weight: .semibold))
