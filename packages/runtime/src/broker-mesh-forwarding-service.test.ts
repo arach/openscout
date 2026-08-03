@@ -24,6 +24,7 @@ import {
   actorIdsForCollaboration,
   hasReachableMeshEntrypoint,
   isReachableMeshNode,
+  isReachableRemoteBrokerUrl,
   isStaleMeshAuthorityNode,
   type BrokerMeshForwardingServiceDeps,
 } from "./broker-mesh-forwarding-service.js";
@@ -240,6 +241,18 @@ function createHarness(input: {
 describe("broker mesh forwarding helpers", () => {
   test("recognizes HTTP and supported Iroh mesh reachability", () => {
     expect(isReachableMeshNode(node({ brokerUrl: "http://peer.test" }))).toBe(true);
+    expect(isReachableRemoteBrokerUrl("http://192.168.18.22:43110")).toBe(true);
+    expect(isReachableRemoteBrokerUrl("https://peer.example.test")).toBe(true);
+    expect(isReachableRemoteBrokerUrl("http://0.0.0.0:43110")).toBe(false);
+    expect(isReachableRemoteBrokerUrl("http://[::]:43110")).toBe(false);
+    expect(isReachableRemoteBrokerUrl("http://127.0.0.42:43110")).toBe(false);
+    expect(isReachableRemoteBrokerUrl("http://localhost:43110")).toBe(false);
+    expect(isReachableRemoteBrokerUrl("not a URL")).toBe(false);
+    // Sibling brokers on one machine stay reachable mesh nodes; wildcard
+    // listen addresses and non-http(s) schemes never do.
+    expect(isReachableMeshNode(node({ brokerUrl: "http://127.0.0.1:43111" }))).toBe(true);
+    expect(isReachableMeshNode(node({ brokerUrl: "http://0.0.0.0:43110" }))).toBe(false);
+    expect(isReachableMeshNode(node({ brokerUrl: "ws://peer.test" }))).toBe(false);
     expect(hasReachableMeshEntrypoint(node({
       brokerUrl: undefined,
       meshEntrypoints: [{
@@ -377,6 +390,13 @@ describe("broker mesh forwarding helpers", () => {
         alpn: OPENSCOUT_IROH_MESH_ALPN,
         bridgeProtocolVersion: OPENSCOUT_MESH_PROTOCOL_VERSION,
       }],
+    });
+    await service.maybeForwardFlightToAuthority(flight());
+    expect(posts).toEqual([]);
+
+    snapshot.nodes["node-peer"] = node({
+      id: "node-peer",
+      brokerUrl: "http://0.0.0.0:43110",
     });
     await service.maybeForwardFlightToAuthority(flight());
     expect(posts).toEqual([]);
