@@ -118,11 +118,63 @@ result.usage;        // token usage, when the harness reports it
 
 For a warm, multi-turn client that reuses one local session, use `createLocalAgentClient` from the same surface.
 
+### Bounded task tails
+
+Server-side consumers that only need recent conversational content should use
+`readTaskTail` instead of loading a complete harness history. The first adapter
+supports Codex rollout JSONL. It performs bounded tail reads, returns only
+normalized user and final-assistant messages, and issues an opaque cursor for
+subsequent forward reads:
+
+```ts
+import { readTaskTail, TaskTailError } from "@openscout/agent-sessions";
+
+const initial = readTaskTail({
+  path: rolloutPath, // already validated against the owning Codex task
+  adapterType: "codex",
+  expectedTaskId: threadId,
+  maxMessages: 20,
+  maxBytes: 256 * 1024,
+  maxScanBytes: 32 * 1024 * 1024,
+});
+
+const next = readTaskTail({
+  path: rolloutPath,
+  adapterType: "codex",
+  expectedTaskId: threadId,
+  cursor: initial.cursor,
+});
+
+initial.messages;          // chronological user/final-assistant messages
+initial.source.bytesRead;  // bounded transcript bytes actually read
+next.messages;             // only messages completed after the first cursor
+```
+
+`maxMessages` defaults to 20 and is capped at 100. `maxBytes` defaults to
+256 KiB and is capped at 2 MiB; it bounds normalized message text.
+`maxScanBytes` defaults to 32 MiB and is capped at 64 MiB; the initial reader
+starts with a small tail window and expands backward only until it has enough
+messages. Forward reads use the same hard scan bound and can safely advance
+across oversized non-message records. A clipped message carries
+`truncated: true`, and the result-level
+`truncated` flag also reports unread history or limits. Cursors are versioned
+and bind the adapter, task id, file identity, byte offset, adjacent turn, and a
+small deduplication window. Rotation, truncation, task mismatch, corrupt
+cursors, invalid offsets, and oversized limits fail closed with a typed
+`TaskTailError` and `code`.
+
+This reader is deliberately read-only. It does not prove current Codex Desktop
+ownership and cannot submit, steer, resume, or create a task. Establish and
+validate the owner-provided rollout path first, persist only the opaque cursor
+and small presentation state, and keep canonical turn dispatch on the owning
+harness channel. Claude Code will use the same public contract when its tail
+adapter is added.
+
 ## Subpath Exports
 
 | Import | Purpose |
 | --- | --- |
-| `@openscout/agent-sessions` | Root surface: `SessionRegistry`, `StateTracker`, protocol primitives, adapter factories, history snapshots, budget/cost observations, and Codex launch helpers. |
+| `@openscout/agent-sessions` | Root surface: `SessionRegistry`, `StateTracker`, protocol primitives, adapter factories, history snapshots, bounded task tails, budget/cost observations, and Codex launch helpers. |
 | `@openscout/agent-sessions/client` | Browser-safe boundary — snapshot, event, and approval types plus `inferModelContextWindowTokens`, with no registry or adapter code. |
 | `@openscout/agent-sessions/local` | Broker-free local turns: `completeLocalAgentTurn`, `createLocalAgentClient`, and the Codex app-server transport. |
 | `@openscout/agent-sessions/adapters/acp` | ACP stdio agent adapter (`createAcpAdapter`). |
