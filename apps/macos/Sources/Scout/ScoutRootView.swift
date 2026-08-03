@@ -8028,18 +8028,40 @@ private struct ScoutAgentCardStack: View {
     let openSession: (ScoutChannel) -> Void
     let startSession: (ScoutAgent) -> Void
 
+    /// Which member's detail is open. `nil` ⇒ the first member, so the pane is
+    /// never empty and never has to guess before the operator has picked.
+    @State private var selectedAgentId: String?
+
+    private var selectedAgent: ScoutAgent? {
+        agents.first { $0.id == selectedAgentId } ?? agents.first
+    }
+
+    /// Roster first, then one detail — the macOS inspector shape.
+    ///
+    /// Every member used to get a full inspector card, so a six-agent channel
+    /// stacked six equally loud panels, each repeating its own runtime table.
+    /// Nothing was primary and the roll-up — who is in this channel, who is
+    /// working — took the most scrolling to answer. A compact roster answers
+    /// that in one glance and the detail below belongs to exactly one agent.
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: HudSpacing.lg) {
-                ForEach(agents) { agent in
-                    card(for: agent)
-                        .frame(minWidth: 230, maxWidth: .infinity, alignment: .top)
+        VStack(alignment: .leading, spacing: HudSpacing.lg) {
+            VStack(spacing: 0) {
+                ForEach(Array(agents.enumerated()), id: \.element.id) { index, agent in
+                    if index > 0 {
+                        HudDivider(color: ScoutDesign.hairline)
+                    }
+                    ScoutAgentRosterRow(
+                        agent: agent,
+                        selected: agent.id == selectedAgent?.id,
+                        onSelect: { selectedAgentId = agent.id },
+                        onOpenConversation: { openConversation(agent) }
+                    )
                 }
             }
-            VStack(spacing: HudSpacing.lg) {
-                ForEach(agents) { agent in
-                    card(for: agent)
-                }
+
+            if let agent = selectedAgent {
+                card(for: agent)
+                    .id(agent.id)
             }
         }
     }
@@ -8057,6 +8079,76 @@ private struct ScoutAgentCardStack: View {
             livePreview: nil,
             openTail: nil
         )
+    }
+}
+
+/// One channel member in the roster: identity, liveness, and the one runtime
+/// fact worth carrying at this size. Everything else is a click away in the
+/// detail below, which is the point of the roster.
+private struct ScoutAgentRosterRow: View {
+    let agent: ScoutAgent
+    let selected: Bool
+    let onSelect: () -> Void
+    let onOpenConversation: () -> Void
+    @State private var hovering = false
+
+    /// State is the only job colour has in this row: emerald means live work,
+    /// amber means it is waiting on the operator. Everything at rest is grey,
+    /// so a working agent is findable without reading a single label.
+    private var dotColor: Color {
+        switch agent.state {
+        case .working: return ScoutPalette.accent
+        case .needsAttention: return ScoutPalette.statusWarn
+        case .available: return ScoutPalette.muted
+        case .done, .offline: return ScoutPalette.dim
+        }
+    }
+
+    private var isLive: Bool {
+        agent.state == .working || agent.state == .needsAttention
+    }
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: HudSpacing.md) {
+                Circle()
+                    .fill(dotColor)
+                    .frame(width: 5, height: 5)
+                    .opacity(isLive ? 1 : 0.55)
+
+                SpriteAvatarView(name: agent.displayName, size: 20, tile: true)
+
+                Text(agent.displayName)
+                    .font(HudFont.ui(HudTextSize.sm, weight: selected ? .semibold : .medium))
+                    .foregroundStyle(selected ? ScoutPalette.ink : ScoutPalette.muted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Spacer(minLength: HudSpacing.sm)
+
+                Text(agent.harness?.nilIfEmpty ?? "—")
+                    .font(HudFont.mono(HudTextSize.micro))
+                    .foregroundStyle(ScoutPalette.dim)
+                    .lineLimit(1)
+            }
+            .padding(.vertical, HudSpacing.sm)
+            .padding(.horizontal, HudSpacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                    .fill(selected
+                        ? ScoutPalette.ink.opacity(0.07)
+                        : (hovering ? ScoutPalette.ink.opacity(0.035) : Color.clear))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .scoutPointerCursor()
+        .onHover { hovering = $0 }
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+        .help("\(agent.displayName) · \(agent.state.rawValue)")
+        .contextMenu {
+            Button("Open conversation", action: onOpenConversation)
+        }
     }
 }
 
