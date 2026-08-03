@@ -365,6 +365,19 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Projects-first fleet landing — machine rail, currently-working strip, projects tree with one-child compression, latest-activity log. Faithful port + a Compact density treatment.",
   },
   {
+    href: "/studies/mobile-timeline",
+    label: "Mobile v3 · Fleet Timeline",
+    bucket: "studies",
+    surface: "ios",
+    family: "scout-ios",
+    status: "concept",
+    source: [
+      "plans/scout-mobile-timeline.md",
+      "design/studio/views/mobile-timeline.tsx",
+    ],
+    blurb: "The settled phone shape: Home (X-like feed + live Working row) · Chats (Slack-like, Mine/Channels) · center hex (Codex-like composer) · Projects (places view, contextual terminal) · Notifications (action queue). Plus the peek sheet.",
+  },
+  {
     href: "/studies/scout-ios-notifications",
     label: "Scout iOS · Notifications",
     bucket: "studies",
