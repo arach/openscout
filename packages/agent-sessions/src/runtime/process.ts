@@ -17,6 +17,7 @@ export interface HarnessProcess {
   onError(handler: (error: Error) => void): void;
   onExit(handler: (code: number | null, signal: NodeJS.Signals | null) => void): void;
   readStdoutLines(onLine: (line: string) => void, onEnd?: () => void): void;
+  readStderrLines(onLine: (line: string) => void, onEnd?: () => void): void;
   drainStdout(): void;
   drainStderr(): void;
   waitForExit(timeoutMs: number): Promise<boolean>;
@@ -92,6 +93,9 @@ function wrapBunProcess(child: Subprocess<"pipe", "pipe", "pipe">): HarnessProce
     readStdoutLines(onLine, onEnd) {
       readWebStreamLines(child.stdout, onLine, onEnd);
     },
+    readStderrLines(onLine, onEnd) {
+      readWebStreamLines(child.stderr, onLine, onEnd);
+    },
     drainStdout() {
       drainWebStream(child.stdout);
     },
@@ -142,6 +146,9 @@ function wrapNodeProcess(child: ChildProcessWithoutNullStreams): HarnessProcess 
     },
     readStdoutLines(onLine, onEnd) {
       readNodeStreamLines(child.stdout, onLine, onEnd);
+    },
+    readStderrLines(onLine, onEnd) {
+      readNodeStreamLines(child.stderr, onLine, onEnd);
     },
     drainStdout() {
       child.stdout.resume();

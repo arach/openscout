@@ -463,7 +463,7 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
     },
     resume: {
       command: "pi",
-      sessionFlag: "--session-id",
+      sessionFlag: "--resume",
     },
     capabilities: ["chat", "invoke", "deliver", "review", "execute"],
   },
