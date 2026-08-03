@@ -132,10 +132,7 @@ struct HomeSurface: View {
     }
 
     private var filterKey: String {
-        switch model.machineFilter {
-        case .all: return "all"
-        case .machine(let id): return id
-        }
+        model.machineFilterKey
     }
 
     private var reloadKey: String {
