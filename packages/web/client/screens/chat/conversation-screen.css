@@ -604,10 +604,6 @@ button.s-thread-identity-chip:hover {
   border-radius: var(--radius-xs);
 }
 
-.s-thread-feed-spacer {
-  flex: 1;
-}
-
 .s-thread-history-control {
   align-self: stretch;
   display: flex;
@@ -650,6 +646,44 @@ button.s-thread-identity-chip:hover {
 .s-thread-history-button:disabled {
   cursor: default;
   opacity: 0.68;
+}
+
+.s-thread-new-messages {
+  position: sticky;
+  bottom: var(--space-sm);
+  z-index: 1;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  min-height: 30px;
+  margin: calc(var(--space-sm) * -1) 0 0;
+  padding: var(--space-sm) var(--space-lg);
+  border: 1px solid color-mix(in srgb, var(--accent) 48%, var(--border));
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface) 94%, var(--accent));
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 var(--space-sm) var(--space-xl) color-mix(in srgb, var(--bg) 42%, transparent);
+  transition:
+    background 160ms ease-out,
+    border-color 160ms ease-out,
+    color 160ms ease-out;
+}
+
+.s-thread-new-messages:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--surface) 86%, var(--accent));
+  color: var(--ink);
+}
+
+.s-thread-new-messages:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .s-thread-history-spinner {
@@ -982,6 +1016,20 @@ button.s-thread-msg-actor:focus-visible {
   -webkit-user-select: text;
 }
 
+/* Identifiers in prose are set as identifiers, not as accents.
+ *
+ * The global chip is emerald on emerald, which is right where a chip is rare.
+ * In a transcript every second sentence carries a filename, a token or a
+ * symbol, so the accent stops meaning anything and the eye is pulled off the
+ * sentence into a field of green. Here mono plus a faint inset does the same
+ * job, and the accent is left free for the one thing it should mark: live,
+ * addressed-to-you state. */
+.s-thread-msg-body .s-inline-code {
+  border-color: color-mix(in srgb, var(--border) 62%, transparent);
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  color: color-mix(in srgb, var(--ink) 82%, var(--muted));
+}
+
 /* Reply-context backlink: resolves the raw [ask:<flightId>] tag into a
    clickable reference to the originating ask, instead of leaking the token. */
 .s-thread-reply-ctx {
@@ -1046,8 +1094,105 @@ button.s-thread-msg-actor:focus-visible {
   border-radius: var(--radius-sm);
 }
 
+/* ── Fan-out dispatch ──
+   One kickoff delivered to several agents. Deliberately the quietest row in
+   the feed: it is routing, not conversation, so it reads as a single mono
+   event line and only becomes prose when the operator opens it. */
+
+.s-thread-fanout {
+  align-self: stretch;
+}
+
+/* Scroll and permalink target for a delivery the row folded away. It takes no
+   space and paints nothing — its only job is to exist at `msg-<id>` so a
+   backlink still resolves; the row around it is what the reader is sent to. */
+.s-thread-fanout-anchor {
+  display: block;
+  height: 0;
+  scroll-margin-block: var(--space-2xl);
+}
+
+.s-thread-fanout-summary {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  padding: var(--space-2xs) var(--space-sm);
+  margin-left: calc(var(--space-sm) * -1);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-xs);
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.s-thread-fanout-summary:hover {
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  color: var(--muted);
+}
+
+.s-thread-fanout-summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.s-thread-fanout-caret {
+  flex: none;
+  width: 8px;
+}
+
+.s-thread-fanout-label {
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.s-thread-fanout-time {
+  color: color-mix(in srgb, var(--dim) 78%, transparent);
+}
+
+.s-thread-fanout-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-sm) 0 var(--space-md) var(--space-lg);
+  border-left: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+
+.s-thread-fanout-recipients {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2xs) var(--space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.s-thread-fanout-recipient {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--muted);
+}
+
+.s-thread-fanout-body {
+  max-width: 68ch;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* Brief highlight when a backlink scrolls its originating message into view. */
 .s-thread-msg--flash .s-thread-msg-card {
+  animation: s-thread-msg-flash 1.2s ease;
+}
+
+/* Same highlight when the backlink pointed at a delivery this row folded. The
+   summary line is the whole row when collapsed, so it carries the flash. */
+.s-thread-fanout--flash .s-thread-fanout-summary {
   animation: s-thread-msg-flash 1.2s ease;
 }
 
@@ -3119,8 +3264,26 @@ button.s-thread-sidebar-participant:focus-visible {
    for where a turn begins.                                                */
 
 .s-thread-layout[data-thread-treatment="rail"] .s-thread-feed {
+  /* Give the thread a working width instead of treating it like a centered
+     book page. The left metadata lane gets enough room for a name, handle and
+     timestamp to read across; the prose uses the remaining space without
+     becoming an unbounded wall of text. */
+  --thread-rail-gutter: clamp(196px, 14vw, 240px);
+  --thread-rail-measure: clamp(760px, 60vw, 1040px);
+  --thread-rail-column: calc(
+    var(--thread-rail-gutter) + var(--space-lg) + var(--thread-rail-measure)
+  );
   gap: 0;
   padding: var(--space-xl) var(--space-2xl) var(--space-xl);
+}
+
+.s-thread-layout[data-thread-treatment="rail"] .s-thread-feed-block {
+  width: min(100%, var(--thread-rail-column));
+  margin-inline: 0;
+}
+
+.s-thread-layout[data-thread-treatment="rail"] .s-thread-msg {
+  max-width: 100%;
 }
 
 .s-thread-layout[data-thread-treatment="rail"] .s-thread-feed-block + .s-thread-feed-block {
@@ -3129,7 +3292,8 @@ button.s-thread-sidebar-participant:focus-visible {
 
 .s-thread-layout[data-thread-treatment="rail"] .s-thread-msg-card {
   position: relative;
-  padding: var(--space-md) 0;
+  padding: var(--space-md) 0 var(--space-md)
+    calc(var(--thread-rail-gutter) + var(--space-lg));
 }
 
 /* One unbroken prose edge. Drawn on the card rather than each child, so a
@@ -3137,42 +3301,49 @@ button.s-thread-sidebar-participant:focus-visible {
 .s-thread-layout[data-thread-treatment="rail"] .s-thread-msg-card::before {
   content: "";
   position: absolute;
-  left: 132px;
+  left: var(--thread-rail-gutter);
   top: 0;
   bottom: 0;
   width: 1px;
   background: color-mix(in srgb, var(--border) 70%, transparent);
 }
 
+/* The margin note is a contained float, not a grid cell.
+ *
+ * As a grid it shared row 1 with whatever body part came first, so a
+ * four-line author stack set the height of a one-line reply backlink and
+ * dropped ~80px of dead space between the backlink and the prose it belongs
+ * to. A float sizes itself, so the prose starts where the turn starts; the
+ * BFC on the content keeps a tall stack from bleeding into the next turn. */
 .s-thread-layout[data-thread-treatment="rail"] .s-thread-msg-card-content {
-  display: grid;
-  grid-template-columns: 132px minmax(0, 1fr);
-  column-gap: 0;
-  align-items: start;
+  display: flow-root;
+}
+
+.s-thread-layout[data-thread-treatment="rail"] .s-thread-msg-card-content > * + * {
+  margin-top: var(--space-sm);
 }
 
 .s-thread-layout[data-thread-treatment="rail"] .s-thread-msg-header {
-  grid-column: 1;
-  grid-row: 1;
-  flex-direction: column;
-  align-items: flex-end;
-  text-align: right;
-  gap: var(--space-3xs);
+  float: left;
+  display: flex;
+  width: var(--thread-rail-gutter);
+  margin-top: 0;
+  margin-left: calc(-1 * (var(--thread-rail-gutter) + var(--space-lg)));
   padding-right: var(--space-lg);
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  text-align: left;
+  gap: var(--space-2xs) var(--space-sm);
   min-width: 0;
 }
 
-.s-thread-layout[data-thread-treatment="rail"] .s-thread-msg-card-content > *:not(.s-thread-msg-header) {
-  grid-column: 2;
-  padding-left: var(--space-lg);
-}
-
 .s-thread-layout[data-thread-treatment="rail"] .s-thread-msg-meta {
-  flex: none;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: var(--space-3xs);
-  width: 100%;
+  flex: 1 1 auto;
+  flex-direction: row;
+  align-items: baseline;
+  gap: var(--space-2xs) var(--space-sm);
+  width: auto;
 }
 
 .s-thread-layout[data-thread-treatment="rail"] .s-thread-msg-handle,
@@ -3185,9 +3356,67 @@ button.s-thread-sidebar-participant:focus-visible {
 }
 
 .s-thread-layout[data-thread-treatment="rail"] .s-thread-msg-body {
-  max-width: 68ch;
+  max-width: var(--thread-rail-measure);
   font-size: var(--text-md);
   line-height: 1.58;
+}
+
+/* The backlink is metadata about the turn, not a heading for it.
+ *
+ * Every reply to one fan-out carries the same originating title, so at full
+ * measure the identical mono line was the first thing read on every turn and
+ * the prose came second. Held to a third of the measure and a step quieter it
+ * still answers "what is this replying to" without being the loudest row. */
+.s-thread-layout[data-thread-treatment="rail"] .s-thread-reply-ctx {
+  max-width: min(38ch, var(--thread-rail-measure));
+  margin-bottom: var(--space-2xs);
+  font-size: var(--text-2xs);
+  opacity: 0.72;
+}
+
+.s-thread-layout[data-thread-treatment="rail"] .s-thread-reply-ctx:hover,
+.s-thread-layout[data-thread-treatment="rail"] .s-thread-reply-ctx:focus-visible {
+  opacity: 1;
+}
+
+/* The live-turn card carries its avatar as a sibling of the content rather
+   than inside the header, so the floated margin note landed on top of it.
+   This one card puts the avatar in the gutter itself and leaves its header
+   in flow — the turn still reads as the same column, and nothing overlaps. */
+.s-thread-layout[data-thread-treatment="rail"] .s-thread-msg-card--avatar-row {
+  display: grid;
+  grid-template-columns: var(--thread-rail-gutter) minmax(0, 1fr);
+  column-gap: var(--space-lg);
+  align-items: start;
+  padding-left: 0;
+}
+
+.s-thread-layout[data-thread-treatment="rail"] .s-thread-msg-card--avatar-row > .s-thread-msg-avatar {
+  grid-column: 1;
+  justify-self: end;
+  margin-right: var(--space-lg);
+}
+
+.s-thread-layout[data-thread-treatment="rail"] .s-thread-msg-card--avatar-row > .s-thread-msg-card-content {
+  grid-column: 2;
+}
+
+.s-thread-layout[data-thread-treatment="rail"] .s-thread-msg-card--avatar-row .s-thread-msg-header {
+  float: none;
+  width: auto;
+  margin-left: 0;
+  padding-right: 0;
+  flex-direction: row;
+  align-items: baseline;
+  text-align: left;
+  gap: var(--space-sm);
+}
+
+.s-thread-layout[data-thread-treatment="rail"] .s-thread-msg-card--avatar-row .s-thread-msg-meta {
+  flex-direction: row;
+  align-items: baseline;
+  gap: var(--space-sm);
+  width: auto;
 }
 
 /* ── Document ────────────────────────────────────────────────────────────

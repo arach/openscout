@@ -41,7 +41,6 @@ import {
   normalizeTimestampMs,
   timeAgo,
 } from "../../lib/time.ts";
-import { isSameCalendarDay, formatThreadDayLabel } from "../../lib/thread-days.ts";
 import { isAgentOnline } from "../../lib/agent-state.ts";
 import {
   TERMINAL_CONVERSATION_FLIGHT_STATES,
@@ -89,6 +88,7 @@ import {
   type ConversationHeaderParticipant,
 } from "./ConversationHeader.tsx";
 import { ConversationComposer } from "./ConversationComposer.tsx";
+import { FanOutRow, ThreadDayDivider } from "./ConversationFeedRows.tsx";
 import {
   ThreadLoadingSkeleton,
   ThreadMotionPanel,
@@ -117,6 +117,8 @@ import {
   messageClassLabel,
   parseAskReplyTag,
   pathLeaf,
+  buildConversationFeedRows,
+  shouldShowThreadDayDivider,
   optimisticMessageIndexForClientId,
   readScoutDispatch,
   resolveAgentByIdentity,
@@ -166,6 +168,8 @@ function messageIdFromLocationHash(hash: string | null | undefined): string | nu
 
 type ConversationMessageLoadMode = "initial" | "refresh" | "none";
 type SendAttemptOutcome = "sent" | "failed" | "unknown";
+
+const CONVERSATION_TAIL_THRESHOLD_PX = 64;
 
 function clientMessageIdFromMetadata(metadata: Record<string, unknown> | null | undefined): string | null {
   const value = metadata?.["clientMessageId"];
@@ -279,12 +283,17 @@ export function ConversationScreen({
   );
   const [error, setError] = useState<string | null>(null);
   const [loadingEarlierMessages, setLoadingEarlierMessages] = useState(false);
+  const [feedPaused, setFeedPaused] = useState(false);
+  const [pendingNewMessageCount, setPendingNewMessageCount] = useState(0);
   const feedRef = useRef<HTMLDivElement>(null);
   const pendingHistoryScrollRef = useRef<{
     scrollHeight: number;
     scrollTop: number;
   } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const wasAtBottomRef = useRef(true);
+  const autoScrollActiveRef = useRef(false);
+  const autoScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const composeRef = useRef<HTMLTextAreaElement>(null);
   const trackedInvocationIdsRef = useRef<Set<string>>(new Set());
   const currentFlightRef = useRef<Flight | null>(null);
@@ -315,6 +324,11 @@ export function ConversationScreen({
     setLoadingEarlierMessages(false);
     pendingHistoryScrollRef.current = null;
     historyRestoreAppliedRef.current = false;
+    wasAtBottomRef.current = true;
+    autoScrollActiveRef.current = false;
+    setFeedPaused(false);
+    setPendingNewMessageCount(0);
+    setExpandedFanOutKeys(new Set());
     optimisticMessageIdByClientIdRef.current.clear();
     setCurrentFlight(pendingConversationFlight(conversationId));
   }, [conversationId]);
@@ -1050,13 +1064,51 @@ export function ConversationScreen({
     [messages],
   );
 
+  /// The feed's rows, with one kickoff's per-recipient deliveries folded back
+  /// into the single event they came from. Expansion is per row and sticky for
+  /// the life of the screen: a reader who opened one to check the recipients
+  /// should not have it snap shut under them when the next turn lands.
+  const feedRows = useMemo(() => buildConversationFeedRows(messages), [messages]);
+  const [expandedFanOutKeys, setExpandedFanOutKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const toggleFanOut = useCallback((key: string) => {
+    setExpandedFanOutKeys((previous) => {
+      const next = new Set(previous);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  }, []);
+
+  /// Which fan-out row swallowed each delivery, so a backlink or a `#msg-`
+  /// permalink aimed at a folded message can open the row it now lives in
+  /// instead of scrolling to a collapsed marker and showing nothing.
+  const fanOutKeyByMessageId = useMemo(() => {
+    const byMessageId = new Map<string, string>();
+    for (const row of feedRows) {
+      if (row.kind !== "fanout") continue;
+      for (const message of row.messages) byMessageId.set(message.id, row.key);
+    }
+    return byMessageId;
+  }, [feedRows]);
+
   const scrollToMessage = useCallback((messageId: string) => {
+    const fanOutKey = fanOutKeyByMessageId.get(messageId);
+    if (fanOutKey) {
+      setExpandedFanOutKeys((previous) => (
+        previous.has(fanOutKey) ? previous : new Set(previous).add(fanOutKey)
+      ));
+    }
     const el = document.getElementById(`msg-${messageId}`);
     if (!el) return;
-    el.scrollIntoView({ behavior: "smooth", block: "center" });
-    el.classList.add("s-thread-msg--flash");
-    window.setTimeout(() => el.classList.remove("s-thread-msg--flash"), 1200);
-  }, []);
+    // A folded delivery's anchor has no box of its own, so the row standing in
+    // for it is what gets scrolled and highlighted.
+    const target = el.closest<HTMLElement>(".s-thread-fanout") ?? el;
+    const flashClass = target === el ? "s-thread-msg--flash" : "s-thread-fanout--flash";
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    target.classList.add(flashClass);
+    window.setTimeout(() => target.classList.remove(flashClass), 1200);
+  }, [fanOutKeyByMessageId]);
 
   useEffect(() => {
     const onHashChange = () => setHashMessageId(messageIdFromLocationHash(window.location.hash));
@@ -1245,10 +1297,56 @@ export function ConversationScreen({
   const previousNewestMessageIdRef = useRef<string | null>(null);
   const previousShowTypingRef = useRef(false);
   const initialScrollDoneRef = useRef(false);
+  const scrollToTail = useCallback((behavior: "instant" | "smooth") => {
+    const bottom = bottomRef.current;
+    if (!bottom) return;
+
+    autoScrollActiveRef.current = true;
+    if (autoScrollTimeoutRef.current !== null) {
+      clearTimeout(autoScrollTimeoutRef.current);
+    }
+    bottom.scrollIntoView({ behavior });
+    autoScrollTimeoutRef.current = setTimeout(() => {
+      autoScrollActiveRef.current = false;
+      autoScrollTimeoutRef.current = null;
+    }, behavior === "smooth" ? 700 : 0);
+  }, []);
+
+  useEffect(() => () => {
+    if (autoScrollTimeoutRef.current !== null) {
+      clearTimeout(autoScrollTimeoutRef.current);
+    }
+  }, []);
+
+  const handleFeedScroll = useCallback(() => {
+    const feed = feedRef.current;
+    if (!feed || autoScrollActiveRef.current) return;
+
+    const distanceFromTail = feed.scrollHeight - feed.clientHeight - feed.scrollTop;
+    const atBottom = distanceFromTail <= CONVERSATION_TAIL_THRESHOLD_PX;
+    wasAtBottomRef.current = atBottom;
+    if (atBottom) {
+      setFeedPaused(false);
+      setPendingNewMessageCount(0);
+    } else {
+      setFeedPaused(true);
+    }
+  }, []);
+
+  const jumpToLatest = useCallback(() => {
+    wasAtBottomRef.current = true;
+    setFeedPaused(false);
+    setPendingNewMessageCount(0);
+    scrollToTail("smooth");
+  }, [scrollToTail]);
+
   // Runs on every commit so the "what changed since last paint" refs below are
   // never stale, and so a suppressed prepend commit still clears its own flag.
   useEffect(() => {
     const newestMessageId = messages.at(-1)?.id ?? null;
+    const newMessageArrived = Boolean(
+      newestMessageId && newestMessageId !== previousNewestMessageIdRef.current,
+    );
     const decision = resolveConversationAutoscroll({
       newestMessageId,
       previousNewestMessageId: previousNewestMessageIdRef.current,
@@ -1257,10 +1355,18 @@ export function ConversationScreen({
       historyRestorePending: historyRestoreAppliedRef.current
         || pendingHistoryScrollRef.current !== null,
       initialScrollDone: initialScrollDoneRef.current,
+      nearBottom: wasAtBottomRef.current,
     });
     if (decision !== "none") {
-      bottomRef.current?.scrollIntoView({ behavior: decision });
+      scrollToTail(decision);
       initialScrollDoneRef.current = true;
+    } else if (
+      newMessageArrived
+      && initialScrollDoneRef.current
+      && !wasAtBottomRef.current
+    ) {
+      setFeedPaused(true);
+      setPendingNewMessageCount((count) => count + 1);
     }
     historyRestoreAppliedRef.current = false;
     previousNewestMessageIdRef.current = newestMessageId;
@@ -1835,8 +1941,7 @@ export function ConversationScreen({
 
         {error && <p className="s-thread-error">{error}</p>}
 
-        <div className="s-thread-feed" ref={feedRef}>
-          <div className="s-thread-feed-spacer" />
+        <div className="s-thread-feed" ref={feedRef} onScroll={handleFeedScroll}>
           {!showThreadSkeleton && messages.length > 0 && canLoadEarlierMessages && (
             <div className="s-thread-history-control">
               <button
@@ -1895,18 +2000,27 @@ export function ConversationScreen({
               </div>
             )
           ) : (
-            messages.map((message, index) => {
+            feedRows.map((row, index) => {
+              const showDayDivider = shouldShowThreadDayDivider(row, index);
+
+              if (row.kind === "fanout") {
+                return (
+                  <FanOutRow
+                    key={row.key}
+                    row={row}
+                    expanded={expandedFanOutKeys.has(row.key)}
+                    showDayDivider={showDayDivider}
+                    onToggle={() => toggleFanOut(row.key)}
+                  />
+                );
+              }
+
+              const message = row.message;
               const isYou = isOperatorMessage(message, operatorName);
               const dispatch = readScoutDispatch(message);
               const rowClass = dispatch ? "scout.dispatch" : message.class;
               const badgeLabel = messageClassLabel(rowClass);
               const isToolMessage = rowClass === "status";
-              const showDayDivider =
-                index === 0 ||
-                !isSameCalendarDay(
-                  messages[index - 1]?.createdAt,
-                  message.createdAt,
-                );
               const absoluteTime = formatAbsoluteTimestamp(message.createdAt);
               const messageAgent =
                 !isYou
@@ -1946,18 +2060,7 @@ export function ConversationScreen({
                     .filter(Boolean)
                     .join(" ")}
                 >
-                  {showDayDivider && (
-                    <div
-                      className="s-thread-day-divider"
-                      aria-label={formatThreadDayLabel(message.createdAt)}
-                    >
-                      <span className="s-thread-day-line" aria-hidden="true" />
-                      <span className="s-thread-day-label">
-                        {formatThreadDayLabel(message.createdAt)}
-                      </span>
-                      <span className="s-thread-day-line" aria-hidden="true" />
-                    </div>
-                  )}
+                  {showDayDivider && <ThreadDayDivider at={message.createdAt} />}
 
                   <article
                     id={`msg-${message.id}`}
@@ -1975,7 +2078,7 @@ export function ConversationScreen({
                       isFirstPaint
                         ? {
                             animationDelay: `${
-                              Math.max(0, 7 - (messages.length - 1 - index)) * 26
+                              Math.max(0, 7 - (feedRows.length - 1 - index)) * 26
                             }ms`,
                           }
                         : undefined
@@ -2329,6 +2432,16 @@ export function ConversationScreen({
                 </div>
               </div>
             </div>
+          )}
+
+          {feedPaused && pendingNewMessageCount > 0 && (
+            <button
+              type="button"
+              className="s-thread-new-messages"
+              onClick={jumpToLatest}
+            >
+              <span aria-hidden="true">↓</span> {pendingNewMessageCount} new {pendingNewMessageCount === 1 ? "message" : "messages"} · jump to latest
+            </button>
           )}
 
           <div ref={bottomRef} />
