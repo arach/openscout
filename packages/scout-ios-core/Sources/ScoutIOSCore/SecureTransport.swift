@@ -124,20 +124,37 @@ public final class SecureTransport: SecureTransportProtocol, @unchecked Sendable
 
         // Run the handshake with a timeout — if the bridge isn't in the room
         // (stale room ID after restart), receive() blocks forever without this.
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask {
-                try await Task.sleep(for: .seconds(Self.handshakeTimeout))
-                throw SecureTransportError.handshakeTimeout
-            }
+        // Closing the socket when the timer wins is important: cancelling a
+        // URLSessionWebSocketTask.receive() alone can leave the child task
+        // suspended, which makes the structured task group wait forever and
+        // leaves the UI stuck on "Establishing trust".
+        do {
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    try await Task.sleep(for: .seconds(Self.handshakeTimeout))
+                    throw SecureTransportError.handshakeTimeout
+                }
 
-            group.addTask { [self] in
-                try await self.runHandshakeLoop(hs: hs, webSocket: webSocket)
-            }
+                group.addTask { [self] in
+                    try await self.runHandshakeLoop(hs: hs, webSocket: webSocket)
+                }
 
-            // Wait for first completion — either handshake succeeds or timeout fires.
-            try await group.next()
-            // Cancel the other task (either the timer or the handshake).
-            group.cancelAll()
+                // Wait for first completion — either handshake succeeds or timeout fires.
+                do {
+                    try await group.next()
+                } catch {
+                    // Make the network read observe cancellation before the
+                    // task group waits for its child to exit.
+                    webSocket.cancel(with: .goingAway, reason: nil)
+                    group.cancelAll()
+                    throw error
+                }
+                // The handshake completed; stop the timeout task.
+                group.cancelAll()
+            }
+        } catch {
+            webSocket.cancel(with: .goingAway, reason: nil)
+            throw error
         }
 
         // Finalize: derive transport cipher states.
