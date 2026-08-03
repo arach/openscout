@@ -112,7 +112,11 @@ final class ScoutSpeechAnalyzerDictation {
         let (audioStream, audioContinuation) = AsyncStream<ScoutAudioBuffer>.makeStream()
         self.audioContinuation = audioContinuation
         let converter = self.converter
-        pumpTask = Task {
+        // Audio conversion can fall behind when it inherits MainActor from this
+        // service. A backed-up, unbounded capture stream makes stop appear to
+        // hang while it drains seconds (or minutes) of queued microphone
+        // buffers. Keep conversion on a dedicated cooperative worker instead.
+        pumpTask = Task.detached(priority: .userInitiated) {
             defer { inputContinuation.finish() }
             for await audio in audioStream {
                 try Task.checkCancellation()
@@ -123,9 +127,21 @@ final class ScoutSpeechAnalyzerDictation {
 
         let input = audioEngine.inputNode
         let captureFormat = input.outputFormat(forBus: 0)
-        input.installTap(onBus: 0, bufferSize: 4096, format: captureFormat) { buffer, _ in
+        // AVAudioNodeTapBlock is not concurrency-annotated, so a closure formed
+        // directly in this @MainActor method inherits the main actor. AVFAudio
+        // invokes the tap on RealtimeMessenger.mServiceQueue, where Swift's
+        // executor precondition traps before the body can run. An explicitly
+        // Sendable closure is nonisolated and may safely forward into the
+        // thread-safe AsyncStream continuation from the realtime queue.
+        let audioTap = Self.makeAudioTap { buffer in
             audioContinuation.yield(ScoutAudioBuffer(buffer))
         }
+        input.installTap(
+            onBus: 0,
+            bufferSize: 4096,
+            format: captureFormat,
+            block: audioTap
+        )
         tapInstalled = true
         audioEngine.prepare()
         do {
@@ -134,6 +150,14 @@ final class ScoutSpeechAnalyzerDictation {
         } catch {
             await cancel()
             throw error
+        }
+    }
+
+    nonisolated static func makeAudioTap(
+        onBuffer: @escaping @Sendable (AVAudioPCMBuffer) -> Void
+    ) -> @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void {
+        { buffer, _ in
+            onBuffer(buffer)
         }
     }
 
@@ -220,8 +244,7 @@ final class ScoutSpeechAnalyzerDictation {
 }
 
 @available(macOS 26.0, *)
-@MainActor
-private final class ScoutSpeechBufferConverter {
+private final class ScoutSpeechBufferConverter: @unchecked Sendable {
     enum ConversionError: LocalizedError {
         case unavailable
         case bufferAllocation
