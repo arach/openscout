@@ -292,11 +292,12 @@ const WORKING_NOW = [
 
 type PostState = "done" | "failed" | "needs";
 
-/** The context row (X's "reposted by" slot) — the outcome framing, colored by state. */
-const STATE_META: Record<PostState, { glyph: string; ctx: string }> = {
-  done: { glyph: "✓", ctx: "Done" },
-  failed: { glyph: "✕", ctx: "Failed" },
-  needs: { glyph: "?", ctx: "Needs you" },
+/** Top-right state mark — quiet, mono, colored by state. Done is the standard
+ *  state and gets no mark at all; only exceptions are labeled. */
+const STATE_META: Record<PostState, { label: string }> = {
+  done: { label: "" },
+  failed: { label: "Failed" },
+  needs: { label: "Needs you" },
 };
 
 interface FeedPostData {
@@ -305,7 +306,7 @@ interface FeedPostData {
   harness: string;
   age: string;
   state: PostState;
-  /** Extends the context row — "in 26m", "after 3 tries", "2 questions". */
+  /** Folds into the state mark when it earns its place ("Needs you · 2"). */
   detail?: string;
   /** The tweet text: the agent-authored outcome line, in primary ink. */
   line: string;
@@ -319,7 +320,6 @@ interface FeedPostData {
 const POSTS: FeedPostData[] = [
   {
     agent: "Quill", project: "openscout", harness: "claude", age: "12m", state: "done",
-    detail: "in 26m",
     line: "Drafted the fleet-timeline release notes — ready for review.",
     card: { title: "PR #412 · Fleet timeline release notes", meta: "openscout · +184 −22 · 6 files" },
     actions: ["Reply", "Review PR", "Open thread"],
@@ -327,13 +327,12 @@ const POSTS: FeedPostData[] = [
   },
   {
     agent: "Descartes", project: "openscout", harness: "claude", age: "38m", state: "done",
-    detail: "in 9m",
     line: "Finished the mobile nav critique — verdict: the feed-first call is right, post-shaping is the risk. Full writeup in plans/.",
     actions: ["Reply", "Open thread"],
   },
   {
     agent: "Composer", project: "lattices", harness: "codex", age: "51m", state: "needs",
-    detail: "2 questions",
+    detail: "2",
     line: "Two open questions on the grid solver before I can land v2 — keep v1 as a fallback?",
     actions: ["Answer", "Open thread"],
     cta: "Answer",
@@ -343,7 +342,6 @@ const POSTS: FeedPostData[] = [
 const POSTS_SEEN: FeedPostData[] = [
   {
     agent: "tail-tuner", project: "hudson", harness: "codex", age: "2h", state: "failed",
-    detail: "after 3 tries",
     line: "Tail token pass failed — the HudsonVoice flag gate blocks the build.",
     actions: ["Reply", "Retry"],
     cta: "Retry",
@@ -370,7 +368,8 @@ function avaTone(name: string) {
   return AVA_TONES[h % AVA_TONES.length];
 }
 
-/** One post, X anatomy: avatar column · context row (outcome) · name + meta ·
+/** One post, X anatomy: avatar column · identity row hugging the avatar (name +
+ *  project · harness · age, with a quiet top-right state mark on exceptions) ·
  *  outcome line in primary ink · optional link card · action row. */
 function FeedPost({ p }: { p: FeedPostData }) {
   const meta = STATE_META[p.state];
@@ -380,15 +379,17 @@ function FeedPost({ p }: { p: FeedPostData }) {
         {p.agent.replace(/[^a-zA-Z0-9]/g, "").slice(0, 1).toUpperCase() || "•"}
       </span>
       <div className="mtl-post-main">
-        <div className="mtl-post-ctx" data-state={p.state}>
-          {meta.glyph} {meta.ctx}
-          {p.detail ? ` · ${p.detail}` : ""}
-        </div>
         <div className="mtl-post-top">
           <span className="mtl-post-agent">{p.agent}</span>
           <span className="mtl-post-meta">
             {p.project} · {p.harness} · {p.age}
           </span>
+          {p.state !== "done" ? (
+            <span className="mtl-post-state" data-state={p.state}>
+              {meta.label}
+              {p.detail ? ` · ${p.detail}` : ""}
+            </span>
+          ) : null}
         </div>
         <div className="mtl-post-line">{p.line}</div>
         {p.card ? (
@@ -889,15 +890,16 @@ const MTL_CSS = `
   background: color-mix(in oklab, currentColor 13%, transparent);
   border: 1px solid color-mix(in oklab, currentColor 32%, transparent); }
 .mtl-post-main { flex: 1; min-width: 0; }
-.mtl-post-ctx { display: flex; align-items: center; gap: 5px; margin-bottom: 3px;
-  font-family: var(--i-mono); font-size: var(--text-2xs); font-weight: 700; letter-spacing: 0.05em; }
-.mtl-post-ctx[data-state="done"] { color: var(--i-accent); }
-.mtl-post-ctx[data-state="failed"] { color: var(--i-error); }
-.mtl-post-ctx[data-state="needs"] { color: var(--i-warn); }
 .mtl-post-top { display: flex; align-items: baseline; gap: 7px; }
 .mtl-post-agent { font-size: var(--text-lg); font-weight: 700; color: var(--i-ink); }
 .mtl-post-meta { font-family: var(--i-mono); font-size: var(--text-2xs); color: var(--i-dim);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* state mark — top-right of the identity row; only exceptions are labeled
+ *  (done, the standard state, stays unmarked) */
+.mtl-post-state { margin-left: auto; flex: none; font-family: var(--i-mono);
+  font-size: var(--text-2xs); font-weight: 700; letter-spacing: 0.04em; }
+.mtl-post-state[data-state="failed"] { color: var(--i-error); }
+.mtl-post-state[data-state="needs"] { color: var(--i-warn); }
 .mtl-post-line { margin-top: 3px; font-size: var(--text-md); line-height: 1.45; color: var(--i-ink); }
 .mtl-post-card { margin-top: 7px; display: grid; gap: 2px; padding: 8px 10px; border-radius: 10px;
   background: var(--i-surface); border: 1px solid var(--i-hairline-strong); }
@@ -1058,8 +1060,9 @@ export default function MobileTimelineStudy() {
       <div className="flex flex-wrap items-start gap-x-10 gap-y-10">
         <div>
           <FrameCap k="1 · Home — the X-like feed">
-            List filter, the live Working stories row, then the timeline in X anatomy: identity-mark avatar,
-            outcome context row, primary-ink line, link cards, dim action row.
+            List filter, the live Working stories row, then the timeline in X anatomy: identity row hugging the
+            avatar tile, state as a quiet top-right color mark (needs-you amber, failed red — done, the standard
+            state, stays unmarked), primary-ink line, link cards, dim action row.
           </FrameCap>
           <V3Frame tab="home">
             <HomeScreen />
