@@ -233,4 +233,111 @@ describe("broker delivery routing", () => {
       acceptedAt: expect.any(Number),
     }));
   });
+
+  test("exact session target never falls through to a project/card worker (Blink incident guard)", async () => {
+    const runtime = createInMemoryControlRuntime({}, { localNodeId: "node-1" });
+    // A tempting wrong agent exists — must not receive exact-session traffic.
+    await runtime.upsertAgent(testAgent({
+      id: "blink.codex-mobile-trust-release-hardening",
+      handle: "blink.codex-mobile-trust-release-hardening",
+      selector: "@blink.codex-mobile-trust-release-hardening",
+      displayName: "Mobile Trust",
+    }));
+
+    let wakeCalls = 0;
+    const router = new BrokerDeliveryRouter({
+      runtimeSnapshot: () => runtime.snapshot(),
+      nodeId: "node-1",
+      isInactiveLocalAgent: () => false,
+      wakeExactHarnessSession: async () => {
+        wakeCalls += 1;
+        return {
+          ok: false,
+          reason: "session_unknown",
+          detail: "no harness session store entry",
+        };
+      },
+    });
+
+    const result = await router.resolveWithImplicitProjectAgent({
+      target: {
+        kind: "session_id",
+        sessionId: "019fbee7-2a7f-7eb0-84bf-da22717c74d0",
+        harness: "codex",
+      },
+      execution: { harness: "codex" },
+    }, {
+      requesterId: "operator",
+      currentDirectory: "/Users/art/dev/blink",
+      reason: "blink incident guard",
+    });
+
+    expect(wakeCalls).toBe(1);
+    expect(result.kind).toBe("unknown");
+    if (result.kind === "unknown") {
+      expect(result.label).toContain("019fbee7");
+      expect(result.detail).toContain("no harness session store entry");
+    }
+    // Must not resolve to the tempting agent card.
+    expect(result.kind === "resolved" ? result.agent.id : null).toBeNull();
+  });
+
+  test("exact session wake then re-resolves to cardless session endpoint", async () => {
+    const runtime = createInMemoryControlRuntime({}, { localNodeId: "node-1" });
+    const sessionId = "019fbee7-2a7f-7eb0-84bf-da22717c74d0";
+    const scoutSessionId = `flat-codex-${sessionId}`;
+
+    const router = new BrokerDeliveryRouter({
+      runtimeSnapshot: () => runtime.snapshot(),
+      nodeId: "node-1",
+      isInactiveLocalAgent: () => false,
+      wakeExactHarnessSession: async () => {
+        await runtime.upsertActor({
+          id: scoutSessionId,
+          kind: "session",
+          displayName: "blink:019fbee7",
+          handle: scoutSessionId,
+          labels: ["cardless-session", "session"],
+          metadata: { cardless: true, flatDispatch: true },
+        });
+        await runtime.upsertEndpoint({
+          id: `endpoint.${scoutSessionId}.node-1.codex_app_server`,
+          agentId: scoutSessionId,
+          nodeId: "node-1",
+          harness: "codex",
+          transport: "codex_app_server",
+          state: "idle",
+          cwd: "/Users/art/dev/blink",
+          projectRoot: "/Users/art/dev/blink",
+          sessionId: scoutSessionId,
+          metadata: {
+            cardless: true,
+            flatDispatch: true,
+            externalSessionId: sessionId,
+            threadId: sessionId,
+            nativeSessionId: sessionId,
+          },
+        });
+        return { ok: true };
+      },
+    });
+
+    const result = await router.resolveWithImplicitProjectAgent({
+      target: {
+        kind: "session_id",
+        sessionId,
+        harness: "codex",
+      },
+    }, {
+      requesterId: "operator",
+      currentDirectory: "/Users/art/dev/blink",
+      reason: "wake resume",
+    });
+
+    expect(result.kind).toBe("resolved_session");
+    if (result.kind === "resolved_session") {
+      expect(result.session.endpoint.metadata?.externalSessionId).toBe(sessionId);
+      expect(result.session.endpoint.metadata?.flatDispatch).toBe(true);
+    }
+  });
 });
