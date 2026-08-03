@@ -246,6 +246,10 @@ public struct OpenScoutToolchain {
 
     private func pairingRuntimeEnvironment() -> [String: String] {
         var env = defaultEnvironment()
+        // CommandRunner merges these overrides onto the app's inherited
+        // environment. Always replace a potentially stale launcher PID so the
+        // controller watchdog follows the native process that actually owns it.
+        env["OPENSCOUT_PARENT_PID"] = String(ProcessInfo.processInfo.processIdentifier)
         let settings = OpenScoutNetworkSettingsStore.load()
         guard settings.discoveryEnabled else {
             return env

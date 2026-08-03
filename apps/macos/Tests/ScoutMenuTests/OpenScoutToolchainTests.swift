@@ -22,12 +22,17 @@ final class OpenScoutToolchainTests: XCTestCase {
         let toolchain = OpenScoutToolchain(environment: [
             "OPENSCOUT_SETUP_CWD": root.path,
             "OPENSCOUT_BUN_BIN": "/usr/bin/true",
+            "OPENSCOUT_PARENT_PID": "1",
             "PATH": "",
         ])
         let command = try toolchain.pairingRuntimeControllerCommand()
 
         XCTAssertEqual(command.arguments, [pairingController.path])
         XCTAssertEqual(command.currentDirectoryURL?.standardizedFileURL, root.standardizedFileURL)
+        XCTAssertEqual(
+            command.environment["OPENSCOUT_PARENT_PID"],
+            String(ProcessInfo.processInfo.processIdentifier)
+        )
     }
 
     func testRepoToolchainUsesBuiltScoutdWithoutLaunchEnvironmentGate() throws {
