@@ -37,6 +37,26 @@ export type {
   HistorySessionSnapshotResult,
   SupportedHistoryAdapterType,
 } from "./history.js";
+export {
+  DEFAULT_TASK_TAIL_MAX_BYTES,
+  DEFAULT_TASK_TAIL_MAX_MESSAGES,
+  DEFAULT_TASK_TAIL_MAX_SCAN_BYTES,
+  MAX_TASK_TAIL_BYTES,
+  MAX_TASK_TAIL_MESSAGES,
+  MAX_TASK_TAIL_SCAN_BYTES,
+  TaskTailError,
+  isTaskTailError,
+  readTaskTail,
+} from "./task-tail.js";
+export type {
+  TaskTailAdapterType,
+  TaskTailErrorCode,
+  TaskTailInput,
+  TaskTailMessage,
+  TaskTailResult,
+  TaskTailRole,
+  TaskTailSource,
+} from "./task-tail.js";
 export { createAdapter as createClaudeCodeAdapter } from "./adapters/claude-code/index.js";
 export {
   readClaudeCodeBudgetObservations,
