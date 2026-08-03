@@ -39,6 +39,7 @@ describe("scout:up", () => {
   16 1 /Users/art/dev/o /repo/apps/macos/dist/Scout.app/Contents/MacOS/Scout
   17 1 /Users/art/dev/o ${menu}/Contents/MacOS/ScoutMenu
   18 17 bun bun /repo/packages/web/dist/pairing-runtime-controller.mjs
+  19 99 /Users/art/Libra /Users/art/Library/Developer/CoreSimulator/Devices/PHONE/data/Containers/Bundle/Application/APP/Scout.app/Scout
 `);
     const verified = verifyProcessOwnership({
       pid: 10,

@@ -371,6 +371,12 @@ function processesNamed(processes, name) {
   });
 }
 
+function nativeProcessesNamed(processes, name) {
+  return processesNamed(processes, name).filter(
+    (process) => !process.args.includes("/Library/Developer/CoreSimulator/Devices/"),
+  );
+}
+
 function assertSingleChild(processes, name, parentPid) {
   const matches = processesNamed(processes, name);
   if (matches.length !== 1) {
@@ -397,7 +403,7 @@ async function waitForMacApps() {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
     const processes = readProcessTable();
-    if (processesNamed(processes, "Scout").length === 1 && processesNamed(processes, "ScoutMenu").length === 1) return;
+    if (nativeProcessesNamed(processes, "Scout").length === 1 && processesNamed(processes, "ScoutMenu").length === 1) return;
     await sleep(250);
   }
   throw new Error("Scout and its embedded menu helper did not both launch within 30 seconds.");
@@ -426,7 +432,7 @@ export function verifyProcessOwnership(status, processes, expectedAppBundlePath,
   const edge = assertSingleChild(processes, "scout-edge", basePid);
   const web = assertSingleChild(processes, "scout-web", broker.pid);
 
-  const apps = processesNamed(processes, "Scout");
+  const apps = nativeProcessesNamed(processes, "Scout");
   if (apps.length !== 1) throw new Error(`Expected exactly one Scout app; found ${apps.length}.`);
   const expectedAppExecutable = join(expectedAppBundlePath, "Contents", "MacOS", "Scout");
   if (!apps[0].args.includes(expectedAppExecutable)) {
@@ -499,6 +505,10 @@ async function main() {
 
   runStep("Build packages", bunBin, ["run", "build"]);
   runStep("Build Scout and embedded menu helper", bunBin, ["apps/macos/bin/scout-app.ts", "dev-build"]);
+  // A registered login item can be relaunched by macOS while the new bundle is
+  // still building. Stop it again after the bundle swap so verification cannot
+  // accept an old process merely because it has the canonical executable path.
+  runStep("Quit pre-build macOS menu helper", bunBin, ["apps/macos/bin/openscout-menu.ts", "quit"], { required: false });
   runStep("Restart launchd-owned Scout services", resolve(repoRoot, "packages", "cli", "bin", "scoutd"), ["restart", "--json"]);
 
   console.log("\n==> Start broker-managed web app");
