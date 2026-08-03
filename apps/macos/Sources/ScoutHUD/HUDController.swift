@@ -404,7 +404,9 @@ public final class HUDController {
             return HUDRunnerLayout.contentSize(
                 disclosure: runner.disclosure,
                 hasCaptures: !runner.attachments.isEmpty || !runner.localReferences.isEmpty,
-                projectChoiceCount: runner.projectQuickChoices(limit: 3).count,
+                projectChoiceCount: runner.projectQuickChoices(
+                    limit: HUDRunnerKeyboardContract.visibleProjectSuggestionCount
+                ).count,
                 runtimeChoiceCount: runner.runtimeQuickChoices(limit: 3).count
             )
         }
@@ -541,7 +543,14 @@ public final class HUDController {
         if HUDRunnerState.shared.isPresented {
             let keyCode = event.keyCode
             if event.modifierFlags.contains(.command),
-               (keyCode == 36 || keyCode == 76 || keyCode == 37 || keyCode == 31 || keyCode == 15) {
+               (
+                   keyCode == 36
+                       || keyCode == 76
+                       || keyCode == 37
+                       || keyCode == 31
+                       || keyCode == 15
+                       || keyCode == 2
+               ) {
                 return true
             }
             if HUDRunnerState.shared.shouldHandleProjectNavigation {

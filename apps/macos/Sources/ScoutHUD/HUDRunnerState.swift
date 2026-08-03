@@ -172,6 +172,11 @@ final class HUDRunnerState: ObservableObject {
            instructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             instructions = prefill
         }
+        if freshDraft, requiresProjectSelection {
+            openProjectSearch()
+        } else {
+            requestFocus(.instructions)
+        }
         Task { await loadOptionsIfNeeded() }
     }
 
@@ -366,7 +371,9 @@ final class HUDRunnerState: ObservableObject {
             return
         }
         disclosure = .projectChoices
-        let target = projectQuickChoices(limit: 3).first
+        let target = projectQuickChoices(
+            limit: HUDRunnerKeyboardContract.visibleProjectSuggestionCount
+        ).first
             .map { HUDRunnerFocusTarget.projectChoice($0.id) }
             ?? .projectSearch
         requestFocus(target)
@@ -430,7 +437,7 @@ final class HUDRunnerState: ObservableObject {
         requestFocus(target)
     }
 
-    func closeRuntimePicker(focus target: HUDRunnerFocusTarget = .instructions) {
+    func closeRuntimePicker(focus target: HUDRunnerFocusTarget = .runtimeSummary) {
         isRuntimePickerPresented = false
         runtimePickerShowsConfiguration = false
         runtimePickerTuningPresetID = nil
@@ -459,7 +466,9 @@ final class HUDRunnerState: ObservableObject {
         case .projectSearch:
             disclosure = .projectChoices
             projectSearchQuery = ""
-            let target = projectQuickChoices(limit: 3).first
+            let target = projectQuickChoices(
+                limit: HUDRunnerKeyboardContract.visibleProjectSuggestionCount
+            ).first
                 .map { HUDRunnerFocusTarget.projectChoice($0.id) }
                 ?? .projectSearch
             requestFocus(target)
@@ -526,7 +535,7 @@ final class HUDRunnerState: ObservableObject {
         runtimePickerShowsConfiguration = false
         runtimePickerTuningPresetID = nil
         disclosure = .none
-        requestFocus(.instructions)
+        requestFocus(.create)
         HUDRunnerAccessibility.announce("Runtime \(runnerPresetLabel) selected.", priority: .medium)
     }
 
@@ -538,16 +547,19 @@ final class HUDRunnerState: ObservableObject {
         runtimePickerShowsConfiguration = false
         runtimePickerTuningPresetID = nil
         disclosure = .none
-        requestFocus(.instructions)
+        requestFocus(.create)
         HUDRunnerAccessibility.announce("Runtime \(runnerPresetLabel) selected.", priority: .medium)
     }
 
-    func applyRuntimeTweak(_ preset: HUDRunnerRuntimePreset) {
+    func applyRuntimeTweak(
+        _ preset: HUDRunnerRuntimePreset,
+        focus target: HUDRunnerFocusTarget? = nil
+    ) {
         let applied = normalizedRuntimePreset(preset)
         setRuntime(applied, explicit: true)
         runtimeDraft = nil
         runtimePickerTuningPresetID = applied.id
-        requestFocus(.runtimeTweaks(applied.id))
+        requestFocus(target ?? .runtimeTweaks(applied.id))
         HUDRunnerAccessibility.announce("Runtime \(runnerPresetLabel) selected.", priority: .medium)
     }
 
@@ -558,12 +570,14 @@ final class HUDRunnerState: ObservableObject {
         requestFocus(.runtimeTweaks(preset.id))
     }
 
-    func projectQuickChoices(limit: Int = 3) -> [HudRunnerProjectOption] {
+    func projectQuickChoices(
+        limit: Int = HUDRunnerKeyboardContract.visibleProjectSuggestionCount
+    ) -> [HudRunnerProjectOption] {
         guard limit > 0 else { return [] }
         let projects = projectOptions
         var ids: [String] = []
         if let selectedProjectId { ids.append(selectedProjectId) }
-        ids += recentHistory.projectIDs
+        ids += recentHistory.rankedProjectIDs
         ids += projects.map(\.id)
 
         var seen = Set<String>()
@@ -573,6 +587,10 @@ final class HUDRunnerState: ObservableObject {
         }
         .prefix(limit)
         .map { $0 }
+    }
+
+    func projectUsageLabel(for project: HudRunnerProjectOption) -> String? {
+        recentHistory.projectUsageLabel(for: project.id)
     }
 
     func runtimeQuickChoices(limit: Int = 3) -> [HUDRunnerRuntimePreset] {
@@ -980,18 +998,9 @@ final class HUDRunnerState: ObservableObject {
     func projectMatches(limit: Int = 6) -> [HudRunnerProjectOption] {
         let projects = projectOptions
         let query = normalizedSearch(projectSearchQuery)
-        let selected = selectedProject
 
         if query.isEmpty {
-            var result: [HudRunnerProjectOption] = []
-            if let selected {
-                result.append(selected)
-            }
-            for project in projects where !result.contains(where: { $0.id == project.id }) {
-                result.append(project)
-                if result.count >= limit { break }
-            }
-            return result
+            return projectQuickChoices(limit: limit)
         }
 
         return projects
@@ -1013,7 +1022,10 @@ final class HUDRunnerState: ObservableObject {
             .map { $0.0 }
     }
 
-    func isProjectCursored(_ project: HudRunnerProjectOption, limit: Int = 5) -> Bool {
+    func isProjectCursored(
+        _ project: HudRunnerProjectOption,
+        limit: Int = HUDRunnerKeyboardContract.visibleProjectSuggestionCount
+    ) -> Bool {
         let matches = projectMatches(limit: limit)
         guard !matches.isEmpty else { return false }
         let index = min(max(projectCursorIndex, 0), matches.count - 1)
@@ -1021,15 +1033,26 @@ final class HUDRunnerState: ObservableObject {
     }
 
     func moveProjectCursor(_ delta: Int) {
-        let matches = projectMatches(limit: 5)
+        let matches = projectMatches(
+            limit: HUDRunnerKeyboardContract.visibleProjectSuggestionCount
+        )
         guard !matches.isEmpty else { return }
         let next = projectCursorIndex + delta
-        projectCursorIndex = min(max(next, 0), matches.count - 1)
+        let bounded = min(max(next, 0), matches.count - 1)
+        guard bounded != projectCursorIndex else { return }
+        projectCursorIndex = bounded
+        let project = matches[bounded]
+        HUDRunnerAccessibility.announce(
+            "\(project.title), \(pathLabel(for: project.root))",
+            priority: .medium
+        )
     }
 
     @discardableResult
     func acceptProjectCursor() -> Bool {
-        let matches = projectMatches(limit: 5)
+        let matches = projectMatches(
+            limit: HUDRunnerKeyboardContract.visibleProjectSuggestionCount
+        )
         guard !matches.isEmpty else { return false }
         let index = min(max(projectCursorIndex, 0), matches.count - 1)
         chooseProject(matches[index])
@@ -1055,6 +1078,10 @@ final class HUDRunnerState: ObservableObject {
             browseForAttachments()
             return true
         }
+        if modifiers.contains(.command), keyCode == 2 { // ⌘D — dictation
+            Task { await toggleDictation() }
+            return true
+        }
         switch keyCode {
         case 125: // Down arrow
             guard shouldHandleProjectNavigation else { return false }
@@ -1072,6 +1099,9 @@ final class HUDRunnerState: ObservableObject {
         case 48: // Tab; Shift-Tab must remain reverse focus traversal.
             let forbidden: NSEvent.ModifierFlags = [.control, .option, .command]
             guard modifiers.intersection(forbidden).isEmpty else { return false }
+            if !modifiers.contains(.shift), shouldHandleProjectNavigation {
+                return acceptProjectCursor()
+            }
             focusStepDirection = modifiers.contains(.shift) ? -1 : 1
             focusStepRequest &+= 1
             return true
@@ -1182,7 +1212,7 @@ final class HUDRunnerState: ObservableObject {
             return true
         }
         if isRuntimePickerPresented {
-            closeRuntimePicker()
+            closeRuntimePicker(focus: .runtimeSummary)
             return true
         }
         if disclosure != .none {
