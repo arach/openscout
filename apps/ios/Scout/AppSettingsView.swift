@@ -38,6 +38,7 @@ struct AppSettingsView: View {
     @AppStorage(ScoutTailLayout.storageKey) private var tailLayout = ScoutTailLayout.default.rawValue
     @AppStorage(ScoutNavMode.storageKey) private var navMode = ScoutNavMode.default.rawValue
     @AppStorage(ScoutHomeStyle.storageKey) private var homeStyle = ScoutHomeStyle.default.rawValue
+    @AppStorage(ScoutV3.storageKey) private var v3Navigation = false
     @State private var renamingMachine: AppModel.PairedMachine?
     @State private var renameText = ""
     @State private var copiedLogs = false
@@ -632,6 +633,16 @@ struct AppSettingsView: View {
                     selection: $navMode,
                     choices: ScoutNavMode.allCases.map { HudInspectorChoice(id: $0.rawValue, title: $0.title) },
                     hint: "tabs, or the experimental crown"
+                )
+                // Opt-in: swaps the whole root for the additive v3
+                // fleet-timeline navigation (see V3RootView). Off by default;
+                // the shipped root is untouched either way.
+                HudInspectorToggleRow(
+                    "v3 navigation (experimental)",
+                    isOn: $v3Navigation,
+                    valueOn: "On",
+                    valueOff: "Off",
+                    hint: "fleet-timeline root: feed · chats · hex · projects · alerts"
                 )
             }
         }
