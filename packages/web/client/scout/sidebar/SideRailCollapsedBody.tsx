@@ -1,13 +1,13 @@
 /**
  * Per-area content for the minimized (collapsed) left context rail.
  * Chat keeps a dedicated strip; other areas get lightweight chips for jump-in.
+ * The right inspector collapses to a chevron-only handle (no body).
  */
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   LayoutGrid,
   ListTodo,
-  Radio,
   Users,
 } from "lucide-react";
 import { api } from "../../lib/api.ts";
@@ -68,60 +68,6 @@ export function SideRailCollapsedBody({ route }: { route: Route }) {
         </CollapsedStrip>
       );
   }
-}
-
-/** Right inspector collapsed: small status chips to re-open common context. */
-export function InspectorCollapsedBody() {
-  const { route, navigate } = useScout();
-  const chips: Array<{
-    key: string;
-    title: string;
-    glyph: ReactNode;
-    active?: boolean;
-    onClick: () => void;
-  }> = [];
-
-  if (route.view === "agents-v2" && route.agentId) {
-    chips.push({
-      key: "agent",
-      title: "Open agent detail",
-      glyph: <Users size={14} strokeWidth={1.7} aria-hidden />,
-      active: true,
-      onClick: () => navigate(route),
-    });
-  }
-  if (route.view === "messages" || route.view === "conversation") {
-    chips.push({
-      key: "chat",
-      title: "Chat context",
-      glyph: <Radio size={14} strokeWidth={1.7} aria-hidden />,
-      onClick: () => navigate({ view: "messages" }),
-    });
-  }
-  if (route.view === "ops") {
-    chips.push({
-      key: "ops",
-      title: "Operations",
-      glyph: <LayoutGrid size={14} strokeWidth={1.7} aria-hidden />,
-      active: true,
-      onClick: () => navigate(route),
-    });
-  }
-
-  return (
-    <CollapsedStrip label="Detail" emptyMark="i" labelTone="default">
-      {chips.map((c) => (
-        <CollapsedChip
-          key={c.key}
-          title={c.title}
-          active={c.active}
-          tone="neutral"
-          glyph={c.glyph}
-          onClick={c.onClick}
-        />
-      ))}
-    </CollapsedStrip>
-  );
 }
 
 function HomeCollapsedStrip() {
