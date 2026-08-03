@@ -178,12 +178,16 @@ export async function startProjectSession(input: {
   instructions?: string;
   attachments?: OutgoingAttachment[];
   clientMessageId?: string;
+  fromMessageId?: string;
+  fromConversationId?: string;
 }): Promise<SessionInitiationResult> {
   const projectPath = input.projectPath.trim();
   const harness = input.harness?.trim();
   const model = input.model?.trim();
   const reasoningEffort = input.reasoningEffort?.trim();
   const instructions = input.instructions?.trim();
+  const fromMessageId = input.fromMessageId?.trim();
+  const fromConversationId = input.fromConversationId?.trim();
   const attachments = input.attachments?.filter(Boolean) ?? [];
   return api<SessionInitiationResult>("/api/sessions", {
     method: "POST",
@@ -196,12 +200,15 @@ export async function startProjectSession(input: {
         ...(reasoningEffort ? { reasoningEffort } : {}),
       },
       agent: { persistence: "one_time" },
-      ...(instructions || attachments.length > 0
+      ...(instructions || attachments.length > 0 || (fromMessageId && fromConversationId)
         ? {
             seed: {
               ...(instructions ? { instructions } : {}),
               ...(attachments.length > 0 ? { attachments } : {}),
               ...(input.clientMessageId ? { clientMessageId: input.clientMessageId } : {}),
+              ...(fromMessageId && fromConversationId
+                ? { fromMessageId, fromConversationId }
+                : {}),
             },
           }
         : {}),

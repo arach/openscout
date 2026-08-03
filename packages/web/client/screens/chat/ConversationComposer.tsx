@@ -3,6 +3,7 @@ import {
   type RefObject,
   type SetStateAction,
 } from "react";
+import { Reply, X } from "lucide-react";
 import { actorColor } from "../../lib/colors.ts";
 import {
   ComposerAttachmentStrip,
@@ -21,6 +22,13 @@ import type {
   SlashSuggestState,
 } from "./conversation-model.ts";
 
+export type ConversationReplyTarget = {
+  messageId: string;
+  actorLabel: string;
+  preview: string;
+  insertedMention?: string | null;
+};
+
 export function ConversationComposer({
   composeRef,
   draft,
@@ -36,6 +44,8 @@ export function ConversationComposer({
   applyMention,
   updateTriggersFromDraft,
   closeSuggestions,
+  replyTarget,
+  onCancelReply,
   isStopMode,
   sending,
   composeAction,
@@ -69,6 +79,8 @@ export function ConversationComposer({
   applyMention: (candidate: MentionCandidate) => void;
   updateTriggersFromDraft: (value: string, caret: number) => void;
   closeSuggestions: () => void;
+  replyTarget: ConversationReplyTarget | null;
+  onCancelReply: () => void;
   isStopMode: boolean;
   sending: boolean;
   composeAction: ComposeAction;
@@ -309,22 +321,45 @@ export function ConversationComposer({
       above={queueStack}
       aboveAttached
       header={
-        isEditing && editingAttachmentCount > 0 ? (
-          <>
-            {/*
-              These files were uploaded when the draft was queued, so they never
-              appear in the staged-file strip. Say they are still attached.
-            */}
+        <>
+          {replyTarget ? (
+            <div className="s-thread-compose-reply" role="status">
+              <Reply
+                className="s-thread-compose-reply-icon"
+                size={13}
+                strokeWidth={1.8}
+                aria-hidden="true"
+              />
+              <span className="s-thread-compose-reply-label">Replying to</span>
+              <span className="s-thread-compose-reply-actor">
+                {replyTarget.actorLabel}
+              </span>
+              <span
+                className="s-thread-compose-reply-preview"
+                title={replyTarget.preview}
+              >
+                {replyTarget.preview}
+              </span>
+              <button
+                type="button"
+                className="s-thread-compose-reply-cancel"
+                aria-label="Cancel reply"
+                title="Cancel reply"
+                onClick={onCancelReply}
+              >
+                <X size={13} strokeWidth={1.8} aria-hidden="true" />
+              </button>
+            </div>
+          ) : null}
+          {isEditing && editingAttachmentCount > 0 ? (
             <div className="s-msg-compose-carried" role="status">
               {editingAttachmentCount} file
               {editingAttachmentCount === 1 ? "" : "s"} stay attached to this
               draft
             </div>
-            <ComposerAttachmentStrip attachments={attachments} />
-          </>
-        ) : (
+          ) : null}
           <ComposerAttachmentStrip attachments={attachments} />
-        )
+        </>
       }
       status={sendReceipt ? (
         <div

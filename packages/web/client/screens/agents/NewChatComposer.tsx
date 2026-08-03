@@ -26,8 +26,13 @@ import {
   createClientMessageId,
   stageAcceptedConversationTurn,
 } from "../../lib/client-turn-transition.ts";
-import type { ContextCaptureDraft } from "../../lib/context-capture-draft.ts";
-import type { ContextCaptureIntent } from "../../lib/context-capture-draft.ts";
+import type {
+  ContextCaptureDraft,
+  ContextCaptureIntent,
+  ForwardContextMode,
+  ForwardContextSource,
+} from "../../lib/context-capture-draft.ts";
+import { buildForwardTaskInstructions } from "../../lib/forward-context.ts";
 import { useFocusTrap } from "../../lib/keyboard-nav.ts";
 import {
   dataTransferMayContainFiles,
@@ -244,6 +249,8 @@ export function NewChatComposer({
   initialAttachmentFeedback,
   initialIntent = "new-task",
   initialProjectPath,
+  initialForwardContext,
+  initialForwardContextMode = "selected-message",
   defaultMode,
   draftRestored = false,
   onDraftChange,
@@ -261,12 +268,15 @@ export function NewChatComposer({
   initialIntent?: ContextCaptureIntent;
   initialProjectPath?: string;
   initialProjectQuery?: string;
+  initialForwardContext?: ForwardContextSource;
+  initialForwardContextMode?: ForwardContextMode;
   defaultMode?: CaptureDeliveryMode;
   draftRestored?: boolean;
   onDraftChange?: (draft: ContextCaptureDraft) => void;
   onDraftConsumed?: () => void;
 }) {
   const routeContext = useMemo(() => resolveCaptureRouteContext(route, agents), [route, agents]);
+  const isForwarding = initialIntent === "forward-message" && Boolean(initialForwardContext);
   const sorted = useMemo(
     () => [...agents].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)),
     [agents],
@@ -297,6 +307,9 @@ export function NewChatComposer({
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const [projectReminder, setProjectReminder] = useState<string | null>(null);
   const [message, setMessage] = useState(() => initialMessage ?? "");
+  const [forwardContextMode, setForwardContextMode] = useState<ForwardContextMode>(
+    initialForwardContextMode,
+  );
   const [slashState, setSlashState] = useState<SlashSuggestState>({
     open: false,
     query: "",
@@ -451,10 +464,14 @@ export function NewChatComposer({
     && Boolean(routeAgent?.conversationId || routeConversationId);
   const usesNewWorker = !hasAttachments || !canUseExistingChat || mode === "new-session";
   const runtimeBlocked = usesNewWorker && (runnerLoading || selectedHarness?.ready === false);
-  const title = hasAttachments ? "Route capture" : "New task";
-  const committedMessage = message.trim();
+  const title = isForwarding ? "Forward to new task" : hasAttachments ? "Route capture" : "New task";
+  const committedMessage = isForwarding && initialForwardContext
+    ? buildForwardTaskInstructions(initialForwardContext, forwardContextMode, message)
+    : message.trim();
   const phaseLabel = phase === "uploading"
     ? "Uploading capture"
+    : isForwarding
+      ? "Forwarding to new task"
     : hasAttachments
       ? "Routing capture"
       : "Sending message";
@@ -466,7 +483,7 @@ export function NewChatComposer({
   const showDeliveryMode = hasAttachments && canUseExistingChat;
   const showRuntimeStatus = usesNewWorker
     && (runnerLoading || Boolean(runnerLoadError) || selectedHarness?.ready === false);
-  const showConfig = showDeliveryMode || showRuntimeStatus;
+  const showConfig = showDeliveryMode || (!isForwarding && showRuntimeStatus);
   const filteredSlashCommands = useMemo(() => {
     if (!slashState.open) return [];
     const query = slashState.query.toLowerCase();
@@ -763,11 +780,16 @@ export function NewChatComposer({
       // value, and restoring it now would pre-filter the standing list down to the
       // single row the operator had already picked.
       projectQuery,
+      ...(isForwarding && initialForwardContext ? { forwardContext: initialForwardContext } : {}),
+      forwardContextMode,
     });
   }, [
     attachmentFeedback,
     files,
+    forwardContextMode,
+    initialForwardContext,
     initialIntent,
+    isForwarding,
     message,
     mode,
     onDraftChange,
@@ -928,6 +950,11 @@ export function NewChatComposer({
 
   const start = async () => {
     if (isStarting) return;
+    if (isForwarding && !committedMessage) {
+      setError("Add instructions, or choose a context option that includes the source message.");
+      requestAnimationFrame(() => textRef.current?.focus());
+      return;
+    }
     if (!selectedProject) {
       setError(null);
       setProjectReminder("Choose a project before starting this task.");
@@ -984,6 +1011,12 @@ export function NewChatComposer({
             ? { instructions: "Shared capture for context." }
             : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
+        ...(isForwarding && initialForwardContext
+          ? {
+              fromMessageId: initialForwardContext.selectedMessageId,
+              fromConversationId: initialForwardContext.sourceConversationId,
+            }
+          : {}),
         clientMessageId,
       });
       const conversationId = result.conversationId?.trim();
@@ -1072,6 +1105,12 @@ export function NewChatComposer({
 
         <div className="s-newchat-body">
           <div className="s-newchat-lead">
+            {isForwarding ? (
+              <p className="s-newchat-forward-intro">
+                Choose the destination, runtime, and visible Scout context to carry into a fresh task.
+              </p>
+            ) : null}
+
             <div className="s-newchat-project-bar">
               <span className="label-md s-newchat-project-label">Project</span>
               <button
@@ -1212,6 +1251,92 @@ export function NewChatComposer({
               </div>
             ) : null}
 
+            {isForwarding && initialForwardContext ? (
+              <div className="s-newchat-forward-config">
+                <div className="s-newchat-field">
+                  <span className="label-md s-newchat-field-label">Runtime</span>
+                  <div className="s-newchat-forward-runtime">
+                    <RuntimePicker
+                      catalog={runtimeCatalog}
+                      value={{ harness, model, effort: reasoningEffort }}
+                      onChange={handleRuntimeChange}
+                      status={runnerLoading ? "loading" : runnerLoadError ? "error" : "ready"}
+                      statusMessage={runnerLoadError ?? undefined}
+                      onRetry={loadRunnerOptions}
+                      disabled={isStarting || !usesNewWorker}
+                    />
+                  </div>
+                  {usesNewWorker && runnerLoading ? (
+                    <p className="s-newchat-runtime-note" data-pending="true" role="status">
+                      <Loader2 size={11} className="s-newchat-runtime-note-spinner" aria-hidden="true" />
+                      Loading the model catalog…
+                    </p>
+                  ) : usesNewWorker && (runnerLoadError || selectedHarness?.ready === false) ? (
+                    <p className="s-newchat-runtime-note" role="alert">
+                      {selectedHarness?.ready === false
+                        ? (selectedHarness.detail || `${selectedHarness.label} is unavailable.`)
+                        : runnerLoadError}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="s-newchat-field">
+                  <span id="s-newchat-forward-context-label" className="label-md s-newchat-field-label">
+                    Context
+                  </span>
+                  <div
+                    className="s-newchat-context-options"
+                    role="radiogroup"
+                    aria-labelledby="s-newchat-forward-context-label"
+                  >
+                    <button
+                      type="button"
+                      className="s-newchat-context-option"
+                      role="radio"
+                      aria-checked={forwardContextMode === "selected-message"}
+                      disabled={isStarting}
+                      onClick={() => setForwardContextMode("selected-message")}
+                    >
+                      <span className="s-newchat-context-option-title">Selected message</span>
+                      <span className="s-newchat-context-option-copy">Carry only the message you chose.</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="s-newchat-context-option"
+                      role="radio"
+                      aria-checked={forwardContextMode === "recent-context"}
+                      disabled={isStarting || initialForwardContext.recentMessageCount === 0}
+                      onClick={() => setForwardContextMode("recent-context")}
+                    >
+                      <span className="s-newchat-context-option-title">Recent context + message</span>
+                      <span className="s-newchat-context-option-copy">
+                        {initialForwardContext.recentMessageCount > 0
+                          ? `Carry ${initialForwardContext.recentMessageCount} preceding visible ${initialForwardContext.recentMessageCount === 1 ? "message" : "messages"}, then this message.`
+                          : "No preceding visible messages are available."}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="s-newchat-context-option"
+                      role="radio"
+                      aria-checked={forwardContextMode === "instructions-only"}
+                      disabled={isStarting}
+                      onClick={() => setForwardContextMode("instructions-only")}
+                    >
+                      <span className="s-newchat-context-option-title">Instructions only</span>
+                      <span className="s-newchat-context-option-copy">Start clean without source conversation text.</span>
+                    </button>
+                  </div>
+                  <p className="s-newchat-context-note">
+                    Recent context is a bounded Scout excerpt, not a generated summary or full model context.
+                  </p>
+                </div>
+              </div>
+            ) : null}
+
+            {isForwarding ? (
+              <span className="label-md s-newchat-field-label">Instructions</span>
+            ) : null}
             <MessageComposer
               density="panel"
               value={message}
@@ -1219,16 +1344,23 @@ export function NewChatComposer({
               onSend={() => void start()}
               sendOnEnter
               textareaRef={textRef}
-              placeholder={hasAttachments
+              placeholder={isForwarding
+                ? "Add what the new task should do (optional)…"
+                : hasAttachments
                 ? "What should the agent do with this?"
                 : "Describe the task, or leave blank…"}
+              aria-label={isForwarding ? "Instructions for the new task" : "Message"}
               disabled={isStarting}
               sending={isStarting}
-              canSend={!isStarting && !runtimeBlocked}
+              canSend={!isStarting && !runtimeBlocked && (!isForwarding || Boolean(committedMessage))}
               rows={7}
               maxHeightPx={280}
-              sendTitle={hasAttachments ? "Route (Enter)" : "Start task (Enter)"}
-              sendAriaLabel={hasAttachments ? "Route capture" : "Start task"}
+              sendTitle={isForwarding
+                ? "Forward to new task (Enter)"
+                : hasAttachments
+                  ? "Route (Enter)"
+                  : "Start task (Enter)"}
+              sendAriaLabel={isForwarding ? "Forward to new task" : hasAttachments ? "Route capture" : "Start task"}
               overlay={(
                 <>
                   {slashState.open ? (
@@ -1298,7 +1430,7 @@ export function NewChatComposer({
                   </button>
                 </div>
               )}
-              tools={(
+              tools={isForwarding ? undefined : (
                 <RuntimePicker
                   catalog={runtimeCatalog}
                   value={{ harness, model, effort: reasoningEffort }}

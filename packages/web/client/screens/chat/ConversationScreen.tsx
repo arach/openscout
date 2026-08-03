@@ -66,6 +66,7 @@ import { useScout } from "../../scout/Provider.tsx";
 import { openContent } from "../../scout/slots/openContent.ts";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
+import { createForwardContextSource } from "../../lib/forward-context.ts";
 import { MessageEmbeds } from "../../components/MessageEmbeds.tsx";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import type {
@@ -89,7 +90,10 @@ import {
   type ConversationHeaderOperator,
   type ConversationHeaderParticipant,
 } from "./ConversationHeader.tsx";
-import { ConversationComposer } from "./ConversationComposer.tsx";
+import {
+  ConversationComposer,
+  type ConversationReplyTarget,
+} from "./ConversationComposer.tsx";
 import { FanOutRow, ThreadDayDivider } from "./ConversationFeedRows.tsx";
 import {
   ThreadLoadingSkeleton,
@@ -183,12 +187,42 @@ function messageIdFromLocationHash(hash: string | null | undefined): string | nu
 
 type ConversationMessageLoadMode = "initial" | "refresh" | "none";
 type SendAttemptOutcome = "sent" | "failed" | "unknown";
+type QueuedConversationDraft = QueuedDraft & {
+  replyTarget?: ConversationReplyTarget | null;
+};
 
 const CONVERSATION_TAIL_THRESHOLD_PX = 64;
 
 function clientMessageIdFromMetadata(metadata: Record<string, unknown> | null | undefined): string | null {
   const value = metadata?.["clientMessageId"];
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function messageReplyPreview(message: Message): string {
+  const body = message.body.replace(/\s+/gu, " ").trim();
+  if (body) {
+    return body.length > 180
+      ? `${body.slice(0, 179).trimEnd()}…`
+      : body;
+  }
+  const attachmentCount = message.attachments?.length ?? 0;
+  return attachmentCount === 1
+    ? "Attachment"
+    : attachmentCount > 1
+      ? `${attachmentCount} attachments`
+      : "Message";
+}
+
+function removeInsertedMention(draft: string, mention: string): string {
+  const index = draft.toLocaleLowerCase().indexOf(mention.toLocaleLowerCase());
+  if (index < 0) return draft;
+  const before = draft.slice(0, index);
+  const after = draft.slice(index + mention.length);
+  if (!before && after.startsWith(" ")) return after.slice(1);
+  if (before.endsWith(" ") && after.startsWith(" ")) {
+    return `${before}${after.slice(1)}`;
+  }
+  return `${before}${after}`;
 }
 
 function isAmbiguousTransportFailure(cause: unknown): boolean {
@@ -218,7 +252,7 @@ export function ConversationScreen({
   /// ledger/rail/document come from the readability study.
   treatment?: ThreadTreatment;
 }) {
-  const { agents, route } = useScout();
+  const { agents, route, openContextCapture } = useScout();
   const machineId = routeMachineId(route);
   const scopedAgents = useMemo(
     () => filterAgentsByMachineScope(agents, machineId),
@@ -585,6 +619,7 @@ export function ConversationScreen({
   }, [conversationId, loadingEarlierMessages, setMessages]);
 
   const [draft, setDraft] = useState(() => initialDraft ?? "");
+  const [replyTarget, setReplyTarget] = useState<ConversationReplyTarget | null>(null);
   const [sending, setSending] = useState(false);
   const [sendReceipt, setSendReceipt] = useState<SendReceipt | null>(null);
   const [operatorName, setOperatorName] = useState("operator");
@@ -1518,7 +1553,7 @@ export function ConversationScreen({
   }, []);
 
   const attachments = useComposerAttachments();
-  const [queued, setQueued] = useState<QueuedDraft[]>([]);
+  const [queued, setQueued] = useState<QueuedConversationDraft[]>([]);
   // What a Send press means while the agent is mid-turn. Queue is the default;
   // Steer has to be armed, because it interrupts.
   const [busyIntent, setBusyIntent] = useState<BusySendIntent>("queue");
@@ -1531,10 +1566,15 @@ export function ConversationScreen({
 
   const sendText = async (
     text: string,
-    options?: { forceAction?: ComposeAction; attachments?: OutgoingAttachment[] },
+    options?: {
+      forceAction?: ComposeAction;
+      attachments?: OutgoingAttachment[];
+      replyTarget?: ConversationReplyTarget | null;
+    },
   ): Promise<SendAttemptOutcome> => {
     const trimmed = text.trim();
     const outgoingAttachments = options?.attachments ?? [];
+    const outgoingReplyTarget = options?.replyTarget ?? null;
     if ((!trimmed && outgoingAttachments.length === 0) || sending) return "failed";
     const forceAction = options?.forceAction;
     const action = forceAction ?? resolveComposeAction({
@@ -1552,6 +1592,9 @@ export function ConversationScreen({
       body: trimmed,
       createdAt: optimisticCreatedAt,
       class: "operator",
+      ...(outgoingReplyTarget
+        ? { replyToMessageId: outgoingReplyTarget.messageId }
+        : {}),
       metadata: {
         clientMessageId,
         deliveryState: "sending",
@@ -1578,6 +1621,9 @@ export function ConversationScreen({
           body: JSON.stringify({
             body: trimmed,
             clientMessageId,
+            ...(outgoingReplyTarget
+              ? { replyToMessageId: outgoingReplyTarget.messageId }
+              : {}),
             ...(outgoingAttachments.length > 0
               ? { attachments: outgoingAttachments }
               : {}),
@@ -1668,9 +1714,14 @@ export function ConversationScreen({
    * nothing to commit, or when the upload failed (the error is already shown).
    */
   const takeDraft = async (): Promise<
-    { body: string; attachments: OutgoingAttachment[] } | null
+    {
+      body: string;
+      attachments: OutgoingAttachment[];
+      replyTarget: ConversationReplyTarget | null;
+    } | null
   > => {
     const text = draft.trim();
+    const takenReplyTarget = replyTarget;
     const files = attachments.files;
     const carried = editingQueued?.attachments ?? [];
     if (!text && files.length === 0 && carried.length === 0) return null;
@@ -1691,9 +1742,14 @@ export function ConversationScreen({
     }
 
     setDraft("");
+    setReplyTarget(null);
     attachments.clear();
     setEditingQueued(null);
-    return { body: text, attachments: [...carried, ...uploaded] };
+    return {
+      body: text,
+      attachments: [...carried, ...uploaded],
+      replyTarget: takenReplyTarget,
+    };
   };
 
   const send = async () => {
@@ -1716,7 +1772,12 @@ export function ConversationScreen({
         if (editingId) {
           return previous.map((entry) =>
             entry.id === editingId
-              ? { ...entry, body: taken.body, attachments: taken.attachments }
+              ? {
+                  ...entry,
+                  body: taken.body,
+                  attachments: taken.attachments,
+                  replyTarget: taken.replyTarget,
+                }
               : entry,
           );
         }
@@ -1726,6 +1787,7 @@ export function ConversationScreen({
             id: `queued-${Date.now()}-${previous.length}`,
             body: taken.body,
             attachments: taken.attachments,
+            replyTarget: taken.replyTarget,
             queuedAt: Date.now(),
           },
         ];
@@ -1745,6 +1807,7 @@ export function ConversationScreen({
           ? { id: null, attachments: taken.attachments }
           : null,
       );
+      setReplyTarget(taken.replyTarget);
       requestAnimationFrame(() => composeRef.current?.focus());
     };
 
@@ -1754,12 +1817,16 @@ export function ConversationScreen({
       const outcome = await sendText(taken.body, {
         forceAction: "steer",
         attachments: taken.attachments,
+        replyTarget: taken.replyTarget,
       });
       if (outcome === "failed") restoreTakenDraft();
       return;
     }
 
-    const outcome = await sendText(taken.body, { attachments: taken.attachments });
+    const outcome = await sendText(taken.body, {
+      attachments: taken.attachments,
+      replyTarget: taken.replyTarget,
+    });
     if (outcome === "failed") restoreTakenDraft();
   };
 
@@ -1776,6 +1843,7 @@ export function ConversationScreen({
     const entry = queued.find((candidate) => candidate.id === id);
     if (!entry) return;
     setDraft(entry.body);
+    setReplyTarget(entry.replyTarget ?? null);
     setEditingQueued({ id, attachments: entry.attachments });
     requestAnimationFrame(() => {
       const field = composeRef.current;
@@ -1789,6 +1857,7 @@ export function ConversationScreen({
   const cancelEdit = () => {
     setEditingQueued(null);
     setDraft("");
+    setReplyTarget(null);
     attachments.clear();
   };
 
@@ -1802,22 +1871,85 @@ export function ConversationScreen({
     const outcome = await sendText(entry.body, {
       forceAction: "steer",
       attachments: entry.attachments,
+      replyTarget: entry.replyTarget ?? null,
     });
     if (outcome === "failed") {
       setQueued((previous) => [entry, ...previous]);
     }
   };
 
-  const replyToHandle = useCallback((handle: string) => {
-    const normalized = handle.trim().replace(/^@+/, "");
-    if (!normalized) return;
-    const token = `@${normalized}`;
-    setDraft((current) => {
-      if (current.toLowerCase().includes(token.toLowerCase())) return current;
-      return current.trim() ? `${current.trimEnd()} ${token} ` : `${token} `;
+  const beginReply = useCallback((message: Message, actorHandle: string | null) => {
+    const normalizedHandle = actorHandle?.trim().replace(/^@+/, "") || null;
+    const mentionToken = normalizedHandle ? `@${normalizedHandle}` : null;
+    const draftWithoutPreviousMention = replyTarget?.insertedMention
+      ? removeInsertedMention(draft, replyTarget.insertedMention)
+      : draft;
+    const shouldInsertMention = Boolean(
+      !isDm
+      && mentionToken
+      && !draftWithoutPreviousMention.toLocaleLowerCase().includes(
+        mentionToken.toLocaleLowerCase(),
+      ),
+    );
+    const nextDraft = shouldInsertMention && mentionToken
+      ? draftWithoutPreviousMention.trim()
+        ? `${draftWithoutPreviousMention.trimEnd()} ${mentionToken} `
+        : `${mentionToken} `
+      : draftWithoutPreviousMention;
+    setDraft(nextDraft);
+    setReplyTarget({
+      messageId: message.id,
+      actorLabel: normalizedHandle ? `@${normalizedHandle}` : message.actorName,
+      preview: messageReplyPreview(message),
+      insertedMention: shouldInsertMention ? mentionToken : null,
     });
     requestAnimationFrame(() => composeRef.current?.focus());
-  }, []);
+  }, [draft, isDm, replyTarget?.insertedMention]);
+
+  const cancelReply = useCallback(() => {
+    const insertedMention = replyTarget?.insertedMention;
+    setReplyTarget(null);
+    if (insertedMention) {
+      setDraft((current) => removeInsertedMention(current, insertedMention));
+    }
+    requestAnimationFrame(() => composeRef.current?.focus());
+  }, [replyTarget]);
+
+  const copyMessageLink = useCallback((messageId: string) => {
+    const url = new URL(window.location.href);
+    if (route.view === "agents-v2") {
+      url.searchParams.set("tab", "message");
+    }
+    url.hash = `msg-${messageId}`;
+    void copyTextToClipboard(url.toString());
+  }, [route.view]);
+
+  const forwardMessage = useCallback((
+    message: Message,
+    actorLabel: string,
+    projectPath?: string,
+  ) => {
+    const forwardContext = createForwardContextSource({
+      conversationId,
+      selectedMessageId: message.id,
+      messages: messages.map((candidate) => ({
+        id: candidate.id,
+        actorLabel: candidate.id === message.id
+          ? actorLabel
+          : isOperatorMessage(candidate, operatorName)
+            ? operatorName
+            : candidate.actorName,
+        body: candidate.body,
+        attachmentCount: candidate.attachments?.length ?? 0,
+      })),
+    });
+    openContextCapture({
+      intent: "forward-message",
+      forwardContext,
+      forwardContextMode: "selected-message",
+      ...(projectPath ? { projectPath } : {}),
+    });
+  }, [conversationId, messages, openContextCapture, operatorName]);
 
   const interrupt = async () => {
     if (!agentId) return;
@@ -1861,7 +1993,10 @@ export function ConversationScreen({
     if (!next) return;
     flushingRef.current = true;
     setQueued((previous) => previous.filter((entry) => entry.id !== next.id));
-    void sendText(next.body, { attachments: next.attachments })
+    void sendText(next.body, {
+      attachments: next.attachments,
+      replyTarget: next.replyTarget ?? null,
+    })
       .then((outcome) => {
         if (outcome === "failed") {
           setQueued((previous) => [next, ...previous]);
@@ -1882,6 +2017,7 @@ export function ConversationScreen({
   useEffect(() => {
     setQueued([]);
     setEditingQueued(null);
+    setReplyTarget(null);
     setBusyIntent("queue");
     attachments.clear();
   }, [conversationId]);
@@ -1892,7 +2028,46 @@ export function ConversationScreen({
   const onMessageContextMenu = useCallback(
     (event: React.MouseEvent, message: Message) => {
       const sel = window.getSelection()?.toString().trim();
+      const isYou = isOperatorMessage(message, operatorName);
+      const participant = message.actorId
+        ? participantMetaById.get(message.actorId)
+        : null;
+      const messageAgent = !isYou
+        ? resolveMessageAgent(message, scopedAgents, agentId)
+        : null;
+      const actorHandle = (
+        participant?.scopedAlias?.trim()
+        || messageAgent?.handle?.trim()
+        || null
+      )?.replace(/^@+/, "") ?? null;
+      const actorLabel = actorHandle ? `@${actorHandle}` : message.actorName;
+      const actualAgentId = (
+        messageAgent?.id
+        || participant?.agentId
+        || message.actorId
+        || ""
+      ).trim();
       const items: MenuItem[] = [];
+      if (!isYou) {
+        items.push({
+          kind: "action",
+          label: "Reply",
+          onSelect: () => beginReply(message, actorHandle),
+        });
+      }
+      items.push({
+        kind: "action",
+        label: "Forward to new task…",
+        onSelect: () => forwardMessage(
+          message,
+          actorLabel,
+          participant?.workspaceRoot
+          ?? messageAgent?.projectRoot
+          ?? messageAgent?.cwd
+          ?? undefined,
+        ),
+      });
+      items.push({ kind: "separator" });
       if (sel) {
         items.push({
           kind: "action",
@@ -1902,7 +2077,6 @@ export function ConversationScreen({
             void copyTextToClipboard(sel);
           },
         });
-        items.push({ kind: "separator" });
       }
       items.push({
         kind: "action",
@@ -1911,16 +2085,21 @@ export function ConversationScreen({
           void copyTextToClipboard(message.body);
         },
       });
-      if (message.actorName && !isOperatorMessage(message, operatorName)) {
+      items.push({
+        kind: "action",
+        label: "Copy Link",
+        onSelect: () => copyMessageLink(message.id),
+      });
+      items.push({ kind: "separator" });
+      if (!isYou && actualAgentId) {
         items.push({
           kind: "action",
           label: "Copy Agent ID",
           onSelect: () => {
-            void copyTextToClipboard(message.actorName ?? "");
+            void copyTextToClipboard(actualAgentId);
           },
         });
       }
-      items.push({ kind: "separator" });
       items.push({
         kind: "action",
         label: "Copy Message ID",
@@ -1930,7 +2109,16 @@ export function ConversationScreen({
       });
       showContextMenu(event, items);
     },
-    [operatorName, showContextMenu],
+    [
+      agentId,
+      beginReply,
+      copyMessageLink,
+      forwardMessage,
+      operatorName,
+      participantMetaById,
+      scopedAgents,
+      showContextMenu,
+    ],
   );
 
   const dispatchToCandidate = async (
@@ -2184,6 +2372,14 @@ export function ConversationScreen({
                     operatorName,
                   })
                 : null;
+              const replyOrigin = !askReply && message.replyToMessageId
+                ? messagesById.get(message.replyToMessageId) ?? null
+                : null;
+              const replyOriginLabel = replyOrigin
+                ? isOperatorMessage(replyOrigin, operatorName)
+                  ? operatorName
+                  : replyOrigin.actorName
+                : null;
               const displayBody = askReply ? askReply.body : message.body;
               const deliveryState = isYou && typeof message.metadata?.["deliveryState"] === "string"
                 ? message.metadata["deliveryState"]
@@ -2324,7 +2520,7 @@ export function ConversationScreen({
                                 className="s-thread-msg-permalink"
                                 aria-label={`Reply to @${actorHandle}`}
                                 title={`Reply to @${actorHandle}`}
-                                onClick={() => replyToHandle(actorHandle)}
+                                onClick={() => beginReply(message, actorHandle)}
                               >
                                 <ReplyGlyph />
                               </button>
@@ -2334,14 +2530,7 @@ export function ConversationScreen({
                               className="s-thread-msg-permalink"
                               aria-label="Copy link to message"
                               title="Copy link to message"
-                              onClick={() => {
-                                const url = new URL(window.location.href);
-                                if (route.view === "agents-v2") {
-                                  url.searchParams.set("tab", "message");
-                                }
-                                url.hash = `msg-${message.id}`;
-                                void navigator.clipboard.writeText(url.toString());
-                              }}
+                              onClick={() => copyMessageLink(message.id)}
                             >
                               <svg
                                 width="12"
@@ -2386,6 +2575,26 @@ export function ConversationScreen({
                             </span>
                             <span className="s-thread-reply-ctx-status">
                               · done
+                            </span>
+                          </button>
+                        )}
+
+                        {replyOrigin && replyOriginLabel && (
+                          <button
+                            type="button"
+                            className="s-thread-reply-ctx"
+                            title={`Open message from ${replyOriginLabel}`}
+                            onClick={() => scrollToMessage(replyOrigin.id)}
+                          >
+                            <ReplyGlyph />
+                            <span className="s-thread-reply-ctx-label">
+                              reply to
+                            </span>
+                            <span className="s-thread-reply-ctx-title">
+                              {messageReplyPreview(replyOrigin)}
+                            </span>
+                            <span className="s-thread-reply-ctx-from">
+                              · {replyOriginLabel}
                             </span>
                           </button>
                         )}
@@ -2630,6 +2839,8 @@ export function ConversationScreen({
             applyMention={applyMention}
             updateTriggersFromDraft={updateTriggersFromDraft}
             closeSuggestions={closeSuggestions}
+            replyTarget={replyTarget}
+            onCancelReply={cancelReply}
             isStopMode={isStopMode}
             sending={sending}
             composeAction={composeAction}

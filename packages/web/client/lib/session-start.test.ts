@@ -132,6 +132,8 @@ describe("startAgentSession", () => {
       model: " gpt-5.6-sol ",
       reasoningEffort: " high ",
       instructions: " Start here. ",
+      fromMessageId: " message:source ",
+      fromConversationId: " chat:source ",
       attachments: [{
         id: "capture-2",
         url: "http://localhost:43122/api/blobs/capture-2",
@@ -157,6 +159,8 @@ describe("startAgentSession", () => {
           mediaType: "image/png",
           fileName: "capture.png",
         }],
+        fromMessageId: "message:source",
+        fromConversationId: "chat:source",
       },
     });
   });

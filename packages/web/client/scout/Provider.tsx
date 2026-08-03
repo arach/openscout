@@ -42,6 +42,11 @@ import {
 } from "../lib/theme.ts";
 import type { KnowledgeHit } from "../lib/knowledge-search.ts";
 import type { FocusedSession } from "../lib/session-catalog.ts";
+import type {
+  ContextCaptureIntent,
+  ForwardContextMode,
+  ForwardContextSource,
+} from "../lib/context-capture-draft.ts";
 import { SCOUT_REALTIME_VOICE_FLAG } from "../../shared/realtime-voice.ts";
 
 declare global {
@@ -122,7 +127,7 @@ export interface ScoutContextValue {
 }
 
 export type ContextCaptureRequest = {
-  intent: "new-task" | "route-capture";
+  intent: ContextCaptureIntent;
   agentId?: string;
   conversationId?: string;
   projectPath?: string;
@@ -130,6 +135,8 @@ export type ContextCaptureRequest = {
   files?: File[];
   attachmentFeedback?: string;
   preferExistingChat?: boolean;
+  forwardContext?: ForwardContextSource;
+  forwardContextMode?: ForwardContextMode;
 };
 
 export type ApiConnectionState = {
