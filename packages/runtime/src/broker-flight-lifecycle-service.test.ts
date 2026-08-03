@@ -13,6 +13,7 @@ import type {
 import {
   BrokerFlightLifecycleService,
   deliveryStatusForFlight,
+  isDuplicateFlightUpdate,
   STALE_LOCAL_DELIVERY_GRACE_MS,
   shouldIgnoreFlightUpdate,
   staleLocalDeliveryReason,
@@ -244,6 +245,14 @@ describe("broker flight lifecycle helpers", () => {
       testFlight({ state: "running" }),
       testFlight({ state: "completed" }),
     )).toBe(false);
+    expect(isDuplicateFlightUpdate(
+      testFlight({ metadata: { nested: { value: true } } }),
+      testFlight({ metadata: { nested: { value: true } } }),
+    )).toBe(true);
+    expect(isDuplicateFlightUpdate(
+      testFlight({ state: "running" }),
+      testFlight({ state: "completed" }),
+    )).toBe(false);
 
     expect(deliveryStatusForFlight(testFlight({ state: "running" }))).toBe("running");
     expect(deliveryStatusForFlight(testFlight({ state: "waiting" }))).toBe("running");
@@ -266,6 +275,27 @@ describe("broker flight lifecycle helpers", () => {
     expect(harness.warnings).toEqual([
       "[openscout-runtime] ignored stale flight update flight-1: completed -> running",
     ]);
+  });
+
+  test("ignores identical flight updates without persisting or forwarding them", async () => {
+    const running = testFlight({
+      summary: "Still running.",
+      metadata: { source: "peer" },
+    });
+    const harness = createHarness({
+      snapshot: testSnapshot({
+        flights: { [running.id]: running },
+      }),
+    });
+
+    await harness.service.recordFlight(structuredClone(running));
+
+    expect(harness.committedFlights).toEqual([]);
+    expect(harness.appliedEntries).toEqual([]);
+    expect(harness.updatedDeliveries).toEqual([]);
+    expect(harness.promoted).toEqual([]);
+    expect(harness.forwardedFlights).toEqual([]);
+    expect(harness.warnings).toEqual([]);
   });
 
   test("records terminal flights, updates deliveries, promotes work, and forwards", async () => {

@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+
 import type {
   DeliveryAttempt,
   DeliveryIntent,
@@ -79,6 +81,10 @@ export type BrokerFlightLifecycleServiceOptions = {
 
 export function shouldIgnoreFlightUpdate(previous: FlightRecord, next: FlightRecord): boolean {
   return isTerminalFlightState(previous.state) && !isTerminalFlightState(next.state);
+}
+
+export function isDuplicateFlightUpdate(previous: FlightRecord, next: FlightRecord): boolean {
+  return isDeepStrictEqual(previous, next);
 }
 
 const terminalDeliveryStatuses = new Set<DeliveryStatus>(["completed", "failed", "cancelled"]);
@@ -221,6 +227,9 @@ export class BrokerFlightLifecycleService {
     await this.options.durableStore.runWrite(async () => {
       const previous = this.options.runtime.snapshot().flights[flightToRecord.id];
       previousFlight = previous;
+      if (previous && isDuplicateFlightUpdate(previous, flightToRecord)) {
+        return;
+      }
       if (previous && shouldIgnoreFlightUpdate(previous, flightToRecord)) {
         this.options.warn?.(
           `[openscout-runtime] ignored stale flight update ${flightToRecord.id}: ${previous.state} -> ${flightToRecord.state}`,

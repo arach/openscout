@@ -181,7 +181,15 @@ function compactRedundantEntries(entries: BrokerJournalEntry[]): BrokerJournalEn
     latestIndexByKey.set(key, index);
   }
 
+  const lastFlightById = new Map<string, FlightRecord>();
+
   return entries.filter((entry, index) => {
+    if (entry.kind === "flight.record") {
+      const previous = lastFlightById.get(entry.flight.id);
+      lastFlightById.set(entry.flight.id, entry.flight);
+      return !previous || !sameValue(previous, entry.flight);
+    }
+
     const key = dedupeKey(entry);
     return !key || latestIndexByKey.get(key) === index;
   });
@@ -400,6 +408,10 @@ export class FileBackedBrokerJournal {
     entry: BrokerJournalEntry,
     snapshot: RuntimeRegistrySnapshot,
   ): boolean {
+    if (entry.kind === "flight.record") {
+      return !sameValue(snapshot.flights[entry.flight.id], entry.flight);
+    }
+
     if (!isDedupableEntry(entry)) {
       return true;
     }
@@ -454,6 +466,9 @@ export class FileBackedBrokerJournal {
         return;
       case "binding.upsert":
         snapshot.bindings[entry.binding.id] = entry.binding;
+        return;
+      case "flight.record":
+        snapshot.flights[entry.flight.id] = entry.flight;
         return;
       default:
         return;
