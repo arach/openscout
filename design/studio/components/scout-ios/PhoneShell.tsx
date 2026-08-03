@@ -12,7 +12,8 @@ import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Glyph } from "./Glyph";
 import { Seg } from "./primitives";
-import { SCOUT_IOS_CSS, TABS, type Surface, type Variant } from "./theme";
+import { SCOUT_IOS_CSS, TABS, type PhoneTab, type Surface, type Variant } from "./theme";
+import type { AgentHost, AgentHostId } from "./data";
 
 /** Treatment hooks flipped onto the `.scoutios` wrapper (see theme.ts). */
 export interface TreatmentMods { density?: "compact"; layout?: "hairline"; tone?: "kind"; lang?: "crisp"; }
@@ -41,6 +42,11 @@ export interface Treatment {
    *  treatment that draws its own bottom chrome (the Entry compose dock)
    *  passes `showChrome: false`. Both fall back to the lab-level props. */
   header?: ReactNode;
+  /** Shared-shell host context, immediately after the Scout wordmark. The
+   *  body never owns this control; it only consumes the selected scope. */
+  mastheadQualifier?: ReactNode;
+  /** Optional regular-width rendering of the same qualifier. */
+  wideMastheadQualifier?: ReactNode;
   showChrome?: boolean;
   /** Palette this treatment is designed against — selecting the treatment
    *  flips the lab's palette to it (the toggle stays live for comparison). */
@@ -52,15 +58,174 @@ export function ScoutIOSStyles() {
   return <style>{SCOUT_IOS_CSS}</style>;
 }
 
+export type MastheadHexStyle = "wire" | "quiet";
+export type MastheadDotLayout = "cluster" | "facets" | "rail";
+
+const HOST_DOT_POSITIONS: Record<MastheadDotLayout, Record<number, [number, number][]>> = {
+  cluster: {
+    1: [[112, 118]],
+    2: [[91, 118], [133, 118]],
+    3: [[112, 94], [91, 132], [133, 132]],
+    4: [[91, 97], [133, 97], [91, 139], [133, 139]],
+  },
+  facets: {
+    1: [[112, 83]],
+    2: [[112, 83], [143, 118]],
+    3: [[112, 83], [143, 118], [112, 153]],
+    4: [[112, 83], [143, 118], [112, 153], [81, 118]],
+  },
+  rail: {
+    1: [[112, 118]],
+    2: [[96, 118], [128, 118]],
+    3: [[82, 118], [112, 118], [142, 118]],
+    4: [[67, 118], [97, 118], [127, 118], [157, 118]],
+  },
+};
+
+/** Scout's brand mark, deliberately separate from the action-glyph family.
+ *  `wire` uses the canonical ScoutWireMark geometry; `quiet` keeps the same
+ *  pointy nested-hex silhouette but removes the depth rays at tiny sizes. */
+function ScoutWireHex({
+  style = "wire",
+  hosts = [],
+  selectedHostIds = [],
+  dotLayout = "cluster",
+}: {
+  style?: MastheadHexStyle;
+  hosts?: AgentHost[];
+  selectedHostIds?: AgentHostId[];
+  dotLayout?: MastheadDotLayout;
+}) {
+  const selected = new Set(selectedHostIds);
+  const positions = HOST_DOT_POSITIONS[dotLayout][Math.min(hosts.length, 4)] ?? [];
+
+  return (
+    <svg className="iScoutWireHex" viewBox="0 0 224 236" aria-hidden>
+      <path className="outer" d="M112 8 207 63v110l-95 55-95-55V63Z" />
+      {style === "wire" ? <path className="rays" d="M112 8v110M207 63l-95 55M17 63l95 55M112 228V118" /> : null}
+      <path className="inner" d="M112 70 154 94v48l-42 24-42-24V94Z" />
+      {style === "wire" ? <path className="inner rays" d="M112 70v96M154 94l-42 24M70 94l42 24" /> : null}
+      {hosts.slice(0, 4).map((host, index) => {
+        const [cx, cy] = positions[index] ?? [112, 118];
+        return (
+          <circle
+            key={host.id}
+            className="iScoutHostDot"
+            cx={cx}
+            cy={cy}
+            r="13"
+            data-selected={selected.has(host.id)}
+            data-online={host.online}
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
+/** Persistent view-scope qualifier for the shared masthead. It is visually a
+ *  borderless Scout lockup, while the menu carries the explicit host names and
+ *  states. The selected value is supplied by each surface's truthful adapter. */
+export function MastheadHostQualifier({
+  hosts,
+  selectedHostIds,
+  onSelectedHostIds,
+  open,
+  onOpen,
+  markStyle = "wire",
+  dotLayout = "cluster",
+}: {
+  hosts: AgentHost[];
+  selectedHostIds: AgentHostId[];
+  onSelectedHostIds: (hostIds: AgentHostId[]) => void;
+  open: boolean;
+  onOpen: (open: boolean) => void;
+  markStyle?: MastheadHexStyle;
+  dotLayout?: MastheadDotLayout;
+}) {
+  const availableIds = new Set(hosts.map((host) => host.id));
+  const selectedHosts = hosts.filter((host) => selectedHostIds.includes(host.id));
+  const selectedIds = selectedHostIds.filter((id) => availableIds.has(id));
+  const selectedCount = selectedHosts.length;
+  const allSelected = hosts.length > 0 && selectedCount === hosts.length;
+  const displayHost = selectedCount === 1 ? selectedHosts[0] : undefined;
+  const selectedOnlineCount = selectedHosts.filter((host) => host.online).length;
+  const label = displayHost?.label ?? (allSelected ? `${hosts.length} hosts` : `${selectedCount}/${hosts.length} hosts`);
+  const compactLabel = displayHost?.shortLabel ?? label;
+  const selectedNames = selectedHosts.map((host) => host.label).join(", ");
+  const accessibility = `Host context, ${selectedCount} of ${hosts.length} selected${selectedNames ? `: ${selectedNames}` : ""}. ${selectedOnlineCount} online.`;
+  const toggleHost = (hostId: AgentHostId) => {
+    if (selectedIds.includes(hostId)) {
+      if (selectedIds.length === 1) return;
+      onSelectedHostIds(selectedIds.filter((id) => id !== hostId));
+      return;
+    }
+    onSelectedHostIds(hosts.filter((host) => selectedIds.includes(host.id) || host.id === hostId).map((host) => host.id));
+  };
+
+  return (
+    <div className="iMastHostWrap">
+      <button
+        type="button"
+        className="iMastHostButton"
+        aria-label={accessibility}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        onClick={() => onOpen(!open)}
+      >
+        <span className="iScoutWireHexWrap">
+          <ScoutWireHex style={markStyle} hosts={hosts} selectedHostIds={selectedIds} dotLayout={dotLayout} />
+        </span>
+        <span className="iMastHostLabel">
+          <span className="iMastHostLabelCompact">{compactLabel}</span>
+          <span className="iMastHostLabelWide">{label}</span>
+        </span>
+        <Glyph kind="chevron" size={10} rotate={open ? 270 : 90} />
+      </button>
+      {open ? (
+        <div className="iMastHostMenu" role="dialog" aria-label="Select hosts">
+          <span className="iMastHostMenuHead">
+            <span className="iMastHostMenuTitle"><strong>Hosts</strong><small>{selectedCount} selected</small></span>
+            <span className="iMastHostMenuActions">
+              <button type="button" disabled={allSelected} onClick={() => onSelectedHostIds(hosts.map((host) => host.id))}>All</button>
+              <button type="button" onClick={() => onOpen(false)}>Done</button>
+            </span>
+          </span>
+          {hosts.map((candidate) => {
+            const isSelected = selectedIds.includes(candidate.id);
+            return (
+            <button
+              key={candidate.id}
+              type="button"
+              aria-pressed={isSelected}
+              aria-disabled={isSelected && selectedCount === 1}
+              onClick={() => toggleHost(candidate.id)}
+            >
+              <span className="iMastHostMenuDot" data-online={candidate.online} data-selected={isSelected} />
+              <span className="iMastHostMenuCopy"><strong>{candidate.label}</strong><small>{candidate.online ? "Online" : "Offline"}</small></span>
+              {isSelected ? <Glyph kind="check" size={13} /> : null}
+            </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 /** The device + RootView chrome around a surface body. */
 export function PhoneShell({
-  surface, variant, mods, header, showChrome = true, tabBadges, bellCount, children,
+  surface, variant, mods, header, mastheadQualifier, showChrome = true, tabs = TABS, tabBadges, bellCount, children,
 }: {
   surface: Surface; variant: Variant; mods?: TreatmentMods;
   /** Replaces the default "Scout" masthead (for pushed/sheet surfaces). */
   header?: ReactNode;
+  /** Persistent host context rendered beside the Scout wordmark. */
+  mastheadQualifier?: ReactNode;
   /** Show the docked tab bar + cockpit status bar. False for full-screen pushes. */
   showChrome?: boolean;
+  /** Optional navigation snapshot for studies tied to a newer shell revision. */
+  tabs?: PhoneTab[];
   /** Count badges per tab, keyed by lowercased label (e.g. `{ inbox: 5 }`). */
   tabBadges?: Partial<Record<string, number>>;
   /** Unread alerts on the masthead bell — the Notifications entry point. */
@@ -88,6 +253,8 @@ export function PhoneShell({
             <div className="iHead">
               <div className="iMast">
                 <span className="iWordmark">Scout</span>
+                {mastheadQualifier}
+                <span className="iMastGap" />
                 {COMPOSE_SURFACES.includes(surface) && (
                   <span className="iCompose"><Glyph kind="plus" size={18} /></span>
                 )}
@@ -109,7 +276,7 @@ export function PhoneShell({
             <>
               {/* Docked tab bar — Home · Agents · New · Tail · Terminal */}
               <div className="iTabs">
-                {TABS.map((t) => {
+                {tabs.map((t) => {
                   const badge = tabBadges?.[t.label.toLowerCase()];
                   return (
                     <div className="iTab" key={t.label} data-on={t.activeFor?.includes(surface) ?? false}>
@@ -150,7 +317,12 @@ export function PhoneShell({
 /** A landscape tablet frame for wide/responsive exhibits of the same surface.
  *  Minimal chrome — status bar + masthead; no tab bar (the exhibit is about
  *  the body's layout, not iPad navigation). */
-export function TabletShell({ variant, mods, children }: { variant: Variant; mods?: TreatmentMods; children: ReactNode }) {
+export function TabletShell({ variant, mods, mastheadQualifier, children }: {
+  variant: Variant;
+  mods?: TreatmentMods;
+  mastheadQualifier?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <div className="scoutios" data-v={variant} data-density={mods?.density} data-layout={mods?.layout} data-tone={mods?.tone} data-lang={mods?.lang}>
       <div className="iPad">
@@ -165,6 +337,8 @@ export function TabletShell({ variant, mods, children }: { variant: Variant; mod
           <div className="iHead" style={{ padding: "4px 20px 6px" }}>
             <div className="iMast">
               <span className="iWordmark">Scout</span>
+              {mastheadQualifier}
+              <span className="iMastGap" />
               <span className="iCompose"><Glyph kind="plus" size={18} /></span>
               <span className="iGear"><Glyph kind="gear" size={20} /></span>
             </div>
@@ -245,7 +419,7 @@ export function SurfaceNav({ current }: { current: Surface | "theme" }) {
  * notes column. Each surface study is `<SurfaceLab surface="…" treatments={…}/>`.
  */
 export function SurfaceLab({
-  surface, title, blurb, source, treatments, controls, header, showChrome = true, tabBadges, bellCount,
+  surface, title, blurb, source, treatments, controls, header, mastheadQualifier, showChrome = true, tabs, tabBadges, bellCount,
 }: {
   surface: Surface;
   title: string;
@@ -257,8 +431,12 @@ export function SurfaceLab({
   controls?: ReactNode;
   /** Custom phone header (pushed/sheet surfaces) — replaces the masthead. */
   header?: ReactNode;
+  /** Lab-level shared host qualifier; treatments may override it. */
+  mastheadQualifier?: ReactNode;
   /** Show the docked tab bar + cockpit status bar. False for full-screen pushes. */
   showChrome?: boolean;
+  /** Optional phone navigation snapshot; historical studies keep their own default. */
+  tabs?: PhoneTab[];
   /** Count badges per tab, keyed by lowercased label (e.g. `{ inbox: 5 }`). */
   tabBadges?: Partial<Record<string, number>>;
   /** Unread alerts on the masthead bell — the Notifications entry point. */
@@ -316,7 +494,9 @@ export function SurfaceLab({
           variant={variant}
           mods={current?.mods}
           header={current?.header ?? header}
+          mastheadQualifier={current?.mastheadQualifier ?? mastheadQualifier}
           showChrome={current?.showChrome ?? showChrome}
+          tabs={tabs}
           tabBadges={tabBadges}
           bellCount={bellCount}
         >
@@ -367,7 +547,13 @@ export function SurfaceLab({
           <div style={{ fontFamily: "var(--i-mono,monospace)", fontSize: 9, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: "#7a7f88", marginBottom: 10 }}>
             Same surface · wide (iPad) — the container query opens the layout
           </div>
-          <TabletShell variant={variant} mods={current.mods}>{current.wide}</TabletShell>
+          <TabletShell
+            variant={variant}
+            mods={current.mods}
+            mastheadQualifier={current.wideMastheadQualifier ?? current.mastheadQualifier ?? mastheadQualifier}
+          >
+            {current.wide}
+          </TabletShell>
         </div>
       )}
     </div>

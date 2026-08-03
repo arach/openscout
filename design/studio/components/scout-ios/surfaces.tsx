@@ -11,9 +11,9 @@
 import { Glyph } from "./Glyph";
 import { SectionHeader, TreeRail, CommsTypeGlyph, CommsStatusGlyph } from "./primitives";
 import {
-  FLEET, MACHINES, ACTIVITY, COMMS, TAIL, INBOX, TERMINAL_LINES,
+  AGENT_HOSTS, FLEET, MACHINES, ACTIVITY, COMMS, TAIL, INBOX, TERMINAL_LINES,
   groupByProject, ageRank, workingMeta, soloLabel, leafTitle,
-  type Agent, type Convo, type InboxItem,
+  type Agent, type AgentHostId, type Convo, type InboxItem,
 } from "./data";
 
 // ── Needs-you band (Home's attention layer) ───────────────────────────────
@@ -242,12 +242,12 @@ export function AgentsSurface({ sort, onSort }: { sort: "project" | "recent"; on
       <div className="iSummary">
         <span className="iSecLabel">{summary.toUpperCase()}</span>
         <div className="iSort">
-          <span className={`iSortBtn ${sort === "project" ? "on" : ""}`} onClick={() => onSort("project")}>PROJECT</span>
-          <span className={`iSortBtn ${sort === "recent" ? "on" : ""}`} onClick={() => onSort("recent")}>RECENT</span>
+          <button type="button" className={`iSortBtn ${sort === "project" ? "on" : ""}`} aria-pressed={sort === "project"} onClick={() => onSort("project")}>PROJECT</button>
+          <button type="button" className={`iSortBtn ${sort === "recent" ? "on" : ""}`} aria-pressed={sort === "recent"} onClick={() => onSort("recent")}>RECENT</button>
         </div>
       </div>
 
-      {sort === "project" ? agentsProjectGroups() : (
+      {sort === "project" ? agentsProjectGroups(FLEET) : (
         recents.map((a, i) => (
           <div key={a.id}>
             <AgentLeaf agent={a} />
@@ -261,14 +261,14 @@ export function AgentsSurface({ sort, onSort }: { sort: "project" | "recent"; on
 
 /** The project·agent·session tree body — shared by the Agents surface and the
  *  merged Agents hub's Tree lens. */
-function agentsProjectGroups() {
-  return groupByProject(FLEET).map((g) => {
+function agentsProjectGroups(agents: Agent[], showChanges = false, showHosts = false) {
+  return groupByProject(agents).map((g) => {
     const solo = g.agents.length === 1 ? g.agents[0] : null;
     const liveN = g.agents.filter((a) => a.state === "live").length;
     if (solo) {
       return (
         <div key={g.name}>
-          <AgentLeaf agent={solo} showProject />
+          <AgentLeaf agent={solo} showProject showChange={showChanges} context={showHosts ? hostShortLabel(solo.host) : undefined} />
           <div className="iADivider" />
         </div>
       );
@@ -283,7 +283,13 @@ function agentsProjectGroups() {
           <span className="iChev"><Glyph kind="chevron" size={13} /></span>
         </div>
         {g.agents.map((a, ai) => (
-          <AgentLeaf key={a.id} agent={a} tree={{ last: ai === g.agents.length - 1 }} />
+          <AgentLeaf
+            key={a.id}
+            agent={a}
+            tree={{ last: ai === g.agents.length - 1 }}
+            showChange={showChanges}
+            context={showHosts ? hostShortLabel(a.host) : undefined}
+          />
         ))}
         <div className="iADivider" />
       </div>
@@ -292,12 +298,19 @@ function agentsProjectGroups() {
 }
 
 /** One AgentRow: optional tree rail, state dot, name, session line (project · branch), age, harness. */
-export function AgentLeaf({ agent, tree, showProject }: { agent: Agent; tree?: { last: boolean }; showProject?: boolean }) {
-  const parts = [showProject ? agent.project : null, agent.branch].filter(Boolean);
+export function AgentLeaf({ agent, tree, showProject, showChange = false, context }: {
+  agent: Agent;
+  tree?: { last: boolean };
+  showProject?: boolean;
+  showChange?: boolean;
+  context?: string;
+}) {
+  const parts = [context, showProject ? agent.project : null, agent.branch].filter(Boolean);
   const sessionLine = parts.length ? parts.join(" · ") : null;
   return (
     <div className="iLeafRow" style={{ background: "transparent", paddingLeft: tree ? 13 : 16 }}>
       {tree && <TreeRail last={tree.last} />}
+      {showChange && agent.change?.unread ? <span className="iAgentChangeDot" role="img" aria-label="Unread state change" /> : null}
       <div className="iAgentMain">
         <span className={`iAgentName ${agent.state === "live" ? "" : "dim"}`} style={{ fontWeight: tree ? 400 : 500 }}>{agent.title}</span>
         {sessionLine && <span className="iSessionLine">{sessionLine}</span>}
@@ -305,6 +318,83 @@ export function AgentLeaf({ agent, tree, showProject }: { agent: Agent; tree?: {
       <span className="iSpacer" />
       {agent.age && <span className="iAge" style={{ color: agent.state === "live" ? "var(--i-accent)" : "var(--i-dim)" }}>{agent.age}</span>}
       {agent.harness && <span className="iHarness">{agent.harness}</span>}
+    </div>
+  );
+}
+
+export type UnifiedAgentScope = "all" | "changed";
+
+function hostShortLabel(id?: AgentHostId) {
+  return AGENT_HOSTS.find((host) => host.id === id)?.shortLabel;
+}
+
+/** Proposed shared overview: the inventory and Observe use the same project /
+ * agent rows. Observe is only the CHANGED filter, never a parallel data model. */
+export function UnifiedAgentsSurface({
+  sort,
+  onSort,
+  hosts = AGENT_HOSTS,
+  selectedHostIds,
+  scope,
+  onScope,
+}: {
+  sort: "project" | "recent";
+  onSort: (sort: "project" | "recent") => void;
+  hosts?: typeof AGENT_HOSTS;
+  selectedHostIds: AgentHostId[];
+  scope: UnifiedAgentScope;
+  onScope: (scope: UnifiedAgentScope) => void;
+}) {
+  const hostIds = new Set(hosts.map((candidate) => candidate.id));
+  const selectedIds = new Set(selectedHostIds.filter((id) => hostIds.has(id)));
+  const available = FLEET.filter((agent) => agent.host && hostIds.has(agent.host));
+  const hostRows = available.filter((agent) => agent.host && selectedIds.has(agent.host));
+  const changedCount = hostRows.filter((agent) => agent.change?.unread).length;
+  const visible = scope === "changed" ? hostRows.filter((agent) => agent.change?.unread) : hostRows;
+  const groups = groupByProject(visible);
+  const recents = [...visible].sort((a, b) =>
+    (a.state === "live" ? 0 : 1) - (b.state === "live" ? 0 : 1) || ageRank(a.age) - ageRank(b.age));
+  const showHosts = selectedIds.size > 1;
+
+  return (
+    <div className="iBody iUnifiedAgents">
+      <div className="iUnifiedLane">
+        <div className="iAgentScope" role="group" aria-label="Overview filter">
+          <button type="button" data-selected={scope === "all"} aria-pressed={scope === "all"} onClick={() => onScope("all")}>
+            <span>All</span><em>{hostRows.length}</em>
+          </button>
+          <button type="button" data-selected={scope === "changed"} aria-pressed={scope === "changed"} onClick={() => onScope("changed")}>
+            <span>Changed</span><em>{changedCount}</em>
+          </button>
+        </div>
+
+        <div className="iField">
+          <Glyph kind="search" size={15} /><span>Search projects and agents</span>
+        </div>
+
+        <div className="iSummary">
+          <span className="iSecLabel">{`${groups.length} projects · ${visible.length} agents`.toUpperCase()}</span>
+          <div className="iSort">
+            <button type="button" className={`iSortBtn ${sort === "project" ? "on" : ""}`} aria-pressed={sort === "project"} onClick={() => onSort("project")}>PROJECT</button>
+            <button type="button" className={`iSortBtn ${sort === "recent" ? "on" : ""}`} aria-pressed={sort === "recent"} onClick={() => onSort("recent")}>RECENT</button>
+          </div>
+        </div>
+
+        {visible.length ? (
+          sort === "project"
+            ? agentsProjectGroups(visible, true, showHosts)
+            : recents.map((agent, index) => (
+                <div key={agent.id}>
+                  <AgentLeaf agent={agent} showProject showChange context={showHosts ? hostShortLabel(agent.host) : undefined} />
+                  {index < recents.length - 1 ? <div className="iADivider" /> : null}
+                </div>
+              ))
+        ) : (
+          <div className="iUnifiedEmpty">
+            {selectedIds.size === 0 ? "Select at least one host." : scope === "changed" ? "No unread changes on the selected hosts." : "No agents on the selected hosts."}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

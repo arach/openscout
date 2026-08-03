@@ -8,6 +8,21 @@
 import type { GlyphKind } from "./Glyph";
 
 export type AgentState = "live" | "idle" | "offline" | "unknown";
+export type AgentHostId = "mini" | "air" | "studio" | "mbp";
+
+export interface AgentHost {
+  id: AgentHostId;
+  label: string;
+  shortLabel: string;
+  online: boolean;
+}
+
+export const AGENT_HOSTS: AgentHost[] = [
+  { id: "mini", label: "Arts Mac mini", shortLabel: "Mini", online: true },
+  { id: "air", label: "Air", shortLabel: "Air", online: true },
+  { id: "studio", label: "Studio", shortLabel: "Studio", online: true },
+  { id: "mbp", label: "MacBook Pro", shortLabel: "MBP", online: false },
+];
 
 export interface Agent {
   id: string;
@@ -19,6 +34,8 @@ export interface Agent {
   action?: string;      // statusLabel (current action) — drives the working card
   state: AgentState;
   age?: string;         // relative last-active
+  host?: AgentHostId;
+  change?: { summary: string; unread: boolean };
 }
 
 // The fleet roster — mirrors the demo seeds plus the recurring repo vocabulary.
@@ -26,25 +43,30 @@ export interface Agent {
 export const FLEET: Agent[] = [
   { id: "a1", title: "broker-smith", project: "openscout", harness: "claude",
     branch: "feat/in-app-session", dirty: 3, action: "editing HomeSurface.swift",
-    state: "live", age: "now" },
+    state: "live", age: "now", host: "mini",
+    change: { summary: "Broker safety review finished", unread: true } },
   { id: "a2", title: "session initiation", project: "openscout", harness: "codex",
     branch: "feat/repo-watch-web-converge", dirty: 6, action: "wiring ScoutSessionService.swift",
-    state: "live", age: "now" },
+    state: "live", age: "now", host: "mini",
+    change: { summary: "Merge order requested", unread: true } },
   { id: "a3", title: "theme port", project: "openscout", harness: "claude",
-    branch: "master", state: "idle", age: "41m" },
+    branch: "master", state: "idle", age: "41m", host: "mini" },
   { id: "a4", title: "tail-tuner", project: "hudson", harness: "codex",
     branch: "feat/tail-tokens", dirty: 0, action: "streaming tail tokens",
-    state: "live", age: "now" },
+    state: "live", age: "now", host: "air",
+    change: { summary: "Tail token pass finished", unread: true } },
   { id: "a5", title: "relay-hudson-claude", project: "hudson", harness: "claude",
-    branch: "main", state: "idle", age: "2h" },
+    branch: "main", state: "idle", age: "2h", host: "air" },
   { id: "a6", title: "lattices", project: "lattices", harness: "claude",
-    branch: "feat/grid-solver", state: "idle", age: "13h 6m" },
+    branch: "feat/grid-solver", state: "idle", age: "13h 6m", host: "studio" },
   { id: "a7", title: "voice tray", project: "talkie", harness: "codex",
-    branch: "feat/dictation", state: "idle", age: "3h" },
+    branch: "feat/dictation", state: "idle", age: "3h", host: "mini",
+    change: { summary: "Dictation tray released", unread: true } },
   { id: "a8", title: "iOS capture pass", project: "talkie", harness: "claude",
-    branch: "feat/capture", state: "offline", age: "1d" },
+    branch: "feat/capture", state: "offline", age: "1d", host: "air",
+    change: { summary: "Capture build failed", unread: true } },
   { id: "a9", title: "landing polish", project: "talkie", harness: "claude",
-    state: "offline", age: "1d" },
+    state: "offline", age: "1d", host: "studio" },
 ];
 
 // Paired base machines (Home machine rail). Multiple may be online; one focused.

@@ -36,13 +36,27 @@ export type Surface =
 // the directory/inventory tree of who exists. Ops folds Tail + Terminal into
 // one "raw truth" destination — it opens on Tail (the live firehose) with a
 // Terminal toggle. Home leads with the needs-you band over the ambient swarm.
-export const TABS: { label: string; kind: GlyphKind; activeFor?: Surface[] }[] = [
+export type PhoneTab = { label: string; kind: GlyphKind; activeFor?: Surface[] };
+
+export const TABS: PhoneTab[] = [
   // The notification detail PUSHES over whatever tab you were on; in the study
   // it is authored against Home, so Home stays lit behind it.
   { label: "Home", kind: "home", activeFor: ["home", "notification"] },
   { label: "Comms", kind: "comms", activeFor: ["comms", "conversation"] },
   { label: "Agents", kind: "agent", activeFor: ["agents"] },
   { label: "Ops", kind: "pulse", activeFor: ["ops", "tail", "terminal"] },
+];
+
+/** The current six-seat phone order in RootView.Surface. Kept separate from
+ *  TABS because the older iOS studies intentionally preserve the four-seat
+ *  Comms / Agents / Ops IA they were built to evaluate. */
+export const CURRENT_PHONE_TABS: PhoneTab[] = [
+  { label: "Home", kind: "home", activeFor: ["home", "notification"] },
+  { label: "Agents", kind: "agent", activeFor: ["agents"] },
+  { label: "Tail", kind: "pulse", activeFor: ["tail", "ops"] },
+  { label: "Comms", kind: "comms", activeFor: ["comms", "conversation"] },
+  { label: "Terminal", kind: "terminal", activeFor: ["terminal"] },
+  { label: "New", kind: "plus", activeFor: ["new"] },
 ];
 
 export const SCOUT_IOS_CSS = `
@@ -155,8 +169,62 @@ export const SCOUT_IOS_CSS = `
 /* masthead — "Scout" wordmark + gear over a hairline (RootView titleBar) */
 .iHead { flex: none; padding: 7px 16px 6px; }
 .iMast { display: flex; align-items: center; gap: 10px; }
-.iWordmark { font-size: var(--text-4xl); font-weight: 600; letter-spacing: -0.01em; color: var(--i-ink);
-  flex: 1; }
+.iWordmark { flex: none; color: var(--i-ink); font-size: var(--text-4xl); font-weight: 600; letter-spacing: -0.01em; }
+.iMastGap { min-width: 0; flex: 1 1 auto; }
+.iMastHostWrap { position: relative; z-index: 12; min-width: 0; flex: 0 1 auto; }
+.iMastHostButton { position: relative; display: flex; min-width: 0; height: 30px; align-items: center; gap: 6px;
+  padding: 0; border: 0; color: var(--i-muted); background: transparent; cursor: pointer; }
+.iMastHostButton::before { position: absolute; content: ""; inset: -7px -4px; }
+.iScoutWireHexWrap { position: relative; display: grid; width: 20px; height: 22px; flex: none; place-items: center; }
+.iScoutWireHex { width: 100%; height: 100%; overflow: visible; fill: none; stroke: currentColor;
+  stroke-linecap: round; stroke-linejoin: round; }
+.iScoutWireHex .outer { stroke-width: 10; }
+.iScoutWireHex .rays { stroke-width: 8; }
+.iScoutWireHex .inner { opacity: 0.68; stroke-width: 7; }
+.iScoutWireHex .iScoutHostDot { fill: var(--i-bg); stroke: var(--i-dim); stroke-width: 9;
+  transition: fill 90ms ease-out, stroke 90ms ease-out; }
+.iScoutWireHex .iScoutHostDot[data-online="true"] { stroke: var(--i-accent); }
+.iScoutWireHex .iScoutHostDot[data-selected="true"] { fill: var(--i-dim); }
+.iScoutWireHex .iScoutHostDot[data-selected="true"][data-online="true"] { fill: var(--i-accent); }
+.iMastHostLabel { max-width: 84px; overflow: hidden; color: var(--i-ink); font-family: var(--i-mono);
+  font-size: 11px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.iMastHostLabelWide { display: none; }
+.iMastHostButton > svg { flex: none; color: var(--i-dim); }
+.iMastHostMenu { position: absolute; top: calc(100% + 8px); left: -4px; z-index: 20; display: grid;
+  width: 218px; overflow: hidden; border: 1px solid var(--i-hairline-strong); border-radius: 12px;
+  background: var(--i-surface); box-shadow: 0 10px 28px rgba(0,0,0,0.34); }
+.iMastHostMenuHead { display: flex; min-height: 42px; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 6px 8px 6px 10px; border-bottom: 1px solid var(--i-hairline); }
+.iMastHostMenuTitle { display: grid; gap: 1px; }
+.iMastHostMenuTitle strong { color: var(--i-ink); font-size: 11px; font-weight: 600; }
+.iMastHostMenuTitle small { color: var(--i-muted); font-family: var(--i-mono); font-size: var(--text-2xs); }
+.iMastHostMenuActions { display: flex; align-items: center; gap: 2px; }
+.iMastHostMenuActions button { min-width: 36px; height: 28px; padding: 0 7px; border: 0; border-radius: 7px;
+  color: var(--i-ink); background: transparent; font-size: 10px; font-weight: 600; cursor: pointer; }
+.iMastHostMenuActions button:last-child { background: var(--i-accent-soft); }
+.iMastHostMenuActions button:disabled { color: var(--i-dim); background: transparent; cursor: default; }
+.iMastHostMenu > button { display: flex; min-height: 44px; align-items: center; gap: 9px; padding: 6px 10px;
+  border: 0; border-bottom: 1px solid var(--i-hairline); color: var(--i-muted); background: transparent;
+  cursor: pointer; text-align: left; }
+.iMastHostMenu > button:last-child { border-bottom: 0; }
+.iMastHostMenu > button[aria-pressed="true"] { background: var(--i-accent-soft); }
+.iMastHostMenu > button[aria-disabled="true"] { cursor: default; }
+.iMastHostMenuDot { width: 7px; height: 7px; margin: 0 5px; flex: none; border: 1px solid var(--i-dim);
+  border-radius: 50%; background: transparent; }
+.iMastHostMenuDot[data-online="true"] { border-color: var(--i-accent); }
+.iMastHostMenuDot[data-selected="true"] { background: var(--i-dim); }
+.iMastHostMenuDot[data-selected="true"][data-online="true"] { background: var(--i-accent); }
+.iMastHostMenuCopy { display: grid; min-width: 0; flex: 1; gap: 1px; }
+.iMastHostMenuCopy strong { overflow: hidden; color: var(--i-ink); font-size: 11px; font-weight: 600;
+  text-overflow: ellipsis; white-space: nowrap; }
+.iMastHostMenuCopy small { color: var(--i-muted); font-family: var(--i-mono); font-size: var(--text-2xs); }
+.iMastHostButton:focus-visible, .iMastHostMenu button:focus-visible { outline: 2px solid var(--i-accent); outline-offset: -2px; }
+.iMastHostButton:hover { color: var(--i-ink); }
+.iMastHostMenu > button:hover:not([aria-disabled="true"]) { background: color-mix(in oklab, var(--i-ink) 5%, transparent); }
+.iPad .iScoutWireHexWrap { width: 22px; height: 24px; }
+.iPad .iMastHostLabel { max-width: 180px; }
+.iPad .iMastHostLabelCompact { display: none; }
+.iPad .iMastHostLabelWide { display: inline; }
 .iGear { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
   background: var(--i-surface); color: var(--i-muted);
   border: 1px solid var(--i-hairline-strong); }
@@ -211,7 +279,7 @@ export const SCOUT_IOS_CSS = `
 /* ── Search field (HudField) ───────────────────────────────────────────── */
 .iField { display: flex; align-items: center; gap: 8px; margin: 7px 0 2px; padding: 8px 12px;
   border-radius: 11px; background: var(--i-surface); border: 1px solid var(--i-hairline-strong); }
-.iField span { font-size: var(--text-lg); color: var(--i-dim); }
+.iField span { font-size: var(--text-lg); color: var(--i-muted); }
 .iField svg { color: var(--i-dim); flex: none; }
 
 /* ── Currently working strip ───────────────────────────────────────────── */
@@ -275,9 +343,10 @@ export const SCOUT_IOS_CSS = `
 .iSummary { display: flex; align-items: center; padding: 4px 4px 8px; }
 .iSort { display: flex; gap: 2px; margin-left: auto; }
 .iSortBtn { font-size: var(--text-2xs); font-family: var(--i-mono); letter-spacing: 0.06em; padding: 3px 8px;
-  border-radius: 999px; color: var(--i-muted); cursor: pointer; }
+  border: 0; border-radius: 999px; color: var(--i-muted); background: transparent; cursor: pointer; }
 .iSortBtn.on { color: var(--i-accent); font-weight: 700;
   background: color-mix(in oklab, var(--i-accent) 12%, transparent); }
+.iSortBtn:focus-visible { outline: 2px solid var(--i-accent); outline-offset: 1px; }
 .iProjHead { display: flex; align-items: center; gap: 9px; padding: 9px 13px 4px; }
 .iProjGlyph { display: grid; grid-template-columns: 3px 3px; gap: 3px; flex: none; }
 .iProjGlyph i { width: 3px; height: 3px; border-radius: 50%; background: var(--i-muted); }
@@ -288,6 +357,27 @@ export const SCOUT_IOS_CSS = `
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .iADivider { height: 1px; background: color-mix(in oklab, var(--i-ink) 6%, transparent);
   margin-left: 14px; }
+.iAgentChangeDot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--i-accent); }
+
+/* ── Unified overview · hosts + unread changes ───────────────────────── */
+.iUnifiedAgents { container-type: inline-size; }
+.iUnifiedLane { width: 100%; }
+.iAgentScope { display: grid; grid-template-columns: 1fr 1fr; margin: 1px 0 5px;
+  border-bottom: 1px solid var(--i-hairline-strong); }
+.iAgentScope button { display: flex; min-height: 34px; align-items: center; justify-content: center; gap: 7px;
+  padding: 0 8px; border: 0; border-bottom: 1px solid transparent; color: var(--i-muted);
+  background: transparent; cursor: pointer; font-family: var(--i-mono); font-size: var(--text-xs); font-weight: 600;
+  letter-spacing: 0.07em; text-transform: uppercase; }
+.iAgentScope button[data-selected="true"] { border-bottom-color: var(--i-accent); color: var(--i-ink); }
+.iAgentScope em { min-width: 16px; color: var(--i-dim); font-size: var(--text-2xs); font-style: normal; text-align: center; }
+.iAgentScope button[data-selected="true"] em { color: var(--i-accent); }
+.iAgentScope button:focus-visible {
+  outline: 2px solid var(--i-accent); outline-offset: 1px; }
+.iUnifiedEmpty { padding: 28px 4px; color: var(--i-muted); font-size: var(--text-md); text-align: center; }
+
+@container (min-width: 600px) {
+  .iUnifiedLane { max-width: 700px; margin: 0 auto; }
+}
 
 /* ── Comms surface ─────────────────────────────────────────────────────── */
 .iCommsRow { display: flex; align-items: center; gap: 9px; padding: 12px 6px; position: relative; }
