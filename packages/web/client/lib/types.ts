@@ -1357,6 +1357,8 @@ export type Route =
       wt?: string;
       line?: number;
       endLine?: number;
+      /** Conversation that handed this file into Code, for an exact return path. */
+      returnConversationId?: string;
     }
   | { view: "briefings"; briefingId?: string }
   | ({ view: "activity" } & MachineScopedRoute)

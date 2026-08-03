@@ -89,12 +89,17 @@ describe("route fixtures", () => {
     { url: "/mesh", route: { view: "mesh" }, canonical: "/mesh" },
     { url: "/dispatch", route: { view: "broker" }, canonical: "/dispatch" },
     {
-      url: "/code?root=repo-a",
-      route: { view: "code", root: "repo-a" },
-      canonical: "/code?root=repo-a",
+      url: "/code?root=repo-a&file=repo-a%2Fsrc%2Fa.ts&fromConversation=c.thread",
+      route: {
+        view: "code",
+        root: "repo-a",
+        file: "repo-a/src/a.ts",
+        returnConversationId: "c.thread",
+      },
+      canonical: "/code?root=repo-a&file=repo-a%2Fsrc%2Fa.ts&fromConversation=c.thread",
     },
     {
-      url: "/code/openscout/packages/web/client.ts?wt=voice-nav&line=40&endLine=44",
+      url: "/code/openscout/packages/web/client.ts?wt=voice-nav&line=40&endLine=44&fromConversation=c.thread",
       route: {
         view: "code",
         project: "openscout",
@@ -102,8 +107,9 @@ describe("route fixtures", () => {
         wt: "voice-nav",
         line: 40,
         endLine: 44,
+        returnConversationId: "c.thread",
       },
-      canonical: "/code/openscout/packages/web/client.ts?wt=voice-nav&line=40&endLine=44",
+      canonical: "/code/openscout/packages/web/client.ts?wt=voice-nav&line=40&endLine=44&fromConversation=c.thread",
     },
     {
       url: "/briefings/brief-1",

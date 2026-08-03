@@ -15,6 +15,43 @@
   border-bottom: 1px solid var(--border);
 }
 
+.s-code-returnThread {
+  flex: none;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+  color: color-mix(in srgb, var(--accent) 62%, var(--ink));
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.s-code-returnThread:hover,
+.s-code-returnThread:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 52%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--ink);
+}
+
+@media (max-width: 720px) {
+  .s-code-returnThread {
+    width: 28px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .s-code-returnThread span {
+    display: none;
+  }
+}
+
 /* ── project picker (recent chips + search combobox) ── */
 
 .s-code-picker {
