@@ -578,6 +578,29 @@ export function ScoutProvider({
     }
   }, [navigate, openFilePreview, reload]);
 
+  const openFileInCode = useCallback((path: string, rootPath: string) => {
+    const file = path.trim();
+    const root = rootPath.trim();
+    if (!file || !root) return;
+    const returnConversationId = route.view === "conversation"
+      ? route.conversationId
+      : route.view === "messages"
+        ? route.conversationId
+        : window.location.pathname === "/embed/thread"
+          ? new URLSearchParams(window.location.search).get("conversationId")?.trim() || undefined
+          : undefined;
+    closeFilePreview();
+    applyScoutbotUiAction({
+      type: "navigate",
+      route: {
+        view: "code",
+        root,
+        file,
+        ...(returnConversationId ? { returnConversationId } : {}),
+      },
+    });
+  }, [applyScoutbotUiAction, closeFilePreview, route]);
+
   const scoutbotBridgeRef = useRef({
     applyScoutbotUiAction,
   });
@@ -687,6 +710,7 @@ export function ScoutProvider({
               <FilePreviewOverlay
                 path={filePreviewPath}
                 onOpenPath={openFilePreview}
+                onOpenInCode={openFileInCode}
                 onClose={closeFilePreview}
               />
               <ContextCaptureHost
