@@ -77,8 +77,60 @@ export function hasReachableMeshEntrypoint(node: NodeDefinition | undefined): bo
   ));
 }
 
+function parseHttpBrokerUrl(rawUrl: string | undefined): URL | null {
+  if (!rawUrl) {
+    return null;
+  }
+  try {
+    const url = new URL(rawUrl);
+    return url.protocol === "http:" || url.protocol === "https:" ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+function brokerUrlHostname(url: URL): string {
+  return url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+}
+
+function isWildcardBrokerHostname(hostname: string): boolean {
+  return hostname === "0.0.0.0" || hostname === "::";
+}
+
+function isLoopbackBrokerHostname(hostname: string): boolean {
+  return hostname === "::1"
+    || hostname === "localhost"
+    || hostname.endsWith(".localhost")
+    || /^127(?:\.\d{1,3}){3}$/.test(hostname);
+}
+
+/**
+ * A broker URL that plausibly reaches a *remote* peer: http(s), parsable, and
+ * neither a wildcard listen address nor loopback. Loopback is refused here
+ * because dialing 127.x from this host lands on this host — the self-echo
+ * behind duplicated flight gossip when a peer record points back at us.
+ */
+export function isReachableRemoteBrokerUrl(rawUrl: string | undefined): rawUrl is string {
+  const url = parseHttpBrokerUrl(rawUrl);
+  if (!url) {
+    return false;
+  }
+  const hostname = brokerUrlHostname(url);
+  return !isWildcardBrokerHostname(hostname) && !isLoopbackBrokerHostname(hostname);
+}
+
+/**
+ * A broker URL this host can dial at all. Loopback stays routable — sibling
+ * brokers on one machine are a supported topology — but wildcard listen
+ * addresses, non-http(s) schemes, and unparsable URLs are never destinations.
+ */
+function isRoutableBrokerUrl(rawUrl: string | undefined): rawUrl is string {
+  const url = parseHttpBrokerUrl(rawUrl);
+  return url !== null && !isWildcardBrokerHostname(brokerUrlHostname(url));
+}
+
 export function isReachableMeshNode(node: NodeDefinition | undefined): node is NodeDefinition {
-  return Boolean(node?.brokerUrl || hasReachableMeshEntrypoint(node));
+  return Boolean(isRoutableBrokerUrl(node?.brokerUrl) || hasReachableMeshEntrypoint(node));
 }
 
 export function meshNodeLastSeenAt(node: NodeDefinition | undefined): number {
@@ -301,15 +353,17 @@ export class BrokerMeshForwardingService {
       return;
     }
 
-    const authority = this.authorityNodeForConversation(invocation.conversationId);
-    if (!authority) {
-      return;
-    }
-    if (!authority.authorityNode.brokerUrl) {
+    const conversation = this.deps.runtime.conversation(invocation.conversationId);
+    if (!conversation || conversation.authorityNodeId === this.deps.nodeId) {
       return;
     }
 
-    await this.postJson<{ ok: boolean }>(authority.authorityNode.brokerUrl, "/v1/flights", flight);
+    const brokerUrl = this.deps.runtime.node(conversation.authorityNodeId)?.brokerUrl;
+    if (!isReachableRemoteBrokerUrl(brokerUrl)) {
+      return;
+    }
+
+    await this.postJson<{ ok: boolean }>(brokerUrl, "/v1/flights", flight);
   }
 
   async forwardPeerBrokerDeliveries(
