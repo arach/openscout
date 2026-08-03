@@ -90,6 +90,7 @@ private enum UserSendPhase: Equatable {
 /// resulting turns/blocks with Hudson atoms. A `HudMessageBar` drives the
 /// `ControlCapability` write side.
 struct ConversationSurface: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let client: any ScoutBrokerClient
     let conversationId: String
     let title: String
@@ -398,7 +399,7 @@ struct ConversationSurface: View {
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool = true) {
-        if animated {
+        if animated && !reduceMotion {
             withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }
         } else {
             proxy.scrollTo("bottom", anchor: .bottom)

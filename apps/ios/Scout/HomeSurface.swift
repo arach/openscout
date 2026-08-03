@@ -1904,13 +1904,26 @@ private struct WorkingRow: View {
 /// the Working well's one bit of motion, parked at the end of the live row's
 /// line. ~1s blink cycle.
 private struct TerminalCursor: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var visible = true
+
     var body: some View {
         RoundedRectangle(cornerRadius: 1)
             .fill(ScoutVibe.accent)
             .frame(width: 7, height: 12)
             .opacity(visible ? 1 : 0)
-            .onAppear { withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) { visible = false } }
+            .onAppear { updateBlink() }
+            .onChange(of: reduceMotion) { _, _ in updateBlink() }
+    }
+
+    private func updateBlink() {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { visible = true }
+        guard !reduceMotion, !ProcessInfo.processInfo.isLowPowerModeEnabled else { return }
+        withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
+            visible = false
+        }
     }
 }
 

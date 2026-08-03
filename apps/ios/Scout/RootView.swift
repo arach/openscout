@@ -89,11 +89,31 @@ struct RootView: View {
 
         var id: String { rawValue }
 
+        /// The phone rail's canonical order. Every secondary map of the rail
+        /// derives from this list so Scout never teaches two navigation models.
+        static let phoneNavigationOrder: [Surface] = [
+            .home, .agents, .tail, .comms, .terminal, .new,
+        ]
+
         /// Compact labels keep all six navigation seats on one consistent
         /// rhythm. The destination remains "Terminal" everywhere outside the
         /// rail; "Shell" is the familiar, shorter action label under its glyph.
         var navigationLabel: String {
             self == .terminal ? "Shell" : rawValue
+        }
+
+        var navigationBlurb: String {
+            switch self {
+            case .home: "Your fleet at a glance"
+            case .agents: "Who's working, and on what"
+            case .tail: "Watch the work stream live"
+            case .comms: "Conversations with your agents"
+            case .lanes: "Live work across parallel lanes"
+            case .deck: "Mission control for active work"
+            case .dispatch: "Send work across the fleet"
+            case .terminal: "A shell on your paired Mac"
+            case .new: "Start an agent on something"
+            }
         }
 
         /// Hand-drawn glyph from the unified set (see `Glyphs.swift`).
@@ -269,10 +289,12 @@ struct RootView: View {
                             } else {
                                 dockedTabBar(layout)
                             }
+                        } else if navMode == .crown, !keyboardIsUp {
+                            // The crown is persistent navigation now, so surface
+                            // content must stop above it instead of covering it
+                            // once Home's composer settles into place.
+                            Color.clear.frame(height: CrownMetric.bottomReserve)
                         }
-                        // Crown mode reserves NOTHING at the bottom: surface
-                        // content flows through behind the floating crown, and
-                        // the crown's own drop shadows keep it legible on top.
                     }
                     // Crown mode reserves a top zone so surface headers clear the
                     // permanent top strip + LED. Zero effect in tabs mode.
@@ -281,8 +303,13 @@ struct RootView: View {
                             Color.clear.frame(height: CrownMetric.topReserve(for: layout))
                         }
                     }
-                    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-                        keyboardIsUp = true
+                    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
+                        // Focus alone is not a keyboard. With a hardware keyboard
+                        // attached, Home auto-focuses its composer and UIKit can
+                        // still emit keyboard lifecycle notifications even though
+                        // no software keys cover the app. Only suppress navigation
+                        // when the reported end frame actually intersects the screen.
+                        keyboardIsUp = Self.keyboardCoversScreen(notification)
                     }
                     .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
                         keyboardIsUp = false
@@ -352,7 +379,11 @@ struct RootView: View {
                                 // strip sits flush in the indicator band, not floating.
                                 // The wide canvas reads best a touch deeper still.
                                 .offset(y: layout.physicalWidth >= 700 ? 20 : 14)
-                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                                .transition(
+                                    reduceMotion
+                                        ? .opacity
+                                        : .move(edge: .bottom).combined(with: .opacity)
+                                )
                             }
                             CrownNavChrome(
                                 model: model,
@@ -364,6 +395,11 @@ struct RootView: View {
                                 onTailSummon: { showTailSheet = true },
                                 assembled: $crownAssembled
                             )
+                            // Active surfaces deliberately carry zIndex(1) so
+                            // their transitions remain stable. The navigation
+                            // landmark must sit above that layer or Home's dock
+                            // paints over it after loading.
+                            .zIndex(2)
                         }
                         // The chrome bleeds INTO the top safe area — without this it
                         // starts below the island and its own safeAreaInsets.top then
@@ -512,9 +548,7 @@ struct RootView: View {
     /// sheet could not (it only knew how to say "no longer active").
     private func openNotification(_ route: AppModel.NotificationRoute) {
         if route.conversationId != nil {
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
-                surface = .comms
-            }
+            selectSurface(.comms)
             return
         }
 
@@ -527,6 +561,17 @@ struct RootView: View {
     private func openNotifications(focusItemId: String? = nil) {
         notificationsFocusItemId = focusItemId
         showNotifications = true
+    }
+
+    private static func keyboardCoversScreen(_ notification: Notification) -> Bool {
+        guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
+            return false
+        }
+        let screenBounds = UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.screen.bounds }
+            .first ?? .zero
+        guard !screenBounds.isEmpty else { return frame.height > 0 }
+        return frame.height > 0 && frame.minY < screenBounds.maxY - 1
     }
 
     private var settingsContext: AppSettingsContext {
@@ -767,7 +812,7 @@ struct RootView: View {
     /// only at iPad width, where its dense web canvases are actually useful.
     private func visibleSurfaces(_ layout: ScoutLayoutMetrics) -> [Surface] {
         if layout.physicalWidth >= 700 { return Surface.allCases }
-        return Surface.allCases.filter { $0 != .lanes && $0 != .deck && $0 != .dispatch }
+        return Surface.phoneNavigationOrder
     }
 
     /// Leading run of the bottom status bar: how and where we're connected — the
@@ -1103,21 +1148,26 @@ struct RootView: View {
             .scoutFloatingSurface(.control)
     }
 
-    /// The map. Every row is REAL navigation this shell already performs — tab
-    /// selection, the bell's route, the gear's sheet — so there is nothing here
-    /// that leads nowhere. Mission Control's lanes/deck/dispatch are deliberately
-    /// left out: they are a power surface, not one of the places a new operator
-    /// is looking for.
+    /// A literal map of the bottom rail: identical destinations, order, names,
+    /// and glyphs. Notifications and Settings already have masthead controls;
+    /// adding them here used to create a competing information architecture.
     private var placesSheet: some View {
-        let places: [ScoutPlace] = [
-            ScoutPlace(glyph: .agent, name: "Agents", blurb: "Who's working, and on what") { selectSurface(.agents) },
-            ScoutPlace(glyph: .comms, name: "Comms", blurb: "Conversations with your agents") { selectSurface(.comms) },
-            ScoutPlace(glyph: .tail, name: "Tail", blurb: "Watch the work stream live") { selectSurface(.tail) },
-            ScoutPlace(glyph: .plus, name: "New session", blurb: "Start an agent on something") { selectSurface(.new) },
-            ScoutPlace(glyph: .terminal, name: "Terminal", blurb: "A shell on your paired Mac") { selectSurface(.terminal) },
-            ScoutPlace(glyph: .inbox, name: "Notifications", blurb: "What asked for you") { openNotifications() },
-            ScoutPlace(glyph: .gear, name: "Settings", blurb: "Connection, appearance, what Home shows") { showSettings = true },
-        ]
+        #if canImport(UIKit)
+        let surfaces = UIDevice.current.userInterfaceIdiom == .pad
+            ? Surface.allCases
+            : Surface.phoneNavigationOrder
+        #else
+        let surfaces = Surface.phoneNavigationOrder
+        #endif
+        let places = surfaces.map { destination in
+            ScoutPlace(
+                glyph: destination.glyph,
+                name: destination.navigationLabel,
+                blurb: destination.navigationBlurb
+            ) {
+                selectSurface(destination)
+            }
+        }
         return NavigationStack {
             ScrollView {
                 VStack(spacing: 0) {

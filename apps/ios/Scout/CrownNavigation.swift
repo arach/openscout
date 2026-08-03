@@ -64,8 +64,8 @@ enum CrownTheme {
 //
 // No hex/scout glyph exists in Glyphs.swift or Assets, so the crown is drawn
 // here in the same thin-line spirit as the unified Glyphic set: a pointy-top
-// hexagon with a graphite face, an OFF-WHITE rim (a clean logo at rest), one
-// inner facet, and a quiet core. The mark has ONE semantic state of its own:
+// hexagon with a graphite face and two quiet outlines: the outer boundary and
+// one inner echo. The mark has ONE semantic state of its own:
 // while the app is loading/connecting it colorizes to the signal lime and
 // breathes. Otherwise NO accent green — fleet-alive state lives on the Fleet
 // LED, not the crown.
@@ -129,11 +129,10 @@ struct CrownHexMark: View {
                 .stroke(rimColor, lineWidth: 1.6)
             ScoutHexagon()
                 .scale(0.52)
-                .stroke(loading ? CrownTheme.signal.opacity(0.4) : ScoutSignalSurface.neutralSignal.opacity(0.22), lineWidth: 1)
-            Circle()
-                .fill(loading ? CrownTheme.signal : (lit ? ScoutPalette.ink.opacity(0.9) : ScoutInk.dim.opacity(0.6)))
-                .frame(width: size * 0.2, height: size * 0.2)
-                .shadow(color: loading ? CrownTheme.signal.opacity(0.8) : .clear, radius: 3)
+                .stroke(
+                    loading ? CrownTheme.signal.opacity(0.48) : rimColor.opacity(0.48),
+                    lineWidth: 1
+                )
         }
         .frame(width: size, height: size)
         // The breath: a gentle scale + dip on a repeat loop while loading.
@@ -141,11 +140,18 @@ struct CrownHexMark: View {
         .scaleEffect(breathing ? 1.06 : 1)
         .opacity(breathing ? 0.82 : 1)
         .animation(
-            breathing ? .easeInOut(duration: 0.72).repeatForever(autoreverses: true) : .easeOut(duration: 0.25),
+            reduceMotion
+                ? nil
+                : (breathing
+                    ? .easeInOut(duration: 0.72).repeatForever(autoreverses: true)
+                    : .easeOut(duration: 0.25)),
             value: breathing
         )
         .onChange(of: loading) { _, isLoading in
             breathing = isLoading && !reduceMotion
+        }
+        .onChange(of: reduceMotion) { _, isReduced in
+            breathing = loading && !isReduced
         }
         .onAppear { breathing = loading && !reduceMotion }
     }
@@ -236,6 +242,7 @@ private struct CrownButton: View {
     var onTailSummon: () -> Void = {}
     var action: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulsing = false
     /// True once the long-press has armed the tail gesture (the crown lifts a
     /// touch as the affordance cue); reset when the sequence ends.
@@ -251,8 +258,10 @@ private struct CrownButton: View {
         Button {
             // A glimpse of a pulse on tap — the crown NEVER travels (no rise
             // into place); the assembly expands around it in place.
-            withAnimation(.easeOut(duration: 0.08)) { pulsing = true }
-            withAnimation(.easeInOut(duration: 0.18).delay(0.08)) { pulsing = false }
+            if !reduceMotion {
+                withAnimation(.easeOut(duration: 0.08)) { pulsing = true }
+                withAnimation(.easeInOut(duration: 0.18).delay(0.08)) { pulsing = false }
+            }
             action()
         } label: {
             ZStack {
@@ -278,8 +287,8 @@ private struct CrownButton: View {
             .frame(width: diameter, height: diameter)
             .scaleEffect(pulsing ? 1.09 : 1)
             // Armed cue: the crown lifts slightly toward the tail's direction.
-            .offset(y: tailArmed ? -5 : 0)
-            .animation(.easeOut(duration: 0.16), value: tailArmed)
+            .offset(y: tailArmed && !reduceMotion ? -5 : 0)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: tailArmed)
         }
         .buttonStyle(.plain)
         // Sequenced so a plain tap (touch ends before 0.35s) never engages it —
@@ -501,6 +510,7 @@ private struct MorphLED: View {
     var working: [AgentSummary]
     var budgets: [ServiceBudget]
     var expanded: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 0) {
@@ -521,7 +531,10 @@ private struct MorphLED: View {
                 .overlay(CrownInsetShadow(shape: RoundedRectangle(cornerRadius: 10), color: .black.opacity(0.55), radius: 5.5, y: 0))
                 .shadow(color: ScoutSignalSurface.neutralSignal.opacity(0.07), radius: 0, y: 1)
         )
-        .animation(.timingCurve(0.2, 0.9, 0.25, 1.06, duration: 0.26), value: expanded)
+        .animation(
+            reduceMotion ? nil : .timingCurve(0.2, 0.9, 0.25, 1.06, duration: 0.26),
+            value: expanded
+        )
     }
 
     /// A wing unfolds from zero width: fixed content, clipped, expanding to an
@@ -615,9 +628,8 @@ enum CrownMetric {
         layout.physicalWidth >= 700 ? 48 : 69
     }
     /// Tracks the lowered bottom unit: ~the assembled assembly's top (crown,
-    /// including its tap pulse) above the screen bottom. Crown mode no longer
-    /// RESERVES this — content flows through behind the crown (operator
-    /// direction) — but surfaces may still consult it for their own lifts.
+    /// including its tap pulse) above the screen bottom. Persistent crown mode
+    /// reserves this much so bottom-anchored composers cannot cover navigation.
     static let bottomReserve: CGFloat = 66
 }
 
@@ -800,15 +812,14 @@ struct CrownNavChrome: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scoutLayout) private var layout
 
-    // MARK: Idle auto-hide (EXPERIMENT — one switch reverses it)
+    // MARK: Persistent navigation
     //
-    // The RESTING crown fades and slides down after `timeout` seconds without
-    // chrome interaction; a tap on the invisible wake zone at the bottom edge
-    // brings it back. The summoned assembly NEVER auto-hides — the operator is
-    // navigating. Flip `enabled` to false and the timer, the wake zone, and
-    // the hide transforms all become no-ops; nothing else references these.
+    // Navigation is a permanent landmark. The old idle-hide experiment made
+    // the crown disappear shortly after Home loaded, which read as lost state
+    // rather than a delightful reveal. Keeping the switch explicit leaves the
+    // experiment easy to study without shipping its discoverability cost.
     private enum IdleHide {
-        static let enabled = true
+        static let enabled = false
         static let timeout: TimeInterval = 4
     }
     @State private var crownHidden = false
@@ -919,7 +930,7 @@ struct CrownNavChrome: View {
                     // Idle auto-hide (see IdleHide): resting crown sinks away;
                     // a tap anywhere on the chrome pokes the timer.
                     .opacity(restHidden ? 0 : 1)
-                    .offset(y: restHidden ? 24 : 0)
+                    .offset(y: restHidden && !reduceMotion ? 24 : 0)
                     .allowsHitTesting(!restHidden)
                     .simultaneousGesture(TapGesture().onEnded { poke() })
 
@@ -942,7 +953,7 @@ struct CrownNavChrome: View {
                     idleHint
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                         .padding(.bottom, sizing.crown + 56)
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .bottom)))
                 }
             }
         }
@@ -1050,7 +1061,7 @@ struct CrownNavChrome: View {
             }
             .shadow(color: .black.opacity(0.5), radius: 12, y: 6)
             .opacity(isWide || assembled ? 1 : 0)
-            .animation(.easeOut(duration: 0.14), value: assembled)
+            .animation(ScoutMotion.honoring(reduceMotion, ScoutMotion.fade), value: assembled)
             .frame(height: railHeight)
 
             VStack(spacing: 0) {
@@ -1170,7 +1181,7 @@ struct CrownNavChrome: View {
                 .frame(height: sizing.barHeight)
                 .padding(.horizontal, hPad)
                 .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
-                .scaleEffect(x: assembled ? 1 : 0.16, y: 1, anchor: .center)
+                .scaleEffect(x: reduceMotion ? 1 : (assembled ? 1 : 0.16), y: 1, anchor: .center)
                 .opacity(assembled ? 1 : 0)
                 .animation(anim(0), value: assembled)
 
@@ -1249,7 +1260,7 @@ struct CrownNavChrome: View {
     @ViewBuilder
     private func staged<Content: View>(_ index: Int, @ViewBuilder _ content: () -> Content) -> some View {
         content()
-            .scaleEffect(assembled ? 1 : 0.3)
+            .scaleEffect(reduceMotion ? 1 : (assembled ? 1 : 0.3))
             .opacity(assembled ? 1 : 0)
             .allowsHitTesting(assembled)
             .animation(anim(index), value: assembled)
@@ -1262,9 +1273,9 @@ struct CrownNavChrome: View {
     @ViewBuilder
     private func stagedTop<Content: View>(leading: Bool, _ index: Int, @ViewBuilder _ content: () -> Content) -> some View {
         content()
-            .scaleEffect(assembled ? 1 : 0.4)
+            .scaleEffect(reduceMotion ? 1 : (assembled ? 1 : 0.4))
             .opacity(assembled ? 1 : 0)
-            .offset(x: assembled ? 0 : (leading ? 90 : -90))
+            .offset(x: reduceMotion || assembled ? 0 : (leading ? 90 : -90))
             .offset(y: isWide ? -1 : 0)
             .allowsHitTesting(assembled)
             .animation(anim(index), value: assembled)
