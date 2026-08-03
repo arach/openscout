@@ -398,7 +398,7 @@ export const STUDIO_PAGES: StudioPage[] = [
   },
   {
     href: "/studies/scout-ios-agents",
-    label: "Scout iOS · Agents",
+    label: "Scout iOS · Agents / Projects",
     bucket: "studies",
     surface: "ios",
     family: "scout-ios",
@@ -407,7 +407,7 @@ export const STUDIO_PAGES: StudioPage[] = [
       "design/studio/app/studies/scout-ios-agents/page.tsx",
       "apps/ios/Scout/AgentsSurface.swift",
     ],
-    blurb: "The bridge directory as a project navigator — PROJECT | RECENT sort, project trees with connectors or a flat recent list. Faithful port + a Compact density treatment.",
+    blurb: "A source-faithful iPhone/iPad control plus two unified-overview proposals. PROJECT remains a project tree with agent leaves and RECENT a flat agent list; ALL shows the inventory, while CHANGED makes Observe an unread-state-change filter over those exact rows. Host scope leaves the page body and becomes a shared masthead qualifier beside Scout. In the preferred quiet hex, every known host owns one dot and the picker edits any non-empty selected subset; a live 1–4 host and dot-arrangement lab is shared across phone and tablet exhibits.",
   },
   {
     href: "/studies/scout-ios-comms",
