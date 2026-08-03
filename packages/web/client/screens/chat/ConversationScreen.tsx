@@ -43,6 +43,7 @@ import {
 } from "../../lib/time.ts";
 import { isAgentOnline } from "../../lib/agent-state.ts";
 import {
+  CONVERSATION_WORKING_TURN_ACTIVE_WINDOW_MS,
   TERMINAL_CONVERSATION_FLIGHT_STATES,
   conversationShortLabel,
   isActiveConversationFlight,
@@ -69,6 +70,7 @@ import { MessageEmbeds } from "../../components/MessageEmbeds.tsx";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import type {
   Agent,
+  AgentObservePayload,
   Flight,
   FleetActivity,
   FleetState,
@@ -94,13 +96,23 @@ import {
   ThreadMotionPanel,
   WorkingTurnActions,
   WorkingTurnActivityPreview,
+  WorkingTurnSteps,
 } from "./ConversationPanels.tsx";
+import {
+  buildTurnStepScope,
+  describeTurnLaunchPhase,
+  observeTurnSteps,
+  latestStepSummary,
+  summarizeTurnSteps,
+} from "./turn-steps.ts";
+import { useTurnSteps } from "./use-turn-steps.ts";
 import { ConversationStatusStrip, PinnedAskCard } from "./ConversationStatus.tsx";
 import { DismissIcon } from "./conversation-icons.tsx";
 import {
   SLASH_COMMANDS,
   WORKING_DURATION_THRESHOLDS_MS,
   buildTurnSnapshot,
+  canOpenConversationTerminal,
   deriveWorkingDurationStage,
   deriveDisplayTitle,
   describePresence,
@@ -153,6 +165,9 @@ import {
   terminalTurnReceiptForFlight,
   type ThreadTreatment,
 } from "./conversation-model.ts";
+
+/** Observe-trace refresh cadence while a working turn is on screen. */
+const WORKING_TURN_TRACE_POLL_MS = 3_500;
 
 function messageIdFromLocationHash(hash: string | null | undefined): string | null {
   const raw = hash?.trim().replace(/^#/, "");
@@ -273,6 +288,10 @@ export function ConversationScreen({
   const stagedFlight = pendingConversationFlight(conversationId);
   const [currentFlight, setCurrentFlight] = useState<Flight | null>(stagedFlight);
   const [turnActivity, setTurnActivity] = useState<FleetActivity[]>([]);
+  const [turnObserve, setTurnObserve] = useState<AgentObservePayload | null>(null);
+  // Newest step timestamp, mirrored into state so the staleness check above the
+  // ledger can read it without the two computations depending on each other.
+  const [freshestTurnStepAt, setFreshestTurnStepAt] = useState<number | null>(null);
   const [turnAsk, setTurnAsk] = useState<FleetAsk | null>(null);
   const [dismissedWorkingTurnIds, setDismissedWorkingTurnIds] = useState<
     Set<string>
@@ -794,10 +813,15 @@ export function ConversationScreen({
     return shouldShowConversationWorkingTurn(currentFlight);
   }, [currentFlight]);
   const currentNowMs = Date.now();
-  const currentFlightHasNoRecentUpdate = isConversationWorkingTurnWithoutRecentUpdate(
-    currentFlight,
-    currentNowMs,
-  );
+  // "No recent update" is measured from the turn's *start*, so a healthy long
+  // turn eventually gets branded quiet while it is visibly working. A step that
+  // landed inside the window is proof of the opposite; trust it.
+  const hasFreshTurnStep =
+    freshestTurnStepAt !== null
+    && currentNowMs - freshestTurnStepAt <= CONVERSATION_WORKING_TURN_ACTIVE_WINDOW_MS;
+  const currentFlightHasNoRecentUpdate =
+    !hasFreshTurnStep
+    && isConversationWorkingTurnWithoutRecentUpdate(currentFlight, currentNowMs);
   const quietWorkingTurnHasNewerReply =
     isConversationWorkingTurnWithoutRecentUpdateAnswered(
       currentFlight,
@@ -977,9 +1001,6 @@ export function ConversationScreen({
   ]
     .filter(Boolean)
     .join(" ");
-  const presenceLineLabel = hasQuietWorkingTurnPresence
-    ? presence.detail
-    : `${agentName}: ${workingTurnSnapshot.latest}`;
   const threadTitle = sessionMeta ? deriveDisplayTitle(sessionMeta) : agentName;
   const canonicalConversationId = sessionMeta?.id ?? conversationId;
   const conversationAlias = sessionMeta?.alias?.trim() || null;
@@ -999,6 +1020,16 @@ export function ConversationScreen({
   }, [isDm, sessionMeta]);
 
   const workingAgentId = currentFlight?.agentId ?? agentId;
+  const workingAgent = workingAgentId
+    ? resolveAgentByIdentity(scopedAgents, [workingAgentId])
+    : null;
+  // Carry the working turn's concrete refs alongside the flight id: a native
+  // host resolves them straight to the live session viewer, and the web
+  // flight-observe screen opens on the session that was live when clicked.
+  const workingTraceAgentId = workingAgent?.id ?? workingAgentId;
+  const workingTraceSessionId = currentFlight?.sessions.at(-1)?.sessionId
+    ?? workingAgent?.harnessSessionId
+    ?? undefined;
   const openWorkingTrace = currentFlight?.id
     ? () => {
         openContent(
@@ -1006,13 +1037,115 @@ export function ConversationScreen({
           {
             view: "sessions",
             flightId: currentFlight.id,
+            ...(workingTraceAgentId ? { agentId: workingTraceAgentId } : {}),
+            ...(workingTraceSessionId ? { sessionId: workingTraceSessionId } : {}),
             ...(machineId ? { machineId } : {}),
           },
           { returnTo: route },
         );
       }
     : undefined;
-  const openWorkingTerminal = workingAgentId
+
+  // While a turn is live, follow the working agent's observe trace so the
+  // in-thread card reports the actual steps instead of "still working".
+  const activeFlightId = currentFlight?.id ?? null;
+  useEffect(() => {
+    if (!activeFlightId || !workingTraceAgentId) {
+      setTurnObserve(null);
+      return;
+    }
+    let cancelled = false;
+    const query = workingTraceSessionId
+      ? `?sessionId=${encodeURIComponent(workingTraceSessionId)}`
+      : "";
+    const poll = async () => {
+      try {
+        const payload = await api<AgentObservePayload>(
+          `/api/agents/${encodeURIComponent(workingTraceAgentId)}/observe${query}`,
+        );
+        if (cancelled) return;
+        setTurnObserve((previous) => keepPreviousIfJsonEqual(previous, payload));
+      } catch {
+        // An unavailable trace (fresh session, remote node) is the quiet
+        // non-error case; the card falls back to broker flight events.
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), WORKING_TURN_TRACE_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      setTurnObserve(null);
+    };
+  }, [activeFlightId, workingTraceAgentId, workingTraceSessionId]);
+
+  // Step ledger for the working turn. Tail is the live rail (sub-second, with
+  // tool name/argument structure intact); the observe poll above is the
+  // fallback for sessions whose transcript this host cannot tail. Before either
+  // has anything, the launch phase says which stage the turn is actually in.
+  const turnStepScope = useMemo(
+    () =>
+      buildTurnStepScope({
+        flight: currentFlight,
+        agent: workingAgent ?? agent,
+        sessionMeta,
+        observeSessionId: turnObserve?.sessionId,
+      }),
+    [agent, currentFlight, sessionMeta, turnObserve?.sessionId, workingAgent],
+  );
+  const tailTurnSteps = useTurnSteps({
+    sessionIds: turnStepScope,
+    active: presence.showTyping || showEmptyMotionPanel,
+  });
+  const observeSteps = useMemo(
+    () => observeTurnSteps({ observe: turnObserve, flight: currentFlight }),
+    [currentFlight, turnObserve],
+  );
+  const workingTurnSteps = tailTurnSteps.length > 0 ? tailTurnSteps : observeSteps;
+  const workingTurnPhase = useMemo(
+    () =>
+      workingTurnSteps.length > 0
+        ? null
+        : describeTurnLaunchPhase({
+            flight: currentFlight,
+            hasSessionScope: turnStepScope.length > 0,
+            awaitingResponse: awaitingResponseSince !== null,
+          }),
+    [awaitingResponseSince, currentFlight, turnStepScope.length, workingTurnSteps.length],
+  );
+  // The broker's own snapshot says "No activity yet" for a turn that has
+  // already run a dozen tools; when we hold real steps they take over the
+  // headline and the stats so every reading of the card agrees with the
+  // ledger underneath.
+  const workingTurnStepSummary = summarizeTurnSteps(workingTurnSteps);
+  const workingTurnLatestStep = latestStepSummary(workingTurnSteps);
+  const lastWorkingTurnStep = workingTurnSteps.at(-1) ?? null;
+  const workingTurnLastStepLabel = lastWorkingTurnStep
+    ? timeAgo(lastWorkingTurnStep.ts, currentNowMs)
+    : null;
+  const lastWorkingTurnStepAt = lastWorkingTurnStep?.ts ?? null;
+  useEffect(() => {
+    setFreshestTurnStepAt(lastWorkingTurnStepAt);
+  }, [lastWorkingTurnStepAt]);
+  const displayTurnSnapshot = useMemo(() => {
+    if (!workingTurnLatestStep) return workingTurnSnapshot;
+    return {
+      ...workingTurnSnapshot,
+      latest: workingTurnLatestStep,
+      ...(workingTurnStepSummary ? { activityLabel: workingTurnStepSummary } : {}),
+      ...(workingTurnLastStepLabel ? { lastActivityLabel: workingTurnLastStepLabel } : {}),
+    };
+  }, [
+    workingTurnLastStepLabel,
+    workingTurnLatestStep,
+    workingTurnSnapshot,
+    workingTurnStepSummary,
+  ]);
+  const presenceLineLabel = hasQuietWorkingTurnPresence
+    ? presence.detail
+    : `${agentName}: ${displayTurnSnapshot.latest}`;
+
+  const openWorkingTerminal = workingAgentId && canOpenConversationTerminal(workingAgent)
     ? () => {
         openContent(
           navigate,
@@ -1237,7 +1370,12 @@ export function ConversationScreen({
 
           trackedInvocationIdsRef.current.add(flight.invocationId);
           const sameTurn = currentFlightRef.current?.id === flight.id;
-          const mappedFlight = mapEventFlight(flight, conversationId, agentId ?? "");
+          const mappedFlight = mapEventFlight(
+            flight,
+            conversationId,
+            agentId ?? "",
+            currentFlightRef.current,
+          );
           if (isRequesterWaitTimeoutConversationFlight(mappedFlight)) {
             setAwaitingResponseSince(null);
           }
@@ -1965,9 +2103,11 @@ export function ConversationScreen({
               <ThreadMotionPanel
                 agentName={agentName}
                 title={presence.label}
-                detail={presence.detail || workingTurnSnapshot.latest}
-                snapshot={workingTurnSnapshot}
+                detail={presence.detail || displayTurnSnapshot.latest}
+                snapshot={displayTurnSnapshot}
                 events={turnActivity}
+                steps={workingTurnSteps}
+                phase={workingTurnPhase}
                 tone={turnMotionTone}
                 workspaceName={workspaceName}
                 branch={sessionMeta?.currentBranch}
@@ -2355,29 +2495,38 @@ export function ConversationScreen({
                             Latest
                           </span>
                           <span className="s-thread-msg-working-copy">
-                            {workingTurnSnapshot.latest}
+                            {displayTurnSnapshot.latest}
                           </span>
                         </div>
                       </div>
                       <dl className="s-thread-turn-snapshot-stats">
                         <div className="s-thread-turn-snapshot-stat">
                           <dt>Activity</dt>
-                          <dd>{workingTurnSnapshot.activityLabel}</dd>
+                          <dd>{displayTurnSnapshot.activityLabel}</dd>
                         </div>
                         <div className="s-thread-turn-snapshot-stat">
                           <dt>Elapsed</dt>
-                          <dd>{workingTurnSnapshot.elapsedLabel}</dd>
+                          <dd>{displayTurnSnapshot.elapsedLabel}</dd>
                         </div>
                         <div className="s-thread-turn-snapshot-stat">
                           <dt>Last</dt>
-                          <dd>{workingTurnSnapshot.lastActivityLabel}</dd>
+                          <dd>{displayTurnSnapshot.lastActivityLabel}</dd>
                         </div>
                       </dl>
-                      <WorkingTurnActivityPreview
-                        events={turnActivity}
-                        limit={3}
-                        compact
-                      />
+                      {workingTurnSteps.length > 0 || workingTurnPhase ? (
+                        <WorkingTurnSteps
+                          steps={workingTurnSteps}
+                          phase={workingTurnPhase}
+                          limit={5}
+                          compact
+                        />
+                      ) : (
+                        <WorkingTurnActivityPreview
+                          events={turnActivity}
+                          limit={4}
+                          compact
+                        />
+                      )}
                       <WorkingTurnActions
                         onOpenTrace={openWorkingTrace}
                         onOpenTerminal={openWorkingTerminal}

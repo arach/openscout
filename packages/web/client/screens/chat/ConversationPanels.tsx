@@ -28,6 +28,11 @@ import type {
   Route,
   SessionEntry,
 } from "../../lib/types.ts";
+import type {
+  TurnLaunchPhase,
+  TurnStep,
+  TurnStepKind,
+} from "./turn-steps.ts";
 import {
   activityKindLabel,
   deriveDisplayTitle,
@@ -101,6 +106,86 @@ export function WorkingTurnActions({
         </button>
       )}
     </nav>
+  );
+}
+
+const TURN_STEP_LABEL: Record<TurnStepKind, string> = {
+  think: "Thinking",
+  tool: "Tool",
+  ask: "Prompt",
+  message: "Says",
+  note: "Note",
+  system: "System",
+  boot: "Boot",
+};
+
+/**
+ * The live ledger of what the agent is actually doing this turn — thinking
+ * lines, tool calls and their outcomes, straight off the harness transcript.
+ * Oldest first so the newest step lands next to the pulse and the card reads
+ * as a progression rather than a stack.
+ *
+ * With no steps yet we show the launch phase we can prove from the flight
+ * state; if even that is unknown the card falls back to its broker-activity
+ * preview rather than inventing a stage.
+ */
+export function WorkingTurnSteps({
+  steps,
+  phase,
+  limit = 5,
+  compact = false,
+}: {
+  steps: TurnStep[];
+  phase: TurnLaunchPhase | null;
+  limit?: number;
+  compact?: boolean;
+}) {
+  const visibleSteps = steps.slice(-limit);
+  const hiddenCount = steps.length - visibleSteps.length;
+
+  if (visibleSteps.length === 0) {
+    if (!phase) return null;
+    return (
+      <div className="s-thread-steps-phase">
+        <span>{phase.label}</span>
+        <strong>{phase.detail}</strong>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`s-thread-steps${compact ? " s-thread-steps--compact" : ""}`}>
+      {hiddenCount > 0 && (
+        <div className="s-thread-steps-elided">
+          {hiddenCount} earlier step{hiddenCount === 1 ? "" : "s"}
+        </div>
+      )}
+      <ol aria-label="Live steps in this turn">
+        {visibleSteps.map((step) => (
+          <li key={step.id} data-kind={step.kind}>
+            <span className="s-thread-step-mark" aria-hidden="true" />
+            <span className="s-thread-step-kind">{TURN_STEP_LABEL[step.kind]}</span>
+            <span className="s-thread-step-body">
+              {step.tool ? (
+                <>
+                  <span className="s-thread-step-tool">{step.tool}</span>
+                  {step.arg && <span className="s-thread-step-arg">{step.arg}</span>}
+                </>
+              ) : (
+                <span className="s-thread-step-text">{step.text}</span>
+              )}
+              {step.repeatCount > 1 && (
+                <span className="s-thread-step-repeat">×{step.repeatCount}</span>
+              )}
+              {step.outcome && (
+                <span className="s-thread-step-outcome">{step.outcome}</span>
+              )}
+            </span>
+            <time title={formatAbsoluteTimestamp(step.ts)}>{timeAgo(step.ts)}</time>
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
 
@@ -410,6 +495,8 @@ export function ThreadMotionPanel({
   detail,
   snapshot,
   events,
+  steps,
+  phase,
   tone,
   workspaceName,
   branch,
@@ -423,6 +510,8 @@ export function ThreadMotionPanel({
   detail: string;
   snapshot: TurnSnapshot;
   events: FleetActivity[];
+  steps: TurnStep[];
+  phase: TurnLaunchPhase | null;
   tone: MotionTone;
   workspaceName: string | null;
   branch: string | null | undefined;
@@ -480,8 +569,12 @@ export function ThreadMotionPanel({
         <strong>{snapshot.latest}</strong>
       </div>
 
-      {events.length > 0 ? (
+      {steps.length > 0 ? (
+        <WorkingTurnSteps steps={steps} phase={null} limit={6} />
+      ) : events.length > 0 ? (
         <WorkingTurnActivityPreview events={events} limit={4} />
+      ) : phase ? (
+        <WorkingTurnSteps steps={steps} phase={phase} limit={6} />
       ) : (
         <div className="s-thread-motion-waiting">
           <span>Session created</span>

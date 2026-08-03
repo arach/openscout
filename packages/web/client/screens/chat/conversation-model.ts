@@ -183,6 +183,13 @@ export function resolveThreadEmbedProps(params: URLSearchParams): {
   };
 }
 
+/** A protocol/session id is not proof that an interactive terminal exists. */
+export function canOpenConversationTerminal(
+  agent: Pick<Agent, "terminalSurface"> | null | undefined,
+): boolean {
+  return Boolean(agent?.terminalSurface);
+}
+
 export function hasOutstandingConversationReply(input: {
   sending: boolean;
   awaitingResponse: boolean;
@@ -625,23 +632,31 @@ function readFlightDispatchOutcome(
   return { status, reason, checkedAt };
 }
 
+/**
+ * Control events carry flight state, not the flight's session traces. Blanking
+ * `sessions` on every update would strand the surfaces that join a turn to its
+ * live trace by session id, so a same-flight update keeps what the fetched
+ * record already told us; only a different flight starts from nothing.
+ */
 export function mapEventFlight(
   flight: EventFlightRecord,
   conversationId: string,
   fallbackAgentId: string,
+  previous?: Flight | null,
 ): Flight {
+  const carried = previous && previous.id === flight.id ? previous : null;
   return {
     id: flight.id,
     invocationId: flight.invocationId,
     agentId: flight.targetAgentId || fallbackAgentId,
-    agentName: null,
+    agentName: carried?.agentName ?? null,
     conversationId,
-    collaborationRecordId: null,
+    collaborationRecordId: carried?.collaborationRecordId ?? null,
     state: flight.state,
     summary: flight.summary ?? null,
-    startedAt: flight.startedAt ?? null,
+    startedAt: flight.startedAt ?? carried?.startedAt ?? null,
     completedAt: flight.completedAt ?? null,
-    sessions: [],
+    sessions: carried?.sessions ?? [],
     dispatchOutcome: readFlightDispatchOutcome(flight.metadata),
   };
 }

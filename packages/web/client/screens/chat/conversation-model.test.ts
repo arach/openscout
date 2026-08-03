@@ -4,10 +4,12 @@ import {
   SLASH_COMMANDS,
   WORKING_DURATION_THRESHOLDS_MS,
   buildConversationFeedRows,
+  canOpenConversationTerminal,
   feedRowCreatedAt,
   shouldShowThreadDayDivider,
   deriveWorkingDurationStage,
   hasOutstandingConversationReply,
+  mapEventFlight,
   resolveComposeAction,
   resolveConversationAutoscroll,
   resolveThreadEmbedProps,
@@ -36,6 +38,20 @@ describe("conversation working duration", () => {
   test("keeps missing and future timestamps in the brief stage", () => {
     expect(deriveWorkingDurationStage(null, startedAt)).toBe("brief");
     expect(deriveWorkingDurationStage(startedAt + 1_000, startedAt)).toBe("brief");
+  });
+});
+
+describe("conversation working controls", () => {
+  test("offers Terminal only for a real terminal surface", () => {
+    expect(canOpenConversationTerminal({ terminalSurface: null })).toBe(false);
+    expect(canOpenConversationTerminal({
+      terminalSurface: {
+        backend: "tmux",
+        sessionName: "scout-agent-1",
+        paneId: null,
+        socketDir: null,
+      },
+    })).toBe(true);
   });
 });
 
@@ -409,5 +425,39 @@ describe("terminal turn receipt", () => {
       label: "Cancelled",
       tone: "cancelled",
     }));
+  });
+});
+
+describe("flight events keep the session join", () => {
+  const eventFlight = {
+    id: "flt-1",
+    invocationId: "inv-1",
+    targetAgentId: "agent-1",
+    state: "running" as const,
+    startedAt: 1_700_000_000_000,
+  };
+
+  test("carries session traces across a same-flight control event", () => {
+    const fetched = {
+      id: "flt-1",
+      invocationId: "inv-1",
+      agentId: "agent-1",
+      agentName: "Kepler",
+      conversationId: "chn-1",
+      collaborationRecordId: null,
+      state: "running",
+      summary: null,
+      startedAt: 1_700_000_000_000,
+      completedAt: null,
+      sessions: [{ sessionId: "session-turn" }],
+    } as never;
+    const mapped = mapEventFlight(eventFlight, "chn-1", "agent-1", fetched);
+    expect(mapped.sessions.map((session) => session.sessionId)).toEqual(["session-turn"]);
+    expect(mapped.agentName).toBe("Kepler");
+  });
+
+  test("starts clean when the event is about a different flight", () => {
+    const other = { id: "flt-0", sessions: [{ sessionId: "session-old" }] } as never;
+    expect(mapEventFlight(eventFlight, "chn-1", "agent-1", other).sessions).toEqual([]);
   });
 });
