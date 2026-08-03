@@ -105,6 +105,7 @@ struct ScoutApp: App {
     @State private var model = AppModel()
     @AppStorage(ScoutAppearance.storageKey) private var appearanceRaw = ScoutAppearance.default.rawValue
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var preferredColorScheme: ColorScheme? {
         #if DEBUG
@@ -124,10 +125,15 @@ struct ScoutApp: App {
         WindowGroup {
             Group {
                 switch model.phase {
-                case .connect: ConnectScreen(model: model)
-                case .shell:   RootView(model: model)
+                case .connect:
+                    ConnectScreen(model: model)
+                        .transition(.opacity)
+                case .shell:
+                    RootView(model: model)
+                        .transition(.opacity)
                 }
             }
+            .animation(ScoutMotion.honoring(reduceMotion, ScoutMotion.fade), value: model.phase)
             .hudsonAppManifest(
                 HudAppManifest(name: "Scout", version: "0.2.70", tint: .green, targetLabel: "Agent")
             )

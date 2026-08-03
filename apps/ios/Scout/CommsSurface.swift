@@ -617,6 +617,7 @@ struct CommsThreadView: View {
     @State private var outboundDraftId: String?
     /// Held for the leave-the-screen teardown; the composer owns the dictation UI.
     @Environment(HudDictation.self) private var voice
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
@@ -719,7 +720,13 @@ struct CommsThreadView: View {
                 }
                 .onChange(of: messages.count) { _, _ in
                     guard !isLoading else { return }
-                    withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+                    if reduceMotion {
+                        proxy.scrollTo("bottom", anchor: .bottom)
+                    } else {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo("bottom", anchor: .bottom)
+                        }
+                    }
                 }
                 .onChange(of: isLoading) { _, loading in
                     guard !loading else { return }
