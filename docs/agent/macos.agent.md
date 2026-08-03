@@ -100,7 +100,7 @@ Services-link HMAC: query `expires`+`nonce`+`sig`; SHA256 HMAC over `v1\nservice
 | Store | Target | Cadence | Notes |
 |---|---|---|---|
 | `ScoutTailStore` | ScoutAppCore | 1.4s poll; discovery sub-fetch ≤ 1/30s | merge-by-id, 700-event cap; feeds Tail surface + HUD tail |
-| `ScoutServerLogStore` | ScoutAppCore | 1.2s while Broker treatment is visible | bounded, read-only tail of canonical `logs/broker/{stdout,stderr}.log`; no arbitrary path input |
+| `ScoutServerLogStore` | ScoutAppCore | 1.2s while Broker treatment is visible | bounded, read-only tail of canonical `logs/broker/{stdout,stderr}.log`; no arbitrary path input; HUD follow/pause keeps polling but holds the reading position and reports new visible lines |
 | `ScoutAgentsStore` | ScoutAppCore | push stream; 2.0s reconnect/fallback | Summary mode uses scoutd NDJSON over UDS; rich mode remains web-backed |
 | `ScoutActivityStore` | ScoutAppCore | 2.0s | HUD focus (RECENT section) |
 | `ScoutComposeService` | ScoutAppCore | SSE reply stream | shared compose/route/assistant thread |

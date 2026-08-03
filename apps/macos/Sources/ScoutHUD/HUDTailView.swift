@@ -184,7 +184,7 @@ struct HUDTailView: View {
             case .firehose:
                 nativeTailContent
             case .broker:
-                HUDBrokerLogView(size: size)
+                HUDBrokerLogView(size: size, following: $following)
             case .agentLatest:
                 HUDTailEmbedContent(url: hudTailEmbedURL(colorScheme: colorScheme, hudSize: size))
             }
@@ -295,6 +295,15 @@ struct HUDTailView: View {
         HUDNavBus.shared.clear()
         HUDNavBus.shared.cycleTreatment = {
             treatment = treatment.next
+        }
+        if treatment == .broker {
+            // Broker logs share Tail's one explicit live state. Keep the same
+            // `f` shortcut instead of making the raw-log treatment a trap that
+            // cannot be held still for reading.
+            HUDNavBus.shared.toggleFollow = {
+                following.toggle()
+            }
+            return
         }
         guard treatment == .firehose else { return }
 
@@ -625,8 +634,10 @@ private enum TailStreamCadence {
 
 private struct HUDBrokerLogView: View {
     let size: HUDSize
+    @Binding var following: Bool
 
     @StateObject private var logs = ScoutServerLogStore()
+    @State private var pausedAfterLineID: String?
     @AppStorage("scout.hud.tail.broker-stream.v1") private var streamRaw = ScoutServerLogStream.output.rawValue
 
     var body: some View {
@@ -641,6 +652,9 @@ private struct HUDBrokerLogView: View {
             logs.start()
         }
         .onDisappear { logs.stop() }
+        .onChange(of: following) { _, isFollowing in
+            pausedAfterLineID = isFollowing ? nil : logs.lines.last?.id
+        }
     }
 
     private var horizontalPad: CGFloat { size == .large ? 20 : 16 }
@@ -663,11 +677,44 @@ private struct HUDBrokerLogView: View {
                 selection: Binding(
                     get: { logs.selectedStream },
                     set: {
+                        following = true
+                        pausedAfterLineID = nil
                         streamRaw = $0.rawValue
                         logs.select($0)
                     }
                 )
             )
+
+            Button {
+                following.toggle()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: following ? "pause.fill" : "arrow.down")
+                        .font(.system(size: 6.5, weight: .bold))
+                    Text(following ? "PAUSE" : "FOLLOW")
+                        .font(HUDType.mono(8, weight: .bold))
+                        .tracking(HUDType.eyebrowMicro)
+                    if !following, newLineCount > 0 {
+                        Text("+\(newLineCount)")
+                            .font(HUDType.mono(8, weight: .bold))
+                            .monospacedDigit()
+                            .foregroundStyle(HUDChrome.accent)
+                    }
+                }
+                .foregroundStyle(following ? HUDChrome.inkFaint : HUDChrome.inkMuted)
+                .padding(.horizontal, 5)
+                .frame(height: 17)
+                .background(
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .fill(following ? Color.clear : HUDChrome.canvasLift.opacity(0.50))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .stroke(HUDChrome.border.opacity(0.92), lineWidth: 0.5)
+                )
+            }
+            .buttonStyle(.plain)
+            .help(following ? "Pause broker log follow (F)" : "Follow the latest broker log line (F)")
 
             Text("\(logs.lines.count) lines")
                 .font(HUDType.mono(8.5))
@@ -718,15 +765,42 @@ private struct HUDBrokerLogView: View {
             }
             .onAppear {
                 if let last = logs.lines.last?.id {
+                    if !following, pausedAfterLineID == nil {
+                        pausedAfterLineID = last
+                    }
                     proxy.scrollTo(last, anchor: .bottom)
                 }
             }
             .onChange(of: logs.lines.last?.id) { _, last in
                 guard let last else { return }
+                if !following, pausedAfterLineID == nil {
+                    // Entering Broker while Tail is already paused establishes
+                    // a baseline after the first snapshot instead of reporting
+                    // the whole bounded history as newly arrived.
+                    pausedAfterLineID = last
+                    return
+                }
+                guard following else { return }
                 proxy.scrollTo(last, anchor: .bottom)
             }
+            .onChange(of: following) { _, isFollowing in
+                guard isFollowing, let last = logs.lines.last?.id else { return }
+                withAnimation(.easeOut(duration: 0.16)) {
+                    proxy.scrollTo(last, anchor: .bottom)
+                }
+            }
         }
-        .help("Following the latest broker log line")
+        .help(following ? "Following the latest broker log line" : "Broker log follow paused")
+    }
+
+    private var newLineCount: Int {
+        guard !following, let pausedAfterLineID else { return 0 }
+        guard let baseline = logs.lines.firstIndex(where: { $0.id == pausedAfterLineID }) else {
+            // The bounded tail moved past the baseline (or the file rotated).
+            // Every visible line is new from the reader's point of view.
+            return logs.lines.count
+        }
+        return logs.lines.distance(from: logs.lines.index(after: baseline), to: logs.lines.endIndex)
     }
 
     private var brokerErrorColor: Color {
