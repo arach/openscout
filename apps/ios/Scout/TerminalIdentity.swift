@@ -14,15 +14,35 @@ import Security
 enum TerminalIdentity {
     private static let keychainService = "app.openscout.scout.terminal"
     private static let keychainAccount = "ssh.p256.v1"
+    #if targetEnvironment(simulator)
+    private static let simulatorDefaultsKey = "simulator.\(keychainService).\(keychainAccount)"
+    #endif
+
+    private enum StorageError: LocalizedError {
+        case loadFailed(OSStatus)
+        case deleteFailed(OSStatus)
+        case saveFailed(OSStatus)
+
+        var errorDescription: String? {
+            switch self {
+            case .loadFailed(let status):
+                "Terminal identity could not be read from Keychain (OSStatus: \(status))."
+            case .deleteFailed(let status):
+                "Terminal identity could not be replaced in Keychain (OSStatus: \(status))."
+            case .saveFailed(let status):
+                "Terminal identity could not be stored in Keychain (OSStatus: \(status))."
+            }
+        }
+    }
 
     /// Load the persisted identity, generating + storing one on first use.
-    static func loadOrCreate() -> P256.Signing.PrivateKey {
-        if let raw = keychainRead(),
+    static func loadOrCreate() throws -> P256.Signing.PrivateKey {
+        if let raw = try identityRead(),
            let key = try? P256.Signing.PrivateKey(rawRepresentation: raw) {
             return key
         }
         let key = P256.Signing.PrivateKey()
-        _ = keychainWrite(key.rawRepresentation)
+        try identityWrite(key.rawRepresentation)
         return key
     }
 
@@ -53,8 +73,14 @@ enum TerminalIdentity {
         return out
     }
 
-    // MARK: - Keychain (generic password item)
+    // MARK: - Persistence
 
+    /// Device builds keep the private key in Keychain. Simulator builds use
+    /// their app-scoped defaults container because recent simulator runtimes
+    /// reject ad-hoc Keychain writes without the restricted access-group
+    /// entitlement. This mirrors ScoutIdentity's storage boundary.
+
+    #if !targetEnvironment(simulator)
     private static func baseQuery() -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
@@ -62,27 +88,36 @@ enum TerminalIdentity {
             kSecAttrAccount as String: keychainAccount,
         ]
     }
+    #endif
 
-    private static func keychainRead() -> Data? {
+    private static func identityRead() throws -> Data? {
+        #if targetEnvironment(simulator)
+        return UserDefaults.standard.data(forKey: simulatorDefaultsKey)
+        #else
         var query = baseQuery()
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var item: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess else { return nil }
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess else { throw StorageError.loadFailed(status) }
         return item as? Data
+        #endif
     }
 
-    @discardableResult
-    private static func keychainWrite(_ data: Data) -> Bool {
-        SecItemDelete(baseQuery() as CFDictionary)
+    private static func identityWrite(_ data: Data) throws {
+        #if targetEnvironment(simulator)
+        UserDefaults.standard.set(data, forKey: simulatorDefaultsKey)
+        #else
+        let deleteStatus = SecItemDelete(baseQuery() as CFDictionary)
+        guard deleteStatus == errSecSuccess || deleteStatus == errSecItemNotFound else {
+            throw StorageError.deleteFailed(deleteStatus)
+        }
         var attributes = baseQuery()
         attributes[kSecValueData as String] = data
         attributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         let status = SecItemAdd(attributes as CFDictionary, nil)
-        if status != errSecSuccess {
-            assertionFailure("Failed to store terminal SSH identity in Keychain: \(status)")
-            return false
-        }
-        return true
+        guard status == errSecSuccess else { throw StorageError.saveFailed(status) }
+        #endif
     }
 }
