@@ -115,7 +115,10 @@ export function DeckConsole({ model }: { model: DeckModel }) {
           <dl className="console__readout">
             <div><dt>Source</dt><dd>{model.preview ? "sample data" : "paired host"}</dd></div>
             <div><dt>Bridge</dt><dd>{connectionReadout(model.connection)}</dd></div>
-            <div><dt>Task</dt><dd>{model.thread?.threadId ? shortId(model.thread.threadId) : "unbound"}</dd></div>
+            <div>
+              <dt>Session</dt>
+              <dd>{model.thread?.threadId ? shortId(model.thread.threadId) : model.sessionBusy ? "starting" : model.adapterAvailable ? "disconnected" : "—"}</dd>
+            </div>
             <div><dt>Turn</dt><dd>{model.thread?.turnId ? shortId(model.thread.turnId) : "none"}</dd></div>
             <div><dt>Voice in</dt><dd>{model.voiceAvailable ? voiceReadout(model.voice.input.state) : "—"}</dd></div>
             <div>

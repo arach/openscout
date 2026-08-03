@@ -22,7 +22,7 @@ export function ScoutDeckSurface() {
       ? {
         state: model.connection === "ready" ? "live" : "partial",
         label: model.connection === "ready" ? "LIVE" : "DEGRADED",
-        detail: `${connectedHost?.name ?? "host"} · controls affect Codex Desktop`,
+        detail: `${connectedHost?.name ?? "host"} · Scout-managed Codex control`,
       }
       : { state: "offline", label: "OFFLINE", detail: "no host connected" };
 

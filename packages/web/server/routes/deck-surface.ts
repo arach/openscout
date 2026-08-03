@@ -15,6 +15,7 @@ import { snapshotRecentEvents, type TailEvent } from "@openscout/runtime/tail";
 
 import { queryAgents } from "../db/agents.ts";
 import type { WebAgent } from "../db/types/web.ts";
+import { createScoutSession } from "../core/mobile/service.ts";
 import {
   SCOUT_SURFACE_LIMITS,
   SCOUT_SURFACE_METHOD_POLICY,
@@ -58,6 +59,11 @@ export type ScoutDeckSurfaceServiceOptions = {
     steer(agentId: string, text: string): Promise<unknown>;
     interrupt(agentId: string): Promise<unknown>;
   };
+  startCodexSession?: (source: WebAgent) => Promise<{
+    agentId: string;
+    conversationId: string | null;
+    sessionId: string | null;
+  }>;
 };
 
 export type ScoutDeckSurfaceService = {
@@ -104,6 +110,22 @@ export function createScoutDeckSurfaceService(
     steer: steerCodexDeckTurn,
     interrupt: interruptCodexDeckTurn,
   };
+  const startCodexSession = options.startCodexSession ?? (async (source: WebAgent) => {
+    const workspaceRoot = normalizedPath(source.projectRoot ?? source.cwd);
+    if (!workspaceRoot) {
+      throw new DeckSurfaceFailure("invalid_route", "The selected lane does not report a workspace.");
+    }
+    const handle = await createScoutSession({
+      workspaceId: workspaceRoot,
+      harness: "codex",
+      forceNew: true,
+    }, options.currentDirectory);
+    return {
+      agentId: handle.agent.id,
+      conversationId: handle.session.conversationId,
+      sessionId: handle.agent.sessionId,
+    };
+  });
 
   const cursor = (sequence: number) => ({
     epoch,
@@ -140,7 +162,7 @@ export function createScoutDeckSurfaceService(
     if (agent.harness !== "codex" || agent.transport !== "codex_app_server") {
       throw new DeckSurfaceFailure(
         "unsupported_capability",
-        "The selected lane does not expose the Codex Desktop Deck adapter.",
+        "The selected lane does not expose Scout's managed Codex adapter.",
       );
     }
     return agent;
@@ -233,6 +255,7 @@ export function createScoutDeckSurfaceService(
                 "agents.observe",
                 "tail.recent",
                 "native.setLaneSelection",
+                "codex.session.start",
                 "codex.thread.snapshot",
                 "codex.thread.connect",
                 "codex.turn.start",
@@ -270,6 +293,17 @@ export function createScoutDeckSurfaceService(
           }
           case "native.cancel":
             return successReply(request, { accepted: true }, deadline);
+          case "codex.session.start": {
+            const route = readCodexRoute(request.params);
+            const source = requireAgentLane(route);
+            const started = await startCodexSession(source);
+            return successReply(request, {
+              accepted: true,
+              hostId,
+              sourceAgentId: source.id,
+              ...started,
+            }, deadline);
+          }
           case "codex.thread.snapshot":
           case "codex.thread.connect": {
             const route = readCodexRoute(request.params);
@@ -334,7 +368,7 @@ async function defaultCodexSnapshot(agentId: string, connect: boolean): Promise<
     ?? (typeof observedThreadId === "string" ? observedThreadId : snapshot?.session.id ?? null);
 
   return {
-    adapter: "codex_desktop",
+    adapter: "codex_app_server",
     agentId,
     threadId,
     turnId: online && running ? currentTurn?.id ?? null : null,
@@ -348,8 +382,8 @@ async function defaultCodexSnapshot(agentId: string, connect: boolean): Promise<
       approvals: false,
     },
     capabilityNotes: {
-      queue: "The Deck controls the exact task currently owned by Codex Desktop and does not invent a client-side queue.",
-      approvals: "Approvals remain owned by Codex Desktop and must be resolved there.",
+      queue: "The Deck sends directly to Scout's managed Codex session and does not invent a client-side queue.",
+      approvals: "Approval prompts remain runtime-owned and are not actionable from Deck yet.",
     },
     snapshot,
   };

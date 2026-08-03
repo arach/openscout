@@ -218,6 +218,18 @@
     },
     {
       "v": 1,
+      "id": "request-codex-session-start",
+      "surface": "deck",
+      "method": "codex.session.start",
+      "params": {
+        "route": {
+          "hostId": "host_7d3a91",
+          "agentId": "agent-claude"
+        }
+      }
+    },
+    {
+      "v": 1,
       "id": "request-codex-snapshot",
       "surface": "deck",
       "method": "codex.thread.snapshot",
@@ -684,13 +696,29 @@
     },
     {
       "v": 1,
+      "id": "request-codex-session-start",
+      "method": "codex.session.start",
+      "metadata": {
+        "appliedDeadlineMs": 30000
+      },
+      "result": {
+        "accepted": true,
+        "hostId": "host_7d3a91",
+        "sourceAgentId": "agent-claude",
+        "agentId": "agent-codex",
+        "conversationId": "conversation-1",
+        "sessionId": "session-1"
+      }
+    },
+    {
+      "v": 1,
       "id": "request-codex-snapshot",
       "method": "codex.thread.snapshot",
       "metadata": {
         "appliedDeadlineMs": 15000
       },
       "result": {
-        "adapter": "codex_desktop",
+        "adapter": "codex_app_server",
         "agentId": "agent-codex",
         "threadId": "thread-codex",
         "turnId": null,
@@ -732,7 +760,7 @@
         "appliedDeadlineMs": 15000
       },
       "result": {
-        "adapter": "codex_desktop",
+        "adapter": "codex_app_server",
         "agentId": "agent-codex",
         "threadId": "thread-codex",
         "turnId": null,

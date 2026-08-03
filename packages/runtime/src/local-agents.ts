@@ -56,20 +56,12 @@ import {
   readCodexAppServerModelFromLaunchArgs,
   readCodexAppServerReasoningEffortFromLaunchArgs,
   sendCodexAppServerAgent,
+  startCodexAppServerAgent,
   steerCodexAppServerAgent,
   interruptCodexAppServerAgent,
   isCodexAppServerAgentAlive,
   shutdownCodexAppServerAgent,
 } from "./codex-app-server.js";
-import {
-  connectCodexDesktopDeckTask,
-  getCodexDesktopDeckTaskSnapshot,
-  interruptCodexDesktopDeckTurn,
-  isCodexDesktopDeckTaskConnected,
-  startCodexDesktopDeckTurn,
-  steerCodexDesktopDeckTurn,
-  type CodexDesktopDeckOptions,
-} from "./codex-desktop-deck.js";
 import {
   buildCollaborationContractPrompt,
   buildInvocationCollaborationContextPrompt,
@@ -1856,28 +1848,23 @@ export async function getLocalAgentSessionSnapshot(agentId: string): Promise<Ses
   return null;
 }
 
-/**
- * Codex Desktop-native controls used by Scout Deck. These deliberately bypass
- * generic Scout messages and ACP while also refusing to mint an app-server
- * shadow task. The task currently owned by Codex Desktop remains the source of
- * truth, and the Deck joins it through Desktop's private follower IPC.
- */
+/** Codex-native Deck controls over Scout's broker-managed app-server session. */
 export async function connectCodexDeckThread(
   agentId: string,
 ): Promise<{ threadId: string; title: string; cwd: string }> {
   const record = await requireCodexDeckRecord(agentId);
-  const task = await connectCodexDesktopDeckTask(buildCodexDeckOptions(agentId, record));
-  return { threadId: task.threadId, title: task.title, cwd: task.cwd };
+  const task = await ensureCodexAppServerAgentOnline(buildCodexAgentSessionOptions(agentId, record));
+  return { threadId: task.threadId, title: record.project, cwd: record.cwd };
 }
 
 export async function isCodexDeckThreadConnected(agentId: string): Promise<boolean> {
   const record = await requireCodexDeckRecord(agentId);
-  return isCodexDesktopDeckTaskConnected(buildCodexDeckOptions(agentId, record));
+  return isCodexAppServerAgentAlive(buildCodexAgentSessionOptions(agentId, record));
 }
 
 export async function getCodexDeckThreadSnapshot(agentId: string): Promise<SessionState | null> {
   const record = await requireCodexDeckRecord(agentId);
-  return getCodexDesktopDeckTaskSnapshot(buildCodexDeckOptions(agentId, record));
+  return getCodexAppServerAgentSnapshot(buildCodexAgentSessionOptions(agentId, record));
 }
 
 export async function startCodexDeckTurn(
@@ -1888,20 +1875,14 @@ export async function startCodexDeckTurn(
   if (!text) throw new Error("A non-empty Codex turn prompt is required.");
 
   const record = await requireCodexDeckRecord(agentId);
-  const options = buildCodexDeckOptions(agentId, record);
-  const snapshot = await getCodexDesktopDeckTaskSnapshot(options);
-  const threadId = typeof snapshot?.session.providerMeta?.threadId === "string"
-    ? snapshot.session.providerMeta.threadId
-    : snapshot?.session.id;
-  if (!threadId) {
-    throw new Error(`Codex Desktop task binding is not ready for ${agentId}; reconnect the lane and try again.`);
-  }
+  const options = buildCodexAgentSessionOptions(agentId, record);
+  const snapshot = await getCodexAppServerAgentSnapshot(options);
   if (activeCodexDeckTurnId(snapshot)) {
     throw new Error(`Codex agent ${agentId} already has an active turn; steer or interrupt it first.`);
   }
 
-  await startCodexDesktopDeckTurn(options, text);
-  return { accepted: true, agentId, threadId, mode: "start" };
+  const started = await startCodexAppServerAgent({ ...options, prompt: text });
+  return { accepted: true, agentId, threadId: started.threadId, mode: "start" };
 }
 
 export async function steerCodexDeckTurn(
@@ -1912,13 +1893,13 @@ export async function steerCodexDeckTurn(
   if (!text) throw new Error("A non-empty Codex steer prompt is required.");
 
   const record = await requireCodexDeckRecord(agentId);
-  const options = buildCodexDeckOptions(agentId, record);
-  const snapshot = await getCodexDesktopDeckTaskSnapshot(options);
+  const options = buildCodexAgentSessionOptions(agentId, record);
+  const snapshot = await getCodexAppServerAgentSnapshot(options);
   if (!activeCodexDeckTurnId(snapshot)) {
     throw new Error(`Codex agent ${agentId} has no active turn to steer.`);
   }
 
-  await steerCodexDesktopDeckTurn(options, text);
+  await steerCodexAppServerAgent({ ...options, prompt: text });
   const observedThreadId = snapshot?.session.providerMeta?.threadId;
   return {
     accepted: true,
@@ -1932,12 +1913,12 @@ export async function interruptCodexDeckTurn(
   agentId: string,
 ): Promise<{ accepted: true; agentId: string; threadId: string | null; mode: "interrupt" }> {
   const record = await requireCodexDeckRecord(agentId);
-  const options = buildCodexDeckOptions(agentId, record);
-  const snapshot = await getCodexDesktopDeckTaskSnapshot(options);
+  const options = buildCodexAgentSessionOptions(agentId, record);
+  const snapshot = await getCodexAppServerAgentSnapshot(options);
   if (!activeCodexDeckTurnId(snapshot)) {
     throw new Error(`Codex agent ${agentId} has no active turn to interrupt.`);
   }
-  await interruptCodexDesktopDeckTurn(options);
+  await interruptCodexAppServerAgent(options);
   const observedThreadId = snapshot?.session.providerMeta?.threadId;
   return {
     accepted: true,
@@ -1954,15 +1935,6 @@ async function requireCodexDeckRecord(agentId: string): Promise<LocalAgentRecord
     throw new Error(`Agent ${agentId} is not a configured Codex lane.`);
   }
   return record;
-}
-
-function buildCodexDeckOptions(agentId: string, record: LocalAgentRecord): CodexDesktopDeckOptions {
-  return {
-    agentId,
-    agentName: record.project,
-    cwd: record.cwd,
-    runtimeDirectory: relayAgentRuntimeDirectory(agentId),
-  };
 }
 
 function activeCodexDeckTurnId(snapshot: SessionState | null): string | null {

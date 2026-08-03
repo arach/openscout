@@ -168,11 +168,7 @@ const routedReceipt = {
 } as const;
 
 const codexThread = {
-  // The contract, the deck controller, and the server route all say
-  // `codex_desktop`; `codex_app_server` is the harness id from
-  // protocol/common.ts, which is a different axis. A golden fixture naming a
-  // value the contract cannot hold is not a golden fixture.
-  adapter: "codex_desktop",
+  adapter: "codex_app_server",
   agentId: "agent-codex",
   threadId: "thread-codex",
   turnId: null,
@@ -205,6 +201,15 @@ const codexThread = {
 } as const satisfies CodexDeckThreadSnapshot;
 
 const codexRoute = { hostId: "host_7d3a91", agentId: "agent-codex" } as const;
+
+const codexSessionReceipt = {
+  accepted: true,
+  hostId: "host_7d3a91",
+  sourceAgentId: "agent-claude",
+  agentId: "agent-codex",
+  conversationId: "conversation-1",
+  sessionId: "session-1",
+} as const;
 
 const nativeVoice = {
   input: {
@@ -303,6 +308,7 @@ export const SCOUT_SURFACE_V1_GOLDEN_FIXTURES = {
         },
       },
     },
+    { v: 1, id: "request-codex-session-start", surface: "deck", method: "codex.session.start", params: { route: { hostId: "host_7d3a91", agentId: "agent-claude" } } },
     { v: 1, id: "request-codex-snapshot", surface: "deck", method: "codex.thread.snapshot", params: { route: codexRoute } },
     { v: 1, id: "request-codex-connect", surface: "deck", method: "codex.thread.connect", params: { route: codexRoute } },
     { v: 1, id: "request-codex-start", surface: "deck", method: "codex.turn.start", params: { route: codexRoute, text: "Inspect the failing test." } },
@@ -358,6 +364,7 @@ export const SCOUT_SURFACE_V1_GOLDEN_FIXTURES = {
     { v: 1, id: "request-tail-recent", method: "tail.recent", metadata: { appliedDeadlineMs: 15_000 }, result: tailSnapshot },
     { v: 1, id: "request-tail-subscribe", method: "tail.subscribe", metadata: { appliedDeadlineMs: 5_000 }, result: subscription },
     { v: 1, id: "request-lane-selection", method: "native.setLaneSelection", metadata: { appliedDeadlineMs: 2_000 }, result: { accepted: true } },
+    { v: 1, id: "request-codex-session-start", method: "codex.session.start", metadata: { appliedDeadlineMs: 30_000 }, result: codexSessionReceipt },
     { v: 1, id: "request-codex-snapshot", method: "codex.thread.snapshot", metadata: { appliedDeadlineMs: 15_000 }, result: codexThread },
     { v: 1, id: "request-codex-connect", method: "codex.thread.connect", metadata: { appliedDeadlineMs: 15_000 }, result: codexThread },
     { v: 1, id: "request-codex-start", method: "codex.turn.start", metadata: { appliedDeadlineMs: 5_000 }, result: { accepted: true, agentId: "agent-codex", threadId: "thread-codex", mode: "start" } },

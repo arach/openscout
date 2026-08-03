@@ -25,6 +25,7 @@ import {
   readCodexAppServerReasoningEffortFromLaunchArgs,
   sendCodexAppServerLocalAgent,
   shutdownCodexAppServerLocalAgent,
+  startCodexAppServerLocalAgent,
   steerCodexAppServerLocalAgent,
   type CodexAppServerInvocationOptions,
   type CodexAppServerExitKind,
@@ -1118,6 +1119,12 @@ export async function invokeCodexAppServerAgent(options: InvocationOptions): Pro
 
 export async function sendCodexAppServerAgent(options: InvocationOptions): Promise<{ output: string; threadId: string }> {
   return sendCodexAppServerLocalAgent(withManagedCodexEnvironment(options));
+}
+
+export async function startCodexAppServerAgent(
+  options: InvocationOptions,
+): Promise<{ threadId: string; turnId: string }> {
+  return startCodexAppServerLocalAgent(withManagedCodexEnvironment(options));
 }
 
 export async function steerCodexAppServerAgent(options: SteerOptions): Promise<void> {

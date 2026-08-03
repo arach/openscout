@@ -20,7 +20,7 @@ export function prioritizeDeckLane<T extends DiscoverableDeckLane>(
 
 /**
  * First-run task discovery is deliberately bounded to the visible channel bank.
- * Each successful connect is a private Codex Desktop follower connection; no
+ * Each successful connect attaches to Scout's managed Codex app-server; no
  * prompt is sent. A running task wins, then an idle bound task, and failures are
  * ignored so one stale lane cannot strand the whole Deck.
  */

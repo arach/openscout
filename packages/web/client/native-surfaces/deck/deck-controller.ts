@@ -14,6 +14,7 @@ import { discoverPreferredDeckLane, prioritizeDeckLane } from "./deck-lane-disco
 import type {
   CodexDeckBlock,
   CodexDeckRoute,
+  CodexDeckSessionReceipt,
   CodexDeckThreadSnapshot,
   FleetAgentSnapshot,
   FleetTailSnapshot,
@@ -38,6 +39,14 @@ export type DeckHostScope = "all" | string;
 export type DeckSignalTone = "live" | "ready" | "attention" | "quiet";
 
 /**
+ * THESIS: Deck is the cockpit for moving a workspace from observable to operable.
+ * OWN-WORLD: Scout owns session launch, routing, and the Codex app-server link.
+ * STORY: Pick a lane, start Codex when needed, then speak or type into that session.
+ * FIRST VIEWPORT: One truthful state line and one obvious next action carry the handoff.
+ * FORM: Preserve the dense graphite control-room grammar; add no modal or parallel flow.
+ */
+
+/**
  * The turn lifecycle the operator actually reasons about. It merges three
  * separate truths — does this lane have a native adapter, is its thread bound,
  * and is a turn in flight — into one ordered state so the Deck never has to
@@ -45,6 +54,7 @@ export type DeckSignalTone = "live" | "ready" | "attention" | "quiet";
  */
 export type DeckTurnPhase =
   | "unavailable"
+  | "starting"
   | "cold"
   | "linking"
   | "failed"
@@ -55,6 +65,14 @@ export type DeckTurnPhase =
 
 /** Locally-known intent awaiting host confirmation. Never rendered as fact. */
 type DeckPending = { kind: "connecting" | "sending" | "stopping"; at: number };
+
+/** A single broker launch, scoped to the lane whose workspace authorized it. */
+type DeckSessionLaunch = {
+  sourceKey: string;
+  sourceName: string;
+  receipt: CodexDeckSessionReceipt | null;
+  error: string | null;
+};
 
 /**
  * The four controller treatments. They are separate interaction models over
@@ -108,7 +126,7 @@ const now = Date.now();
 const PREVIEW_LANES: DeckLane[] = [
   previewLane("air", "MacBook Air", "01", "OpenScout", "codex", "gpt-5.6", "active", "~/dev/openscout", [
     ["tool", "Verifying the native surface bundle", "bun run build:native-surfaces"],
-    ["think", "Mapping the Deck to the Codex Desktop task", "Task state stays binary-native and host-scoped."],
+    ["think", "Mapping Deck to Scout's Codex session", "Session state stays binary-native and host-scoped."],
     ["message", "Controller contract is live.", "Start, steer, and interrupt map directly to the selected thread."],
   ]),
   previewLane("studio", "Studio", "02", "SpeakEasy", "claude", "opus-5", "active", "~/dev/SpeakEasy", [
@@ -126,7 +144,7 @@ const PREVIEW_LANES: DeckLane[] = [
 ];
 
 const PREVIEW_THREAD: CodexDeckThreadSnapshot = {
-  adapter: "codex_desktop",
+  adapter: "codex_app_server",
   agentId: "01",
   threadId: "019fa45a-scout-deck",
   turnId: "turn_8d17",
@@ -140,8 +158,8 @@ const PREVIEW_THREAD: CodexDeckThreadSnapshot = {
     approvals: false,
   },
   capabilityNotes: {
-    queue: "A Codex Desktop task runs one active turn at a time; the Deck does not invent a client-side queue.",
-    approvals: "Approvals remain owned by Codex Desktop and must be resolved there.",
+    queue: "A Scout-managed Codex session runs one active turn at a time; Deck does not invent a client-side queue.",
+    approvals: "Approval prompts remain runtime-owned and are not actionable from Deck yet.",
   },
   snapshot: {
     session: {
@@ -169,7 +187,7 @@ const PREVIEW_THREAD: CodexDeckThreadSnapshot = {
             type: "text",
             status: "completed",
             index: 0,
-            text: "Make the Deck operate on the selected Codex Desktop task directly.",
+            text: "Make Deck operate on the selected Scout-managed Codex session directly.",
           },
         }],
       },
@@ -188,7 +206,7 @@ const PREVIEW_THREAD: CodexDeckThreadSnapshot = {
               type: "reasoning",
               status: "completed",
               index: 0,
-              text: "Tracing the trusted bridge to the Codex Desktop-owned task.",
+              text: "Tracing the trusted bridge to Scout's broker-managed Codex session.",
             },
           },
           {
@@ -348,6 +366,7 @@ export function useDeckController() {
   const [thread, setThread] = useState<CodexDeckThreadSnapshot | null>(preview ? PREVIEW_THREAD : null);
   const [threadBusy, setThreadBusy] = useState(false);
   const [threadError, setThreadError] = useState<string | null>(null);
+  const [sessionLaunch, setSessionLaunchState] = useState<DeckSessionLaunch | null>(null);
   const [command, setCommand] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [pending, setPending] = useState<DeckPending | null>(null);
@@ -374,6 +393,7 @@ export function useDeckController() {
   const [settingsOpen, setSettingsOpen] = useState(preview && search.get("audio") === "open");
   const [inputTrace, setInputTrace] = useState<number[]>(() => Array.from({ length: TRACE_BINS }, () => 0));
   const clientRef = useRef<ScoutSurfaceClient | null>(null);
+  const requestedAgentIdRef = useRef(requestedAgentId);
   const selectedKeyRef = useRef(selectedKey);
   const operatorSelectedRef = useRef(false);
   const discoveryStartedRef = useRef(false);
@@ -381,6 +401,7 @@ export function useDeckController() {
   const spokenBlockRef = useRef<string | null>(null);
   const previewVoiceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const speechAbortRef = useRef<AbortController | null>(null);
+  const sessionLaunchRef = useRef<DeckSessionLaunch | null>(null);
   /** Dictation started from the primary key sends itself; typed dictation does not. */
   const autoSendRef = useRef(false);
   const listeningSinceRef = useRef<number | null>(null);
@@ -388,6 +409,11 @@ export function useDeckController() {
   const voiceRef = useRef(voice);
   voiceRef.current = voice;
   selectedKeyRef.current = selectedKey;
+
+  const updateSessionLaunch = (next: DeckSessionLaunch | null) => {
+    sessionLaunchRef.current = next;
+    setSessionLaunchState(next);
+  };
 
   useEffect(() => {
     installScoutSurfacePushReceiver();
@@ -431,31 +457,48 @@ export function useDeckController() {
             ]);
             if (cancelled) return;
             const next = buildDeckLanes(value.hosts, agents, tail);
-            const requested = requestedAgentId ? next.find((lane) => lane.id === requestedAgentId) : null;
-            const rememberedKey = requested?.key ?? selectedKeyRef.current ?? localStorage.getItem(LANE_STORAGE_KEY);
-            const remembered = rememberedKey ? next.find((lane) => lane.key === rememberedKey) : null;
-            if (remembered) {
-              const ordered = prioritizeDeckLane(next, remembered.key);
+            const launch = sessionLaunchRef.current;
+            const started = launch?.receipt
+              ? next.find((lane) => lane.hostId === launch.receipt?.hostId && lane.id === launch.receipt?.agentId)
+              : null;
+            if (started) {
+              const ordered = prioritizeDeckLane(next, started.key);
               setLanes(ordered);
-              setSelectedKey(remembered.key);
-              selectedKeyRef.current = remembered.key;
-              localStorage.setItem(LANE_STORAGE_KEY, remembered.key);
+              setSelectedKey(started.key);
+              selectedKeyRef.current = started.key;
+              operatorSelectedRef.current = true;
+              localStorage.setItem(LANE_STORAGE_KEY, started.key);
+              setView("thread");
+              updateSessionLaunch(null);
             } else {
-              setLanes(next);
-              setSelectedKey(null);
-              selectedKeyRef.current = null;
-              if (!discoveryStartedRef.current) {
-                discoveryStartedRef.current = true;
-                void discoverPreferredDeckLane(next, (route) => client.codex.connect(route))
-                  .then((preferredKey) => {
-                    if (cancelled || operatorSelectedRef.current) return;
-                    const key = preferredKey ?? next[0]?.key ?? null;
-                    if (!key) return;
-                    setLanes((current) => prioritizeDeckLane(current, key));
-                    setSelectedKey(key);
-                    selectedKeyRef.current = key;
-                    localStorage.setItem(LANE_STORAGE_KEY, key);
-                  });
+              const requestedId = requestedAgentIdRef.current;
+              requestedAgentIdRef.current = null;
+              const requested = requestedId ? next.find((lane) => lane.id === requestedId) : null;
+              const rememberedKey = requested?.key ?? selectedKeyRef.current ?? localStorage.getItem(LANE_STORAGE_KEY);
+              const remembered = rememberedKey ? next.find((lane) => lane.key === rememberedKey) : null;
+              if (remembered) {
+                const ordered = prioritizeDeckLane(next, remembered.key);
+                setLanes(ordered);
+                setSelectedKey(remembered.key);
+                selectedKeyRef.current = remembered.key;
+                localStorage.setItem(LANE_STORAGE_KEY, remembered.key);
+              } else {
+                setLanes(next);
+                setSelectedKey(null);
+                selectedKeyRef.current = null;
+                if (!discoveryStartedRef.current) {
+                  discoveryStartedRef.current = true;
+                  void discoverPreferredDeckLane(next, (route) => client.codex.connect(route))
+                    .then((preferredKey) => {
+                      if (cancelled || operatorSelectedRef.current) return;
+                      const key = preferredKey ?? next[0]?.key ?? null;
+                      if (!key) return;
+                      setLanes((current) => prioritizeDeckLane(current, key));
+                      setSelectedKey(key);
+                      selectedKeyRef.current = key;
+                      localStorage.setItem(LANE_STORAGE_KEY, key);
+                    });
+                }
               }
             }
             const failures = agents.hosts.filter((host) => !host.ready).length
@@ -726,7 +769,11 @@ export function useDeckController() {
   // A local intent only speaks for the lifecycle until the host either confirms
   // it or the window lapses; after that the snapshot is the only source left.
   const livePending = pending && clock - pending.at < PENDING_TIMEOUT_MS ? pending : null;
-  const phase = turnPhase({ adapterAvailable, thread, threadError, pending: livePending });
+  const selectedSessionLaunch = sessionLaunch?.sourceKey === selected?.key ? sessionLaunch : null;
+  const sessionBusy = Boolean(selectedSessionLaunch && !selectedSessionLaunch.error);
+  const sessionError = selectedSessionLaunch?.error ?? null;
+  const sessionLaunchAccepted = Boolean(selectedSessionLaunch?.receipt);
+  const phase = turnPhase({ adapterAvailable, startingSession: sessionBusy, thread, threadError, pending: livePending });
   const phaseTone = turnPhaseTone(phase);
   const turnStartedAt = activeTurnStartedAt(thread);
   const canTalk = Boolean(voiceAvailable && !threadBusy && (phase === "ready" || phase === "running"));
@@ -735,6 +782,23 @@ export function useDeckController() {
   /** Rebinding is only offered where connect is the honest next step. */
   const canRebind = Boolean(adapterAvailable && (phase === "cold" || phase === "failed"));
   const canRefresh = Boolean(adapterAvailable && !threadBusy);
+  const launchInFlight = Boolean(sessionLaunch && !sessionLaunch.error);
+  const sessionStartUnavailableReason = adapterAvailable || !selected
+    ? null
+    : sessionBusy
+      ? sessionLaunchAccepted
+        ? "Codex started; Scout is locating its lane."
+        : "Scout is starting Codex for this workspace."
+      : launchInFlight
+        ? `Scout is finishing the Codex launch for ${sessionLaunch?.sourceName ?? "another workspace"}.`
+        : !selected.projectRoot
+          ? "Scout does not know this lane's workspace."
+          : connection !== "ready" && connection !== "partial"
+            ? "Reconnect the Scout host to start Codex."
+            : !preview && !bootstrap?.capabilities?.includes("codex.session.start")
+              ? "This Scout host cannot start Codex from Deck."
+              : null;
+  const canStartCodexSession = Boolean(!adapterAvailable && selected && !sessionStartUnavailableReason);
 
   useEffect(() => {
     if (!pending) return;
@@ -748,6 +812,7 @@ export function useDeckController() {
   }, [pending, thread?.state]);
 
   const ticking = phase === "running" || phase === "sending" || phase === "stopping" || phase === "linking"
+    || phase === "starting"
     || voiceInputActive;
   useEffect(() => {
     if (!ticking) return;
@@ -828,13 +893,43 @@ export function useDeckController() {
     }
   };
 
+  /** Start a fresh Codex capability for this workspace and put it on Deck. */
+  const startCodexSession = async () => {
+    if (!selectedRoute || !selected || launchInFlight || !canStartCodexSession) return;
+    const launch: DeckSessionLaunch = {
+      sourceKey: selected.key,
+      sourceName: selected.name,
+      receipt: null,
+      error: null,
+    };
+    updateSessionLaunch(launch);
+    setNotice(null);
+    try {
+      if (preview) {
+        const previewCodex = PREVIEW_LANES.find((lane) => lane.transport === "codex_app_server");
+        if (previewCodex) selectLane(previewCodex);
+        updateSessionLaunch(null);
+        return;
+      }
+      const client = clientRef.current;
+      const hostIds = bootstrap?.selectedHostIds as [string, ...string[]] | undefined;
+      if (!client || !hostIds?.length) throw new Error("No connected Scout host can start Codex.");
+      const receipt = await client.codex.startSession(selectedRoute);
+      updateSessionLaunch({ ...launch, receipt });
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      updateSessionLaunch({ ...launch, error: message });
+      if (selectedKeyRef.current === launch.sourceKey) setNotice(message);
+    }
+  };
+
   const submitTurn = async (value: string) => {
     const text = value.trim();
     if (!text) return;
     // Refusing is never silent: the text stays in the composer and the operator
     // is told why, so a dictated transcript can always be re-sent by hand.
     if (!selectedRoute || !thread) {
-      setNotice("No task is bound — the transcript is still in the composer.");
+      setNotice("No Codex session is connected — the transcript is still in the composer.");
       return;
     }
     if (threadBusy) {
@@ -1066,8 +1161,13 @@ export function useDeckController() {
   };
 
   /** The primary key always holds the single most useful next action. */
-  const primaryAction: "connect" | "talk" = phase === "cold" || phase === "failed" ? "connect" : "talk";
+  const primaryAction: "start_codex" | "connect" | "talk" = !adapterAvailable
+    ? "start_codex"
+    : phase === "cold" || phase === "failed"
+      ? "connect"
+      : "talk";
   const onPrimary = () => {
+    if (primaryAction === "start_codex") return void startCodexSession();
     if (primaryAction === "connect") return void connectThread();
     void toggleVoiceInput();
   };
@@ -1097,6 +1197,10 @@ export function useDeckController() {
     thread,
     threadBusy,
     threadError,
+    sessionBusy,
+    sessionError,
+    sessionLaunchAccepted,
+    sessionStartUnavailableReason,
     notice,
     adapterAvailable,
     voiceAvailable,
@@ -1111,6 +1215,7 @@ export function useDeckController() {
     canInterrupt,
     canRebind,
     canRefresh,
+    canStartCodexSession,
     primaryAction,
     onPrimary,
     command,
@@ -1119,6 +1224,7 @@ export function useDeckController() {
     onComposerSubmit,
     onComposerKeyDown,
     connectThread,
+    startCodexSession,
     refreshSnapshot,
     interruptThread,
     voice: displayedVoice,
@@ -1286,15 +1392,18 @@ function applyPreviewInterrupt(thread: CodexDeckThreadSnapshot): CodexDeckThread
  */
 function turnPhase({
   adapterAvailable,
+  startingSession,
   thread,
   threadError,
   pending,
 }: {
   adapterAvailable: boolean;
+  startingSession: boolean;
   thread: CodexDeckThreadSnapshot | null;
   threadError: string | null;
   pending: DeckPending | null;
 }): DeckTurnPhase {
+  if (!adapterAvailable && startingSession) return "starting";
   if (!adapterAvailable) return "unavailable";
   if (threadError) return "failed";
   if (pending?.kind === "sending") return "sending";
@@ -1306,7 +1415,7 @@ function turnPhase({
 }
 
 export function turnPhaseTone(phase: DeckTurnPhase): DeckSignalTone {
-  if (phase === "running" || phase === "sending") return "live";
+  if (phase === "running" || phase === "sending" || phase === "starting") return "live";
   if (phase === "ready") return "ready";
   if (phase === "cold" || phase === "failed") return "attention";
   return "quiet";
@@ -1314,9 +1423,10 @@ export function turnPhaseTone(phase: DeckTurnPhase): DeckSignalTone {
 
 export function turnPhaseLabel(phase: DeckTurnPhase, laneState: string | null): string {
   if (phase === "unavailable") return laneStateLabel(laneState);
-  if (phase === "cold") return "Task unbound";
+  if (phase === "starting") return "Starting Codex";
+  if (phase === "cold") return "Session offline";
   if (phase === "linking") return "Linking";
-  if (phase === "failed") return "Link failed";
+  if (phase === "failed") return "Connection failed";
   if (phase === "sending") return "Sending";
   if (phase === "stopping") return "Stopping";
   if (phase === "running") return "Turn running";
@@ -1328,18 +1438,20 @@ export function turnPhaseDetail(
   thread: CodexDeckThreadSnapshot | null,
   threadError: string | null,
   notice: string | null,
-  lane: DeckLane,
+  _lane: DeckLane,
+  sessionStartUnavailableReason: string | null = null,
 ): string {
   if (notice) return notice;
-  if (phase === "unavailable") return `${transportLabel(lane.transport)} · observable only`;
+  if (phase === "unavailable") return sessionStartUnavailableReason ?? "Scout sees this lane · Codex not started";
+  if (phase === "starting") return sessionStartUnavailableReason ?? "Scout is starting a Codex session for this workspace…";
   if (phase === "failed") return threadError ?? "The host did not answer.";
-  if (phase === "cold") return "Connect binds this lane to its Codex Desktop task.";
-  if (phase === "linking") return "Binding the Codex Desktop task…";
-  if (phase === "sending") return "Waiting for Codex Desktop to accept the turn…";
+  if (phase === "cold") return "Connect restores Scout's managed Codex session.";
+  if (phase === "linking") return "Connecting to Scout's managed Codex session…";
+  if (phase === "sending") return "Waiting for Codex to accept the turn…";
   if (phase === "stopping") return "Interrupt sent; waiting for the turn to end…";
   if (phase === "running") return turnActivityDetail(thread);
   const last = lastCompletedTurnEndedAt(thread);
-  return last ? `Idle · last turn ended ${relativeTime(last)} ago` : "Idle · no turns yet on this task";
+  return last ? `Idle · last turn ended ${relativeTime(last)} ago` : "Idle · no turns yet in this session";
 }
 
 /** Describes what the running turn is doing right now, straight from the snapshot. */
@@ -1445,13 +1557,12 @@ export function connectionLabel(connection: DeckConnection): string {
 }
 
 /**
- * Display-only vocabulary for the agent transport. The backend enum still reads
- * `codex_app_server`; the binding it now names is a Codex Desktop-owned task, so
- * the Deck says that. Matching predicates keep using the raw backend value.
+ * Display-only vocabulary for the concrete host integration. Matching
+ * predicates keep using the raw backend value.
  */
 export function transportLabel(transport: string | null | undefined): string {
   if (!transport) return "transport unreported";
-  if (transport === "codex_app_server") return "codex desktop task";
+  if (transport === "codex_app_server") return "Scout app-server";
   return transport;
 }
 
@@ -1463,11 +1574,11 @@ export function transportLabel(transport: string | null | undefined): string {
  */
 export function transportShortLabel(transport: string | null | undefined): string {
   if (!transport) return "unreported";
-  if (transport === "codex_app_server") return "Desktop IPC";
+  if (transport === "codex_app_server") return "App server";
   return transport;
 }
 
-/** The exact Codex Desktop task title the host reports for this binding. */
+/** The exact Scout-managed Codex session title reported by the host. */
 export function taskTitle(thread: CodexDeckThreadSnapshot | null): string | null {
   const name = thread?.snapshot?.session?.name?.trim();
   return name ? name : null;
@@ -1526,10 +1637,11 @@ export function activityBins(events: readonly SurfaceTailEvent[], count = 28, wi
 }
 
 export function primaryKeyLabel(
-  action: "connect" | "talk",
+  action: "start_codex" | "connect" | "talk",
   phase: DeckTurnPhase,
   state: NativeVoiceSnapshot["input"]["state"],
 ): string {
+  if (action === "start_codex") return phase === "starting" ? "starting" : "start codex";
   if (action === "connect") return phase === "failed" ? "retry" : "connect";
   if (state === "listening") return "send";
   if (state === "transcribing") return "…";
@@ -1542,18 +1654,22 @@ export function primaryKeyLabel(
 }
 
 export function primaryKeyDescription(
-  action: "connect" | "talk",
+  action: "start_codex" | "connect" | "talk",
   phase: DeckTurnPhase,
   state: NativeVoiceSnapshot["input"]["state"],
+  sessionStartUnavailableReason: string | null = null,
 ): string {
-  if (action === "connect") return "Bind this lane to its Codex Desktop task";
+  if (action === "start_codex") return phase === "starting"
+    ? sessionStartUnavailableReason ?? "Scout is starting a Codex session for this workspace"
+    : sessionStartUnavailableReason ?? "Start a Scout-managed Codex session for this workspace";
+  if (action === "connect") return "Reconnect Scout's managed Codex session";
   if (state === "listening") return "Stop dictation and send the turn";
   if (state === "transcribing") return "Transcribing dictation";
   return phase === "running" ? "Speak to steer the active turn" : "Speak to start a turn";
 }
 
 export function consoleCaption(model: DeckModel): string {
-  const { voice, voiceAvailable, phase, listeningSince, clock } = model;
+  const { voice, voiceAvailable, phase, listeningSince, clock, sessionError } = model;
   if (!voiceAvailable) return "Native voice becomes available inside the Scout iPad app.";
   if (voice.input.state === "listening") {
     const elapsed = listeningSince ? ` · ${formatElapsed(clock - listeningSince)}` : "";
@@ -1562,8 +1678,14 @@ export function consoleCaption(model: DeckModel): string {
   if (voice.input.state === "transcribing") return "Transcribing on device, then sending…";
   if (voice.input.state === "preparing") return "Warming Parakeet; Apple Speech remains available as fallback.";
   if (voice.input.state === "unavailable") return voice.input.unavailableReason || "Microphone access is unavailable.";
-  if (phase === "unavailable") return "This lane has no native controller to talk to.";
-  if (phase === "cold" || phase === "failed") return "Bind the task before talking to it.";
+  if (sessionError) return sessionError;
+  if (phase === "starting") return model.sessionLaunchAccepted
+    ? "Codex started; waiting for its Scout lane."
+    : "Scout is starting Codex.";
+  if (phase === "unavailable") return model.canStartCodexSession
+    ? "Voice becomes available with the Codex session."
+    : model.sessionStartUnavailableReason ?? "Codex launch is unavailable for this lane.";
+  if (phase === "cold" || phase === "failed") return "Reconnect the Codex session before talking to it.";
   if (phase === "running") return "Tap to talk, tap again to steer the running turn.";
   return "Tap to talk, tap again to send.";
 }
@@ -1580,9 +1702,10 @@ export function composerPlaceholder(
   phase: DeckTurnPhase,
   voiceState: NativeVoiceSnapshot["input"]["state"],
 ): string {
-  if (phase === "unavailable") return "This lane needs its own native adapter before it can be controlled.";
-  if (phase === "cold" || phase === "failed") return "Bind the task to enable typing.";
+  if (phase === "starting") return "Composer unlocks when the Codex lane appears.";
+  if (phase === "unavailable") return "Composer unlocks with a Codex session.";
+  if (phase === "cold" || phase === "failed") return "Reconnect the Codex session to enable typing.";
   if (voiceState === "listening") return "Speaking… the transcript sends when you tap send.";
   if (voiceState === "transcribing") return "Finishing your transcript…";
-  return phase === "running" ? "Or type a redirect for this active turn…" : "Or type what this task should do next…";
+  return phase === "running" ? "Or type a redirect for this active turn…" : "Or type what this session should do next…";
 }

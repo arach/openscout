@@ -116,27 +116,27 @@ export function TreatmentSwitch({ model }: { model: DeckModel }) {
 /* --------------------------------------------------------------- identity */
 
 /**
- * The exact Codex Desktop task the Deck is bound to. Every treatment renders
- * this; an unbound task is stated as unbound rather than left blank.
+ * The exact Scout-managed Codex session the Deck is bound to. Every treatment
+ * renders this; a missing session is stated rather than left blank.
  */
 export function TaskBinding({ model, size = "md" }: { model: DeckModel; size?: "sm" | "md" | "lg" }) {
   const title = taskTitle(model.thread);
   const bound = Boolean(model.thread?.threadId);
-  // A lane with no Codex adapter has no Codex Desktop task to be unbound from,
-  // so it is never described as one waiting to be connected.
   if (!model.adapterAvailable) {
     return (
       <div className="deck-binding" data-size={size}>
-        <span className="deck-binding__label">Controller</span>
-        <strong>No Codex Desktop controller</strong>
-        <span className="deck-binding__id">{transportLabel(model.selected?.transport)} · observable only</span>
+        <span className="deck-binding__label">Selected workspace</span>
+        <strong>{model.selected?.name ?? "No lane selected"}</strong>
+        <span className="deck-binding__id">{model.selected?.projectRoot
+          ?? model.sessionStartUnavailableReason
+          ?? `${transportLabel(model.selected?.transport)} · view only`}</span>
       </div>
     );
   }
   return (
     <div className="deck-binding" data-size={size} data-bound={bound || undefined}>
-      <span className="deck-binding__label">Codex Desktop task</span>
-      <strong title={title ?? undefined}>{bound ? title ?? "Untitled task" : "No task bound"}</strong>
+      <span className="deck-binding__label">Scout Codex session</span>
+      <strong title={title ?? undefined}>{bound ? title ?? "Untitled session" : "No session connected"}</strong>
       <span className="deck-binding__id">
         {model.thread?.threadId ? `id ${shortId(model.thread.threadId)}` : "id —"}
         {model.thread?.turnId ? ` · turn ${shortId(model.thread.turnId)}` : ""}
@@ -151,13 +151,27 @@ export function PhaseLine({ model, compact = false }: { model: DeckModel; compac
   if (!lane) return null;
   const elapsed = turnElapsed(model);
   return (
-    <div className="deck-phase" data-tone={model.phaseTone} data-phase={model.phase} data-compact={compact || undefined}>
-      <span className="deck-phase__state" aria-live="polite">
+    <div
+      className="deck-phase"
+      data-tone={model.phaseTone}
+      data-phase={model.phase}
+      data-compact={compact || undefined}
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <span className="deck-phase__state">
         <i className="deck-lamp" />
         {turnPhaseLabel(model.phase, lane.state)}
       </span>
-      <span className="deck-phase__detail" aria-live="polite">
-        {turnPhaseDetail(model.phase, model.thread, model.threadError, model.notice, lane)}
+      <span className="deck-phase__detail">
+        {turnPhaseDetail(
+          model.phase,
+          model.thread,
+          model.threadError,
+          model.notice,
+          lane,
+          model.sessionStartUnavailableReason,
+        )}
       </span>
       {elapsed ? <span className="deck-phase__clock" data-live={model.phase === "running" || undefined}>{elapsed}</span> : null}
     </div>
@@ -167,8 +181,22 @@ export function PhaseLine({ model, compact = false }: { model: DeckModel; compac
 /* -------------------------------------------------------------- controls */
 
 export function PrimaryKey({ model, size = "lg" }: { model: DeckModel; size?: "md" | "lg" | "xl" }) {
-  const state = model.primaryAction === "connect" ? "connect" : model.voice.input.state;
-  const description = primaryKeyDescription(model.primaryAction, model.phase, model.voice.input.state);
+  const state = model.primaryAction === "start_codex"
+    ? model.sessionBusy ? "starting" : "start"
+    : model.primaryAction === "connect"
+      ? "connect"
+      : model.voice.input.state;
+  const description = primaryKeyDescription(
+    model.primaryAction,
+    model.phase,
+    model.voice.input.state,
+    model.sessionStartUnavailableReason,
+  );
+  const disabled = model.primaryAction === "start_codex"
+    ? !model.canStartCodexSession
+    : model.primaryAction === "connect"
+      ? model.threadBusy
+      : !model.canTalk;
   return (
     <button
       type="button"
@@ -177,12 +205,13 @@ export function PrimaryKey({ model, size = "lg" }: { model: DeckModel; size?: "m
       data-action={model.primaryAction}
       data-state={state}
       onClick={model.onPrimary}
-      disabled={model.primaryAction === "connect" ? model.threadBusy : !model.canTalk}
+      disabled={disabled}
       aria-label={description}
-      aria-pressed={model.voice.input.state === "listening"}
+      aria-pressed={model.primaryAction === "talk" ? model.voice.input.state === "listening" : undefined}
+      aria-busy={model.primaryAction === "start_codex" && model.sessionBusy ? true : undefined}
       title={description}
     >
-      {model.primaryAction === "connect" ? <LinkIcon /> : <MicIcon />}
+      {model.primaryAction === "talk" ? <MicIcon /> : <LinkIcon />}
       <small>{primaryKeyLabel(model.primaryAction, model.phase, model.voice.input.state)}</small>
     </button>
   );
@@ -337,7 +366,7 @@ export function SettingsKey({ model, label = true }: { model: DeckModel; label?:
 export function RefreshKey({ model, label = true }: { model: DeckModel; label?: boolean }) {
   const name = chipName(
     "Re-read",
-    model.canRefresh ? "pull the bound task snapshot from the host again" : "unavailable until a task is bound",
+    model.canRefresh ? "pull the connected session snapshot from the host again" : "unavailable until a session is connected",
   );
   return (
     <button
@@ -356,12 +385,12 @@ export function RefreshKey({ model, label = true }: { model: DeckModel; label?: 
 
 export function RebindKey({ model, label = true }: { model: DeckModel; label?: boolean }) {
   if (!model.canRebind) return null;
-  const word = model.phase === "failed" ? "Retry bind" : "Bind task";
+  const word = model.phase === "failed" ? "Retry link" : "Reconnect";
   const name = chipName(
     word,
     model.phase === "failed"
-      ? "the last bind failed; bind this lane to its Codex Desktop task again"
-      : "bind this lane to its Codex Desktop task",
+      ? "the last connection failed; reconnect Scout's managed Codex session"
+      : "connect Scout's managed Codex session",
   );
   return (
     <button
@@ -648,15 +677,20 @@ export function ThreadStream({ model, limit = 9 }: { model: DeckModel; limit?: n
   const { thread, adapterAvailable, threadBusy, threadError } = model;
   if (!adapterAvailable) {
     return (
-      <StreamEmpty glyph="—" title="No native controller for this lane">
-        The lane stays observable. A future harness adapter can add its own direct controls without pretending to be a
-        Codex Desktop task.
+      <StreamEmpty glyph={model.sessionBusy ? "···" : "CX"} title={model.sessionError ? "Codex did not start" : model.sessionBusy ? "Starting Codex" : "Workspace is view-only"} tone={model.sessionError ? "error" : undefined}>
+        {model.sessionError ?? (model.sessionBusy
+          ? model.sessionLaunchAccepted
+            ? "Codex accepted the launch. Scout will switch Deck when its lane appears."
+            : "Scout is launching a broker-managed Codex session."
+          : model.canStartCodexSession
+            ? "This lane remains intact when Scout opens its controllable Codex session."
+            : model.sessionStartUnavailableReason ?? "This workspace remains view-only.")}
       </StreamEmpty>
     );
   }
   if (threadError) {
     return (
-      <StreamEmpty glyph="!" title="Task binding failed" tone="error">
+      <StreamEmpty glyph="!" title="Session connection failed" tone="error">
         {threadError}
         <button type="button" className="deck-chip deck-chip--warn" onClick={model.connectThread} disabled={threadBusy}>
           <LinkIcon /><span>Retry controller</span>
@@ -666,18 +700,17 @@ export function ThreadStream({ model, limit = 9 }: { model: DeckModel; limit?: n
   }
   if (!thread) {
     return (
-      <StreamEmpty glyph="···" title="Reading the Codex Desktop task">
+      <StreamEmpty glyph="···" title="Reading the Codex session">
         Nothing is shown until the host returns a snapshot.
       </StreamEmpty>
     );
   }
   if (thread.state === "disconnected") {
     return (
-      <StreamEmpty glyph="CX" title="Task is unbound">
-        No turns are readable until the Deck binds to a Codex Desktop-owned task. Connect attaches to that exact task on
-        the host.
+      <StreamEmpty glyph="CX" title="Session is disconnected">
+        No turns are readable until Deck reconnects Scout's managed Codex session on the host.
         <button type="button" className="deck-chip deck-chip--warn" onClick={model.connectThread} disabled={threadBusy}>
-          <LinkIcon /><span>Bind task</span>
+          <LinkIcon /><span>Reconnect</span>
         </button>
       </StreamEmpty>
     );
@@ -686,10 +719,10 @@ export function ThreadStream({ model, limit = 9 }: { model: DeckModel; limit?: n
   const rows = threadRows(thread, limit);
   if (rows.length === 0) {
     return (
-      <StreamEmpty glyph="●" title="Task bound" tone="connected">
+      <StreamEmpty glyph="●" title="Codex ready" tone="connected">
         {thread.threadId
-          ? `Task ${shortId(thread.threadId)} is ready. Start its first turn from the console.`
-          : "The task is bound. Start its first turn from the console."}
+          ? `Session ${shortId(thread.threadId)} is ready. Start its first turn from the console.`
+          : "The session is connected. Start its first turn from the console."}
       </StreamEmpty>
     );
   }
@@ -767,7 +800,7 @@ export function ViewTabs({ model }: { model: DeckModel }) {
         onClick={() => model.setView("thread")}
         disabled={!model.adapterAvailable}
       >
-        Task turns
+        Session turns
       </button>
       <button type="button" role="tab" aria-selected={model.view === "signal"} onClick={() => model.setView("signal")}>
         Lane signal
