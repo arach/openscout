@@ -11,7 +11,7 @@ describe("Pi RPC launch args", () => {
         "--provider=minimax",
         "--thinking",
         "low",
-        "--session-id",
+        "--resume",
         "review-pi",
         "--extension",
         "/dev/pi-scout",
@@ -30,10 +30,26 @@ describe("Pi RPC launch args", () => {
       model: "MiniMax-M3",
       provider: "minimax",
       thinking: "low",
-      sessionId: "review-pi",
+      session: "review-pi",
       sessionDir: "/runtime/pi-agent/pi-sessions",
       extensions: ["/dev/pi-scout"],
       extraArgs: ["--custom-flag", "custom-value"],
+    });
+  });
+
+  test("consumes legacy session-id settings without forwarding them", () => {
+    const parsed = parsePiRpcLaunchArgs(
+      ["--session-id", "legacy-scout-id", "--custom-flag"],
+      {
+        runtimeDirectory: "/runtime/pi-agent",
+        includeDefaultScoutExtension: false,
+      },
+    );
+
+    expect(parsed).toEqual({
+      sessionDir: "/runtime/pi-agent/pi-sessions",
+      extensions: [],
+      extraArgs: ["--custom-flag"],
     });
   });
 

@@ -214,7 +214,7 @@ describe("harness catalog", () => {
       "'~/dev/amplink'",
     );
     expect(buildHarnessResumeCommand(pi!, "pi-session", "/Users/me/dev/app")).toBe(
-      "pi --session-id pi-session",
+      "pi --resume pi-session",
     );
   });
 

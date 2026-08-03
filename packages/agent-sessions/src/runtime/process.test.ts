@@ -18,6 +18,7 @@ import readline from "node:readline";
 const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 for await (const line of rl) {
   console.log(JSON.stringify({ line }));
+  console.error("diagnostic from harness");
   process.exit(0);
 }
 `,
@@ -33,17 +34,22 @@ for await (const line of rl) {
       const stdoutEnded = new Promise<void>((resolve) => {
         child.readStdoutLines((line) => lines.push(line), resolve);
       });
+      const stderrLines: string[] = [];
+      const stderrEnded = new Promise<void>((resolve) => {
+        child.readStderrLines((line) => stderrLines.push(line), resolve);
+      });
       const exitCode = new Promise<number | null>((resolve) => {
         child.onExit((code) => resolve(code));
       });
 
-      child.drainStderr();
       child.stdin.write("hello from scout\n");
 
       expect(await child.waitForExit(5_000)).toBe(true);
       await stdoutEnded;
+      await stderrEnded;
       expect(await exitCode).toBe(0);
       expect(lines).toEqual([JSON.stringify({ line: "hello from scout" })]);
+      expect(stderrLines).toEqual(["diagnostic from harness"]);
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }

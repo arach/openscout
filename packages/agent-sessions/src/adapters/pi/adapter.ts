@@ -173,6 +173,57 @@ function isLikelySessionFilePath(value: string | undefined): value is string {
   return value.includes("/") || value.endsWith(".jsonl");
 }
 
+const MAX_PI_STDERR_CHARS = 4_096;
+
+function appendBoundedStderr(current: string, line: string): string {
+  const next = current ? `${current}\n${line}` : line;
+  return next.length <= MAX_PI_STDERR_CHARS
+    ? next
+    : next.slice(-MAX_PI_STDERR_CHARS);
+}
+
+function summarizePiStderr(stderr: string): string {
+  return stderr.trim().replace(/\s+/gu, " ");
+}
+
+export function buildPiLaunchArgs(options: AdapterConfig["options"] = {}): string[] {
+  const args = ["--mode", "rpc"];
+
+  const model = options?.["model"] as string | undefined;
+  if (model) args.push("--model", model);
+
+  const provider = normalizePiProviderArgument(options?.["provider"] as string | undefined);
+  if (provider) args.push("--provider", provider);
+
+  const thinking = normalizePiThinkingLevel(options?.["thinking"] as string | undefined);
+  if (thinking) args.push("--thinking", thinking);
+
+  const resume = options?.["resume"] as boolean | undefined;
+  if (resume) args.push("--continue");
+
+  // Pi owns its native session ids. Scout's AdapterConfig.sessionId is a
+  // control-plane id and must never be forwarded as a Pi CLI flag. An explicit
+  // native session reference is the only value that belongs on --resume.
+  const session = options?.["session"] as string | undefined;
+  if (session) args.push("--resume", session);
+
+  const sessionDir = options?.["sessionDir"] as string | undefined;
+  if (sessionDir) args.push("--session-dir", sessionDir);
+
+  const appendSystemPrompt = options?.["appendSystemPrompt"] as string | undefined;
+  if (appendSystemPrompt) args.push("--append-system-prompt", appendSystemPrompt);
+
+  const extensions = options?.["extensions"] as string[] | undefined;
+  if (extensions) {
+    for (const ext of extensions) args.push("--extension", ext);
+  }
+
+  const extraArgs = options?.["extraArgs"] as string[] | undefined;
+  if (extraArgs) args.push(...extraArgs);
+
+  return args;
+}
+
 export function buildPiProcessEnv(
   config: Pick<AdapterConfig, "env" | "options">,
   sourceEnv: EnvSource = process.env,
@@ -221,52 +272,12 @@ export class PiAdapter extends BaseAdapter {
   }
 
   async start(): Promise<void> {
-    const args = ["--mode", "rpc"];
-
-    // Model override.
+    const args = buildPiLaunchArgs(this.config.options);
     const model = this.config.options?.["model"] as string | undefined;
-    if (model) args.push("--model", model);
-
-    // Provider override.
-    const provider = normalizePiProviderArgument(this.config.options?.["provider"] as string | undefined);
-    if (provider) args.push("--provider", provider);
-
-    // Thinking level.
     const thinking = normalizePiThinkingLevel(this.config.options?.["thinking"] as string | undefined);
-    if (thinking) args.push("--thinking", thinking);
-
-    // Resume a previous session.
-    const resume = this.config.options?.["resume"] as boolean | undefined;
-    if (resume) args.push("--continue");
-
-    // Session path.
     const sessionPath = this.config.options?.["session"] as string | undefined;
-    if (sessionPath) args.push("--session", sessionPath);
-
-    // Stable Pi project session id.
-    const piSessionId = this.config.options?.["sessionId"] as string | undefined;
-    if (piSessionId) args.push("--session-id", piSessionId);
-
-    // Session directory.
     const sessionDir = this.config.options?.["sessionDir"] as string | undefined;
-    if (sessionDir) args.push("--session-dir", sessionDir);
-
-    // Additional system prompt.
-    const appendSystemPrompt = this.config.options?.["appendSystemPrompt"] as string | undefined;
-    if (appendSystemPrompt) args.push("--append-system-prompt", appendSystemPrompt);
-
-    // Additional extensions.
     const extensions = this.config.options?.["extensions"] as string[] | undefined;
-    if (extensions) {
-      for (const ext of extensions) args.push("--extension", ext);
-    }
-
-    // Adapter-specific passthrough args for Pi flags that Scout does not model
-    // yet. Structured options above intentionally win when both are present.
-    const extraArgs = this.config.options?.["extraArgs"] as string[] | undefined;
-    if (extraArgs) {
-      args.push(...extraArgs);
-    }
 
     // Note: we do NOT pass --no-extensions or --no-skills by default.
     // Faithful harness behavior comes from Pi's project config, not shell-wide
@@ -279,7 +290,6 @@ export class PiAdapter extends BaseAdapter {
       ...(this.session.providerMeta ?? {}),
       transport: "pi_rpc",
       ...(selected ? { provider: selected } : {}),
-      ...(piSessionId ? { externalSessionId: piSessionId, threadId: piSessionId } : {}),
       ...(isLikelySessionFilePath(sessionPath) ? { threadPath: sessionPath } : {}),
       ...(sessionDir ? { sessionDir } : {}),
       ...(thinking ? { thinking } : {}),
@@ -299,7 +309,17 @@ export class PiAdapter extends BaseAdapter {
     this.process = child;
 
     this.readStdout();
-    child.drainStderr();
+    let stderr = "";
+    let resolveStderrEnd: () => void = () => undefined;
+    const stderrEnded = new Promise<void>((resolve) => {
+      resolveStderrEnd = resolve;
+    });
+    child.readStderrLines(
+      (line) => {
+        stderr = appendBoundedStderr(stderr, line);
+      },
+      resolveStderrEnd,
+    );
 
     child.onError((error) => {
       if (this.process === child && this.session.status !== "closed") {
@@ -308,17 +328,20 @@ export class PiAdapter extends BaseAdapter {
       }
     });
     child.onExit((code, signal) => {
-      if (this.process !== child || this.session.status === "closed") {
-        return;
-      }
-      if (code !== 0) {
+      if (code === 0) return;
+      void stderrEnded.then(() => {
+        if (this.process !== child || this.session.status === "closed") {
+          return;
+        }
+        const detail = summarizePiStderr(stderr);
         this.emit("error", new Error(
           `pi exited`
           + (code !== null ? ` with code ${code}` : "")
-          + (signal ? ` (${signal})` : ""),
+          + (signal ? ` (${signal})` : "")
+          + (detail ? `: ${detail}` : ""),
         ));
         this.setStatus("error");
-      }
+      });
     });
 
     this.setStatus("active");

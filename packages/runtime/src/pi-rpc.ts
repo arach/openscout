@@ -41,7 +41,6 @@ export type PiRpcLaunchOptions = {
   provider?: string;
   thinking?: string;
   session?: string;
-  sessionId?: string;
   sessionDir?: string;
   extensions: string[];
   extraArgs: string[];
@@ -58,6 +57,7 @@ const PI_RPC_FLAGS_WITH_VALUES = new Set([
   "--model",
   "--provider",
   "--thinking",
+  "--resume",
   "--session",
   "--session-id",
   "--session-dir",
@@ -69,10 +69,12 @@ const PI_RPC_OPTION_KEYS: Record<string, keyof Omit<PiRpcLaunchOptions, "extensi
   "--model": "model",
   "--provider": "provider",
   "--thinking": "thinking",
+  "--resume": "session",
   "--session": "session",
-  "--session-id": "sessionId",
   "--session-dir": "sessionDir",
 };
+
+const LEGACY_PI_RPC_IGNORED_FLAGS = new Set(["--session-id"]);
 
 type CredentialEnvSource = Record<string, string | undefined>;
 
@@ -228,6 +230,9 @@ export function parsePiRpcLaunchArgs(
     const current = launchArgs[index] ?? "";
     const assignment = readFlagAssignment(current);
     if (assignment) {
+      if (LEGACY_PI_RPC_IGNORED_FLAGS.has(assignment.flag)) {
+        continue;
+      }
       if (assignment.flag === "--extension") {
         const extension = normalizeOptionalString(assignment.assigned);
         if (extension) parsed.extensions.push(extension);
@@ -254,6 +259,11 @@ export function parsePiRpcLaunchArgs(
     }
 
     if (current === "--append-system-prompt") {
+      index += 1;
+      continue;
+    }
+
+    if (LEGACY_PI_RPC_IGNORED_FLAGS.has(current)) {
       index += 1;
       continue;
     }
@@ -357,7 +367,6 @@ class PiRpcAgentSession {
       env: buildPiRpcCredentialEnv(launch),
       options: {
         ...launch,
-        sessionId: launch.sessionId ?? this.options.sessionId,
         appendSystemPrompt: this.options.systemPrompt,
       },
     });

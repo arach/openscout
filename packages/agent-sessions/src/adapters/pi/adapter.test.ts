@@ -1,7 +1,33 @@
 import { describe, expect, test } from "bun:test";
 
 import { StateTracker } from "../../state.ts";
-import { buildPiProcessEnv, PiAdapter } from "./adapter.ts";
+import { buildPiLaunchArgs, buildPiProcessEnv, PiAdapter } from "./adapter.ts";
+
+describe("buildPiLaunchArgs", () => {
+  test("keeps Scout session ids out of Pi argv and uses the current resume flag", () => {
+    expect(buildPiLaunchArgs({
+      model: "MiniMax-M3",
+      provider: "minimax",
+      thinking: "none",
+      sessionId: "scout-control-plane-id",
+      session: "native-pi-session",
+      sessionDir: "/runtime/pi-sessions",
+    })).toEqual([
+      "--mode",
+      "rpc",
+      "--model",
+      "MiniMax-M3",
+      "--provider",
+      "minimax",
+      "--thinking",
+      "off",
+      "--resume",
+      "native-pi-session",
+      "--session-dir",
+      "/runtime/pi-sessions",
+    ]);
+  });
+});
 
 describe("buildPiProcessEnv", () => {
   test("passes only MiniMax API key credentials for the MiniMax provider", () => {
