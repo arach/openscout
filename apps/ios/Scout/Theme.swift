@@ -233,6 +233,7 @@ struct ScoutField: View {
     let placeholder: String
     var icon: String?
     var accessibilityLabelText: String?
+    var autofocus: Bool
     @Binding var text: String
 
     @Environment(\.isEnabled) private var isEnabled
@@ -243,11 +244,13 @@ struct ScoutField: View {
         _ placeholder: String,
         text: Binding<String>,
         icon: String? = nil,
-        accessibilityLabel: String? = nil
+        accessibilityLabel: String? = nil,
+        autofocus: Bool = false
     ) {
         self.placeholder = placeholder
         self.icon = icon
         self.accessibilityLabelText = accessibilityLabel
+        self.autofocus = autofocus
         _text = text
     }
 
@@ -282,6 +285,11 @@ struct ScoutField: View {
         .contentShape(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous))
         .opacity(isEnabled ? 1 : HudOpacity.muted)
         .animation(reduceMotion ? nil : ScoutMotion.fade, value: isFocused)
+        .task {
+            guard autofocus else { return }
+            await Task.yield()
+            isFocused = true
+        }
     }
 }
 

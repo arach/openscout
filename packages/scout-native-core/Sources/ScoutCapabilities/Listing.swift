@@ -138,6 +138,8 @@ public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
     /// Concrete host integration, separate from the user-facing harness family.
     public var transport: String?
     public var projectName: String?
+    /// Canonical workspace path used for capability-first session launches.
+    public var workspaceRoot: String?
     /// Current git branch of the agent's checkout (e.g. "feat/in-app-session").
     public var branch: String?
     /// Working-tree posture (ahead/behind/dirty). Nil when unknown.
@@ -172,6 +174,7 @@ public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
         harness: String? = nil,
         transport: String? = nil,
         projectName: String? = nil,
+        workspaceRoot: String? = nil,
         branch: String? = nil,
         git: GitState? = nil,
         model: String? = nil,
@@ -188,6 +191,7 @@ public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
         self.harness = harness
         self.transport = transport
         self.projectName = projectName
+        self.workspaceRoot = workspaceRoot
         self.branch = branch
         self.git = git
         self.model = model
@@ -201,7 +205,7 @@ public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, harness, transport, projectName, branch, git, model
+        case id, title, harness, transport, projectName, workspaceRoot, branch, git, model
         case statusLabel, state, sessionId, conversationId, lastActiveAt
         case needsAttention, pendingAsk
     }
@@ -216,6 +220,7 @@ public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
         self.harness = try container.decodeIfPresent(String.self, forKey: .harness)
         self.transport = try container.decodeIfPresent(String.self, forKey: .transport)
         self.projectName = try container.decodeIfPresent(String.self, forKey: .projectName)
+        self.workspaceRoot = try container.decodeIfPresent(String.self, forKey: .workspaceRoot)
         self.branch = try container.decodeIfPresent(String.self, forKey: .branch)
         self.git = try container.decodeIfPresent(GitState.self, forKey: .git)
         self.model = try container.decodeIfPresent(String.self, forKey: .model)
@@ -226,6 +231,65 @@ public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
         self.lastActiveAt = try container.decodeIfPresent(Date.self, forKey: .lastActiveAt)
         self.needsAttention = try container.decodeIfPresent(Bool.self, forKey: .needsAttention) ?? false
         self.pendingAsk = try container.decodeIfPresent(PendingAsk.self, forKey: .pendingAsk)
+    }
+}
+
+/// One operator-requested unit of work in the fleet-wide ledger. This is an
+/// invocation/flight projection, not an agent or a transcript turn: it answers
+/// "what did I ask the network to do, and how did it land?" while retaining the
+/// conversation needed to inspect the surrounding evidence.
+public struct FleetWorkSummary: Codable, Sendable, Identifiable, Equatable {
+    public enum Status: String, Codable, Sendable {
+        case queued, working, needsAttention, completed, failed, unknown
+
+        public init(from decoder: Decoder) throws {
+            let raw = (try? decoder.singleValueContainer().decode(String.self)) ?? ""
+            self = Status(rawValue: raw) ?? .unknown
+        }
+    }
+
+    public var id: String
+    public var agentId: String
+    public var agentName: String?
+    public var conversationId: String?
+    public var task: String
+    public var status: Status
+    public var statusLabel: String
+    public var harness: String?
+    public var transport: String?
+    public var summary: String?
+    public var startedAt: Date?
+    public var completedAt: Date?
+    public var updatedAt: Date
+
+    public init(
+        id: String,
+        agentId: String,
+        agentName: String? = nil,
+        conversationId: String? = nil,
+        task: String,
+        status: Status,
+        statusLabel: String,
+        harness: String? = nil,
+        transport: String? = nil,
+        summary: String? = nil,
+        startedAt: Date? = nil,
+        completedAt: Date? = nil,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.agentId = agentId
+        self.agentName = agentName
+        self.conversationId = conversationId
+        self.task = task
+        self.status = status
+        self.statusLabel = statusLabel
+        self.harness = harness
+        self.transport = transport
+        self.summary = summary
+        self.startedAt = startedAt
+        self.completedAt = completedAt
+        self.updatedAt = updatedAt
     }
 }
 
@@ -321,11 +385,17 @@ public struct RuntimeCapabilityCatalog: Codable, Sendable, Equatable {
 public protocol ListingCapability: Sendable {
     func listSessions(query: String?, limit: Int) async throws -> [SessionSummary]
     func listAgents(query: String?, limit: Int) async throws -> [AgentSummary]
+    func listFleetWork(limit: Int) async throws -> [FleetWorkSummary]
     func listWorkspaces(query: String?, limit: Int) async throws -> [WorkspaceSummary]
     func runtimeCapabilities(projectRoot: String?) async throws -> RuntimeCapabilityCatalog
 }
 
 public extension ListingCapability {
+    /// Older/native transports can remain listing-capable without fabricating a
+    /// work ledger. The UI distinguishes this empty compatibility result from a
+    /// successful bridge-backed read when presenting coverage.
+    func listFleetWork(limit: Int) async throws -> [FleetWorkSummary] { [] }
+
     /// Default: no machine-backed workspaces (e.g. a transport that doesn't expose
     /// them). Conformers that can fetch them override this. Keeps existing
     /// conformers source-compatible.

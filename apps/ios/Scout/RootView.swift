@@ -215,6 +215,7 @@ struct RootView: View {
                                 AgentsSurface(
                                     model: model,
                                     isActive: surface == .agents,
+                                    onConnect: { showConnection = true },
                                     onConversationStatusContext: { sessionStatusContext = $0 }
                                 )
                             }
