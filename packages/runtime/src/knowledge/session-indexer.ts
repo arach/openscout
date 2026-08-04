@@ -3,6 +3,7 @@ import {
   createReadStream,
   existsSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
   renameSync,
   rmSync,
@@ -10,7 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join, relative, sep } from "node:path";
+import { basename, dirname, join, relative, sep } from "node:path";
 
 import {
   deterministicKnowledgeChunkId,
@@ -28,9 +29,14 @@ import type {
 } from "./types.js";
 
 export interface IndexRecentSessionKnowledgeInput {
+  /** Lookback window in whole days (default 3). Ignored when `hours` is set. */
   days?: number;
+  /** Lookback window in hours. Takes precedence over `days` when provided. */
+  hours?: number;
   limit?: number;
   force?: boolean;
+  /** Restrict indexing to one or more harnesses (codex, claude, kimi, …). */
+  harness?: string | string[];
 }
 
 export interface IndexedSessionKnowledgeSummary {
@@ -52,13 +58,14 @@ export interface IndexedSessionKnowledgeSummary {
 export interface IndexRecentSessionKnowledgeResult {
   job: KnowledgeIndexJob;
   days: number;
+  hours?: number;
   discovered: number;
   indexed: number;
   failed: number;
   sessions: IndexedSessionKnowledgeSummary[];
 }
 
-type Harness = "codex" | "claude";
+type Harness = "codex" | "claude" | "kimi";
 
 type SessionFile = {
   harness: Harness;
@@ -108,12 +115,13 @@ type ExtractedDocument = {
   facets?: KnowledgeFacets;
 };
 
-const EXTRACTOR_VERSION = "session-qmd-v2";
+const EXTRACTOR_VERSION = "session-qmd-v3";
 const CHUNK_POLICY_VERSION = "session-qmd-record-window-v1";
 const EVENT_WINDOW_RECORDS = 350;
 const EVENT_CHUNK_RECORDS = 50;
 const DEFAULT_DAYS = 3;
 const DEFAULT_LIMIT = 220;
+const KNOWN_HARNESSES: readonly Harness[] = ["codex", "claude", "kimi"];
 
 function clampPositiveInt(value: number | undefined, fallback: number, max: number): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return fallback;
@@ -140,23 +148,67 @@ function createYieldBudget(intervalMs = 12): () => Promise<void> {
   };
 }
 
-function sessionRoots(): Array<{ harness: Harness; root: string }> {
+function normalizeHarnessFilter(value: string | string[] | undefined): Set<Harness> | null {
+  if (value == null) return null;
+  const raw = Array.isArray(value) ? value : [value];
+  const selected = new Set<Harness>();
+  for (const entry of raw) {
+    const key = entry.trim().toLowerCase();
+    if (!key) continue;
+    if ((KNOWN_HARNESSES as readonly string[]).includes(key)) {
+      selected.add(key as Harness);
+    }
+  }
+  return selected.size > 0 ? selected : null;
+}
+
+function sessionRoots(harnessFilter: Set<Harness> | null): Array<{ harness: Harness; root: string }> {
   const home = homedir();
+  const kimiHome = process.env.KIMI_CODE_HOME?.trim() || join(home, ".kimi-code");
   const roots: Array<{ harness: Harness; root: string }> = [
     { harness: "codex", root: process.env.OPENSCOUT_TAIL_CODEX_SESSIONS_ROOT ?? join(home, ".codex", "sessions") },
     { harness: "codex", root: join(home, ".openai-codex", "sessions") },
     { harness: "claude", root: process.env.OPENSCOUT_TAIL_CLAUDE_PROJECTS_ROOT ?? join(home, ".claude", "projects") },
+    { harness: "kimi", root: process.env.OPENSCOUT_TAIL_KIMI_SESSIONS_ROOT ?? join(kimiHome, "sessions") },
   ];
   return roots.filter((entry, index, entries) =>
     existsSync(entry.root)
+    && (harnessFilter == null || harnessFilter.has(entry.harness))
     && entries.findIndex((candidate) => candidate.harness === entry.harness && candidate.root === entry.root) === index
   );
 }
 
-function discoverRecentSessionFiles(days: number, limit: number): SessionFile[] {
-  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+function isHarnessTranscriptFile(harness: Harness, entry: string): boolean {
+  // Kimi stores many JSONL-adjacent artifacts; only wire.jsonl is the transcript spine.
+  if (harness === "kimi") return entry === "wire.jsonl";
+  return entry.endsWith(".jsonl");
+}
+
+function resolveLookbackMs(input: IndexRecentSessionKnowledgeInput): { cutoffMs: number; days: number; hours?: number } {
+  // Harmonized max window: 30 days either via --days or --hours.
+  const maxHours = 30 * 24;
+  if (typeof input.hours === "number" && Number.isFinite(input.hours) && input.hours > 0) {
+    const hours = Math.min(maxHours, Math.floor(input.hours));
+    return {
+      cutoffMs: Date.now() - hours * 60 * 60 * 1000,
+      days: Math.max(1, Math.ceil(hours / 24)),
+      hours,
+    };
+  }
+  const days = clampPositiveInt(input.days, DEFAULT_DAYS, 30);
+  return {
+    cutoffMs: Date.now() - days * 24 * 60 * 60 * 1000,
+    days,
+  };
+}
+
+function discoverRecentSessionFiles(
+  cutoffMs: number,
+  limit: number,
+  harnessFilter: Set<Harness> | null,
+): SessionFile[] {
   const files: SessionFile[] = [];
-  for (const { harness, root } of sessionRoots()) {
+  for (const { harness, root } of sessionRoots(harnessFilter)) {
     const stack = [root];
     while (stack.length > 0) {
       const dir = stack.pop()!;
@@ -178,7 +230,7 @@ function discoverRecentSessionFiles(days: number, limit: number): SessionFile[] 
           stack.push(path);
           continue;
         }
-        if (!entry.endsWith(".jsonl") || stats.mtimeMs < cutoff) continue;
+        if (!isHarnessTranscriptFile(harness, entry) || stats.mtimeMs < cutoffMs) continue;
         files.push({ harness, path, mtimeMs: stats.mtimeMs, size: stats.size });
       }
     }
@@ -198,7 +250,14 @@ async function parseJsonl(file: SessionFile): Promise<ParseResult> {
   let cwd: string | null = null;
   let sessionId: string | null = null;
 
-  const handleLine = (rawLine: string) => {    const lineOffset = offset;
+  if (file.harness === "kimi") {
+    const state = readKimiSessionState(file.path);
+    cwd = state.cwd;
+    sessionId = state.sessionId;
+  }
+
+  const handleLine = (rawLine: string) => {
+    const lineOffset = offset;
     offset += Buffer.byteLength(rawLine, "utf8") + 1;
     if (!rawLine.trim()) return;
     try {
@@ -254,9 +313,9 @@ function normalizeRecord(
   sourceOffset: number,
   harness: Harness,
 ): NormalizedRecord {
-  return harness === "codex"
-    ? normalizeCodex(obj, i, sourceOffset)
-    : normalizeClaude(obj, i, sourceOffset);
+  if (harness === "codex") return normalizeCodex(obj, i, sourceOffset);
+  if (harness === "claude") return normalizeClaude(obj, i, sourceOffset);
+  return normalizeKimi(obj, i, sourceOffset);
 }
 
 function normalizeCodex(
@@ -390,13 +449,137 @@ function normalizeClaude(
   return { ...base, kind: "system_record", tag: type || "record", meta: obj };
 }
 
+function kimiTimestamp(obj: Record<string, unknown>): string | undefined {
+  const raw = obj.time ?? obj.timestamp;
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    const ms = raw < 1e12 ? raw * 1000 : raw;
+    return new Date(ms).toISOString();
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    const parsed = Date.parse(raw);
+    return Number.isFinite(parsed) ? new Date(parsed).toISOString() : raw;
+  }
+  return undefined;
+}
+
+/**
+ * Normalize Kimi Code wire.jsonl records into the same mechanical record kinds
+ * used for Codex/Claude. Wire format is event-oriented; only conversational and
+ * tool spine events become searchable content.
+ */
+function normalizeKimi(
+  obj: Record<string, unknown>,
+  i: number,
+  sourceOffset: number,
+): NormalizedRecord {
+  const type = String(obj.type ?? "");
+  const ts = kimiTimestamp(obj);
+  const base = { i, ts, sourceType: type, sourceOffset };
+
+  if (type === "turn.prompt" || type === "turn.steer") {
+    return {
+      ...base,
+      kind: "user_turn",
+      tag: type === "turn.steer" ? "steer" : "user",
+      text: extractText(obj.input ?? obj.content),
+    };
+  }
+
+  if (type === "context.append_message") {
+    const message = recordValue(obj.message) ?? {};
+    const role = String(message.role ?? "");
+    const text = extractText(message.content);
+    if (role === "assistant") return { ...base, kind: "assistant_turn", tag: "assistant", text };
+    return { ...base, kind: "user_turn", tag: role || "user", text };
+  }
+
+  if (type === "context.append_loop_event") {
+    const event = recordValue(obj.event) ?? {};
+    const eventType = String(event.type ?? "");
+    const eventBase = {
+      ...base,
+      sourceType: eventType || type,
+      refs: {
+        id: stringValue(event.uuid) ?? stringValue(event.toolCallId),
+        parentId: stringValue(event.parentUuid),
+      },
+    };
+
+    if (eventType === "tool.call") {
+      const name = String(event.name ?? "tool");
+      return {
+        ...eventBase,
+        kind: "command_or_tool",
+        tag: name,
+        tool: { name, input: event.args ?? event.input ?? {} },
+      };
+    }
+    if (eventType === "tool.result") {
+      const result = recordValue(event.result) ?? {};
+      return {
+        ...eventBase,
+        kind: "observation",
+        tag: "result",
+        result: { output: result.output ?? result.content ?? event.result ?? "" },
+        refs: {
+          ...eventBase.refs,
+          id: stringValue(event.toolCallId) ?? eventBase.refs.id,
+          parentId: stringValue(event.parentUuid),
+        },
+      };
+    }
+    if (eventType === "content.part") {
+      const part = recordValue(event.part) ?? {};
+      if (part.type === "text" && typeof part.text === "string") {
+        return { ...eventBase, kind: "assistant_turn", tag: "assistant", text: part.text };
+      }
+      // Deliberate: do not index full reasoning text into the durable search corpus.
+      // Keep a tag-only system marker so event windows stay bounded and observed.
+      if (part.type === "think") {
+        return { ...eventBase, kind: "system_record", tag: "think" };
+      }
+      return { ...eventBase, kind: "system_record", tag: eventType || "part", meta: event };
+    }
+    return { ...eventBase, kind: "system_record", tag: eventType || "loop_event", meta: event };
+  }
+
+  if (type === "metadata" || type === "config.update") {
+    return { ...base, kind: "session_meta", tag: "meta", meta: obj };
+  }
+
+  // High-churn transport records (llm.request, usage, mcp discovery) are not
+  // useful as session knowledge; keep a thin system placeholder.
+  return { ...base, kind: "system_record", tag: type || "record", meta: obj };
+}
+
+function readKimiSessionState(wirePath: string): { cwd: string | null; sessionId: string | null; title: string | null } {
+  // .../session_<id>/agents/<agentId>/wire.jsonl
+  const agentId = basename(dirname(wirePath));
+  const sessionDirectory = dirname(dirname(dirname(wirePath)));
+  const parentSessionId = basename(sessionDirectory);
+  const sessionId = agentId === "main" ? parentSessionId : `${parentSessionId}:${agentId}`;
+  let cwd: string | null = null;
+  let title: string | null = null;
+  try {
+    const state = recordValue(JSON.parse(readFileSync(join(sessionDirectory, "state.json"), "utf8")));
+    cwd = stringValue(state?.workDir) ?? null;
+    title = stringValue(state?.title) ?? null;
+  } catch {
+    // state.json may lag a freshly created wire file
+  }
+  return { cwd, sessionId, title };
+}
+
 function inferCwd(record: NormalizedRecord): string | null {
   const meta = record.meta;
-  const cwd = stringValue(meta?.cwd);
+  const cwd = stringValue(meta?.cwd) ?? stringValue(meta?.workDir);
   return cwd && cwd.trim() ? cwd : null;
 }
 
 function inferSessionId(record: NormalizedRecord, file: SessionFile): string | null {
+  if (file.harness === "kimi") {
+    return readKimiSessionState(file.path).sessionId;
+  }
   return record.refs?.sessionId
     ?? stringValue(record.meta?.id)
     ?? stringValue(record.meta?.sessionId)
@@ -493,13 +676,21 @@ function projectName(cwd: string | null, filePath: string): string {
 }
 
 function titleFor(file: SessionFile, parse: ParseResult, project: string): string {
-  const firstUser = parse.records.find((record) => record.kind === "user_turn" && record.text?.trim());
   const date = new Date(file.mtimeMs).toLocaleString("en-US", {
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
   });
+  // Kimi (and any future harness) may expose a durable session title in state;
+  // prefer it over reconstructing from the first user turn.
+  if (file.harness === "kimi") {
+    const stateTitle = readKimiSessionState(file.path).title;
+    if (stateTitle) {
+      return `${capitalize(file.harness)} ${project} ${date} - ${trimOneLine(stateTitle, 82)}`;
+    }
+  }
+  const firstUser = parse.records.find((record) => record.kind === "user_turn" && record.text?.trim());
   const goal = firstUser?.text ? ` - ${trimOneLine(firstUser.text, 82)}` : "";
   return `${capitalize(file.harness)} ${project} ${date}${goal}`;
 }
@@ -904,6 +1095,8 @@ async function storeSessionCollection(
   const facets: KnowledgeFacets = {
     harness: file.harness,
     project,
+    // Full path so same basenames in different roots do not collide.
+    ...(parse.cwd ? { projectPath: parse.cwd } : {}),
     source: "sessions",
     transcriptPath: file.path,
     sessionId: parse.sessionId ?? "",
@@ -1014,12 +1207,18 @@ async function storeSessionCollection(
 export async function indexRecentSessionKnowledge(
   input: IndexRecentSessionKnowledgeInput = {},
 ): Promise<IndexRecentSessionKnowledgeResult> {
-  const days = clampPositiveInt(input.days, DEFAULT_DAYS, 30);
+  const lookback = resolveLookbackMs(input);
   const limit = clampPositiveInt(input.limit, DEFAULT_LIMIT, 1000);
+  const harnessFilter = normalizeHarnessFilter(input.harness);
   const store = new SQLiteKnowledgeStore();
-  const job = store.createIndexJob({ source: "sessions", days, force: input.force, mode: "foreground" });
+  const job = store.createIndexJob({
+    source: "sessions",
+    days: lookback.days,
+    force: input.force,
+    mode: "foreground",
+  });
   const leaseGeneration = job.leaseGeneration + 1;
-  const files = discoverRecentSessionFiles(days, limit);
+  const files = discoverRecentSessionFiles(lookback.cutoffMs, limit, harnessFilter);
   const sessions: IndexedSessionKnowledgeSummary[] = [];
   let indexed = 0;
   let failed = 0;
@@ -1064,13 +1263,46 @@ export async function indexRecentSessionKnowledge(
       });
       await yieldToEventLoop();
     }
+    const completedAt = Date.now();
     const completed = store.updateIndexJob({
       id: job.id,
       state: "completed",
-      completedAt: Date.now(),
+      completedAt,
       progress: { discovered: files.length, extracted: indexed + failed, indexed, failed },
     }) ?? job;
-    return { job: completed, days, discovered: files.length, indexed, failed, sessions };
+
+    // Record what was SCANNED (root harnesses), not only what yielded files.
+    // Empty-in-window roots still get a discovered=0 claim so later queries
+    // don't prompt a no-op re-warm for a harness that was already walked.
+    const lookbackMs = completedAt - lookback.cutoffMs;
+    const scannedHarnesses = harnessFilter
+      ? [...harnessFilter]
+      : [...new Set(sessionRoots(null).map((entry) => entry.harness))];
+    for (const harness of scannedHarnesses) {
+      const forHarnessFiles = files.filter((file) => file.harness === harness);
+      const forHarnessSessions = sessions.filter((session) => session.harness === harness);
+      store.recordWarmSpan({
+        source: "sessions",
+        harness,
+        lookbackMs,
+        cutoffMs: lookback.cutoffMs,
+        completedAt,
+        jobId: completed.id,
+        discovered: forHarnessFiles.length,
+        indexed: forHarnessSessions.filter((session) => !session.error).length,
+        failed: forHarnessSessions.filter((session) => Boolean(session.error)).length,
+      });
+    }
+
+    return {
+      job: completed,
+      days: lookback.days,
+      hours: lookback.hours,
+      discovered: files.length,
+      indexed,
+      failed,
+      sessions,
+    };
   } catch (error) {
     const failedJob = store.updateIndexJob({
       id: job.id,
@@ -1079,7 +1311,15 @@ export async function indexRecentSessionKnowledge(
       error: error instanceof Error ? error.message : String(error),
       progress: { discovered: files.length, extracted: indexed + failed, indexed, failed },
     }) ?? job;
-    return { job: failedJob, days, discovered: files.length, indexed, failed: failed + 1, sessions };
+    return {
+      job: failedJob,
+      days: lookback.days,
+      hours: lookback.hours,
+      discovered: files.length,
+      indexed,
+      failed: failed + 1,
+      sessions,
+    };
   } finally {
     store.close();
   }

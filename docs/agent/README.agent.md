@@ -93,6 +93,7 @@ attention, and scoutd—see [`docs/concepts.md`](../concepts.md).
 | broker health | `scout doctor` | broker/service is not ready for routing |
 | sender identity | `scout whoami` | wrong cwd or project metadata; rerun setup from target project |
 | target discovery | `scout who` | use only when you need a specific existing target |
+| **past harness session text** | **`scout search`** (explicit `index` then `query`) | prefer over grepping `~/.codex` / `~/.claude` / `~/.kimi-code`; see `docs/session-search.md` |
 | runtime discovery | `scout runtimes --json` | inspect legal harness/model/effort tuples before requiring exact execution |
 | first project ask | `scout ask --project /path/to/repo --runtime codex/gpt-5.6-sol/xhigh "review this"` | broker should create an isolated exact-runtime worker and return handles plus execution resolution |
 | first specific message | `scout send --to <agent-from-scout-who> "hello"` | use a fuller selector if the short name is ambiguous |

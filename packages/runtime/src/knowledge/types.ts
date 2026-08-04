@@ -188,4 +188,55 @@ export interface KnowledgeStatus {
   chunks: number;
   activeJobs: KnowledgeIndexJob[];
   sqliteBytes: number;
+  /** Recent explicit warm-up spans (source × harness × lookback). */
+  warmSpans?: KnowledgeWarmSpan[];
 }
+
+/**
+ * One completed explicit index job's coverage claim.
+ * Readers use this to distinguish "not warmed" from "warmed, no matches".
+ */
+export interface KnowledgeWarmSpan {
+  id: string;
+  source: Exclude<KnowledgeCollectionKind, "mixed">;
+  /** Specific harness, or `*` when the job indexed all discovered harnesses. */
+  harness: string;
+  /** Lookback window length in ms at index time. */
+  lookbackMs: number;
+  /** mtime cutoff used during discovery (now - lookback). */
+  cutoffMs: number;
+  completedAt: number;
+  jobId: string;
+  discovered: number;
+  indexed: number;
+  failed: number;
+}
+
+export type KnowledgeCoverageRequest = {
+  source?: Exclude<KnowledgeCollectionKind, "mixed">;
+  /** Harness filters from the query; empty/undefined means any. */
+  harness?: string | string[];
+  /** Optional requested lookback; when set, span must reach at least this far. */
+  lookbackMs?: number;
+};
+
+export type KnowledgeCoverage =
+  | {
+    kind: "empty_index";
+    suggestion: string;
+  }
+  | {
+    kind: "not_warmed";
+    source: string;
+    harness: string[];
+    lookbackMs?: number;
+    suggestion: string;
+    nearestSpans: KnowledgeWarmSpan[];
+  }
+  | {
+    kind: "warmed";
+    spans: KnowledgeWarmSpan[];
+    /** True when the newest covering span finished long enough ago that recent files may be missing. */
+    stale: boolean;
+    staleAfterMs: number;
+  };

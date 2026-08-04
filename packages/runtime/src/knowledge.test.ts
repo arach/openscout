@@ -172,6 +172,168 @@ describe("SQLiteKnowledgeStore", () => {
       expect(status.chunks).toBe(1);
       expect(status.activeJobs.map((activeJob) => activeJob.id)).toContain(job.id);
       expect(status.paths.sqlitePath).toBe(paths.sqlitePath);
+
+      // Readonly path must not require a writable open (and must see WAL data).
+      const readonly = new SQLiteKnowledgeStore(undefined, paths, { readonly: true });
+      try {
+        expect(readonly.status().chunks).toBe(1);
+        expect(readonly.searchLexical({ q: "broker", limit: 3 })).toHaveLength(1);
+      } finally {
+        readonly.close();
+      }
+    } finally {
+      store.close();
+    }
+  });
+
+  test("warm spans make query coverage distinguish not-warmed from empty matches", () => {
+    const paths = useTempSupportPaths();
+    const store = new SQLiteKnowledgeStore(undefined, paths);
+    try {
+      expect(store.assessCoverage({ source: "sessions", harness: "kimi", lookbackMs: 12 * 3600_000 }).kind)
+        .toBe("empty_index");
+
+      store.recordWarmSpan({
+        source: "sessions",
+        harness: "claude",
+        lookbackMs: 3 * 24 * 3600_000,
+        cutoffMs: Date.now() - 3 * 24 * 3600_000,
+        completedAt: Date.now(),
+        jobId: "job-claude",
+        discovered: 2,
+        indexed: 2,
+        failed: 0,
+      });
+
+      // Global chunks still zero, but a warm span exists — not empty_index; kimi still not covered.
+      const notKimi = store.assessCoverage({ source: "sessions", harness: "kimi", lookbackMs: 12 * 3600_000 });
+      expect(notKimi.kind).toBe("not_warmed");
+      if (notKimi.kind === "not_warmed") {
+        expect(notKimi.suggestion).toContain("--harness kimi");
+        expect(notKimi.suggestion).toContain("--hours 12");
+      }
+
+      store.recordWarmSpan({
+        source: "sessions",
+        harness: "kimi",
+        lookbackMs: 12 * 3600_000,
+        cutoffMs: Date.now() - 12 * 3600_000,
+        completedAt: Date.now(),
+        jobId: "job-kimi",
+        discovered: 4,
+        indexed: 4,
+        failed: 0,
+      });
+      // Insert a chunk so empty_index does not short-circuit solely on span presence.
+      const storedCollection = collection(paths);
+      store.upsertCollection(storedCollection);
+      store.upsertDocument(document(storedCollection.id));
+      store.upsertChunk({
+        id: "chunk-coverage",
+        collectionId: storedCollection.id,
+        documentId: "doc-session-1-overview",
+        documentPath: "overview.md",
+        ordinal: 1,
+        text: "coverage probe chunk about nothing particular",
+        textHash: "sha256:coverage",
+        origin: "mechanical",
+        ownership: "derived",
+        sourceRefs: [sourceRef()],
+        facets: { harness: "kimi" },
+      });
+
+      const warmed = store.assessCoverage({ source: "sessions", harness: "kimi", lookbackMs: 12 * 3600_000 });
+      expect(warmed.kind).toBe("warmed");
+      if (warmed.kind === "warmed") {
+        expect(warmed.stale).toBe(false);
+        expect(warmed.spans.some((span) => span.harness === "kimi")).toBe(true);
+      }
+
+      // Asking for a longer lookback than any span claimed → not warmed.
+      const tooLong = store.assessCoverage({ source: "sessions", harness: "kimi", lookbackMs: 48 * 3600_000 });
+      expect(tooLong.kind).toBe("not_warmed");
+
+      // Zero-overlap: query window entirely after the scan finished → not warmed.
+      // Use a dedicated harness so an earlier fresh kimi span does not cover it.
+      store.recordWarmSpan({
+        source: "sessions",
+        harness: "grok",
+        lookbackMs: 12 * 3600_000,
+        cutoffMs: Date.now() - 20 * 3600_000,
+        completedAt: Date.now() - 5 * 3600_000,
+        jobId: "job-grok-stale-window",
+        discovered: 2,
+        indexed: 2,
+        failed: 0,
+      });
+      const zeroOverlap = store.assessCoverage({
+        source: "sessions",
+        harness: "grok",
+        lookbackMs: 1 * 3600_000,
+      });
+      expect(zeroOverlap.kind).toBe("not_warmed");
+
+      // All-failed warm is not coverage.
+      store.recordWarmSpan({
+        source: "sessions",
+        harness: "pi",
+        lookbackMs: 12 * 3600_000,
+        cutoffMs: Date.now() - 12 * 3600_000,
+        completedAt: Date.now(),
+        jobId: "job-pi-failed",
+        discovered: 5,
+        indexed: 0,
+        failed: 5,
+      });
+      expect(store.assessCoverage({ source: "sessions", harness: "pi", lookbackMs: 12 * 3600_000 }).kind)
+        .toBe("not_warmed");
+
+      // Empty scan (discovered=0) still covers — we walked the root and found nothing.
+      store.recordWarmSpan({
+        source: "sessions",
+        harness: "codex",
+        lookbackMs: 12 * 3600_000,
+        cutoffMs: Date.now() - 12 * 3600_000,
+        completedAt: Date.now(),
+        jobId: "job-codex-empty",
+        discovered: 0,
+        indexed: 0,
+        failed: 0,
+      });
+      expect(store.assessCoverage({ source: "sessions", harness: "codex", lookbackMs: 12 * 3600_000 }).kind)
+        .toBe("warmed");
+
+      expect(store.status().warmSpans?.length).toBeGreaterThan(0);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("searchLexical prefers AND precision and falls back to OR on zero rows", () => {
+    const paths = useTempSupportPaths();
+    const store = new SQLiteKnowledgeStore(undefined, paths);
+    try {
+      const storedCollection = collection(paths);
+      store.upsertCollection(storedCollection);
+      store.upsertDocument(document(storedCollection.id));
+      store.upsertChunk({
+        id: "chunk-and-or",
+        collectionId: storedCollection.id,
+        documentId: "doc-session-1-overview",
+        documentPath: "overview.md",
+        ordinal: 1,
+        text: "iOS simulator build completed successfully with xcodebuild",
+        textHash: "sha256:and-or",
+        origin: "mechanical",
+        ownership: "derived",
+        sourceRefs: [sourceRef()],
+        facets: { harness: "kimi" },
+      });
+
+      // All significant tokens present → AND path.
+      expect(store.searchLexical({ q: "iOS xcodebuild", limit: 5 })).toHaveLength(1);
+      // One rare/absent token ("steps") would fail AND; OR fallback still hits.
+      expect(store.searchLexical({ q: "iOS build steps", limit: 5 }).length).toBeGreaterThan(0);
     } finally {
       store.close();
     }

@@ -8,6 +8,9 @@ describe("renderScoutHelp", () => {
 
     expect(help).toContain("Fast path:");
     expect(help).toContain("Orientation (only when route or sender is unclear):");
+    expect(help).toContain("scout search index");
+    expect(help).toContain("scout search query");
+    expect(help).toContain("scout search status");
     expect(help).toContain("Lifecycle:");
     expect(help).toContain("one target -> DM");
     expect(help).toContain("multiple targets + no channel");

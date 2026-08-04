@@ -596,9 +596,11 @@ type SessionKnowledgeIndexOutcome = {
 };
 
 type SessionKnowledgeIndexInput = {
-  days: number;
+  days?: number;
+  hours?: number;
   limit: number;
   force: boolean;
+  harness?: string | string[];
 };
 
 // Session indexing runs in a child process: it parses hundreds of MB of
@@ -614,8 +616,18 @@ let activeSessionKnowledgeIndex: {
   promise: Promise<SessionKnowledgeIndexOutcome>;
 } | null = null;
 
+function normalizeHarnessList(value: string | string[] | undefined): string[] {
+  if (value == null) return [];
+  const raw = Array.isArray(value) ? value : [value];
+  return [...new Set(raw.map((entry) => entry.trim().toLowerCase()).filter(Boolean))].sort();
+}
+
 function sameSessionKnowledgeIndexInput(a: SessionKnowledgeIndexInput, b: SessionKnowledgeIndexInput): boolean {
-  return a.days === b.days && a.limit === b.limit && a.force === b.force;
+  return a.days === b.days
+    && a.hours === b.hours
+    && a.limit === b.limit
+    && a.force === b.force
+    && normalizeHarnessList(a.harness).join("\0") === normalizeHarnessList(b.harness).join("\0");
 }
 
 function startSessionKnowledgeIndex(input: SessionKnowledgeIndexInput): Promise<SessionKnowledgeIndexOutcome> {
@@ -5047,17 +5059,35 @@ export async function createOpenScoutWebServer(
   app.post("/api/knowledge/sessions/index", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       days?: unknown;
+      hours?: unknown;
       limit?: unknown;
       force?: unknown;
+      harness?: unknown;
     };
-    const days = typeof body.days === "number" && Number.isFinite(body.days)
+    const hours = typeof body.hours === "number" && Number.isFinite(body.hours) && body.hours > 0
+      ? body.hours
+      : undefined;
+    const days = hours == null
+      && typeof body.days === "number"
+      && Number.isFinite(body.days)
       ? body.days
-      : 3;
+      : hours == null
+        ? 3
+        : undefined;
     const limit = typeof body.limit === "number" && Number.isFinite(body.limit)
       ? body.limit
       : 220;
     const force = body.force === true;
-    const outcome = await startSessionKnowledgeIndex({ days, limit, force });
+    let harness: string | string[] | undefined;
+    if (typeof body.harness === "string" && body.harness.trim()) {
+      harness = body.harness.trim();
+    } else if (Array.isArray(body.harness)) {
+      const list = body.harness
+        .filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+        .map((entry) => entry.trim());
+      if (list.length > 0) harness = list;
+    }
+    const outcome = await startSessionKnowledgeIndex({ days, hours, limit, force, harness });
     if (outcome.busy) {
       return c.json({ error: outcome.error ?? "session knowledge index already running" }, 409);
     }
