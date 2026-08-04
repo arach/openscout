@@ -256,7 +256,8 @@ export function ScoutSidebar({
       <SidebarContent className="gap-0">
         {model.kind === "scope" ? (
           <SidebarGroup>
-            <SidebarGroupLabel className="font-mono text-2xs tracking-[0.12em] uppercase">
+            {/* Column header — see data-sidebar-head note on the Navigate group. */}
+            <SidebarGroupLabel data-sidebar-head="" className="font-mono uppercase">
               Surfaces
             </SidebarGroupLabel>
             <SidebarGroupContent>
@@ -294,7 +295,13 @@ export function ScoutSidebar({
         ) : (
           <>
             <SidebarGroup>
-              <SidebarGroupLabel className="font-mono text-2xs tracking-[0.12em] uppercase">
+              {/* data-sidebar-head: this is the rail's COLUMN header, not an
+                  in-list group label. It sits on the same grid line as the side
+                  rail's ("HOME") and inspector's ("CONTEXT") panel headers, so
+                  app.css gives it the same 44px band, dashed hairline and
+                  eyebrow type. SYSTEM below stays a quiet divider — it groups a
+                  list, it does not head the column. */}
+              <SidebarGroupLabel data-sidebar-head="" className="font-mono uppercase">
                 Navigate
               </SidebarGroupLabel>
               <SidebarGroupContent>
