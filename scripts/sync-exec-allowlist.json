@@ -301,6 +301,13 @@
     "owner": "tests"
   },
   {
+    "path": "packages/runtime/src/relay-agent-watchdog.test.ts",
+    "symbol": "Bun.spawn",
+    "category": "test",
+    "reason": "spawns the generated watchdog launch script to verify it reaps the harness process for real",
+    "owner": "tests"
+  },
+  {
     "path": "packages/runtime/src/scout-broker.ts",
     "symbol": "node:child_process",
     "category": "process-lifecycle",
