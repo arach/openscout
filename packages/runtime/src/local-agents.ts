@@ -115,6 +115,15 @@ import {
 } from "./local-agent-template.js";
 import { buildManagedAgentShellExports } from "./managed-agent-environment.js";
 import {
+  readRelayAgentProcessLeases,
+  removeRelayAgentProcessLease,
+  writeRelayAgentProcessLease,
+} from "./relay-agent-process-leases.js";
+import {
+  buildRelayAgentWatchdogDirectives,
+  resolveRelayAgentOrphanGraceMs,
+} from "./relay-agent-watchdog.js";
+import {
   type CodexApprovalPolicy,
   type CodexSandboxMode,
   compileCodexPermissionProfile,
@@ -3774,10 +3783,13 @@ function buildLocalAgentLaunchCommand(
     return `exec bash ${JSON.stringify(workerScript ?? join(relayAgentRuntimeDirectory(agentName), "codex-worker.sh"))}`;
   }
 
+  // Non-codex harnesses are exec'd so the launch shell's pid becomes the
+  // harness pid: the watchdog installed before this line (which captured `$$`)
+  // then monitors and kills the harness process exactly.
   if (harness === "pi") {
     const sessionDir = join(relayAgentRuntimeDirectory(agentName), "pi-sessions");
     return [
-      "pi",
+      "exec pi",
       `--append-system-prompt "$(cat ${JSON.stringify(promptFile)})"`,
       "--session-dir",
       JSON.stringify(sessionDir),
@@ -3789,7 +3801,7 @@ function buildLocalAgentLaunchCommand(
 
   if (harness === "grok") {
     return [
-      "grok",
+      "exec grok",
       `--system-prompt-override "$(cat ${JSON.stringify(promptFile)})"`,
       "--agent",
       JSON.stringify(`${agentName}-relay-agent`),
@@ -3800,7 +3812,7 @@ function buildLocalAgentLaunchCommand(
   }
 
   return [
-    "claude",
+    "exec claude",
     `--append-system-prompt "$(cat ${JSON.stringify(promptFile)})"`,
     "--name",
     JSON.stringify(`${agentName}-relay-agent`),
@@ -3934,6 +3946,17 @@ async function killAgentSession(sessionName: string): Promise<void> {
   } catch {
     // Ignore missing sessions during restart.
   }
+  removeRelayAgentProcessLease(sessionName);
+}
+
+/**
+ * Put a relay agent's tmux session to sleep. Identical to the internal kill
+ * path (`scout down`, restarts): the registration stays; the wake path
+ * recreates the session on the next dispatch. Exposed for the broker's
+ * relay-agent reaper.
+ */
+export async function sleepLocalAgentSession(sessionName: string): Promise<void> {
+  await killAgentSession(sessionName);
 }
 
 function isShellCommandAvailable(binary: string): boolean {
@@ -4121,6 +4144,10 @@ async function ensureLocalAgentOnlineOnce(agentName: string, record: LocalAgentR
         agentName,
         currentDirectory: projectPath,
       }),
+      ...buildRelayAgentWatchdogDirectives({
+        sessionName: normalizedRecord.tmuxSession,
+        graceMs: resolveRelayAgentOrphanGraceMs(),
+      }),
       bootstrapLine,
       buildLocalAgentLaunchCommand(agentName, normalizedRecord, projectPath, promptFile, workerScript),
     ].filter(Boolean).join("\n") + "\n",
@@ -4152,6 +4179,20 @@ async function ensureLocalAgentOnlineOnce(agentName: string, record: LocalAgentR
   );
   invalidateTmuxSessions({ reason: "local-agent.new-session" });
   const paneId = paneResult.stdout.trim();
+  try {
+    writeRelayAgentProcessLease({
+      agentId: agentName,
+      sessionName: normalizedRecord.tmuxSession,
+      ownerPid: process.pid,
+      startedAtMs: Date.now(),
+      projectRoot: projectPath,
+      harness: normalizeLocalAgentHarness(normalizedRecord.harness),
+      ...(paneId ? { paneId } : {}),
+    });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.warn(`[openscout-runtime] unable to write process lease for ${agentName}: ${reason}`);
+  }
   if (paneId) {
     try {
       await execSystemFile(
@@ -5100,6 +5141,46 @@ function buildLocalAgentBinding(
       },
     },
   };
+}
+
+/**
+ * Map every tmux session name a registered relay agent could occupy to the
+ * agent that owns it. This is the reaper's attribution source: only sessions
+ * named here (or claimed by a process lease) may ever be reaped. Covers every
+ * harness profile plus the raw and legacy (`relay-<agentId>`) session names.
+ */
+export async function listRelayAgentTmuxSessionOwners(): Promise<Map<string, string>> {
+  const owners = new Map<string, string>();
+  const overrides = await readRelayAgentOverrides();
+
+  for (const [agentId, override] of Object.entries(overrides)) {
+    const record = localAgentRecordFromRelayAgentOverride(agentId, override);
+    const names = new Set<string>();
+    const rawSession = record.tmuxSession?.trim();
+    if (rawSession) {
+      names.add(rawSession);
+    }
+    names.add(normalizeTmuxSessionName(record.tmuxSession, agentId));
+    // Legacy fallback name used when no session id was configured.
+    names.add(normalizeTmuxSessionName(undefined, agentId));
+    const profiles = normalizeLocalHarnessProfiles(agentId, record);
+    for (const profile of Object.values(profiles)) {
+      if (profile?.sessionId) {
+        names.add(profile.sessionId);
+      }
+    }
+    for (const name of names) {
+      owners.set(name, agentId);
+    }
+  }
+
+  for (const lease of readRelayAgentProcessLeases()) {
+    if (!owners.has(lease.sessionName)) {
+      owners.set(lease.sessionName, lease.agentId);
+    }
+  }
+
+  return owners;
 }
 
 export async function loadRegisteredLocalAgentBindings(
