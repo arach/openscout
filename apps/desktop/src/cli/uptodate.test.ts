@@ -19,6 +19,7 @@ describe("CLI broker update check", () => {
   test("skips broker maintenance for stdio MCP startup", () => {
     expect(shouldEnsureBrokerUptodateForCommand("mcp")).toBe(false);
     expect(shouldEnsureBrokerUptodateForCommand("statusline")).toBe(false);
+    expect(shouldEnsureBrokerUptodateForCommand("search")).toBe(false);
     expect(shouldEnsureBrokerUptodateForCommand("ask")).toBe(true);
     expect(shouldEnsureBrokerUptodateForCommand(null)).toBe(true);
   });

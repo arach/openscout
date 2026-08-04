@@ -102,6 +102,22 @@ OpenScout is currently for high-trust local developer pilots, not enterprise-rea
 - [docs/agent-integration-contract.md](./docs/agent-integration-contract.md) before adding agent/adaptor integrations.
 - [docs/operator-attention-and-unblock.md](./docs/operator-attention-and-unblock.md) before changing permission, approval, or human-input flows.
 
+## Session search (past harness work) — prefer this
+
+When looking up **prior Codex/Claude/Kimi (or other harness) sessions** —
+what they said, which session ran a build, cwd, tool commands — use
+**`scout search` first**. Do not start by grepping `~/.codex`, `~/.claude`,
+or `~/.kimi-code`.
+
+```bash
+scout search status
+scout search index --source sessions --harness kimi --hours 12   # explicit warm-up
+scout search query "xcodebuild" --harness kimi --hours 12
+```
+
+Indexing is explicit only (never ambient). Guide: [docs/session-search.md](./docs/session-search.md).
+Do not bulk-import harness transcripts into Scout messages.
+
 ## Common Verification
 
 Run the narrowest relevant checks for your change. Common commands:

@@ -8,6 +8,8 @@ import { resolveOpenScoutKnowledgePaths, type OpenScoutKnowledgePaths } from "./
 import type {
   KnowledgeChunk,
   KnowledgeCollection,
+  KnowledgeCoverage,
+  KnowledgeCoverageRequest,
   KnowledgeDocument,
   KnowledgeDrilldown,
   KnowledgeFacets,
@@ -19,6 +21,7 @@ import type {
   KnowledgeSearchQuery,
   KnowledgeSourceRef,
   KnowledgeStatus,
+  KnowledgeWarmSpan,
 } from "./types.js";
 
 type SQLiteBinding = string | number | bigint | boolean | null | Uint8Array;
@@ -81,6 +84,19 @@ type JobRow = {
   updated_at: number;
   completed_at: number | null;
   error: string | null;
+};
+
+type WarmSpanRow = {
+  id: string;
+  source: string;
+  harness: string;
+  lookback_ms: number;
+  cutoff_ms: number;
+  completed_at: number;
+  job_id: string;
+  discovered: number;
+  indexed: number;
+  failed: number;
 };
 
 const KNOWLEDGE_SQLITE_SCHEMA = `
@@ -177,7 +193,28 @@ CREATE TABLE IF NOT EXISTS index_jobs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_index_jobs_state_updated ON index_jobs(state, updated_at DESC);
+
+-- Explicit warm-up coverage claims (not ambient). One row per (job, harness).
+CREATE TABLE IF NOT EXISTS warm_spans (
+  id TEXT PRIMARY KEY,
+  source TEXT NOT NULL,
+  harness TEXT NOT NULL,
+  lookback_ms INTEGER NOT NULL,
+  cutoff_ms INTEGER NOT NULL,
+  completed_at INTEGER NOT NULL,
+  job_id TEXT NOT NULL,
+  discovered INTEGER NOT NULL,
+  indexed INTEGER NOT NULL,
+  failed INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_warm_spans_source_harness_completed
+  ON warm_spans(source, harness, completed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_warm_spans_job ON warm_spans(job_id);
 `;
+
+/** After this many ms without a covering re-warm, mark coverage stale (still "warmed"). */
+export const KNOWLEDGE_WARM_SPAN_STALE_MS = 6 * 60 * 60 * 1000;
 
 function stringify(value: unknown): string {
   return JSON.stringify(value ?? null);
@@ -207,13 +244,33 @@ function normalizedLimit(value: number | undefined, fallback = 20, max = 100): n
   return Math.min(max, Math.floor(value));
 }
 
-function normalizeFtsQuery(value: string): string {
-  const terms = value
+function ftsTerms(value: string): string[] {
+  return value
     .split(/[^A-Za-z0-9_./-]+/u)
     .map((term) => term.trim())
     .filter((term) => term.length > 0)
     .slice(0, 12);
-  return terms.map((term) => `"${term.replace(/"/g, "\"\"")}"`).join(" ");
+}
+
+function quoteFtsTerm(term: string): string {
+  return `"${term.replace(/"/g, "\"\"")}"`;
+}
+
+/** Exact multi-term AND (space-joined FTS tokens). */
+function normalizeFtsQueryAnd(value: string): string {
+  return ftsTerms(value).map(quoteFtsTerm).join(" ");
+}
+
+/** Multi-term OR for natural-language recall when AND returns zero rows. */
+function normalizeFtsQueryOr(value: string): string {
+  const terms = ftsTerms(value);
+  if (terms.length <= 1) return terms.map(quoteFtsTerm).join(" ");
+  return terms.map(quoteFtsTerm).join(" OR ");
+}
+
+/** Prefer AND precision; callers may fall back to OR on empty result sets. */
+function normalizeFtsQuery(value: string): string {
+  return normalizeFtsQueryAnd(value);
 }
 
 function textHash(value: string): string {
@@ -282,6 +339,50 @@ function jobFromRow(row: JobRow): KnowledgeIndexJob {
     completedAt: row.completed_at ?? undefined,
     error: row.error ?? undefined,
   };
+}
+
+function warmSpanFromRow(row: WarmSpanRow): KnowledgeWarmSpan {
+  return {
+    id: row.id,
+    source: row.source as KnowledgeWarmSpan["source"],
+    harness: row.harness,
+    lookbackMs: row.lookback_ms,
+    cutoffMs: row.cutoff_ms,
+    completedAt: row.completed_at,
+    jobId: row.job_id,
+    discovered: row.discovered,
+    indexed: row.indexed,
+    failed: row.failed,
+  };
+}
+
+function normalizeCoverageHarnesses(value: string | string[] | undefined): string[] {
+  if (value == null) return [];
+  const raw = Array.isArray(value) ? value : [value];
+  return [...new Set(raw.map((entry) => entry.trim().toLowerCase()).filter(Boolean))];
+}
+
+function formatLookback(ms: number | undefined): string {
+  if (ms == null || !Number.isFinite(ms) || ms <= 0) return "";
+  const hours = Math.round(ms / (60 * 60 * 1000));
+  if (hours > 0 && hours % 24 === 0) return `--days ${hours / 24}`;
+  if (hours > 0) return `--hours ${hours}`;
+  return "";
+}
+
+function warmSuggestion(input: {
+  source: string;
+  harness: string[];
+  lookbackMs?: number;
+}): string {
+  const parts = ["scout search index", `--source ${input.source}`];
+  for (const harness of input.harness) {
+    if (harness && harness !== "*") parts.push(`--harness ${harness}`);
+  }
+  const window = formatLookback(input.lookbackMs);
+  if (window) parts.push(window);
+  else parts.push("--days 3");
+  return parts.join(" ");
 }
 
 function drilldownsForChunk(chunk: KnowledgeChunk): KnowledgeDrilldown[] {
@@ -602,8 +703,26 @@ export class SQLiteKnowledgeStore {
   searchLexical(query: KnowledgeSearchQuery): KnowledgeSearchHit[] {
     const q = query.q.trim();
     if (!q) return [];
-    const ftsQuery = normalizeFtsQuery(q);
-    if (!ftsQuery) return [];
+    const andQuery = normalizeFtsQueryAnd(q);
+    if (!andQuery) return [];
+    // Precision first (all tokens present), then fail open to OR recall for
+    // natural phrases where one token is rare/absent from a chunk.
+    const variants = [andQuery];
+    const orQuery = normalizeFtsQueryOr(q);
+    if (orQuery && orQuery !== andQuery) variants.push(orQuery);
+
+    for (const ftsQuery of variants) {
+      const hits = this.searchLexicalWithFtsQuery(query, q, ftsQuery);
+      if (hits.length > 0) return hits;
+    }
+    return [];
+  }
+
+  private searchLexicalWithFtsQuery(
+    query: KnowledgeSearchQuery,
+    originalQ: string,
+    ftsQuery: string,
+  ): KnowledgeSearchHit[] {
     const params: SQLiteBinding[] = [ftsQuery];
     const clauses = ["chunks_fts MATCH ?1"];
 
@@ -678,7 +797,7 @@ export class SQLiteKnowledgeStore {
 
     try {
       const rows = this.db.query(sql).all(...params) as ChunkRow[];
-      return rows.map((row) => searchHitFromRow(row, q));
+      return rows.map((row) => searchHitFromRow(row, originalQ));
     } catch {
       return [];
     }
@@ -797,6 +916,187 @@ export class SQLiteKnowledgeStore {
     return rows.map(jobFromRow);
   }
 
+  private hasWarmSpansTable(): boolean {
+    try {
+      return this.db
+        .query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'warm_spans'")
+        .get() !== null;
+    } catch {
+      return false;
+    }
+  }
+
+  recordWarmSpan(span: Omit<KnowledgeWarmSpan, "id"> & { id?: string }): KnowledgeWarmSpan {
+    const full: KnowledgeWarmSpan = {
+      id: span.id ?? `warm-${randomUUID()}`,
+      source: span.source,
+      harness: span.harness.trim() || "*",
+      lookbackMs: span.lookbackMs,
+      cutoffMs: span.cutoffMs,
+      completedAt: span.completedAt,
+      jobId: span.jobId,
+      discovered: span.discovered,
+      indexed: span.indexed,
+      failed: span.failed,
+    };
+    this.db.query(
+      `INSERT INTO warm_spans (
+         id, source, harness, lookback_ms, cutoff_ms, completed_at, job_id, discovered, indexed, failed
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
+    ).run(
+      full.id,
+      full.source,
+      full.harness,
+      full.lookbackMs,
+      full.cutoffMs,
+      full.completedAt,
+      full.jobId,
+      full.discovered,
+      full.indexed,
+      full.failed,
+    );
+    return full;
+  }
+
+  listWarmSpans(limit = 50): KnowledgeWarmSpan[] {
+    if (!this.hasWarmSpansTable()) return [];
+    try {
+      const rows = this.db.query(
+        `SELECT * FROM warm_spans
+         ORDER BY completed_at DESC
+         LIMIT ?1`,
+      ).all(normalizedLimit(limit, 50, 500)) as WarmSpanRow[];
+      return rows.map(warmSpanFromRow);
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Whether an explicit warm-up covers the requested source/harness/lookback.
+   * Does not run search — only answers silence vs staleness honesty.
+   */
+  assessCoverage(request: KnowledgeCoverageRequest = {}): KnowledgeCoverage {
+    const source = request.source ?? "sessions";
+    const harnesses = normalizeCoverageHarnesses(request.harness);
+    const lookbackMs = typeof request.lookbackMs === "number" && Number.isFinite(request.lookbackMs) && request.lookbackMs > 0
+      ? Math.floor(request.lookbackMs)
+      : undefined;
+
+    let chunks = 0;
+    try {
+      chunks = (this.db.query("SELECT COUNT(*) AS total FROM chunks").get() as { total: number } | null)?.total ?? 0;
+    } catch {
+      chunks = 0;
+    }
+    if (chunks === 0 && this.listWarmSpans(1).length === 0) {
+      return {
+        kind: "empty_index",
+        suggestion: warmSuggestion({ source, harness: harnesses, lookbackMs }),
+      };
+    }
+
+    const spans = this.listWarmSpans(200).filter((span) => span.source === source);
+    const coversHarness = (span: KnowledgeWarmSpan, harness: string): boolean =>
+      span.harness === "*" || span.harness.toLowerCase() === harness.toLowerCase();
+    /**
+     * A span covers a query window when:
+     * - it ingested something (or explicitly scanned an empty root: discovered=0),
+     * - its lookback is deep enough for the requested window,
+     * - the query window is not entirely after the scan finished (zero-overlap).
+     */
+    const isViableSpan = (span: KnowledgeWarmSpan): boolean => {
+      // All-failed warm (found files but indexed none) is not coverage.
+      if (span.discovered > 0 && span.indexed === 0) return false;
+      return true;
+    };
+    const coversLookback = (span: KnowledgeWarmSpan): boolean => {
+      if (!isViableSpan(span)) return false;
+      if (lookbackMs == null) return true;
+      // Depth: span scanned at least as far back as the query requests.
+      const deepEnough = span.lookbackMs + 1_000 >= lookbackMs || span.cutoffMs <= nowMs() - lookbackMs;
+      if (!deepEnough) return false;
+      // Overlap: query window [now-lookback, now] must not lie entirely after completedAt.
+      // If age >= lookback, every sourceUpdatedAfterMs-filtered hit is outside the scan.
+      return nowMs() - span.completedAt < lookbackMs;
+    };
+    const staleAfterFor = (span: KnowledgeWarmSpan, requestedLookbackMs: number | undefined): number => {
+      if (requestedLookbackMs != null && requestedLookbackMs > 0) {
+        return Math.min(KNOWLEDGE_WARM_SPAN_STALE_MS, requestedLookbackMs);
+      }
+      return Math.min(KNOWLEDGE_WARM_SPAN_STALE_MS, Math.max(span.lookbackMs, 60_000));
+    };
+
+    const required = harnesses.length > 0 ? harnesses : ["*"];
+    const covering: KnowledgeWarmSpan[] = [];
+    const missing: string[] = [];
+
+    for (const requiredHarness of required) {
+      const match = spans.find((span) =>
+        (requiredHarness === "*"
+          ? true
+          : coversHarness(span, requiredHarness) || span.harness === "*")
+        && coversLookback(span)
+      );
+      if (match) covering.push(match);
+      else if (requiredHarness !== "*") missing.push(requiredHarness);
+      else if (!spans.some(coversLookback)) missing.push("*");
+    }
+
+    // No harness filter: any covering span for source is enough.
+    if (harnesses.length === 0) {
+      const any = spans.filter(coversLookback);
+      if (any.length === 0) {
+        return {
+          kind: "not_warmed",
+          source,
+          harness: [],
+          lookbackMs,
+          suggestion: warmSuggestion({ source, harness: [], lookbackMs }),
+          nearestSpans: spans.slice(0, 5),
+        };
+      }
+      // Weakest link: oldest covering span governs staleness.
+      const oldest = [...any].sort((a, b) => a.completedAt - b.completedAt)[0]!;
+      const age = nowMs() - oldest.completedAt;
+      const staleAfterMs = staleAfterFor(oldest, lookbackMs);
+      return {
+        kind: "warmed",
+        spans: any.slice(0, 8),
+        stale: age > staleAfterMs,
+        staleAfterMs,
+      };
+    }
+
+    if (missing.length > 0 || covering.length === 0) {
+      return {
+        kind: "not_warmed",
+        source,
+        harness: missing.length > 0 ? missing : harnesses,
+        lookbackMs,
+        suggestion: warmSuggestion({
+          source,
+          harness: missing.length > 0 ? missing : harnesses,
+          lookbackMs,
+        }),
+        nearestSpans: spans
+          .filter((span) => harnesses.some((h) => coversHarness(span, h)) || span.harness === "*")
+          .slice(0, 5),
+      };
+    }
+
+    // Weakest link among required harnesses.
+    const oldest = [...covering].sort((a, b) => a.completedAt - b.completedAt)[0]!;
+    const age = nowMs() - oldest.completedAt;
+    const staleAfterMs = staleAfterFor(oldest, lookbackMs);
+    return {
+      kind: "warmed",
+      spans: covering,
+      stale: age > staleAfterMs,
+      staleAfterMs,
+    };
+  }
+
   status(): KnowledgeStatus {
     const collectionCounts = this.db.query(
       `SELECT COUNT(*) AS total,
@@ -822,6 +1122,7 @@ export class SQLiteKnowledgeStore {
       chunks: chunkCounts?.total ?? 0,
       activeJobs: this.listActiveJobs(),
       sqliteBytes,
+      warmSpans: this.listWarmSpans(20),
     };
   }
 }
