@@ -166,6 +166,14 @@ public final class BridgeBrokerClient: ScoutBrokerClient, MobileNotificationCapa
         return wire.map { $0.toSummary() }
     }
 
+    public func listFleetWork(limit: Int) async throws -> [FleetWorkSummary] {
+        let params = MobileFleetParams(limit: limit)
+        let wire: MobileFleetSnapshot = try await connection.rpc("mobile/fleet", params: params)
+        return (wire.activeAsks + wire.recentCompleted)
+            .map { $0.toSummary() }
+            .sorted { $0.updatedAt > $1.updatedAt }
+    }
+
     public func listWorkspaces(query: String?, limit: Int) async throws -> [WorkspaceSummary] {
         let params = MobileListParams(query: query, limit: limit)
         let wire: [MobileWorkspaceSummary] = try await connection.rpc("mobile/workspaces", params: params)
@@ -711,6 +719,60 @@ public struct MobileMeshTailnetPeer: Codable, Sendable {
 /// server-side filters (agent/actor/conversation) stay unset for the fleet feed.
 struct MobileActivityParams: Codable, Sendable {
     let limit: Int
+}
+
+struct MobileFleetParams: Codable, Sendable {
+    let limit: Int
+}
+
+struct MobileFleetSnapshot: Codable, Sendable {
+    let activeAsks: [MobileFleetWorkItem]
+    let recentCompleted: [MobileFleetWorkItem]
+}
+
+struct MobileFleetWorkItem: Codable, Sendable {
+    let invocationId: String
+    let agentId: String
+    let agentName: String?
+    let conversationId: String?
+    let task: String
+    let status: String
+    let statusLabel: String
+    let harness: String?
+    let transport: String?
+    let summary: String?
+    let startedAt: Int?
+    let completedAt: Int?
+    let updatedAt: Int
+
+    func toSummary() -> FleetWorkSummary {
+        FleetWorkSummary(
+            id: invocationId,
+            agentId: agentId,
+            agentName: agentName?.trimmedNonEmpty,
+            conversationId: conversationId?.trimmedNonEmpty,
+            task: task,
+            status: mappedStatus,
+            statusLabel: statusLabel,
+            harness: harness?.trimmedNonEmpty,
+            transport: transport?.trimmedNonEmpty,
+            summary: summary?.trimmedNonEmpty,
+            startedAt: startedAt.map { Date(timeIntervalSince1970: TimeInterval(scoutEpochMilliseconds($0)) / 1_000) },
+            completedAt: completedAt.map { Date(timeIntervalSince1970: TimeInterval(scoutEpochMilliseconds($0)) / 1_000) },
+            updatedAt: Date(timeIntervalSince1970: TimeInterval(scoutEpochMilliseconds(updatedAt)) / 1_000)
+        )
+    }
+
+    private var mappedStatus: FleetWorkSummary.Status {
+        switch status {
+        case "queued": .queued
+        case "working": .working
+        case "needs_attention": .needsAttention
+        case "completed": .completed
+        case "failed": .failed
+        default: .unknown
+        }
+    }
 }
 
 /// Donor `ScoutBrokerHomeActivityRecord` (broker/service.ts), served via

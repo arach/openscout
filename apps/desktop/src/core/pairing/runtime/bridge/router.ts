@@ -34,6 +34,7 @@ import type { TailEvent } from "@openscout/runtime/tail";
 import type { AgentHarness } from "@openscout/protocol";
 import {
   createScoutSession,
+  getScoutFleet,
   getScoutMobileActivity,
   getScoutMobileAgents,
   getScoutMobileConversations,
@@ -957,6 +958,12 @@ const mobileRouter = t.router({
     )
     .query(async ({ input }) => {
       return getScoutMobileActivity(input);
+    }),
+
+  fleet: procedure
+    .input(z.object({ limit: z.number().int().positive().max(200).optional() }).optional())
+    .query(async ({ input }) => {
+      return getScoutFleet({ limit: input?.limit });
     }),
 
   serviceBudgets: procedure

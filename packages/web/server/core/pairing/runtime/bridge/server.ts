@@ -30,6 +30,7 @@ import type { Bridge } from "./bridge.ts";
 import { resolveConfig } from "./config.ts";
 import {
   createScoutSession,
+  getScoutFleet,
   getScoutMobileActivity,
   getScoutMobileAgents,
   getScoutMobileConversations,
@@ -747,6 +748,14 @@ async function handleRPCInner(
         };
       }
 
+      case "mobile/fleet": {
+        const p = req.params as { limit?: number } | undefined;
+        return {
+          id: req.id,
+          result: await getScoutFleet({ limit: p?.limit }),
+        };
+      }
+
       case "mobile/service-budgets": {
         // No params; the phone just asks for the current usage-quota readout.
         return {
@@ -1050,6 +1059,9 @@ function summarizeRPCParams(method: string, params: unknown): string {
       if (p.conversationId) parts.push(`conv=${p.conversationId}`);
       if (p.limit) parts.push(`limit=${p.limit}`);
       return parts.length ? ` ${parts.join(" ")}` : "";
+    }
+    case "mobile/fleet": {
+      return p.limit ? ` limit=${p.limit}` : "";
     }
     case "mobile/message/send": {
       const body = typeof p.body === "string" ? p.body.slice(0, 60) : "";
