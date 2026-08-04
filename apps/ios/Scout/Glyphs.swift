@@ -277,7 +277,10 @@ enum HarnessKey {
             "sonnet": "claude", "opus": "claude", "haiku": "claude", "fable": "claude",
             "openai": "codex", "codex": "codex", "gpt": "codex", "chatgpt": "codex", "oai": "codex",
             "google": "gemini", "gemini": "gemini", "vertex": "gemini",
-            "xai": "grok", "grok": "grok"
+            "xai": "grok", "grok": "grok",
+            // The broker reports these endpoints as `kimi` / `grok-acp`; the
+            // decoration strip above already folds the `-acp` suffix.
+            "kimi": "kimi", "moonshot": "kimi", "moonshotai": "kimi", "k2": "kimi"
         ]
         return aliases[String(base)] ?? String(base)
     }
@@ -339,10 +342,13 @@ struct HarnessMark: View {
         .frame(width: size, height: size)
     }
 
-    /// True when the runtime identifies itself at all — a synthesized or
-    /// unnamed adapter has nothing to show and should render no chip.
+    /// True when the runtime NAMES itself — the test for whether a chip has
+    /// anything to say. A named runtime we hold no official artwork for still
+    /// identifies itself with its mono initial (see the fallback above), so it
+    /// gets a chip too; only a synthesized or unnamed adapter gets nothing.
+    /// (Before this, `pi` and any future runtime silently lost its badge.)
     static func identifies(_ harness: String?) -> Bool {
-        HarnessBrandMark.mark(for: harness) != nil
+        !HarnessKey.normalize(harness).isEmpty
     }
 }
 
@@ -623,9 +629,9 @@ enum SVGPathData {
 // MARK: - Brand artwork
 //
 // GENERATED FROM design/studio/components/HarnessMark.tsx — the official vendor
-// artwork (simple-icons CC0 for Claude + Gemini, lobe-icons for OpenAI, the xAI
-// asset set for Grok). Path data is VERBATIM; do not hand-edit. To refresh,
-// re-export from the studio source rather than retyping.
+// artwork (simple-icons CC0 for Claude + Gemini + Kimi, lobe-icons for OpenAI,
+// the xAI asset set for Grok). Path data is VERBATIM; do not hand-edit. To
+// refresh, re-export from the studio source rather than retyping.
 
 enum HarnessBrandArtwork {
     static let catalog: [String: HarnessBrandMark] = [
@@ -647,6 +653,13 @@ enum HarnessBrandArtwork {
             viewBox: CGRect(x: 0, y: 0, width: 24, height: 24),
             paths: [
                 "M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81"
+            ],
+            evenOdd: false
+        ),
+        "kimi": HarnessBrandMark(
+            viewBox: CGRect(x: 0, y: 0, width: 24, height: 24),
+            paths: [
+                "M21.765.351C22.998.351 24 1.353 24 2.586S22.998 4.82 21.765 4.82h-1.974c-.15 0-.26-.12-.26-.26V2.586A2.237 2.237 0 0 1 21.765.35M9.41 13.388l8.447-8.377c.16-.16.07-.471-.14-.471h-4.55s-.1.02-.14.06l-9.099 9.029c-.14.14-.35.02-.35-.21V4.81c0-.15-.1-.27-.221-.27H.22c-.12 0-.22.12-.22.27v18.57c0 .15.1.27.22.27h3.137c.12 0 .22-.12.22-.27v-3.79c0-.08.03-.16.08-.21l2.826-2.796c.07-.07.16-.08.241-.03l7.546 5.551a8.9 8.9 0 0 0 4.018 1.493c.12.01.23-.11.23-.27V19.76c0-.14-.08-.25-.19-.26a5.8 5.8 0 0 1-2.355-.942l-6.533-4.73c-.14-.09-.15-.32-.03-.441"
             ],
             evenOdd: false
         ),
