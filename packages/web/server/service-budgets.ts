@@ -2,8 +2,10 @@
  * Real-data aggregator for the home/briefing service gauges.
  *
  * Sources per service:
- *   - codex:  most recent `token_count` event in ~/.codex/sessions/**.jsonl
- *             (carries authoritative rate_limits.secondary — the OpenAI weekly window)
+ *   - codex:  most recent `token_count` event per rate-limit pool in
+ *             ~/.codex/sessions/**.jsonl. The window's duration is authoritative,
+ *             not its primary/secondary slot, and only the pool nearest
+ *             exhaustion is reported (see `bindingCodexPoolSnapshots`).
  *   - claude: provider-reported Anthropic quota windows from statusline capture
  *             or the control-plane DB when available
  *   - kimi:   provider-reported Kimi Code 5-hour and weekly subscription quota
@@ -215,14 +217,14 @@ async function loadCodexGauge(forceRefresh = false): Promise<ServiceGauge | null
   if (recent.length === 0) return fallback;
 
   const observations = (await Promise.all(recent.map((path) => readLatestCodexRateLimits(path))))
-    .filter((entry): entry is CodexRateLimitsObservation => entry !== null)
+    .flat()
     .sort((left, right) => left.capturedAt - right.capturedAt);
   if (observations.length === 0) return fallback;
 
   // Concurrent sessions can report different semantic windows. Harvest each
   // session's latest observation and let the reset-aware selector merge them.
-  const snapshots = observations.flatMap((observation) =>
-    codexQuotaSnapshotsFromObservation(observation.usage, observation.capturedAt));
+  const snapshots = bindingCodexPoolSnapshots(observations.flatMap((observation) =>
+    codexQuotaSnapshotsFromObservation(observation.usage, observation.capturedAt)));
   persistQuotaSnapshots(snapshots);
   const persisted = loadPersistedProviderQuotaGauge({
     id: "codex",
@@ -242,6 +244,7 @@ function codexQuotaSnapshot(
   window: CodexUsageObservation["quotaWindows"][number],
   capturedAt: number,
   planType?: string,
+  limitId?: string,
 ): ServiceQuotaSnapshot | null {
   const usedPercent = finiteNumber(window.usedPercent);
   const percentRemaining = finiteNumber(window.percentRemaining)
@@ -265,6 +268,9 @@ function codexQuotaSnapshot(
     capturedAt,
     metadata: {
       source: "service-budgets.codex-jsonl",
+      // Deliberately not `resource`: that field keys the window identity, and
+      // re-keying would split the stored series. This is for traceability only.
+      ...(limitId ? { limitId } : {}),
     },
   };
 }
@@ -274,8 +280,35 @@ function codexQuotaSnapshotsFromObservation(
   capturedAt: number,
 ): ServiceQuotaSnapshot[] {
   return usage.quotaWindows
-    .map((window) => codexQuotaSnapshot(window, capturedAt, usage.planType))
+    .map((window) => codexQuotaSnapshot(window, capturedAt, usage.planType, usage.limitId))
     .filter((entry): entry is ServiceQuotaSnapshot => entry !== null);
+}
+
+/**
+ * Codex Desktop reports the account's `codex` weekly window alongside separate
+ * promotional pools that sit at 0% and carry a reset that slides forward with
+ * every event. Those are not alternative readings of the same quota, so they
+ * must not be merged as if they were: whichever pool is closest to exhaustion
+ * is the one that actually constrains the next request, and it is the only one
+ * worth reporting for a window.
+ */
+function bindingCodexPoolSnapshots(snapshots: ServiceQuotaSnapshot[]): ServiceQuotaSnapshot[] {
+  const poolIdOf = (row: ServiceQuotaSnapshot) => stringValue(row.metadata?.limitId) ?? "";
+  const pools = new Set(snapshots.map(poolIdOf));
+  if (pools.size <= 1) return snapshots;
+
+  const bindingPoolByLabel = new Map<string, { poolId: string; usedPercent: number; capturedAt: number }>();
+  for (const row of snapshots) {
+    const usedPercent = quotaSnapshotUsage(row)?.fill;
+    if (usedPercent === undefined) continue;
+    const best = bindingPoolByLabel.get(row.label);
+    if (!best || usedPercent > best.usedPercent
+      || (usedPercent === best.usedPercent && row.capturedAt > best.capturedAt)) {
+      bindingPoolByLabel.set(row.label, { poolId: poolIdOf(row), usedPercent, capturedAt: row.capturedAt });
+    }
+  }
+
+  return snapshots.filter((row) => bindingPoolByLabel.get(row.label)?.poolId === poolIdOf(row));
 }
 
 function formatQuotaWindowLabel(
@@ -321,11 +354,17 @@ function findRecentCodexJsonl(root: string, lookbackDays: number): string[] {
   return paths.sort((left, right) => right.mtimeMs - left.mtimeMs).map((entry) => entry.path);
 }
 
-async function readLatestCodexRateLimits(path: string): Promise<CodexRateLimitsObservation | null> {
+/**
+ * One session can report several rate-limit pools. Keep the newest reading of
+ * each rather than the newest reading overall: taking only the last line loses
+ * the account's real weekly window whenever a session happens to end on an
+ * event belonging to some other pool.
+ */
+async function readLatestCodexRateLimits(path: string): Promise<CodexRateLimitsObservation[]> {
   const handle = await open(path, "r");
   try {
     const rl = createInterface({ input: handle.createReadStream({ encoding: "utf8" }) });
-    let latest: CodexRateLimitsObservation | null = null;
+    const latestByPool = new Map<string, CodexRateLimitsObservation>();
     for await (const line of rl) {
       if (!line.includes("\"rate_limits\"")) continue;
       try {
@@ -337,16 +376,13 @@ async function readLatestCodexRateLimits(path: string): Promise<CodexRateLimitsO
         const capturedAt = timestampMs(record.timestamp) ?? timestampMs(record.ts) ?? Date.now();
         const usage = readCodexRolloutUsageObservation(record.payload, capturedAt);
         if (usage?.quotaWindows.length) {
-          latest = {
-            usage,
-            capturedAt,
-          };
+          latestByPool.set(usage.limitId ?? "", { usage, capturedAt });
         }
       } catch {
         // skip malformed line
       }
     }
-    return latest;
+    return [...latestByPool.values()];
   } finally {
     await handle.close();
   }
@@ -639,10 +675,21 @@ function quotaGaugeFromSnapshots(input: {
     // Usage is monotonic only within one reset cycle. Prefer a later reset
     // cycle even when its percentage is lower; for the same reset, keep the
     // high-water mark so a resumed session cannot replay stale lower usage.
+    //
+    // A rollover is only credible from a *newer* reading. Without that guard an
+    // old sample carrying a further-out reset outranks everything measured
+    // since, and the gauge stays pinned to it until real time catches up.
     const rowResetAt = finiteNumber(row.resetAt);
     const existingResetAt = finiteNumber(existing.resetAt);
     if (rowResetAt !== undefined && existingResetAt !== undefined && rowResetAt !== existingResetAt) {
-      if (rowResetAt > existingResetAt) latestByWindow.set(key, row);
+      if (rowResetAt > existingResetAt && row.capturedAt >= existing.capturedAt) {
+        latestByWindow.set(key, row);
+        continue;
+      }
+      if (rowResetAt > existingResetAt || existing.capturedAt >= row.capturedAt) continue;
+      // Otherwise `row` is both newer and on an earlier cycle: the reading that
+      // claimed the later cycle is the stale one, so fall through and replace it.
+      latestByWindow.set(key, row);
       continue;
     }
     const rowFill = quotaSnapshotUsage(row)?.fill ?? Number.NEGATIVE_INFINITY;
