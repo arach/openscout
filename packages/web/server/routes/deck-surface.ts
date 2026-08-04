@@ -15,7 +15,6 @@ import { snapshotRecentEvents, type TailEvent } from "@openscout/runtime/tail";
 
 import { queryAgents } from "../db/agents.ts";
 import type { WebAgent } from "../db/types/web.ts";
-import { createScoutSession } from "../core/mobile/service.ts";
 import {
   SCOUT_SURFACE_LIMITS,
   SCOUT_SURFACE_METHOD_POLICY,
@@ -115,6 +114,10 @@ export function createScoutDeckSurfaceService(
     if (!workspaceRoot) {
       throw new DeckSurfaceFailure("invalid_route", "The selected lane does not report a workspace.");
     }
+    // Imported lazily: a top-level import creates a module cycle through
+    // core/mobile/service.ts -> core/broker/service.ts that leaves
+    // openScoutPeerSession unresolved when the web server module loads.
+    const { createScoutSession } = await import("../core/mobile/service.ts");
     const handle = await createScoutSession({
       workspaceId: workspaceRoot,
       harness: "codex",
