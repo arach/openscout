@@ -120,6 +120,7 @@ const manifest = {
         "tail.recent",
         "tail.subscribe",
         "native.setLaneSelection",
+        "codex.session.start",
         "codex.thread.snapshot",
         "codex.thread.connect",
         "codex.turn.start",

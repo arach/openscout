@@ -44,6 +44,7 @@ final class ScoutWebSurfaceBridge {
         "tail.recent": ["cursor", "limit"],
         "tail.subscribe": ["cursor"],
         "native.setLaneSelection": ["selection"],
+        "codex.session.start": ["route"],
         "codex.thread.snapshot": ["route"],
         "codex.thread.connect": ["route"],
         "codex.turn.start": ["route", "text"],
@@ -215,6 +216,15 @@ final class ScoutWebSurfaceBridge {
                 try await self.setLaneSelection(request.params?.selection)
                 return ["accepted": true]
             }
+        case "codex.session.start":
+            guard let route = request.params?.route else {
+                reply.succeed(errorReply(request, code: "invalid_params", message: "route is required.", deadline: deadline))
+                return
+            }
+            perform(request: request, reply: reply, deadline: deadline) { [weak self] in
+                guard let self else { throw SurfaceBridgeError.cancelled }
+                return try await self.startCodexSession(for: route)
+            }
         case "codex.thread.snapshot", "codex.thread.connect":
             guard let route = request.params?.route else {
                 reply.succeed(errorReply(request, code: "invalid_params", message: "route is required.", deadline: deadline))
@@ -355,6 +365,7 @@ final class ScoutWebSurfaceBridge {
                 "bootstrap", "native.openExternalURL", "native.cancel", "agents.list",
                 "agents.observe", "tail.recent", "native.setLaneSelection",
                 "native.voice.snapshot", "native.voice.toggleInput", "native.voice.speak", "native.voice.stopOutput",
+                "codex.session.start",
                 "codex.thread.snapshot", "codex.thread.connect", "codex.turn.start", "codex.turn.steer", "codex.turn.interrupt",
             ]
         case .dispatch:
@@ -534,6 +545,41 @@ final class ScoutWebSurfaceBridge {
         return client
     }
 
+    /// Re-resolve the selected lane before using its workspace as launch
+    /// authority. The embedded page supplies only the route; Scout owns the
+    /// workspace lookup and creates the new broker-managed Codex session.
+    private func startCodexSession(for route: CodexRouteRequest) async throws -> [String: Any] {
+        let client = try authorizedCodexClient(for: route)
+        let agents = try await client.listAgents(query: nil, limit: Self.maximumLaneAgentCount)
+        guard let source = agents.first(where: { $0.id == route.agentId }),
+              let workspaceRoot = source.workspaceRoot?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !workspaceRoot.isEmpty else {
+            throw SurfaceBridgeError.invalidRoute
+        }
+
+        let result = try await client.startSession(SessionInitiationSpec(
+            target: .init(projectPath: workspaceRoot),
+            execution: .init(harness: "codex", session: .new),
+            agent: .init(persistence: "sticky")
+        ))
+        guard let agentId = result.agentId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !agentId.isEmpty else {
+            throw NSError(
+                domain: "ScoutWebSurfaceBridge",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Scout started the request but did not return a Codex lane."]
+            )
+        }
+        return [
+            "accepted": true,
+            "hostId": route.hostId,
+            "sourceAgentId": source.id,
+            "agentId": agentId,
+            "conversationId": result.conversationId as Any? ?? NSNull(),
+            "sessionId": result.sessionId as Any? ?? NSNull(),
+        ]
+    }
+
     /// Post from the native Deck composer only after re-resolving the complete
     /// lane route. The page selection is a hint, never write authority: every
     /// send proves that the host remains selected and online, the agent still
@@ -581,7 +627,7 @@ final class ScoutWebSurfaceBridge {
             // Preserve it across the bridge so Deck can light the amber bank and
             // promote the lane even when the underlying runtime is still live.
             "state": agent.needsAttention ? "waiting" : agent.state.rawValue,
-            "projectRoot": agent.projectName as Any? ?? NSNull(),
+            "projectRoot": agent.workspaceRoot as Any? ?? NSNull(),
             "conversationId": agent.conversationId as Any? ?? NSNull(),
             "sessionId": agent.sessionId as Any? ?? NSNull(),
             "updatedAt": agent.lastActiveAt.map { Int64($0.timeIntervalSince1970 * 1_000) } as Any? ?? NSNull(),
@@ -659,6 +705,9 @@ final class ScoutWebSurfaceBridge {
     }
 
     private func appliedDeadline(for method: String, requested: Int?) -> Int {
+        if method == "codex.session.start" {
+            return min(max(requested ?? 30_000, 1), 60_000)
+        }
         if method == "native.voice.snapshot" || method == "native.voice.stopOutput" {
             return min(max(requested ?? 1_000, 1), 2_000)
         }

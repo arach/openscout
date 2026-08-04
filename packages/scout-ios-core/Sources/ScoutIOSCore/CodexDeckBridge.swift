@@ -2,7 +2,7 @@ import Foundation
 import ScoutCapabilities
 
 /// Harness-specific bridge projection for Scout Deck. The adapter field names
-/// the concrete Codex Desktop follower path instead of pretending every
+/// the concrete Scout-managed Codex app-server path instead of pretending every
 /// harness supports identical turn controls.
 public struct CodexDeckThreadSnapshot: Codable, Sendable {
     public struct Capabilities: Codable, Sendable {

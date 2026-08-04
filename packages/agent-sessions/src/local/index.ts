@@ -35,6 +35,7 @@ export {
   readCodexAppServerReasoningEffortFromLaunchArgs,
   sendCodexAppServerLocalAgent,
   shutdownCodexAppServerLocalAgent,
+  startCodexAppServerLocalAgent,
   steerCodexAppServerLocalAgent,
 } from "./transports/codex-app-server.js";
 export type {
@@ -52,6 +53,7 @@ export type {
   CodexAppServerShutdownOptions,
   CodexAppServerSteerOptions,
   CodexAppServerThreadResult,
+  CodexAppServerTurnStartResult,
   CodexAppServerTurnResult,
 } from "./transports/codex-app-server.js";
 

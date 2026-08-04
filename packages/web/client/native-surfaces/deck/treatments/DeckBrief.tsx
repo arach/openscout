@@ -28,7 +28,7 @@ type BriefCommand = {
 };
 
 /**
- * Brief — one column, one task, one palette.
+ * Brief — one column, one session, one palette.
  *
  * The interaction model is sequential: there is no peripheral chrome to scan,
  * so the transcript gets the whole width and the largest type on the Deck.
@@ -49,9 +49,16 @@ export function DeckBrief({ model }: { model: DeckModel }) {
   const commands = useMemo<BriefCommand[]>(() => {
     const list: BriefCommand[] = [
       {
+        id: "start-codex",
+        group: "Session",
+        label: model.sessionBusy ? "Starting Codex for this workspace" : "Start Codex for this workspace",
+        disabled: !model.canStartCodexSession,
+        run: () => void model.startCodexSession(),
+      },
+      {
         id: "talk",
         group: "Turn",
-        label: model.voice.input.state === "listening" ? "Stop dictation and send" : "Talk to this task",
+        label: model.voice.input.state === "listening" ? "Stop dictation and send" : "Talk to this session",
         hint: model.phase === "running" ? "steers the running turn" : "starts a turn",
         disabled: !model.canTalk,
         run: () => void model.toggleVoiceInput(),
@@ -74,21 +81,21 @@ export function DeckBrief({ model }: { model: DeckModel }) {
       {
         id: "bind",
         group: "Session",
-        label: model.phase === "failed" ? "Retry task binding" : "Bind the Codex Desktop task",
+        label: model.phase === "failed" ? "Retry the Codex connection" : "Reconnect the Codex session",
         disabled: !model.canRebind || model.threadBusy,
         run: () => void model.connectThread(),
       },
       {
         id: "refresh",
         group: "Session",
-        label: "Re-read the task snapshot",
+        label: "Re-read the session snapshot",
         disabled: !model.canRefresh,
         run: () => void model.refreshSnapshot(),
       },
       {
         id: "view",
         group: "Session",
-        label: model.view === "thread" ? "Show lane signal" : "Show task turns",
+        label: model.view === "thread" ? "Show lane signal" : "Show session turns",
         run: () => model.setView(model.view === "thread" ? "signal" : "thread"),
       },
       {
@@ -237,14 +244,14 @@ export function DeckBrief({ model }: { model: DeckModel }) {
               </button>
             </div>
           </div>
-          {/* In Brief the bound task is the subject of the page, so its exact
-              Desktop title is the heading and the lane is the kicker above it. */}
+          {/* In Brief the Codex session is the subject of the page, so its exact
+              title is the heading and the lane is the kicker above it. */}
           <span className="deck-kicker brief__kicker" data-bound={bound || undefined}>
             {!model.adapterAvailable
-              ? "No Codex Desktop controller"
-              : bound ? "Codex Desktop task" : "No task bound"} · {lane.name} · {lane.hostName}
+              ? model.sessionBusy ? "Starting Codex" : "Codex session not started"
+              : bound ? "Scout Codex session" : "No session connected"} · {lane.name} · {lane.hostName}
           </span>
-          <h2>{bound ? title ?? "Untitled task" : lane.name}</h2>
+          <h2>{bound ? title ?? "Untitled session" : lane.name}</h2>
           <p className="brief__meta">
             {model.thread?.threadId ? `id ${shortId(model.thread.threadId)}` : "id —"}
             {model.thread?.turnId ? ` · turn ${shortId(model.thread.turnId)}` : ""}

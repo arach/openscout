@@ -89,13 +89,13 @@ function request(
 
 function snapshot(agentId = "agent-codex") {
   return {
-    adapter: "codex_desktop" as const,
+    adapter: "codex_app_server" as const,
     agentId,
     threadId: "thread-live",
     turnId: null,
     state: "idle" as const,
     capabilities: { connect: true, start: true, steer: true, interrupt: true, queue: false as const, approvals: false as const },
-    capabilityNotes: { queue: "No queue.", approvals: "Desktop-owned." },
+    capabilityNotes: { queue: "No queue.", approvals: "Runtime-owned." },
     snapshot: null,
   };
 }
@@ -121,6 +121,7 @@ describe("Scout Deck web surface", () => {
     if (!("result" in reply) || !("hosts" in reply.result)) throw new Error("expected bootstrap result");
     expect(reply.result.hosts).toEqual([{ id: hostId, name: "air.scout.local", state: "connected" }]);
     expect(reply.result.capabilities).toContain("codex.turn.steer");
+    expect(reply.result.capabilities).toContain("codex.session.start");
     expect(reply.result.capabilities).not.toContain("native.voice.toggleInput");
   });
 
@@ -256,6 +257,40 @@ describe("Scout Deck web surface", () => {
       route: { hostId, agentId: "view-only" },
     }));
     expect("error" in control && control.error.code).toBe("unsupported_capability");
+  });
+
+  test("starts a fresh Codex session for a view-only lane's workspace", async () => {
+    const launched: string[] = [];
+    const service = createScoutDeckSurfaceService({
+      currentDirectory,
+      hostName: "air.scout.local",
+      hostId,
+      listAgents: () => [agent({ id: "view-only", harness: "claude", transport: "tmux" })],
+      recentTail: () => [],
+      startCodexSession: async (source) => {
+        launched.push(source.projectRoot ?? "");
+        return { agentId: "agent-codex-new", conversationId: "conversation-new", sessionId: "session-new" };
+      },
+      codex: {
+        snapshot: async (agentId) => snapshot(agentId),
+        start: async () => ({}),
+        steer: async () => ({}),
+        interrupt: async () => ({}),
+      },
+    });
+
+    const reply = await service.handle(request("codex.session.start", {
+      route: { hostId, agentId: "view-only" },
+    }));
+    expect(launched).toEqual([currentDirectory]);
+    expect("result" in reply && reply.result).toEqual({
+      accepted: true,
+      hostId,
+      sourceAgentId: "view-only",
+      agentId: "agent-codex-new",
+      conversationId: "conversation-new",
+      sessionId: "session-new",
+    });
   });
 
   test("mounts a strict JSON endpoint", async () => {

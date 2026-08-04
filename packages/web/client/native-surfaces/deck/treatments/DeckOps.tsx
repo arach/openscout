@@ -58,7 +58,7 @@ type OpsConsoleRow = {
  * controllable unit is more precise: one agent lane on one host. The surface
  * therefore keeps the channel strip, routed dictation bar, focused console,
  * fleet feed and command bay, but every lamp and key is backed by the native
- * Scout/Codex Desktop surface contract.
+ * Scout/Codex app-server surface contract.
  */
 export function DeckOps({ model }: { model: DeckModel }) {
   const lane = model.selected;
@@ -133,12 +133,14 @@ export function DeckOps({ model }: { model: DeckModel }) {
       : model.connection.toUpperCase();
   const controlTruth = model.preview
     ? "SIMULATED"
+    : model.sessionBusy
+      ? "STARTING CODEX"
     : !model.adapterAvailable
-      ? "VIEW ONLY"
+      ? model.canStartCodexSession ? "READY TO START" : "VIEW ONLY"
       : model.thread?.threadId && (model.connection === "ready" || model.connection === "partial")
         ? "LIVE"
         : model.connection === "ready" || model.connection === "partial"
-          ? "TASK UNBOUND"
+          ? "SESSION OFFLINE"
           : "OFFLINE";
   const controlsLabel = model.preview
     ? "8 SIMULATED CONTROLS"
@@ -164,7 +166,12 @@ export function DeckOps({ model }: { model: DeckModel }) {
         <PrimaryKey model={model} size="md" />
         <VoiceTrace model={model} />
         <div className="ops__voice-copy">
-          <strong>{primaryKeyDescription(model.primaryAction, model.phase, model.voice.input.state).toUpperCase()}</strong>
+          <strong>{primaryKeyDescription(
+            model.primaryAction,
+            model.phase,
+            model.voice.input.state,
+            model.sessionStartUnavailableReason,
+          ).toUpperCase()}</strong>
           <VoiceCaption model={model} />
         </div>
         <div className="ops__routes" role="group" aria-label="Route dictation to agent channel">
@@ -192,9 +199,9 @@ export function DeckOps({ model }: { model: DeckModel }) {
             {lane.hostName}
           </span>
           <span className="ops__binding">
-            {model.adapterAvailable ? "CODEX DESKTOP" : transportLabel(lane.transport).toUpperCase()}
+            {model.adapterAvailable ? "SCOUT APP-SERVER" : transportLabel(lane.transport).toUpperCase()}
             <i>·</i>
-            {boundTitle ?? lane.projectRoot ?? "NO TASK BOUND"}
+            {boundTitle ?? lane.projectRoot ?? "NO SESSION"}
           </span>
         </header>
 
@@ -210,7 +217,7 @@ export function DeckOps({ model }: { model: DeckModel }) {
               <span>CH {String(channel).padStart(2, "0")} · {lane.hostName.toUpperCase()}</span>
             </div>
             <p className="ops__task" title={boundTitle ?? undefined}>
-              {boundTitle ?? (model.adapterAvailable ? "No Codex Desktop task bound" : "Observable lane")}
+              {boundTitle ?? (model.adapterAvailable ? "No Codex session connected" : model.sessionBusy ? "Starting Codex for this workspace…" : "Start Codex to control this workspace")}
             </p>
             <PhaseLine model={model} compact />
 
@@ -226,7 +233,7 @@ export function DeckOps({ model }: { model: DeckModel }) {
                   <time>{relativeTime(row.at)}</time>
                 </div>
               )) : (
-                <p className="ops__empty">No {model.view === "thread" ? "task turns" : "lane signal"} reported yet.</p>
+                <p className="ops__empty">No {model.view === "thread" ? "session turns" : "lane signal"} reported yet.</p>
               )}
             </div>
 
@@ -247,7 +254,7 @@ export function DeckOps({ model }: { model: DeckModel }) {
             <div className="ops__console-actions">
               {model.canRebind ? (
                 <button type="button" onClick={model.connectThread} disabled={model.threadBusy}>
-                  <LinkIcon />{model.phase === "failed" ? "Retry bind" : "Bind task"}
+                  <LinkIcon />{model.phase === "failed" ? "Retry link" : "Reconnect"}
                 </button>
               ) : null}
               <button type="button" onClick={model.refreshSnapshot} disabled={!model.canRefresh}>
@@ -263,7 +270,7 @@ export function DeckOps({ model }: { model: DeckModel }) {
             <footer>
               <span>MODEL <strong>{lane.model ?? "DEFAULT"}</strong></span>
               <span>CONTROL <strong>{controlTruth}</strong></span>
-              <span title={model.thread?.threadId ?? undefined}>TASK <strong>{model.thread?.threadId ? shortId(model.thread.threadId) : "—"}</strong></span>
+              <span title={model.thread?.threadId ?? undefined}>SESSION <strong>{model.thread?.threadId ? shortId(model.thread.threadId) : "—"}</strong></span>
             </footer>
           </article>
 
@@ -304,17 +311,21 @@ export function DeckOps({ model }: { model: DeckModel }) {
         <div className="ops__command-grid">
           <OpsCommand
             ordinal="01"
-            label="Voice"
-            meta={voiceReadout(model.voice.input.state)}
-            icon={<MicIcon />}
+            label={model.primaryAction === "start_codex" ? "Start Codex" : "Voice"}
+            meta={model.primaryAction === "start_codex" ? model.sessionBusy ? "Starting" : "Workspace" : voiceReadout(model.voice.input.state)}
+            icon={model.primaryAction === "start_codex" ? <LinkIcon /> : <MicIcon />}
             active={model.voiceInputActive}
-            disabled={model.primaryAction === "connect" ? model.threadBusy : !model.canTalk}
+            disabled={model.primaryAction === "start_codex"
+              ? !model.canStartCodexSession
+              : model.primaryAction === "connect"
+                ? model.threadBusy
+                : !model.canTalk}
             onClick={model.onPrimary}
           />
           <OpsCommand
             ordinal="02"
-            label="Task turns"
-            meta="Codex task"
+            label="Session turns"
+            meta="Codex session"
             glyph="◎"
             active={model.view === "thread"}
             disabled={!model.adapterAvailable}
@@ -331,7 +342,7 @@ export function DeckOps({ model }: { model: DeckModel }) {
           <OpsCommand
             ordinal="04"
             label="Re-read"
-            meta="Task snapshot"
+            meta="Session snapshot"
             icon={<RefreshIcon />}
             disabled={!model.canRefresh}
             onClick={() => void model.refreshSnapshot()}

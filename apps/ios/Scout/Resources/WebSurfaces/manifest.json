@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "assetRevision": "cfdb4ed0b525e8e1",
+  "assetRevision": "745d53e7faa14234",
   "protocol": {
     "minimum": 1,
     "maximum": 1
   },
   "toolchain": {
-    "node": "22.21.1",
-    "bun": "1.3.13",
+    "node": "22.22.2",
+    "bun": "1.3.14",
     "vite": "^7.0.0",
     "lockfileSha256": "554bdaf20f15996c4e1510a476e5fcfec747f2b945b4c895c8d2ba0f3a6c7a03"
   },
@@ -50,6 +50,7 @@
         "tail.recent",
         "tail.subscribe",
         "native.setLaneSelection",
+        "codex.session.start",
         "codex.thread.snapshot",
         "codex.thread.connect",
         "codex.turn.start",
@@ -79,13 +80,13 @@
   "files": [
     {
       "path": "deck/app.css",
-      "sha256": "8bfc07e8ea952905e079ee3d15c75a54087afb80463d23dc110ae9407833391a",
-      "bytes": 59013
+      "sha256": "52f64106f96bd339f87a473ba248a092277b3ae48adeca2a88e22cfb5c5c2d6b",
+      "bytes": 59834
     },
     {
       "path": "deck/app.js",
-      "sha256": "039d204a922af3be355a981c18c3a38b2fd6212c6853d9ca025187a3acc5bbef",
-      "bytes": 290552
+      "sha256": "3a87410f555b2de8506462aae462dd85dd4838e44dd5373d88beab8e6344b6ff",
+      "bytes": 294525
     },
     {
       "path": "deck/index.html",
@@ -94,13 +95,13 @@
     },
     {
       "path": "dispatch/app.css",
-      "sha256": "aeea02b5ca0ff1d9eef0b936c6df45864b4eb494ac45fbbe764443b4f9942bd7",
-      "bytes": 4333
+      "sha256": "9f863ca13b667da241c9f046b73c6b10968df62c24eecb4e6dd14374e6945da1",
+      "bytes": 4381
     },
     {
       "path": "dispatch/app.js",
-      "sha256": "5af818423dc8dc8ac13e6ab40fddb3b1a18e098757ea6293682e7fa51ca5ba8f",
-      "bytes": 197936
+      "sha256": "0b193b6dac10154a82a610f725deb0d3c08c75171ca336515c36270a2740ee1e",
+      "bytes": 197998
     },
     {
       "path": "dispatch/index.html",
@@ -109,13 +110,13 @@
     },
     {
       "path": "lanes/app.css",
-      "sha256": "540e86e8dfbd58a877dbfe9d5df53b54e3cf3ede8a00124d6bdbd561312a5bbc",
-      "bytes": 264198
+      "sha256": "2578da67ec9513b17352f51843b62aef74b28feace8ae989e264bf0abeffcd30",
+      "bytes": 271343
     },
     {
       "path": "lanes/app.js",
-      "sha256": "7f1849f84589ea5aad4ecb36d1c3ff4020e28d211fa116b1c8c0f10d4d0a27c5",
-      "bytes": 556494
+      "sha256": "6edc30e1407b1d26fe9e3c19fef869a6cb586a48ba3371bdb244604692c8f55d",
+      "bytes": 644246
     },
     {
       "path": "lanes/index.html",

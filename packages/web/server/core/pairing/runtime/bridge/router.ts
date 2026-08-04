@@ -1483,7 +1483,7 @@ async function codexDeckSnapshot(agentId: string, connect: boolean) {
     ?? (typeof observedThreadId === "string" ? observedThreadId : snapshot?.session.id ?? null);
 
   return {
-    adapter: "codex_desktop" as const,
+    adapter: "codex_app_server" as const,
     agentId,
     threadId,
     turnId: online && running ? currentTurn?.id ?? null : null,
@@ -1497,8 +1497,8 @@ async function codexDeckSnapshot(agentId: string, connect: boolean) {
       approvals: false,
     },
     capabilityNotes: {
-      queue: "The Deck controls the exact task currently owned by Codex Desktop and does not invent a client-side queue.",
-      approvals: "Approvals remain owned by Codex Desktop and must be resolved there.",
+      queue: "The Deck sends directly to Scout's managed Codex session and does not invent a client-side queue.",
+      approvals: "Approval prompts remain runtime-owned and are not actionable from Deck yet.",
     },
     snapshot,
   };

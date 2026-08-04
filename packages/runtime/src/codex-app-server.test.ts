@@ -17,6 +17,7 @@ import {
   readCodexAppServerReasoningEffortFromLaunchArgs,
   resolveCodexExecutableCandidates,
   sendCodexAppServerAgent,
+  startCodexAppServerAgent,
   shutdownCodexAppServerAgent,
 } from "./codex-app-server";
 
@@ -1388,6 +1389,41 @@ describe("ensureCodexAppServerAgentOnline", () => {
     expect((thrown as Error).message).toBe(
       "Codex app-server session for codex-active-shutdown was stopped by OpenScout: OpenScout test stopped an active turn.",
     );
+  });
+
+  test("returns when Codex accepts a turn without waiting for completion", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-codex-nonblocking-start-test-"));
+    tempPaths.add(tempRoot);
+    const options = {
+      agentName: "codex-nonblocking-start",
+      sessionId: "attached-codex-nonblocking-start",
+      cwd: process.cwd(),
+      systemPrompt: "Resume the existing session without changing its identity or prior context.",
+      runtimeDirectory: join(tempRoot, "runtime"),
+      logsDirectory: join(tempRoot, "logs"),
+      threadId: "thread-nonblocking-start-1",
+      requireExistingThread: true,
+      launchArgs: [],
+    } as const;
+    process.env.OPENSCOUT_CODEX_BIN = writeHangingFakeCodexExecutable(tempRoot);
+
+    let startDeadline: ReturnType<typeof setTimeout> | null = null;
+    const receipt = await Promise.race([
+      startCodexAppServerAgent({ ...options, prompt: "keep working" }),
+      new Promise<never>((_resolve, reject) => {
+        startDeadline = setTimeout(() => reject(new Error("start did not return")), 5_000);
+      }),
+    ]).finally(() => {
+      if (startDeadline) clearTimeout(startDeadline);
+    });
+    expect(receipt).toEqual({
+      threadId: "thread-nonblocking-start-1",
+      turnId: "turn-hanging",
+    });
+    await expect(startCodexAppServerAgent({ ...options, prompt: "second turn" }))
+      .rejects.toThrow("already has an active turn");
+
+    await shutdownCodexAppServerAgent(options);
   });
 
   test("classifies unexpected SIGTERM exits as noteworthy interruptions", async () => {

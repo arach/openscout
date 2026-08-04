@@ -115,6 +115,11 @@ export type CodexAppServerTurnResult = {
   threadId: string;
 };
 
+export type CodexAppServerTurnStartResult = {
+  threadId: string;
+  turnId: string;
+};
+
 export type CodexAppServerThreadResult = {
   threadId: string;
 };
@@ -1382,6 +1387,44 @@ export class CodexAppServerClient {
     });
   }
 
+  /**
+   * Start a turn and return as soon as Codex accepts it. The active-turn
+   * tracker remains attached to app-server notifications so later steer,
+   * interrupt, and snapshot calls observe the same turn.
+   */
+  async start(prompt: string): Promise<CodexAppServerTurnStartResult> {
+    return this.enqueue(async () => {
+      await this.transport.ensureOnline();
+      if (!this.transport.currentThreadId) {
+        throw new Error(`Codex app-server session for ${this.options.agentName} has no active thread.`);
+      }
+      if (this.activeTurn) {
+        throw new Error(`Codex app-server session for ${this.options.agentName} already has an active turn.`);
+      }
+
+      let turn!: ActiveTurn;
+      const completion = new Promise<string>((resolve, reject) => {
+        turn = this.createActiveTurn(resolve, reject);
+      });
+      // This path intentionally does not await the final reply. Keep the
+      // completion promise observed while notifications finish the turn.
+      void completion.catch(() => undefined);
+
+      try {
+        const response = await this.transport.startTurn(prompt);
+        turn.turnId = response.turn.id;
+        return {
+          threadId: this.transport.currentThreadId,
+          turnId: response.turn.id,
+        };
+      } catch (error) {
+        this.clearActiveTurn(turn);
+        turn.reject(error instanceof Error ? error : new Error(errorMessage(error)));
+        throw error;
+      }
+    });
+  }
+
   async send(prompt: string, timeoutMs?: number): Promise<CodexAppServerTurnResult> {
     if (this.hasActiveTurn()) {
       return this.steerAndWait(prompt, timeoutMs);
@@ -1720,6 +1763,14 @@ export async function invokeCodexAppServerLocalAgent(
   const session = getOrCreateCodexAppServerClient(options);
   session.update(options);
   return session.invoke(options.prompt, options.timeoutMs);
+}
+
+export async function startCodexAppServerLocalAgent(
+  options: CodexAppServerInvocationOptions,
+): Promise<CodexAppServerTurnStartResult> {
+  const session = getOrCreateCodexAppServerClient(options);
+  session.update(options);
+  return session.start(options.prompt);
 }
 
 export async function sendCodexAppServerLocalAgent(

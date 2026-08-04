@@ -62,6 +62,7 @@ export class NativeScoutSurfaceClient implements ScoutSurfaceClient {
   };
 
   codex = {
+    startSession: (route: CodexDeckRoute) => this.request("codex.session.start", { route }),
     snapshot: (route: CodexDeckRoute) => this.request("codex.thread.snapshot", { route }),
     connect: (route: CodexDeckRoute) => this.request("codex.thread.connect", { route }),
     start: (route: CodexDeckRoute, text: string) => this.request("codex.turn.start", { route, text }),

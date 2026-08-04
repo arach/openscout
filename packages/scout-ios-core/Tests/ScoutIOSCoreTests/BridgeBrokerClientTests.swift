@@ -239,6 +239,7 @@ final class BridgeBrokerClientTests: XCTestCase {
         XCTAssertEqual(summary.state, .live)
         XCTAssertEqual(summary.statusLabel, "Working")
         XCTAssertEqual(summary.projectName, "scout")
+        XCTAssertEqual(summary.workspaceRoot, "/Users/x/dev/scout")
         XCTAssertEqual(summary.sessionId, "sess-9")
     }
 

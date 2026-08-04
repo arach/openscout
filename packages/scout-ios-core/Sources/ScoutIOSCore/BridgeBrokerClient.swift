@@ -1010,6 +1010,7 @@ struct MobileAgentSummary: Codable, Sendable {
             harness: harness,
             transport: transport,
             projectName: projectName,
+            workspaceRoot: workspaceRoot,
             statusLabel: statusLabel,
             state: mappedState,
             sessionId: sessionId,
