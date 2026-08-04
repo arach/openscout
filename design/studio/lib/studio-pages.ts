@@ -365,6 +365,20 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Projects-first fleet landing — machine rail, currently-working strip, projects tree with one-child compression, latest-activity log. Faithful port + a Compact density treatment.",
   },
   {
+    href: "/studies/v3-feed-identity",
+    label: "Mobile v3 · Feed identity",
+    bucket: "studies",
+    surface: "ios",
+    family: "scout-ios",
+    status: "concept",
+    source: [
+      "design/studio/views/v3-feed-identity.tsx",
+      "design/studio/views/mobile-timeline.tsx",
+      "apps/ios/Scout/V3HomeSurface.swift",
+    ],
+    blurb: "The Home feed's left column: a 5×7 matrix letterform (initial or monogram) on the sprite engine's curated hue wheel, replacing the one-initial status-color tile — plus where the harness mark goes, and what the phone can honestly attribute.",
+  },
+  {
     href: "/studies/mobile-timeline",
     label: "Mobile v3 · Fleet Timeline",
     bucket: "studies",
@@ -1367,6 +1381,21 @@ export const STUDIO_PAGES: StudioPage[] = [
     status: "concept",
     source: ["apps/macos/Sources/Scout/ScoutRootView.swift"],
     blurb: "One inspector card flexed across the contexts it serves (switch at top): your own DM (one bound session elevated, Engage strip removed, Runtime promoted into a Session block with Traces · Watch · Take over, no Message); an agent↔agent DM (two sides, each its own session, Message returns as Interject); and the agent view with no DM (sessions as a peer list, Message present). The rule that unifies them: Message shows only when you're not already a participant. Includes the Current ↔ Proposed before/after.",
+  },
+  {
+    href: "/studies/scout-thread-measure",
+    label: "Thread Measure",
+    bucket: "studies",
+    surface: "macos",
+    family: "scout-comms",
+    status: "draft",
+    source: [
+      "design/studio/views/scout-thread-measure.tsx",
+      "apps/macos/Sources/Scout/ScoutCommsView.swift",
+      "apps/macos/Sources/Scout/ScoutRootView.swift",
+    ],
+    blurb:
+      "A Comms turn currently has three right edges — plate and reply bar at the full pane, body clamped to a 600pt reading measure, code somewhere else again — and the eye reads the disagreement as breakage rather than as a column. (Related finding: `messageBubbleMaxWidth = 840` is declared and documented as the outer plate, and referenced nowhere; only the 600 ever shipped.) The tempting fix — exempt technical content from the measure — adds a fourth edge and makes it worse. Every direction here enforces one content edge per thread; what differs is what the pane does with the remainder: 00 Today (the mix, drawn honestly), 01 Column (one edge at 780 ≈ 72ch, centred so the remainder reads as margin), 02 Marginalia (one edge left, remainder carries the reply target, activity readout and file manifest that were cramming the prose). Toggle `edges` to draw a guide at every element's right edge.",
   },
   {
     href: "/studies/scout-keyboard-sheet",
