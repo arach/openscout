@@ -559,6 +559,26 @@ function endpointsForAgent(snapshot: ScoutBrokerSnapshot, agentId: string): Agen
     ));
 }
 
+/**
+ * The runtime an actor runs on, for feed attribution.
+ *
+ * Unlike `endpointForAgent`, this deliberately accepts inactive/offline
+ * endpoints: a post from an hour ago still ran on whatever harness it ran on,
+ * and the phone needs that to badge it. Cardless flight actors
+ * ("openscout-faraday-2") never appear in the AGENT roster, so their endpoint
+ * is the only place their runtime is recorded. Returns null for actors with no
+ * endpoint at all (the operator, broker notices) — the caller must render
+ * nothing rather than guess.
+ */
+function harnessForActor(snapshot: ScoutBrokerSnapshot, actorId: string): string | null {
+  const live = endpointForAgent(snapshot, actorId);
+  if (live?.harness) return live.harness;
+  const any = Object.values(snapshot.endpoints ?? {}).find(
+    (endpoint) => endpoint.agentId === actorId && endpoint.harness,
+  );
+  return any?.harness ?? null;
+}
+
 function endpointForAgent(snapshot: ScoutBrokerSnapshot, agentId: string): AgentEndpoint | null {
   return endpointsForAgent(snapshot, agentId)[0] ?? null;
 }
@@ -1307,7 +1327,11 @@ export async function getScoutMobileActivity(
   const broker = await loadScoutBrokerContext();
   if (!broker) {
     const home = await readScoutBrokerHome();
-    return (home?.activity ?? []).slice(0, filters.limit ?? 100);
+    // The home projection predates harness attribution; be explicit that this
+    // path carries none rather than leaking `undefined` onto the wire.
+    return (home?.activity ?? [])
+      .slice(0, filters.limit ?? 100)
+      .map((record) => ({ ...record, harness: record.harness ?? null }));
   }
 
   const { snapshot } = broker;
@@ -1339,6 +1363,7 @@ export async function getScoutMobileActivity(
         conversationId: message.conversationId,
         channel,
         timestamp: requireTimestampMs(message.createdAt),
+        harness: harnessForActor(snapshot, message.actorId),
       };
     });
 
