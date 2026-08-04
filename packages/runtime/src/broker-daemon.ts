@@ -74,10 +74,19 @@ import {
   isLocalAgentSessionAlive,
   isLocalAgentSessionAliveAsync,
   invokeLocalAgentEndpoint,
+  listRelayAgentTmuxSessionOwners,
   loadRegisteredLocalAgentBindings,
   shutdownLocalSessionEndpoint,
   shouldDisableGeneratedCodexEndpoint,
+  sleepLocalAgentSession,
 } from "./local-agents.js";
+import {
+  DEFAULT_RELAY_AGENT_SESSION_IDLE_TTL_MS,
+  RelayAgentSessionReaper,
+} from "./broker-relay-agent-reaper.js";
+import { reconcileRelayAgentProcessLeases } from "./relay-agent-process-leases.js";
+import { touchBrokerRuntimeHeartbeat } from "./relay-agent-watchdog.js";
+import { tmuxSessionsProbe } from "./system-probes/index.js";
 import {
   ensurePairingSessionForCodexThread,
   findPairingSession,
@@ -271,6 +280,15 @@ const cardlessSessionIdleTtlMs = Number.parseInt(
   process.env.OPENSCOUT_CARDLESS_SESSION_IDLE_TTL_MS ?? String(DEFAULT_CARDLESS_SESSION_IDLE_TTL_MS),
   10,
 );
+const relayAgentSweepIntervalMs = Number.parseInt(
+  process.env.OPENSCOUT_RELAY_AGENT_SWEEP_INTERVAL_MS ?? "300000",
+  10,
+);
+const relayAgentIdleTtlMs = Number.parseInt(
+  process.env.OPENSCOUT_RELAY_AGENT_IDLE_TTL_MS ?? String(DEFAULT_RELAY_AGENT_SESSION_IDLE_TTL_MS),
+  10,
+);
+const runtimeHeartbeatIntervalMs = 30_000;
 const repoWatchServeCacheTtlMs = Number.parseInt(process.env.OPENSCOUT_REPO_WATCH_CACHE_TTL_MS ?? "1200000", 10);
 const repoWatchRehydrateAfterMs = Number.parseInt(process.env.OPENSCOUT_REPO_WATCH_REHYDRATE_AFTER_MS ?? "30000", 10);
 
@@ -1039,6 +1057,33 @@ async function sweepIdleCardlessSessions(): Promise<void> {
     console.log(`[openscout-runtime] retired ${reaped} idle cardless session${reaped === 1 ? "" : "s"}`);
   }
 }
+
+// Relay agents live in detached tmux sessions parented to launchd, so nothing
+// reaps them for free. The reaper puts idle relays back to sleep (the wake
+// path recreates them on demand) and its startup pass collects orphans left
+// behind by previous runs.
+const relayAgentReaper = new RelayAgentSessionReaper({
+  snapshot: () => runtime.snapshot(),
+  listTmuxSessions: async () => {
+    const probe = await tmuxSessionsProbe.for({}).fresh({ maxAgeMs: 5_000 });
+    return (probe.value ?? []).map((session) => ({
+      name: session.name,
+      attached: session.attached,
+      createdAtMs: session.createdAt ? session.createdAt * 1_000 : null,
+      activityAtMs: session.activityAt ? session.activityAt * 1_000 : null,
+    }));
+  },
+  listSessionOwners: () => listRelayAgentTmuxSessionOwners(),
+  killSession: (sessionName) => sleepLocalAgentSession(sessionName),
+  reconcileLeases: ({ liveSessionNames, owners }) => {
+    reconcileRelayAgentProcessLeases({ liveSessionNames, owners });
+  },
+  idleTtlMs: Number.isFinite(relayAgentIdleTtlMs) && relayAgentIdleTtlMs > 0
+    ? relayAgentIdleTtlMs
+    : DEFAULT_RELAY_AGENT_SESSION_IDLE_TTL_MS,
+  log: (message) => console.log(message),
+  warn: (message) => console.warn(message),
+});
 
 const managedSessionService = new BrokerManagedSessionService({
   nodeId,
@@ -1832,8 +1877,26 @@ setTimeout(() => {
   sweepIdleCardlessSessions().catch((error) => {
     console.error("[openscout-runtime] initial cardless session sweep failed:", error);
   });
+  relayAgentReaper.sweep("startup").catch((error) => {
+    console.error("[openscout-runtime] startup relay-agent sweep failed:", error);
+  });
   routeAliasService?.sweepExpired();
 }, 0).unref();
+
+// Heartbeat for relay-agent watchdogs: relays self-terminate once this file's
+// mtime goes stale, so a dead runtime cannot leave live relay processes behind.
+try {
+  touchBrokerRuntimeHeartbeat();
+} catch (error) {
+  console.warn("[openscout-runtime] unable to write runtime heartbeat:", error);
+}
+setInterval(() => {
+  try {
+    touchBrokerRuntimeHeartbeat();
+  } catch (error) {
+    console.warn("[openscout-runtime] unable to refresh runtime heartbeat:", error);
+  }
+}, runtimeHeartbeatIntervalMs).unref();
 
 meshDiscoveryService.discoverPeers().catch((error) => {
   console.error("[openscout-runtime] initial mesh discovery failed:", error);
@@ -1861,6 +1924,14 @@ if (Number.isFinite(cardlessSessionSweepIntervalMs) && cardlessSessionSweepInter
       console.error("[openscout-runtime] periodic cardless session sweep failed:", error);
     });
   }, Math.max(60_000, cardlessSessionSweepIntervalMs)).unref();
+}
+
+if (Number.isFinite(relayAgentSweepIntervalMs) && relayAgentSweepIntervalMs > 0) {
+  setInterval(() => {
+    relayAgentReaper.sweep("periodic").catch((error) => {
+      console.error("[openscout-runtime] periodic relay-agent sweep failed:", error);
+    });
+  }, Math.max(60_000, relayAgentSweepIntervalMs)).unref();
 }
 
 if (routeAliasService) {
