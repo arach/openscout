@@ -28,6 +28,12 @@ jobs:
     name: macOS app build/test
     runs-on: macos-latest
     timeout-minutes: 30
+    env:
+      # GitHub runners have no ../Termini sibling checkout, so Termini must come
+      # from git, pinned to an exact revision — never a moving branch. Keep this
+      # pin in sync with release-app-macos.yml.
+      OPENSCOUT_TERMINI_SOURCE: git
+      HUDSON_TERMINI_GIT_REVISION: 1509fdc6d8093b2e41064fbb273c56e630491afa
     steps:
       - uses: actions/checkout@v5
 

@@ -108,6 +108,11 @@ jobs:
           VERSION: ${{ steps.release.outputs.version }}
           OPENSCOUT_NOTARY_PROFILE: openscout-ci-notarytool
           OPENSCOUT_SIGN_IDENTITY: ${{ vars.OPENSCOUT_SIGN_IDENTITY || '' }}
+          # GitHub runners have no ../Termini sibling checkout, so Termini must
+          # come from git, pinned to an exact revision — never a moving branch.
+          # Keep this pin in sync with release-candidate.yml.
+          OPENSCOUT_TERMINI_SOURCE: git
+          HUDSON_TERMINI_GIT_REVISION: 1509fdc6d8093b2e41064fbb273c56e630491afa
         run: bash apps/macos/scripts/build-dmg.sh
 
       - name: Upload DMG artifact

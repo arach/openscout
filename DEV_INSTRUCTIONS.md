@@ -29,6 +29,44 @@ menu helper is the one embedded inside the current `Scout.app`. Do not start a
 standalone `ScoutMenu.app` alongside this suite. `restart:all` is retained only
 as a compatibility alias for `scout:up`.
 
+## macOS dependency sources (hudson, Termini)
+
+`apps/macos/Package.swift` resolves its two sibling dependencies from one of
+two sources, switched by environment variables at SwiftPM manifest evaluation:
+
+| Dependency | Switch | `path` mode (default) | `git` mode |
+|---|---|---|---|
+| hudson | `OPENSCOUT_HUDSON_SOURCE` | `../../../hudson` | `git@github.com:arach/hudson.git`, branch `main` |
+| Termini | `OPENSCOUT_TERMINI_SOURCE` | `../../../Termini` (`OPENSCOUT_TERMINI_PATH` overrides) | `https://github.com/arach/Termini.git` |
+
+Policy:
+
+- **Local development uses the local sibling checkouts** (the defaults). The
+  dev loop (`scout:dev` / `scout:build`, `scout:up`) and local packaging
+  (`build-dmg.sh`) assume `~/dev/hudson` and `~/dev/Termini` next to this repo.
+- **GitHub builds must not depend on a sibling checkout, and must not ride a
+  moving branch.** Every workflow that compiles this package sets
+  `OPENSCOUT_TERMINI_SOURCE=git` plus `HUDSON_TERMINI_GIT_REVISION=<exact sha>`
+  (currently in `release-candidate.yml` and `release-app-macos.yml`; keep the
+  two pins identical). The `HUDSON_TERMINI_*` names are shared with hudson's
+  own manifest, so one env var pins Termini for the whole graph. Termini's
+  `0.1.0` tag predates the SSH exec-mode API the app uses, so the pin is a
+  revision, not a version tag; move it deliberately, together with
+  `Package.resolved`, when adopting a newer Termini.
+- In path mode hudson's transitive git edge to Termini collapses onto the same
+  local directory: a root package's path dependency overrides a transitive git
+  dependency of the same identity.
+- `apps/macos/Package.resolved` is committed in the **default dev
+  configuration** (terminal + voice features on, both siblings on `path`), so
+  it carries no `termini` pin — the exact CI revision lives in the workflow
+  env. Builds under other feature/source combinations locally rewrite the file;
+  don't commit those rewrites.
+- hudson has no git escape hatch on GitHub today: the repo is private, the git
+  URL is SSH, and `build-dmg.sh` intentionally requires the local hudson
+  checkout for its `hkit` packager. The Swift-building release workflows are
+  tag-triggered and have never run; making them green requires hudson
+  credentials on runners (or a published hudson), which is a separate lane.
+
 ## OpenScout Push Relay Handoff
 
 OpenScout Push Relay is implemented in `apps/mesh-front-door` under the
