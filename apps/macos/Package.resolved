@@ -1,5 +1,5 @@
 {
-  "originHash" : "93de5cec17fb3dd984f02b6a0db0f721968b7eea2c336a4d3b78d3ebb3d59cd6",
+  "originHash" : "59088fc187ae09f871c9f7a717c1d67b5ab756fa9250e49f1b1ea304163a2d6a",
   "pins" : [
     {
       "identity" : "sparkle",
@@ -80,15 +80,6 @@
       "state" : {
         "revision" : "b5544ba79a70a0cb3563e75bf26dc198d6b40ed3",
         "version" : "1.7.4"
-      }
-    },
-    {
-      "identity" : "termini",
-      "kind" : "remoteSourceControl",
-      "location" : "git@github.com:arach/Termini.git",
-      "state" : {
-        "branch" : "main",
-        "revision" : "1509fdc6d8093b2e41064fbb273c56e630491afa"
       }
     },
     {

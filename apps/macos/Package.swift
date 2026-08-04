@@ -7,9 +7,25 @@ let hudsonDependency: Package.Dependency = hudsonSource == "git"
     : .package(path: "../../../hudson")
 
 let terminalEnabled = Context.environment["HUDSONKIT_WITH_TERMINAL"] == "1"
+// Mirrors `hudsonSource` above: default to the local Termini checkout so this
+// app shares the one GhosttyKit copy vendored there instead of extracting its
+// own from the release zip. Set OPENSCOUT_TERMINI_SOURCE=git for CI/release,
+// plus HUDSON_TERMINI_GIT_REVISION to pin the exact commit — GitHub builds must
+// never ride a moving branch. hudson still declares Termini by git (nothing
+// sets HUDSON_TERMINI_PATH), but that is not a conflict: a root package's path
+// dependency overrides a transitive git dependency of the same identity, so
+// hudson's `termini` edge collapses onto this same directory. Verified with
+// `swift package show-dependencies`; it is also how apps/ios has always worked.
+let terminiSource = Context.environment["OPENSCOUT_TERMINI_SOURCE"] ?? "path"
+let terminiLocalPath = Context.environment["OPENSCOUT_TERMINI_PATH"] ?? "../../../Termini"
 let terminiPackageName = Context.environment["HUDSON_TERMINI_PACKAGE"] ?? "termini"
 let terminiDependency: Package.Dependency = {
-    let url = Context.environment["HUDSON_TERMINI_GIT_URL"] ?? "git@github.com:arach/Termini.git"
+    if terminiSource != "git" {
+        return .package(path: terminiLocalPath)
+    }
+    // https, not ssh: matches hudson's own Termini declaration and lets GitHub
+    // runners fetch the public repo anonymously (no deploy key required).
+    let url = Context.environment["HUDSON_TERMINI_GIT_URL"] ?? "https://github.com/arach/Termini.git"
     if let revision = Context.environment["HUDSON_TERMINI_GIT_REVISION"], !revision.isEmpty {
         return .package(url: url, revision: revision)
     }

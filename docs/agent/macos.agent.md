@@ -20,7 +20,7 @@ One SwiftPM package, two executables. **Scout** is the product: main window (com
 | `Scout` | exe (`app.openscout.scout`) | all above + HudsonShell, HudsonUI | main window (`ScoutRootView`), `ScoutCommsStore`, `ScoutRepoStore`, HUD hosting, scout:// handler |
 | `OpenScoutMenu` | exe (`app.openscout.scout.menu`) | ScoutAppCore, ScoutHUD, ScoutSharedUI (declared; HUD used for input ingress + routing) | `BrokerService`, `PairingService`, `TailscaleService`, `CommandRunner`, `OpenScoutToolchain`, `HUDURLRouter`, `ScoutAppBridge`, task hotkey/hot-corner ingress |
 
-External: `packages/scout-native-core` (`ScoutNativeCore` + `ScoutCapabilities`); Hudson resolved via `OPENSCOUT_HUDSON_SOURCE` = `path` (default, `../../../hudson`) or `git`.
+External: `packages/scout-native-core` (`ScoutNativeCore` + `ScoutCapabilities`); Hudson resolved via `OPENSCOUT_HUDSON_SOURCE` = `path` (default, `../../../hudson`) or `git`; Termini (terminal builds only) via `OPENSCOUT_TERMINI_SOURCE` = `path` (default, `../../../Termini`) or `git` — git mode must pin `HUDSON_TERMINI_GIT_REVISION`, and GitHub workflows that compile Swift set exactly that (see `DEV_INSTRUCTIONS.md` § macOS dependency sources).
 
 ## Endpoints (one resolver)
 
