@@ -2,6 +2,7 @@ import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from
 import { homedir } from "node:os";
 import { basename, join, relative } from "node:path";
 
+import { resolveTailThinkingMode } from "../user-config.js";
 import { discoverClaudeProcesses } from "./discover.js";
 import { formatToolCall, formatToolResult } from "./tool-format.js";
 import type {
@@ -340,7 +341,21 @@ function summarizeBlocks(content: unknown): string {
     if (blockType === "text" && typeof blockObj.text === "string") {
       parts.push(blockObj.text);
     } else if (blockType === "thinking" && typeof blockObj.thinking === "string") {
-      parts.push(`[thinking] ${blockObj.thinking}`);
+      // Claude returns thinking blocks with an EMPTY `thinking` field whenever
+      // the caller leaves `display` at its default of "omitted" — the default on
+      // every current model, so in practice every Claude transcript is signed
+      // but textless (measured 2026-08-04: 10,428 blocks on this machine, none
+      // with text). `[thinking]` with nothing behind it promises reasoning we
+      // cannot show, so the default is to drop the beat entirely; operators who
+      // want to see that the agent stopped to think can set it back.
+      // NB: this is Claude-specific. Kimi's source reads `part.think`, which
+      // does carry text, and is deliberately not gated on this setting.
+      const thinking = blockObj.thinking.trim();
+      if (thinking) {
+        parts.push(`[thinking] ${blockObj.thinking}`);
+      } else if (resolveTailThinkingMode() === "tag") {
+        parts.push("[thinking]");
+      }
     } else if (blockType === "tool_use") {
       const name = typeof blockObj.name === "string" ? blockObj.name : "tool";
       parts.push(formatToolCall(name, blockObj.input));

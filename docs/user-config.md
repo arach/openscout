@@ -42,6 +42,37 @@ scout config set name
 # Name reset to default: <your $USER>
 ```
 
+## Tail Thinking Beats
+
+Claude returns thinking blocks with an **empty** `thinking` field whenever the
+caller leaves the API's `display` option at its default of `"omitted"` — which
+every current model does. The block is real (it carries a signature, and the
+tokens are billed), but there is no text in it, so the tail has a beat it can
+name and nothing it can quote.
+
+`tail-thinking` decides what the tail does with those beats:
+
+| Value | Behavior |
+| --- | --- |
+| `hide` (default) | Drop the beat. A row reading `[thinking]` with nothing behind it promises reasoning Scout cannot show. |
+| `tag` | Keep a bare `[thinking]` marker, for operators who want to see that the agent stopped to think. |
+
+```bash
+scout config set tail-thinking tag
+scout config get tail-thinking
+scout config set tail-thinking        # back to the default
+```
+
+Resolution order: `~/.openscout/user.json` → `tailThinking`, then
+`OPENSCOUT_TAIL_THINKING`, then `hide`. The value is re-read about once a
+second during tail ingest, so a change takes effect without restarting the
+broker.
+
+**This setting is Claude-specific.** Runtimes that actually return thinking
+text — Kimi, via `part.think` — always render it, whatever this is set to.
+Setting it never hides reasoning Scout has; it only decides whether to mark
+reasoning Scout does not have.
+
 ## Operator Name Resolution Order
 
 Scout resolves your operator name in this order:
