@@ -451,6 +451,41 @@ html[data-scout-sidebar-chrome] [data-sidebar="brand-row"] {
   align-items: center;
 }
 
+/* The nav rail's first group label is the sidebar's COLUMN header — it lands on
+   the same grid line as the side-rail ("HOME") and inspector ("CONTEXT") panel
+   headers, so it carries the same band instead of reading as a quiet in-list
+   label: 44px flush band, dashed hairline, and the wide eyebrow type. Keep this
+   in sync with the manifest/inspector header rule above. Later group labels
+   (SYSTEM) deliberately stay quiet — they divide a list, not the column. */
+html[data-scout-sidebar-chrome] [data-slot="sidebar-group-label"][data-sidebar-head] {
+  height: 44px;
+  min-height: 44px;
+  /* Full-bleed against the group's p-2 so the band meets both rail edges and the
+     header hairline runs unbroken across all three columns. The bottom margin is
+     the group padding handed back to the first destination row. */
+  margin: -0.5rem -0.5rem 0.5rem;
+  /* 1rem === the group's p-2 + the menu button's px-2, so the header text stays
+     on the nav icon column instead of shifting when it gains the band. */
+  padding-inline: 1rem;
+  border-radius: 0;
+  border-bottom: 1px dashed color-mix(in srgb, var(--hud-chrome-border) 74%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--hud-surface) 74%, transparent), transparent),
+    color-mix(in srgb, var(--hud-bg) 72%, transparent);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-xl);
+  color: var(--hud-muted);
+}
+
+/* Collapsed, the label is invisible (opacity-0) and exists only as a spacer on
+   the 38px rail grid — drop the band so it cannot add a border pixel to that row. */
+html[data-scout-sidebar-chrome]
+  .group[data-collapsible="icon"]
+  [data-slot="sidebar-group-label"][data-sidebar-head] {
+  border-bottom: 0;
+  background: none;
+}
+
 /* Expanded brand button fills the 40px band (collapsed icon rail keeps its 32px
    square via the important size-8 utility). */
 html[data-scout-sidebar-chrome] [data-sidebar="brand-row"] [data-slot="sidebar-menu-button"] {
