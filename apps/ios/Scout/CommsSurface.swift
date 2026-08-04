@@ -598,6 +598,10 @@ struct CommsThreadView: View {
     let client: any ScoutBrokerClient
     let conversation: CommsConversation
     var initialMessageId: String? = nil
+    /// The counterpart's runtime, when the opener already resolved it (the Home
+    /// feed does). Drives the header identity mark's badge; nil ⇒ no badge, the
+    /// same honesty rule the feed follows.
+    var counterpartHarness: String? = nil
     let onClose: () -> Void
     /// Called once the thread is on screen so the list can clear the unread badge
     /// and the broker can advance the operator's read cursor. Defaults to a no-op.
@@ -652,6 +656,12 @@ struct CommsThreadView: View {
             }
             .buttonStyle(.plain)
 
+            // Same identity the feed shows: this agent's creature wearing its
+            // runtime. Channels get no mark — a channel is a room, not an agent.
+            if let counterpart = threadCounterpart {
+                SpriteIdentityMark(name: counterpart, harness: counterpartHarness, size: 30)
+            }
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(threadTitle)
                     .font(HudFont.ui(HudTextSize.lg, weight: .semibold))
@@ -674,6 +684,19 @@ struct CommsThreadView: View {
         switch conversation.kind {
         case .channel, .system: return "# \(conversation.title)"
         default: return conversation.participants.first ?? conversation.title
+        }
+    }
+
+    /// The agent on the other side of a direct thread — the name the sprite is
+    /// grown from. Channels and groups have no single counterpart, so they get
+    /// no identity mark rather than an arbitrary participant's.
+    private var threadCounterpart: String? {
+        switch conversation.kind {
+        case .channel, .system, .group: return nil
+        default:
+            let name = conversation.participants.first ?? conversation.title
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
         }
     }
 

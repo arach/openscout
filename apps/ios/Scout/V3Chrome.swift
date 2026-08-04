@@ -131,8 +131,12 @@ struct V3HexCompose: View {
 
 // MARK: - Tabs
 
+/// Seven seats, symmetric about the hex: consumption left (what happened —
+/// Home, Chats, Logs), structure right (where it happens — Projects, Shell,
+/// Alerts). Logs sits beside Chats because both are things agents said; Shell
+/// sits beside Projects because a terminal is a place.
 enum V3Tab: String, CaseIterable, Identifiable {
-    case home, chats, compose, projects, alerts
+    case home, chats, logs, compose, projects, shell, alerts
 
     var id: String { rawValue }
 
@@ -140,20 +144,24 @@ enum V3Tab: String, CaseIterable, Identifiable {
         switch self {
         case .home: "Home"
         case .chats: "Chats"
+        case .logs: "Logs"
         case .compose: "New"
         case .projects: "Projects"
+        case .shell: "Shell"
         case .alerts: "Alerts"
         }
     }
 
-    /// The hand-drawn glyph for the four labeled seats; `.compose` carries
-    /// the bare hex instead (`V3HexCompose`).
+    /// The hand-drawn glyph for the labeled seats; `.compose` carries the bare
+    /// hex instead (`V3HexCompose`).
     var glyph: GlyphShape.Kind? {
         switch self {
         case .home: .home
         case .chats: .comms
+        case .logs: .tail
         case .compose: nil
         case .projects: .folder
+        case .shell: .terminal
         case .alerts: .inbox
         }
     }
@@ -218,13 +226,16 @@ struct V3HostScopeMenu: View {
 
 // MARK: - Feed filter
 
-/// Home's feed filters. Only "For you" and "Working" have an honest feed
-/// behind them (Working = posts whose agent is live right now); "Thinking"
-/// stays cosmetic — the tail carries no thinking signal, so nothing is faked.
+/// Home's feed filters. Both have an honest feed behind them: "For you" is
+/// everything, "Working" narrows to posts whose agent the broker reports as
+/// live (which it does during an active flight — quiet, but never fake).
+///
+/// "Thinking" was removed: nothing ever branched on it, so it silently WAS
+/// "For you" wearing a different name. A menu option that lies about what it
+/// filters is worse than one fewer option.
 enum V3HomeFilter: String, CaseIterable {
     case forYou = "For you"
     case working = "Working"
-    case thinking = "Thinking"
 }
 
 /// The filter control in Home's sub bar: one borderless button — the current
@@ -309,8 +320,10 @@ struct V3Masthead: View {
             }
             .padding(.horizontal, 16)
             .frame(height: 52)
+            // Chrome-to-content seam, not a row rule: the masthead needs a
+            // visible edge under the status bar.
             Rectangle()
-                .fill(ScoutHairline.standard)
+                .fill(ScoutHairline.strong)
                 .frame(height: HudStrokeWidth.thin)
         }
     }
@@ -331,7 +344,7 @@ struct V3SubBar<Content: View>: View {
                 .frame(height: 44)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Rectangle()
-                .fill(ScoutHairline.subtle)
+                .fill(ScoutHairline.strong)
                 .frame(height: HudStrokeWidth.thin)
         }
     }

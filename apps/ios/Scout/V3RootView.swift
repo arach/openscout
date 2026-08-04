@@ -38,6 +38,12 @@ struct V3RootView: View {
 
     private var client: any ScoutBrokerClient { model.client }
 
+    /// The focused Mac — a live terminal belongs to exactly one host, the same
+    /// rule RootView follows.
+    private var activeMachine: AppModel.PairedMachine? {
+        model.pairedMachines.first(where: { $0.isActive })
+    }
+
     enum V3ChatsScope: String {
         case mine = "Mine"
         case channels = "Channels"
@@ -60,12 +66,15 @@ struct V3RootView: View {
                     // same discipline as RootView's surfaceLayer).
                     ZStack {
                         slot(.home) {
+                            // Posts open their own thread over the feed (see
+                            // V3HomeSurface.openPost) — Home no longer hands
+                            // taps to the Chats tab, which landed you on the
+                            // list with the thread you asked for nowhere in it.
                             V3HomeSurface(
                                 model: model,
                                 isActive: tab == .home,
                                 hostScope: homeHostScope,
-                                filter: homeFilter,
-                                onOpenChats: { select(.chats) }
+                                filter: homeFilter
                             )
                         }
                         slot(.chats) {
@@ -74,6 +83,14 @@ struct V3RootView: View {
                                 isActive: tab == .chats,
                                 reloadToken: model.fleetDataReadyToken,
                                 notificationRoute: model.pendingNotificationRoute
+                            )
+                        }
+                        slot(.logs) {
+                            // The shipped cross-agent tail, embedded as-is.
+                            TailSurface(
+                                model: model,
+                                isActive: tab == .logs,
+                                reloadToken: model.fleetDataReadyToken
                             )
                         }
                         slot(.compose) {
@@ -88,6 +105,22 @@ struct V3RootView: View {
                         }
                         slot(.projects) {
                             V3ProjectsSurface(model: model, isActive: tab == .projects)
+                        }
+                        slot(.shell) {
+                            // The shipped SSH/PTY surface, wired the same way
+                            // RootView wires it (target + proven-reachable host
+                            // + the recovery hooks AppModel owns).
+                            TerminalSurface(
+                                client: client,
+                                diagnostics: terminalDiagnostics,
+                                reloadToken: model.dataReadyToken,
+                                terminalTargetID: activeMachine?.id,
+                                connectedHost: model.terminalSSHHost,
+                                onReconnectBridge: { Task { await model.reconnect() } },
+                                onOpenConnectionSettings: { showSettings = true },
+                                isPresentingSettings: showSettings,
+                                isActive: tab == .shell
+                            )
                         }
                         slot(.alerts) {
                             // Embedded as-is. Its header close button calls
@@ -199,9 +232,31 @@ struct V3RootView: View {
                         .lineLimit(1)
                 }
             }
+        case .logs:
+            // No sub bar. TailSurface already opens with its own context line,
+            // and that line is the live one — last refresh, attached/detached,
+            // the refresh control — all driven by state the surface owns. A bar
+            // here could only ever restate the label ("Fleet tail" over "TAIL")
+            // plus a scope string we weren't actually filtering by, so the tab
+            // shipped two headers saying the same thing. The surface keeps the
+            // one that does work; the shell steps back and gives it the height.
+            // (The masthead carries its own bottom hairline, so the seam under
+            // the chrome is unchanged.) See the header note in TailSurface.swift.
+            EmptyView()
         case .projects:
             V3SubBar {
                 ScoutSectionLabel("Projects · workspaces")
+            }
+        case .shell:
+            V3SubBar {
+                ScoutSectionLabel("Shell")
+                Spacer(minLength: 0)
+                if let machine = activeMachine {
+                    Text(machine.name)
+                        .font(HudFont.mono(HudTextSize.micro))
+                        .foregroundStyle(ScoutInk.dim)
+                        .lineLimit(1)
+                }
             }
         case .alerts:
             V3SubBar {

@@ -89,6 +89,11 @@ enum ScoutPalette {
 enum ScoutHairline {
     static let subtle = scoutAdaptive(light: (224, 217, 205), dark: (24, 24, 24))
     static let standard = scoutAdaptive(light: (205, 197, 184), dark: (38, 38, 38))
+    /// The one rung above `standard`, for seams that separate CHROME from
+    /// content rather than one row from the next — the masthead's underline and
+    /// the sub bar's. At `standard` the top of the screen read as a single
+    /// undifferentiated slab; this gives the fixed bars an edge you can see.
+    static let strong = scoutAdaptive(light: (182, 172, 156), dark: (58, 58, 58))
 }
 
 /// Hudson primitives that read the runtime theme inherit Scout's adaptive
@@ -812,6 +817,11 @@ extension ScoutCanvas {
 // ink → muted → dim hierarchy distinct. App-level only; hudson's palette (and
 // the macOS app) stays untouched. One place to tune the whole iOS app's contrast.
 enum ScoutInk {
+    /// Long-form reading text that sits UNDER a primary label — a feed post's
+    /// outcome line beneath its handle. One rung down from `ink` so the eye
+    /// lands on the label first, but well clear of `muted`: this is prose to be
+    /// read, not a secondary annotation.
+    static let body = scoutAdaptive(light: (58, 55, 50), dark: (208, 208, 208))
     /// Secondary text. ↑ from hudson `muted` #A3A3A3 (163).
     static let muted = ScoutPalette.muted
     /// Tertiary text / faint labels. ↑ from hudson `dim` #737373 (115) — the real
