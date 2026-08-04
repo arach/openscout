@@ -170,7 +170,6 @@ export function resolveThreadEmbedProps(params: URLSearchParams): {
   conversationId: string;
   embedded: true;
   showBackNav: false;
-  showComposer: boolean;
   treatment: ThreadTreatment;
 } {
   const candidate = params.get("treatment")?.trim() as ThreadTreatment | undefined;
@@ -178,7 +177,6 @@ export function resolveThreadEmbedProps(params: URLSearchParams): {
     conversationId: params.get("conversationId")?.trim() || "",
     embedded: true,
     showBackNav: false,
-    showComposer: params.get("composer")?.trim() !== "0",
     treatment: candidate && THREAD_TREATMENTS.includes(candidate) ? candidate : "standard",
   };
 }

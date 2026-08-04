@@ -59,6 +59,7 @@ import { isNoisyConversationStatusMessage } from "../../lib/message-visibility.t
 import {
   routeMachineId,
 } from "../../lib/router.ts";
+import { forwardScoutbotUiActionToNativeHost } from "../../lib/scoutbot.ts";
 import {
   saveLastViewed,
 } from "../../lib/sessionRead.ts";
@@ -238,7 +239,6 @@ export function ConversationScreen({
   navigate,
   embedded,
   showBackNav = true,
-  showComposer = true,
   treatment = "standard",
 }: {
   conversationId: string;
@@ -246,7 +246,6 @@ export function ConversationScreen({
   navigate: (r: Route) => void;
   embedded?: boolean;
   showBackNav?: boolean;
-  showComposer?: boolean;
   /// How the thread is presented — see the "Presentations" block in
   /// conversation-screen.css. "standard" is the shipping bordered card;
   /// ledger/rail/document come from the readability study.
@@ -1191,6 +1190,10 @@ export function ConversationScreen({
     : undefined;
   const focusSteerComposer = isDm
     ? () => {
+        if (embedded && forwardScoutbotUiActionToNativeHost({
+          type: "focus-composer",
+          reason: "Steer the active conversation",
+        })) return;
         requestAnimationFrame(() => {
           composeRef.current?.focus({ preventScroll: true });
           composeRef.current?.scrollIntoView({ block: "nearest" });
@@ -2823,44 +2826,42 @@ export function ConversationScreen({
           </div>
         )}
 
-        {showComposer ? (
-          <ConversationComposer
-            composeRef={composeRef}
-            draft={draft}
-            setDraft={setDraft}
-            composePlaceholder={composePlaceholder}
-            slashState={slashState}
-            setSlashState={setSlashState}
-            filteredSlashCommands={filteredSlashCommands}
-            applySlashCommand={applySlashCommand}
-            mentionState={mentionState}
-            setMentionState={setMentionState}
-            filteredMentions={filteredMentions}
-            applyMention={applyMention}
-            updateTriggersFromDraft={updateTriggersFromDraft}
-            closeSuggestions={closeSuggestions}
-            replyTarget={replyTarget}
-            onCancelReply={cancelReply}
-            isStopMode={isStopMode}
-            sending={sending}
-            composeAction={composeAction}
-            onSend={() => void send()}
-            onInterrupt={() => void interrupt()}
-            sendReceipt={sendReceipt}
-            attachments={attachments}
-            isAgentBusy={isAgentBusy}
-            busyIntent={busyIntent}
-            onBusyIntentChange={setBusyIntent}
-            queued={queued}
-            queueNote={queueNote}
-            onEditQueued={editQueued}
-            editingQueuedId={editingQueued?.id ?? null}
-            editingAttachmentCount={carriedAttachments.length}
-            onCancelEdit={cancelEdit}
-            onUnqueue={unqueue}
-            onSendQueuedNow={(id) => void sendQueuedNow(id)}
-          />
-        ) : null}
+        <ConversationComposer
+          composeRef={composeRef}
+          draft={draft}
+          setDraft={setDraft}
+          composePlaceholder={composePlaceholder}
+          slashState={slashState}
+          setSlashState={setSlashState}
+          filteredSlashCommands={filteredSlashCommands}
+          applySlashCommand={applySlashCommand}
+          mentionState={mentionState}
+          setMentionState={setMentionState}
+          filteredMentions={filteredMentions}
+          applyMention={applyMention}
+          updateTriggersFromDraft={updateTriggersFromDraft}
+          closeSuggestions={closeSuggestions}
+          replyTarget={replyTarget}
+          onCancelReply={cancelReply}
+          isStopMode={isStopMode}
+          sending={sending}
+          composeAction={composeAction}
+          onSend={() => void send()}
+          onInterrupt={() => void interrupt()}
+          sendReceipt={sendReceipt}
+          attachments={attachments}
+          isAgentBusy={isAgentBusy}
+          busyIntent={busyIntent}
+          onBusyIntentChange={setBusyIntent}
+          queued={queued}
+          queueNote={queueNote}
+          onEditQueued={editQueued}
+          editingQueuedId={editingQueued?.id ?? null}
+          editingAttachmentCount={carriedAttachments.length}
+          onCancelEdit={cancelEdit}
+          onUnqueue={unqueue}
+          onSendQueuedNow={(id) => void sendQueuedNow(id)}
+        />
       </div>
 
     </div>
@@ -2889,9 +2890,9 @@ function ReplyGlyph() {
 /**
  * Thread — the conversation surface, embeddable.
  *
- * Native hosts render this same conversation component. A host may suppress
- * the web composer when it provides a platform-native input with stronger local
- * affordances; the transcript remains the canonical shared implementation.
+ * Native hosts render this same conversation component. The shared embed
+ * boundary suppresses MessageComposer atoms when the host owns message input;
+ * the transcript remains the canonical shared implementation.
  */
 export const scoutSurface = defineSurface({
   id: "thread",
@@ -2906,8 +2907,8 @@ export const scoutSurface = defineSurface({
     chrome: { showSecondaryNav: false, showPageStatusBar: false },
     hosts: { macos: true },
     // The host owns navigation; an in-embed back arrow would strand the user
-    // inside a pane that has nowhere to go back to. Standalone embeds stay
-    // complete, while native hosts can request transcript-only with composer=0.
+    // inside a pane that has nowhere to go back to. Composer ownership is
+    // resolved once by the shared embed boundary.
     resolveEmbedProps: resolveThreadEmbedProps,
   },
 });

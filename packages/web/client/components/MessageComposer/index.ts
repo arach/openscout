@@ -7,6 +7,10 @@ export {
   type MessageComposerProps,
 } from "./MessageComposer.tsx";
 export {
+  MessageComposerEmbedBoundary,
+  useMessageComposerEmbedded,
+} from "./MessageComposerEmbedBoundary.tsx";
+export {
   MessageComposerToolSelect,
   type MessageComposerToolOption,
   type MessageComposerToolSelectProps,

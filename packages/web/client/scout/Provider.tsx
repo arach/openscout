@@ -573,6 +573,9 @@ export function ScoutProvider({
       case "navigate":
         navigate(action.route);
         break;
+      case "focus-composer":
+        window.dispatchEvent(new CustomEvent("scout:composer-focus"));
+        break;
       case "open-scoutbot":
         window.dispatchEvent(new CustomEvent("scout:scoutbot-panel-open", { detail: action }));
         break;

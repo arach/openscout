@@ -226,6 +226,17 @@ private struct ScoutDiffSheetRequest {
     }
 }
 
+/// A working-turn trace handed over by an embedded web surface (the shared
+/// thread's "Live trace"). Presents the same web session viewer the Tail
+/// sheet uses, over whichever section is active.
+private struct ScoutEmbeddedTraceRequest {
+    let sessionRef: String
+    let title: String
+    let subtitle: String
+
+    var id: String { sessionRef }
+}
+
 private struct ScoutThreadStartResponse: Decodable {
     let id: String?
     let conversationId: String?
@@ -561,6 +572,10 @@ struct ScoutRootView: View {
     /// `ScoutTailSessionSheet` (embedded web session viewer). Non-nil while the
     /// sheet is up; "Open session" on a tail row sets it.
     @State private var tailSessionEvent: ScoutTailEvent?
+
+    /// A live trace requested by an embedded web surface (the thread's "Live
+    /// trace" button). Non-nil while its session sheet is up.
+    @State private var embeddedTraceRequest: ScoutEmbeddedTraceRequest?
 
     private var manifest: HudAppManifest {
         HudAppManifest(
@@ -909,6 +924,26 @@ struct ScoutRootView: View {
             }
         }
         .animation(.easeOut(duration: 0.14), value: tailSessionEvent?.id)
+        .overlay {
+            // Embedded-surface "Live trace" — the same shared web session
+            // viewer, presented over whichever section is active so the
+            // conversation the user was watching stays put underneath.
+            if let request = embeddedTraceRequest {
+                ScoutTailSessionSheet(
+                    sessionRef: request.sessionRef,
+                    title: request.title,
+                    subtitle: request.subtitle,
+                    edge: .bottom,
+                    onClose: {
+                        withAnimation(.easeOut(duration: 0.14)) {
+                            embeddedTraceRequest = nil
+                        }
+                    }
+                )
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.14), value: embeddedTraceRequest?.id)
         .onReceive(NotificationCenter.default.publisher(for: .scoutAppCommand)) { notification in
             guard let command = ScoutAppCommand(notification: notification) else { return }
             handleAppCommand(command)
@@ -2219,7 +2254,7 @@ struct ScoutRootView: View {
     // participants live in the inspector so the header stays calm.
     private var chatHeader: some View {
         let channel = store.selectedChannel
-        return ScoutColumnHeader {
+        return ScoutColumnHeader(horizontalPadding: ScoutDesign.threadGutter) {
             // The focal title of the band — larger than the list title (13) and
             // the inspector eyebrow, but pulled down from 18 to lg (16) so the
             // three column headers share one tighter type rhythm and their
@@ -2844,13 +2879,10 @@ struct ScoutRootView: View {
             surface: .thread,
             extraQueryItems: [
                 URLQueryItem(name: "conversationId", value: conversationId),
-                // This window keeps its native composer — for the pasteboard,
-                // drag-drop, dictation and ⌘↩ it can reach and a web view
-                // can't. Without this the embed stacks a second one under it.
-                URLQueryItem(name: "composer", value: "0"),
                 URLQueryItem(name: "treatment", value: threadPresentation.rawValue),
             ],
-            showsHeader: false
+            showsHeader: false,
+            onNativeUIAction: handleContentEmbedAction
         )
         .id(conversationId)
     }
@@ -3071,7 +3103,7 @@ struct ScoutRootView: View {
         }
         // Match the shared web thread composer's 20pt side gutters and compact
         // footer spacing while retaining native paste, drop, voice and key input.
-        .padding(.horizontal, HudSpacing.xxxl)
+        .padding(.horizontal, ScoutDesign.threadGutter)
         .padding(.top, HudSpacing.lg)
         .padding(.bottom, HudSpacing.xxl)
         .background(ScoutDesign.bg)
@@ -3912,7 +3944,11 @@ struct ScoutRootView: View {
     }
 
     private var codeContent: some View {
-        ScoutWebEmbedContent(surface: .code, extraQueryItems: codeLinkQueryItems)
+        ScoutWebEmbedContent(
+            surface: .code,
+            extraQueryItems: codeLinkQueryItems,
+            onNativeUIAction: handleContentEmbedAction
+        )
             .id(codeLinkQueryItems.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: "&"))
     }
 
@@ -4619,7 +4655,7 @@ struct ScoutRootView: View {
                         ],
                         showsHeader: false,
                         onRealtimeVoiceStateChange: handleRealtimeVoiceState,
-                        onRealtimeVoiceAction: handleRealtimeVoiceAction,
+                        onNativeUIAction: handleRealtimeVoiceAction,
                         realtimeVoiceStopRequest: realtimeVoiceStopRequest
                     )
                     .frame(width: panelWidth, height: panelHeight)
@@ -4845,14 +4881,14 @@ struct ScoutRootView: View {
     /// The voice WebView owns WebRTC only. Scoutbot's typed UI actions cross
     /// the native bridge and resolve to the closest first-class macOS surface,
     /// so navigation never replaces the live call document.
-    private func handleRealtimeVoiceAction(_ action: ScoutRealtimeVoiceNativeAction) {
+    private func handleRealtimeVoiceAction(_ action: ScoutEmbeddedUIAction) {
         switch action.type {
         case "navigate":
             guard let route = action.route else {
                 reportUnsupportedRealtimeVoiceAction("That navigation request was incomplete.")
                 return
             }
-            if navigateFromRealtimeVoice(to: route) {
+            if navigateFromEmbeddedSurface(to: route) {
                 // Navigation happens in the native shell. Minimize the control
                 // surface so the requested destination is immediately visible;
                 // the footer keeps the call and its activity log reachable.
@@ -4885,8 +4921,49 @@ struct ScoutRootView: View {
         }
     }
 
+    /// The shared thread WebView owns the in-chat preview, while Scout's shell
+    /// owns section navigation. Promote a Code-browser handoff into the app
+    /// instead of letting the embedded thread replace its own route.
+    private func handleContentEmbedAction(_ action: ScoutEmbeddedUIAction) {
+        switch action.type {
+        case "navigate":
+            guard let route = action.route else { return }
+            _ = navigateFromEmbeddedSurface(to: route)
+        case "refresh":
+            store.refresh(force: true)
+            if section == .repos {
+                repos.refresh(force: true)
+            }
+        case "view-file":
+            guard let path = action.path?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !path.isEmpty
+            else { return }
+            fileViewer.open(path: path, line: nil)
+        case "open-scoutbot":
+            showingRealtimeVoice = true
+        case "focus-composer":
+            focusComposer()
+        default:
+            break
+        }
+    }
+
+    private func openCodeRoute(_ route: ScoutEmbeddedUIAction.Route) {
+        codeLinkQueryItems = [
+            URLQueryItem(name: "root", value: route.root),
+            URLQueryItem(name: "file", value: route.file),
+            URLQueryItem(name: "project", value: route.project),
+            URLQueryItem(name: "path", value: route.path),
+            URLQueryItem(name: "wt", value: route.wt),
+            URLQueryItem(name: "line", value: route.line.map(String.init)),
+            URLQueryItem(name: "endLine", value: route.endLine.map(String.init)),
+            URLQueryItem(name: "fromConversation", value: route.returnConversationId),
+        ].filter { $0.value?.isEmpty == false }
+        section = .code
+    }
+
     @discardableResult
-    private func navigateFromRealtimeVoice(to route: ScoutRealtimeVoiceNativeAction.Route) -> Bool {
+    private func navigateFromEmbeddedSurface(to route: ScoutEmbeddedUIAction.Route) -> Bool {
         switch route.view {
         case "inbox", "messages", "channels", "search":
             section = .comms
@@ -4907,12 +4984,23 @@ struct ScoutRootView: View {
             }
             section = .agents
             return true
-        case "agents-v2", "sessions", "harnesses":
+        case "agents-v2", "harnesses":
             section = .agents
             agentsShowProjects = true
             if let projectSlug = route.projectSlug, !projectSlug.isEmpty {
                 agentsFilterQuery = projectSlug
             }
+            if let agentId = route.agentId ?? route.selectedAgentId {
+                store.selectAgent(agentId)
+            }
+            return true
+        case "sessions":
+            // The thread's "Live trace" hands over the working turn's session /
+            // agent refs. Present the actual trace in place; only fall back to
+            // the Agents registry when no session can be resolved.
+            if presentEmbeddedSessionTrace(route) { return true }
+            section = .agents
+            agentsShowProjects = true
             if let agentId = route.agentId ?? route.selectedAgentId {
                 store.selectAgent(agentId)
             }
@@ -4927,16 +5015,7 @@ struct ScoutRootView: View {
             section = .repos
             return true
         case "code":
-            codeLinkQueryItems = [
-                URLQueryItem(name: "root", value: route.root),
-                URLQueryItem(name: "file", value: route.file),
-                URLQueryItem(name: "project", value: route.project),
-                URLQueryItem(name: "path", value: route.path),
-                URLQueryItem(name: "wt", value: route.wt),
-                URLQueryItem(name: "line", value: route.line.map(String.init)),
-                URLQueryItem(name: "endLine", value: route.endLine.map(String.init)),
-            ].filter { $0.value?.isEmpty == false }
-            section = .code
+            openCodeRoute(route)
             return true
         case "settings":
             if route.section == "voice" {
@@ -4980,6 +5059,26 @@ struct ScoutRootView: View {
             // the current native destination unchanged.
             return false
         }
+    }
+
+    /// Resolve an embedded `sessions` route to a concrete session ref — the
+    /// route's own session id, or the named agent's current harness session —
+    /// and present the shared web session viewer as a bottom sheet.
+    private func presentEmbeddedSessionTrace(_ route: ScoutEmbeddedUIAction.Route) -> Bool {
+        let agent = (route.agentId ?? route.selectedAgentId)
+            .flatMap { id in store.agents.first { $0.id == id } }
+        guard let sessionRef = route.sessionId?.nilIfEmpty ?? agent?.harnessSessionId?.nilIfEmpty else {
+            return false
+        }
+        let source = agent.flatMap { $0.harness?.nilIfEmpty ?? $0.transport?.nilIfEmpty } ?? "session"
+        withAnimation(.easeOut(duration: 0.14)) {
+            embeddedTraceRequest = ScoutEmbeddedTraceRequest(
+                sessionRef: sessionRef,
+                title: agent?.displayName ?? "Live trace",
+                subtitle: "\(source) · \(String(sessionRef.prefix(8)))"
+            )
+        }
+        return true
     }
 
     private func reportUnsupportedRealtimeVoiceAction(_ message: String) {
@@ -5134,6 +5233,8 @@ enum ScoutDesign {
     static let columnGutter = HudSpacing.huge   // 28 — primary content columns
     static let listGutter = HudSpacing.xxl      // 14 — narrow resizable list columns
     static let panelGutter = HudSpacing.lg      // 10 — trailing inspector/panel columns
+    /// Shared thread chrome and web transcript use the same 20pt reading edge.
+    static let threadGutter = HudSpacing.xxxl   // 20 — header, transcript, composer
     static let conversationListWidthRange: ClosedRange<CGFloat> = 188...440
     static let inspectorWidthRange: ClosedRange<CGFloat> = 260...520
     static let conversationResizeHandleWidth: CGFloat = 12

@@ -1,5 +1,7 @@
-import { lazy, Suspense, useMemo } from "react";
+import { lazy, Suspense, useCallback, useMemo } from "react";
+import type { Route } from "../lib/types.ts";
 import { useScout } from "../scout/Provider.tsx";
+import { routeEmbeddedNavigation } from "./embed-navigation.ts";
 import type { RegisteredSurface } from "./types.ts";
 import { resolveEmbedChrome } from "./types.ts";
 
@@ -29,6 +31,10 @@ export function DiscoveredEmbedHost({ surface }: { surface: RegisteredSurface })
   const { route, navigate, agents } = useScout();
   const Screen = surface.Screen;
   const embed = surface.embed!;
+  const navigateFromEmbed = useCallback(
+    (destination: Route) => routeEmbeddedNavigation(destination, navigate),
+    [navigate],
+  );
   const shouldRenderSurface =
     typeof window === "undefined"
     || surface.embedPaths.includes(window.location.pathname)
@@ -49,10 +55,10 @@ export function DiscoveredEmbedHost({ surface }: { surface: RegisteredSurface })
   return (
     <div className={rootClassName} data-scout-theme data-scout-surface={surface.id}>
       {shouldRenderSurface
-        ? <Screen navigate={navigate} embedded {...extraProps} />
+        ? <Screen navigate={navigateFromEmbed} embedded {...extraProps} />
         : (
           <Suspense fallback={null}>
-            <RoutedSurfaceFallback route={route} navigate={navigate} agents={agents} />
+            <RoutedSurfaceFallback route={route} navigate={navigateFromEmbed} agents={agents} />
           </Suspense>
         )}
     </div>

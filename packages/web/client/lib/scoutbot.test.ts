@@ -180,6 +180,37 @@ describe("forwardScoutbotUiActionToNativeHost", () => {
     expect(forwardScoutbotUiActionToNativeHost(action, {
       webkit: {
         messageHandlers: {
+          scoutNativeUI: { postMessage: (message) => messages.push(message) },
+        },
+      },
+    })).toBe(true);
+    expect(messages).toEqual([{ kind: "ui-action", action }]);
+  });
+
+  test("hands composer focus to the native owner", () => {
+    const messages: unknown[] = [];
+    const action = { type: "focus-composer", reason: "Steer the active conversation" } as const;
+
+    expect(forwardScoutbotUiActionToNativeHost(action, {
+      webkit: {
+        messageHandlers: {
+          scoutNativeUI: { postMessage: (message) => messages.push(message) },
+        },
+      },
+    })).toBe(true);
+    expect(messages).toEqual([{ kind: "ui-action", action }]);
+  });
+
+  test("keeps the realtime-voice handler as a compatibility fallback", () => {
+    const messages: unknown[] = [];
+    const action = {
+      type: "navigate",
+      route: { view: "code", root: "/repo", file: "/repo/a.ts" },
+    } as const;
+
+    expect(forwardScoutbotUiActionToNativeHost(action, {
+      webkit: {
+        messageHandlers: {
           scoutRealtimeVoice: { postMessage: (message) => messages.push(message) },
         },
       },

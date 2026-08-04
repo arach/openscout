@@ -1,7 +1,11 @@
 import { Component, StrictMode, type ErrorInfo, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 
-import { shouldBootstrapDiscoveredEmbed } from "./surfaces/embed-path.ts";
+import { MessageComposerEmbedBoundary } from "./components/MessageComposer/MessageComposerEmbedBoundary.tsx";
+import {
+  isLikelyDiscoveredEmbedPath,
+  shouldBootstrapDiscoveredEmbed,
+} from "./surfaces/embed-path.ts";
 
 import {
   applyScoutThemeToDocument,
@@ -120,7 +124,9 @@ async function renderShell() {
   createRoot(rootElement).render(
     <StrictMode>
       <ScoutBootErrorBoundary>
-        {content}
+        {isLikelyDiscoveredEmbedPath(pathname)
+          ? <MessageComposerEmbedBoundary>{content}</MessageComposerEmbedBoundary>
+          : content}
       </ScoutBootErrorBoundary>
       {import.meta.env.DEV ? <DevErrorOverlay /> : null}
     </StrictMode>,

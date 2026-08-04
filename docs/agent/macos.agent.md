@@ -121,6 +121,22 @@ one use, and the usage index is bounded to 64 valid project ids.
 - Focused fields own every keystroke before panel, host-window, or bare-key navigation layers. Shared field code only claims explicit Return/Tab/arrow/Escape controls; it never installs handlers for printable shortcut letters.
 - New installs default to Apple. On macOS 26+, Apple and Auto resolve to `SpeechAnalyzer` + `SpeechTranscriber` with system-managed assets and volatile live results; this path requests microphone access only. Parakeet is explicit opt-in. macOS 14–15 retain Hudson's legacy Apple/Parakeet compatibility path and its separate Speech Recognition permission.
 
+### Native conversation embed boundary
+
+The macOS Comms detail embeds the shared web `/embed/thread` transcript, but the
+native shell owns product navigation and the only composer. `DiscoveredEmbedHost`
+must route every screen-level `navigate` call through the `scoutNativeUI` bridge;
+an embedded route must never replace the transcript WebView with Sessions,
+Terminal, Code, or another full product screen. Standalone web keeps using its
+local router.
+
+Working-turn controls follow the same ownership rule. **Steer** emits
+`focus-composer` so `ScoutRootView` focuses the native message field. **Terminal**
+is offered only when the selected agent has a real `terminalSurface`; a harness
+session id or Codex App Server transport alone does not imply an interactive
+terminal. Flight/session observation remains a secondary destination, while the
+conversation and its original operator message stay the primary task surface.
+
 ## Data flow
 
 | Store | Target | Cadence | Notes |

@@ -13,6 +13,7 @@ import {
 } from "react";
 import { isComposerSendShortcut } from "../../lib/compose-shortcuts.ts";
 import { DictationMic, type MicStatus } from "../DictationMic.tsx";
+import { useMessageComposerEmbedded } from "./MessageComposerEmbedBoundary.tsx";
 import { VoiceWaveform } from "./VoiceWaveform.tsx";
 import "./message-composer.css";
 
@@ -27,6 +28,11 @@ export type MessageComposerProps = {
   value: string;
   onChange: (value: string, meta?: MessageComposerChangeMeta) => void;
   onSend: () => void;
+  /**
+   * Embedded surfaces normally defer to their host's composer. Set this only
+   * when an embed intentionally owns a distinct message target.
+   */
+  renderWhenEmbedded?: boolean;
   placeholder?: string;
   /** Disables the textarea and actions. */
   disabled?: boolean;
@@ -194,6 +200,15 @@ function voiceLabel(status: MicStatus): string {
  * ready. Send never stops the mic; the mic never sends.
  */
 export function MessageComposer({
+  renderWhenEmbedded = false,
+  ...props
+}: MessageComposerProps) {
+  const embedded = useMessageComposerEmbedded();
+  if (embedded && !renderWhenEmbedded) return null;
+  return <MessageComposerControl {...props} />;
+}
+
+function MessageComposerControl({
   value,
   onChange,
   onSend,
@@ -237,7 +252,7 @@ export function MessageComposer({
   autoResize = true,
   maxHeightPx = 160,
   "aria-label": ariaLabel = "Message",
-}: MessageComposerProps) {
+}: Omit<MessageComposerProps, "renderWhenEmbedded">) {
   const localRef = useRef<HTMLTextAreaElement | null>(null);
   const [voiceStatus, setVoiceStatus] = useState<MicStatus | null>(null);
 
