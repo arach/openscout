@@ -72,11 +72,13 @@ export type RelayAgentWatchdogOptions = {
  * watchdog's liveness probe and kill target exact: the pid cannot be recycled
  * while the harness is alive, and the watchdog exits with the harness.
  *
- * Runs under `set -uo pipefail` in a non-interactive bash; both the macOS
- * (`stat -f %m`) and GNU (`stat -c %Y`) mtime spellings are attempted. A
- * missing or unreadable heartbeat counts from the relay's own launch time, so
- * a runtime that never heartbeats again still reaps its relays after the
- * grace window.
+ * Runs under `set -uo pipefail` in a non-interactive bash. Both mtime
+ * spellings are attempted — GNU (`stat -c %Y`) first, then macOS/BSD
+ * (`stat -f %m`) — and validated numerically, because on GNU `stat -f` is
+ * *filesystem* status and succeeds with non-numeric output (so mere
+ * command-success cannot pick the right spelling). A missing or unreadable
+ * heartbeat counts from the relay's own launch time, so a runtime that never
+ * heartbeats again still reaps its relays after the grace window.
  */
 export function buildRelayAgentWatchdogDirectives(options: RelayAgentWatchdogOptions): string[] {
   const graceMs = options.graceMs ?? DEFAULT_RELAY_AGENT_ORPHAN_GRACE_MS;
@@ -96,7 +98,8 @@ export function buildRelayAgentWatchdogDirectives(options: RelayAgentWatchdogOpt
     '  while kill -0 "$OPENSCOUT_RELAY_PID" 2>/dev/null; do',
     `    sleep ${pollSeconds}`,
     '    now="$(date +%s)"',
-    '    beat="$(stat -f %m "$OPENSCOUT_RELAY_HEARTBEAT" 2>/dev/null || stat -c %Y "$OPENSCOUT_RELAY_HEARTBEAT" 2>/dev/null || echo "")"',
+    '    beat="$(stat -c %Y "$OPENSCOUT_RELAY_HEARTBEAT" 2>/dev/null || true)"',
+    "    case \"$beat\" in ''|*[!0-9]*) beat=\"$(stat -f %m \"$OPENSCOUT_RELAY_HEARTBEAT\" 2>/dev/null || true)\";; esac",
     "    case \"$beat\" in ''|*[!0-9]*) beat=\"$launched_at\";; esac",
     `    if [ "$((now - beat))" -lt ${graceSeconds} ]; then`,
     "      continue",
