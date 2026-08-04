@@ -12,6 +12,7 @@ import {
   type InterruptThreshold,
   type OpenScoutUserConfig,
   type ProvisionalAgentNamesMode,
+  type TailThinkingMode,
 } from "./user-config.js";
 
 export type UserConfigFieldKind = "string" | "number" | "enum" | "string-list";
@@ -52,6 +53,7 @@ const COMMS_CHANNELS = ["here", "mobile", "here+mobile"] as const;
 const COMMS_VERBOSITIES = ["terse", "normal", "detailed"] as const;
 const COMMS_TONES = ["direct", "warm", "formal"] as const;
 const AGENT_NAME_MODES = ["replace", "extend"] as const;
+const TAIL_THINKING_MODES = ["hide", "tag"] as const;
 
 function parseStringValue(args: string[]): string | undefined {
   const value = args.join(" ").trim();
@@ -200,6 +202,20 @@ export const USER_CONFIG_FIELDS: readonly UserConfigFieldDefinition[] = [
     formatSummary: (config) => formatStoredEnum(config.interruptThreshold) || "blocking-only (default)",
     apply: (config, value) => {
       setConfigValue(config, "interruptThreshold", value as InterruptThreshold);
+    },
+  },
+  {
+    id: "tail-thinking",
+    key: "tailThinking",
+    label: "Tail thinking beats",
+    kind: "enum",
+    enumValues: TAIL_THINKING_MODES,
+    summary: "Show a marker for thinking the model returned without text (hide | tag)",
+    parse: (args) => parseEnumValue(args, TAIL_THINKING_MODES),
+    resolveGet: (config) => formatStoredEnum(config.tailThinking),
+    formatSummary: (config) => formatStoredEnum(config.tailThinking) || "hide (default)",
+    apply: (config, value) => {
+      setConfigValue(config, "tailThinking", value as TailThinkingMode);
     },
   },
   {
