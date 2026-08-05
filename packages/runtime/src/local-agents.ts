@@ -38,6 +38,7 @@ import {
 import { invokeGrokAcpAgent } from "./grok-acp-invocation.js";
 import { invokeKimiAcpAgent } from "./kimi-acp-invocation.js";
 import { invokeCursorAcpAgent } from "./cursor-acp-invocation.js";
+import { invokeOpencodeAcpAgent } from "./opencode-acp-invocation.js";
 import { shutdownAcpAgentSession } from "./acp-agent-invocation.js";
 
 import {
@@ -968,7 +969,7 @@ function normalizeLocalAgentTransport(value: string | undefined, harness: AgentH
     return "pi_rpc";
   }
 
-  if (value === "grok_acp" || value === "kimi_acp" || value === "cursor_acp") {
+  if (value === "grok_acp" || value === "kimi_acp" || value === "cursor_acp" || value === "opencode_acp") {
     return value;
   }
 
@@ -2090,13 +2091,16 @@ export async function shutdownLocalSessionEndpoint(endpoint: AgentEndpoint): Pro
     endpoint.transport === "grok_acp"
     || endpoint.transport === "kimi_acp"
     || endpoint.transport === "cursor_acp"
+    || endpoint.transport === "opencode_acp"
   ) {
     await shutdownAcpAgentSession({
       adapterType: endpoint.transport === "grok_acp"
         ? "grok-acp"
         : endpoint.transport === "kimi_acp"
           ? "kimi-acp"
-          : "cursor-acp",
+          : endpoint.transport === "opencode_acp"
+            ? "opencode-acp"
+            : "cursor-acp",
       sessionId: endpointRuntimeInstanceId(endpoint),
       poolKey: endpoint.id,
     });
@@ -2744,7 +2748,8 @@ function isLocalAgentRecordOnline(agentName: string, record: LocalAgentRecord): 
 
   if (normalizedRecord.transport === "grok_acp"
     || normalizedRecord.transport === "kimi_acp"
-    || normalizedRecord.transport === "cursor_acp") {
+    || normalizedRecord.transport === "cursor_acp"
+    || normalizedRecord.transport === "opencode_acp") {
     return areHarnessBinariesAvailable(normalizedRecord);
   }
 
@@ -2793,7 +2798,12 @@ export function isLocalAgentEndpointAlive(endpoint: AgentEndpoint): boolean {
     return isPiRpcAgentAlive(buildPiEndpointSessionOptions(endpoint));
   }
 
-  if (endpoint.transport === "grok_acp" || endpoint.transport === "kimi_acp" || endpoint.transport === "cursor_acp") {
+  if (
+    endpoint.transport === "grok_acp"
+    || endpoint.transport === "kimi_acp"
+    || endpoint.transport === "cursor_acp"
+    || endpoint.transport === "opencode_acp"
+  ) {
     return endpoint.state !== "offline";
   }
 
@@ -4005,6 +4015,7 @@ export function areHarnessBinariesAvailable(record: Pick<LocalAgentRecord, "harn
   if (record.transport === "grok_acp") binaries.add("grok");
   if (record.transport === "kimi_acp") binaries.add("kimi");
   if (record.transport === "cursor_acp") binaries.add("cursor-agent");
+  if (record.transport === "opencode_acp") binaries.add("opencode");
 
   if (record.transport === "tmux") {
     binaries.add("tmux");
@@ -5462,6 +5473,28 @@ export async function invokeLocalAgentEndpoint(
     };
   }
 
+  if (!existing && endpoint.transport === "opencode_acp") {
+    const cwd = endpoint.cwd ?? endpoint.projectRoot ?? process.cwd();
+    const sessionId = endpointRuntimeInstanceId(endpoint);
+    const model = endpointMetadataString(endpoint, "model");
+    const result = await invokeOpencodeAcpAgent({
+      sessionId,
+      poolKey: endpoint.id,
+      resumeSessionId: endpointMetadataString(endpoint, "externalSessionId"),
+      cwd,
+      prompt,
+      name: String(endpoint.metadata?.agentName ?? endpoint.metadata?.definitionId ?? "OpenCode ACP"),
+      timeoutMs: invocation.timeoutMs,
+      ...(model ? { adapterOptions: { model } } : {}),
+    });
+
+    return {
+      output: result.output,
+      externalSessionId: result.sessionId,
+      metadata: result.metadata,
+    };
+  }
+
   if (!existing && endpoint.transport === "cursor_acp") {
     const cwd = endpoint.cwd ?? endpoint.projectRoot ?? process.cwd();
     const sessionId = endpointRuntimeInstanceId(endpoint);
@@ -5590,7 +5623,12 @@ export async function invokeLocalAgentEndpoint(
     };
   }
 
-  if (onlineRecord.transport === "grok_acp" || onlineRecord.transport === "kimi_acp" || onlineRecord.transport === "cursor_acp") {
+  if (
+    onlineRecord.transport === "grok_acp"
+    || onlineRecord.transport === "kimi_acp"
+    || onlineRecord.transport === "cursor_acp"
+    || onlineRecord.transport === "opencode_acp"
+  ) {
     const commonOptions = {
       sessionId: onlineRecord.tmuxSession || agentRuntimeId,
       poolKey: endpoint.id,
@@ -5600,11 +5638,17 @@ export async function invokeLocalAgentEndpoint(
       name: definitionId,
       timeoutMs: invocation.timeoutMs,
     };
+    const opencodeModel = endpointMetadataString(endpoint, "model");
     const result = onlineRecord.transport === "grok_acp"
       ? await invokeGrokAcpAgent(commonOptions)
       : onlineRecord.transport === "kimi_acp"
         ? await invokeKimiAcpAgent(commonOptions)
-        : await invokeCursorAcpAgent(commonOptions);
+        : onlineRecord.transport === "opencode_acp"
+          ? await invokeOpencodeAcpAgent({
+            ...commonOptions,
+            ...(opencodeModel ? { adapterOptions: { model: opencodeModel } } : {}),
+          })
+          : await invokeCursorAcpAgent(commonOptions);
     return {
       output: result.output,
       externalSessionId: result.sessionId,

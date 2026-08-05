@@ -357,6 +357,58 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
     },
   },
   {
+    name: "opencode",
+    harness: "opencode",
+    label: "OpenCode",
+    description: "OpenCode's coding agent over ACP, fronting many model vendors via OpenCode Zen",
+    homepage: "https://opencode.ai/docs/",
+    tags: ["coding", "cli", "opencode", "acp"],
+    featured: true,
+    order: 4,
+    support: {
+      ...DEFAULT_SUPPORT,
+      workspace: true,
+      collaboration: true,
+      files: true,
+    },
+    install: {
+      binary: "opencode",
+      requires: ["curl"],
+      macos: "curl -fsSL https://opencode.ai/install | bash",
+      linux: "curl -fsSL https://opencode.ai/install | bash",
+      windows: "irm https://opencode.ai/install.ps1 | iex",
+    },
+    readiness: {
+      anyOf: [
+        // OpenCode reads auth.json ahead of OPENCODE_API_KEY, so a seeded
+        // image quietly ignores an injected key. Ordered as it behaves.
+        {
+          kind: "file",
+          path: "~/.local/share/opencode/auth.json",
+          label: "~/.local/share/opencode/auth.json",
+          fileType: "file",
+        },
+        { kind: "env", key: "OPENCODE_API_KEY" },
+        { kind: "env", key: "SCOUT_OPENCODE_API_KEY" },
+      ],
+      loginCommand: "opencode auth login",
+      notReadyMessage:
+        "OpenCode is installed but still needs a cached login, OPENCODE_API_KEY, or SCOUT_OPENCODE_API_KEY.",
+    },
+    resume: {
+      command: "opencode",
+      sessionFlag: "--session",
+    },
+    sessionDefaults: {
+      defaultTransport: "opencode_acp",
+    },
+    capabilities: ["chat", "invoke", "deliver", "review", "execute"],
+    metadata: {
+      adapterType: "opencode-acp",
+      transport: "acp_stdio",
+    },
+  },
+  {
     name: "cursor",
     harness: "cursor",
     label: "Cursor CLI",

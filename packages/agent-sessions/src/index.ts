@@ -101,6 +101,7 @@ export { createAdapter as createGrokAcpAdapter } from "./adapters/grok-acp/index
 export { createAdapter as createKimiAcpAdapter } from "./adapters/kimi-acp/index.js";
 export { createAdapter as createOpenAiCompatAdapter } from "./adapters/openai-compat/index.js";
 export { createAdapter as createOpencodeAdapter } from "./adapters/opencode/index.js";
+export { createAdapter as createOpencodeAcpAdapter } from "./adapters/opencode-acp/index.js";
 export { createAdapter as createPiAdapter } from "./adapters/pi/index.js";
 export { createAdapter as createEchoAdapter } from "./adapters/echo/index.js";
 export { buildScoutMcpCodexLaunchArgs } from "./codex-launch-config.js";

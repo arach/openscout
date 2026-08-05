@@ -278,6 +278,7 @@
     "test:conformance": "OPENSCOUT_CONFORMANCE=1 bun test src/system-probes.test.ts --test-name-pattern='scoutd conformance diff harness'",
     "test:scenarios": "bun test src/scenario-suite.test.ts",
     "test:live:codex-app-server": "bun test src/codex-app-server-live.test.ts",
+    "test:live:opencode-acp": "bun test src/opencode-acp-live.test.ts",
     "test:e2e:local-agent-pass": "bash ../../scripts/run-live-local-agent-pass.sh",
     "test:live:local-agent-pass": "bash ../../scripts/run-live-local-agent-pass.sh",
     "prepack": "bun run build && node ../../scripts/prepare-publish-manifest.mjs .",
