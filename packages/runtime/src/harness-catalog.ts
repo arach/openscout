@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { resolveCodexExecutableInventory, type CodexExecutableCandidate } from "@openscout/agent-sessions/codex-executable";
+import { harnessAuthModel } from "@openscout/agent-sessions/auth";
 import type { AgentCapability, AgentHarness } from "@openscout/protocol";
 
 import { resolveOpenScoutSupportPaths } from "./support-paths.js";
@@ -156,6 +157,48 @@ const DEFAULT_SUPPORT: HarnessCatalogSupport = {
   onboarding: true,
 };
 
+/**
+ * Derive a readiness config from the harness auth model
+ * (`@openscout/agent-sessions/auth`), so credentials are declared once and
+ * both readiness and redaction read the same list.
+ *
+ * Hand-written `anyOf` arrays drifted from what the harnesses actually read:
+ * Claude's omitted `CLAUDE_CODE_OAUTH_TOKEN`, so a machine authenticated via
+ * `claude setup-token` — the portable, subscription-billed path — reported as
+ * not authenticated. Deriving keeps the two in step.
+ *
+ * `helper` credentials (Claude Code's `apiKeyHelper`) are skipped: they name a
+ * command that returns a key rather than something whose presence is testable
+ * here. Values that are not readiness signals on their own (refresh tokens)
+ * are skipped too, while remaining subject to redaction.
+ */
+function readinessFromAuthModel(harness: string): HarnessReadinessConfig | undefined {
+  const model = harnessAuthModel(harness);
+  if (!model) return undefined;
+
+  const anyOf: HarnessRequirement[] = [];
+  for (const credential of model.credentials) {
+    if (credential.kind === "env") {
+      if (credential.readinessSignal === false) continue;
+      anyOf.push({ kind: "env", key: credential.key });
+    } else if (credential.kind === "file") {
+      anyOf.push({
+        kind: "file",
+        path: credential.path,
+        label: credential.label ?? credential.path,
+        ...(credential.fileType ? { fileType: credential.fileType } : {}),
+      });
+    }
+  }
+  if (anyOf.length === 0) return undefined;
+
+  return {
+    anyOf,
+    ...(model.login ? { loginCommand: model.login.command } : {}),
+    ...(model.notReadyMessage ? { notReadyMessage: model.notReadyMessage } : {}),
+  };
+}
+
 const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
   {
     name: "claude",
@@ -178,15 +221,7 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
       linux: "npm install -g @anthropic-ai/claude-code",
       windows: "npm install -g @anthropic-ai/claude-code",
     },
-    readiness: {
-      anyOf: [
-        { kind: "env", key: "ANTHROPIC_API_KEY" },
-        { kind: "file", path: "~/.claude/sessions", label: "~/.claude/sessions", fileType: "directory" },
-        { kind: "file", path: "~/.claude/.credentials.json", label: "~/.claude/.credentials.json", fileType: "file" },
-      ],
-      loginCommand: "claude login",
-      notReadyMessage: "Claude is installed but not authenticated yet.",
-    },
+    readiness: readinessFromAuthModel("claude"),
     resume: {
       command: "claude",
       sessionFlag: "--resume",
@@ -217,16 +252,7 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
       macos: "curl -fsSL https://grok.com/install.sh | bash",
       linux: "curl -fsSL https://grok.com/install.sh | bash",
     },
-    readiness: {
-      anyOf: [
-        { kind: "env", key: "XAI_API_KEY" },
-        { kind: "env", key: "SCOUT_XAI_API_KEY" },
-        { kind: "file", path: "~/.grok/auth.json", label: "~/.grok/auth.json", fileType: "file" },
-        { kind: "file", path: "~/.grok/sessions", label: "~/.grok/sessions", fileType: "directory" },
-      ],
-      loginCommand: "grok login",
-      notReadyMessage: "Grok is installed but not authenticated yet.",
-    },
+    readiness: readinessFromAuthModel("grok"),
     resume: {
       command: "grok",
       sessionFlag: "--resume",
@@ -300,15 +326,7 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
       linux: "curl -fsSL https://x.ai/cli/install.sh | bash",
       windows: "irm https://x.ai/cli/install.ps1 | iex",
     },
-    readiness: {
-      anyOf: [
-        { kind: "file", path: "~/.grok/auth.json", label: "~/.grok/auth.json", fileType: "file" },
-        { kind: "env", key: "XAI_API_KEY" },
-        { kind: "env", key: "SCOUT_XAI_API_KEY" },
-      ],
-      loginCommand: "grok login",
-      notReadyMessage: "Grok ACP is installed but still needs a cached login or XAI_API_KEY.",
-    },
+    readiness: readinessFromAuthModel("grok-acp"),
     sessionDefaults: {
       defaultTransport: "grok_acp",
     },
@@ -378,23 +396,7 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
       linux: "curl -fsSL https://opencode.ai/install | bash",
       windows: "irm https://opencode.ai/install.ps1 | iex",
     },
-    readiness: {
-      anyOf: [
-        // OpenCode reads auth.json ahead of OPENCODE_API_KEY, so a seeded
-        // image quietly ignores an injected key. Ordered as it behaves.
-        {
-          kind: "file",
-          path: "~/.local/share/opencode/auth.json",
-          label: "~/.local/share/opencode/auth.json",
-          fileType: "file",
-        },
-        { kind: "env", key: "OPENCODE_API_KEY" },
-        { kind: "env", key: "SCOUT_OPENCODE_API_KEY" },
-      ],
-      loginCommand: "opencode auth login",
-      notReadyMessage:
-        "OpenCode is installed but still needs a cached login, OPENCODE_API_KEY, or SCOUT_OPENCODE_API_KEY.",
-    },
+    readiness: readinessFromAuthModel("opencode"),
     resume: {
       command: "opencode",
       sessionFlag: "--session",

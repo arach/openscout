@@ -250,3 +250,60 @@ describe("harness catalog", () => {
     }
   });
 });
+
+describe("readiness derived from the harness auth model", () => {
+  const noFiles = () => false;
+  const entry = (name: string) => {
+    const found = createBuiltInHarnessCatalog().find((candidate) => candidate.name === name);
+    if (!found) throw new Error(`missing catalog entry: ${name}`);
+    return found;
+  };
+
+  test("a setup-token OAuth credential counts as authenticated", () => {
+    // The regression this derivation exists for: Claude Code reads
+    // CLAUDE_CODE_OAUTH_TOKEN, but the hand-written block listed only
+    // ANTHROPIC_API_KEY, so a machine authenticated via `claude setup-token`
+    // reported as not authenticated.
+    const report = evaluateHarnessReadiness(entry("claude"), {
+      env: { CLAUDE_CODE_OAUTH_TOKEN: "fake-token-value-for-tests" },
+      requirementExists: noFiles,
+    });
+    expect(report.configured).toBe(true);
+  });
+
+  test("a refresh token alone does not count as authenticated", () => {
+    // It proves a prior login happened but cannot authenticate a request.
+    const report = evaluateHarnessReadiness(entry("claude"), {
+      env: { CLAUDE_CODE_OAUTH_REFRESH_TOKEN: "fake-token-value-for-tests" },
+      requirementExists: noFiles,
+    });
+    expect(report.configured).toBe(false);
+  });
+
+  test("no credential at all is still unconfigured", () => {
+    const report = evaluateHarnessReadiness(entry("claude"), {
+      env: {},
+      requirementExists: noFiles,
+    });
+    expect(report.configured).toBe(false);
+  });
+
+  test("keeps OpenCode's auth.json ahead of its env key", () => {
+    // Order is the contract: OpenCode reads auth.json first, so a seeded
+    // image would ignore an injected OPENCODE_API_KEY.
+    const requirements = entry("opencode").readiness?.anyOf ?? [];
+    const keys = requirements.map((requirement) =>
+      requirement.kind === "file" ? requirement.path : requirement.key);
+    expect(keys[0]).toBe("~/.local/share/opencode/auth.json");
+    expect(keys.indexOf("OPENCODE_API_KEY")).toBeGreaterThan(0);
+  });
+
+  test("grok and grok-acp resolve the same xAI credentials", () => {
+    const keysFor = (name: string) => (entry(name).readiness?.anyOf ?? [])
+      .filter((requirement) => requirement.kind === "env")
+      .map((requirement) => (requirement.kind === "env" ? requirement.key : ""))
+      .sort();
+    expect(keysFor("grok")).toEqual(keysFor("grok-acp"));
+  });
+});
+
