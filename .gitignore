@@ -135,3 +135,6 @@ ds-bundle/
 
 # Tracked: declares which credentials exist, never their values.
 !.env.schema
+
+# Regenerated from .env.schema on every varlock load; never edited by hand.
+/env.d.ts
