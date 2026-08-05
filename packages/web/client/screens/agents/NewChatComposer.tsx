@@ -32,7 +32,13 @@ import type {
   ForwardContextMode,
   ForwardContextSource,
 } from "../../lib/context-capture-draft.ts";
+import {
+  boundedSelection,
+  buildComposerContext,
+  formatComposerContextBody,
+} from "../../lib/composer-context.ts";
 import { buildForwardTaskInstructions } from "../../lib/forward-context.ts";
+import { NewChatOrigin } from "./NewChatOrigin.tsx";
 import { useFocusTrap } from "../../lib/keyboard-nav.ts";
 import {
   dataTransferMayContainFiles,
@@ -334,6 +340,22 @@ export function NewChatComposer({
   const [attachmentFeedback, setAttachmentFeedback] = useState<string | null>(
     () => initialAttachmentFeedback ?? null,
   );
+  // Where the operator was when they opened this. Read once on mount: opening
+  // the panel moves focus and clears the document selection, so by the time
+  // there is a button to press the selection is already gone. Capturing the
+  // snapshot is not the same as sending it — nothing below reaches the message
+  // until `attachSelection` is true.
+  const [origin] = useState(() => {
+    if (typeof window === "undefined") return { title: "", url: "", selection: "" };
+    const active = document.activeElement;
+    const typing = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement;
+    return {
+      title: document.title,
+      url: window.location.href,
+      selection: typing ? "" : boundedSelection(window.getSelection()?.toString() ?? ""),
+    };
+  });
+  const [attachSelection, setAttachSelection] = useState(false);
   const [harness, setHarness] = useState(() => (
     routeAgent?.harness?.trim() || FALLBACK_RUNNER_OPTIONS.defaults.harness
   ));
@@ -465,9 +487,19 @@ export function NewChatComposer({
   const usesNewWorker = !hasAttachments || !canUseExistingChat || mode === "new-session";
   const runtimeBlocked = usesNewWorker && (runnerLoading || selectedHarness?.ready === false);
   const title = isForwarding ? "Forward to new task" : hasAttachments ? "Route capture" : "New task";
+  // Forwarding states its source turns; a plain new task states its origin
+  // route. Both describe where the work came from, so they never stack.
+  const originContext = useMemo(
+    () => (isForwarding ? [] : buildComposerContext({
+      pageTitle: origin.title,
+      pageUrl: origin.url,
+      selection: attachSelection ? origin.selection : undefined,
+    })),
+    [attachSelection, isForwarding, origin],
+  );
   const committedMessage = isForwarding && initialForwardContext
     ? buildForwardTaskInstructions(initialForwardContext, forwardContextMode, message)
-    : message.trim();
+    : formatComposerContextBody(message, originContext);
   const phaseLabel = phase === "uploading"
     ? "Uploading capture"
     : isForwarding
@@ -1110,6 +1142,13 @@ export function NewChatComposer({
                 Choose the destination, runtime, and visible Scout context to carry into a fresh task.
               </p>
             ) : null}
+
+            <NewChatOrigin
+              context={originContext}
+              selection={origin.selection}
+              attached={attachSelection}
+              onToggleSelection={() => setAttachSelection((on) => !on)}
+            />
 
             <div className="s-newchat-project-bar">
               <span className="label-md s-newchat-project-label">Project</span>
