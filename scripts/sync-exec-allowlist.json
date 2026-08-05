@@ -154,6 +154,20 @@
     "owner": "agent-sessions"
   },
   {
+    "path": "packages/agent-sessions/src/adapters/opencode-acp/adapter.ts",
+    "symbol": "spawnSync",
+    "category": "imperative",
+    "reason": "local keychain secret lookup for OPENCODE_API_KEY, mirroring the pi-rpc secret-lookup imperative",
+    "owner": "agent-sessions"
+  },
+  {
+    "path": "packages/agent-sessions/src/adapters/opencode-acp/adapter.test.ts",
+    "symbol": "spawnSync",
+    "category": "test",
+    "reason": "asserts the keychain fallback against a stub binary passed by absolute path",
+    "owner": "agent-sessions"
+  },
+  {
     "path": "packages/runtime/src/agent-workspace.test.ts",
     "symbol": "node:child_process",
     "category": "test",
