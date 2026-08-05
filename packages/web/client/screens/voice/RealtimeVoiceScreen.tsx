@@ -148,13 +148,13 @@ export function RealtimeVoicePage() {
         <p className="font-mono text-xs uppercase tracking-[0.14em] text-[var(--scout-chrome-ink-faint)]">
           Scoutbot
         </p>
-        <h1 className="mt-1 text-xl font-medium text-[var(--scout-chrome-ink)]">Live voice</h1>
+        <h1 className="mt-1 text-3xl font-medium text-[var(--scout-chrome-ink-strong)]">Live voice</h1>
         <p className="mt-1 max-w-2xl text-xs leading-relaxed text-[var(--scout-chrome-ink-faint)]">
           Hold a live conversation, inspect navigation attempts, and audit what Scoutbot tried without leaving the call.
         </p>
       </div>
       <div className="min-h-0 flex-1 p-5">
-        <section className="mx-auto flex h-full min-h-[26rem] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-[var(--scout-chrome-border-soft)] bg-[color-mix(in_srgb,var(--scout-chrome-bg)_96%,black)] shadow-[0_18px_48px_rgba(0,0,0,0.24)]">
+        <section className="mx-auto flex h-full min-h-[26rem] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--hud-ink)_11%,transparent)] bg-[color-mix(in_srgb,var(--scout-chrome-bg)_96%,black)] shadow-[0_18px_48px_rgba(0,0,0,0.24)]">
           <ScoutbotRealtimeVoiceCallHeader state={state} layout="page" />
           <ScoutbotRealtimeVoiceCall dictationActive={false} layout="page" />
         </section>

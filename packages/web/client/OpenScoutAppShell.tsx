@@ -49,6 +49,7 @@ import {
   sideRailHasContent,
 } from "./scout/sidebar/ScoutSideRail.tsx";
 import { CenterPaneHeader } from "./scout/sidebar/CenterPaneHeader.tsx";
+import { TopRowIdentity } from "./scout/sidebar/TopRowIdentity.tsx";
 
 import {
   RAIL_COLLAPSED_WIDTH,
@@ -1517,6 +1518,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                 >
                   <CenterPaneHeader
                     variant="top-row"
+                    rightUtility={<TopRowIdentity />}
                     onInteractiveMouseDown={onInteractiveMouseDown}
                   />
                 </div>

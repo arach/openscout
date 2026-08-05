@@ -489,6 +489,33 @@ describe("getScoutConversations", () => {
     expect(earlier?.map((message) => message.id)).toEqual(["msg-!000"]);
   });
 
+  test("defers to the durable projection when the snapshot window holds nothing", async () => {
+    // The snapshot only carries a trailing window, so a conversation older than
+    // it reads as an empty page here. Answering `[]` published that silence as
+    // a verdict and opened every such conversation blank; `null` sends the read
+    // to SQLite, which still has the transcript.
+    brokerContextResult = brokerContext(baseSnapshot({ messages: {} }));
+
+    await expect(getScoutConversationMessages("chat_hudson-main", 80)).resolves.toBeNull();
+  });
+
+  test("defers to the durable projection for a page below the snapshot window", async () => {
+    const snapshot = baseSnapshot({ messages: {} });
+    seedBrokerMessages(snapshot, [2, 3]);
+    brokerContextResult = brokerContext(snapshot);
+
+    const oldest = (await getScoutConversationMessages("chat_hudson-main", 80))![0]!;
+    const beyond = await getScoutConversationMessages(
+      "chat_hudson-main",
+      80,
+      encodeMessageHistoryCursor(oldest),
+    );
+
+    // Start of the window is not start of history: scrollback continues in the
+    // durable projection instead of stopping at the window's edge.
+    expect(beyond).toBeNull();
+  });
+
   test("clamps an oversized broker page to the shared maximum", async () => {
     const snapshot = baseSnapshot({ messages: {} });
     seedBrokerMessages(

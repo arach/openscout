@@ -48,6 +48,9 @@ const CHILL_DISPATCHER_OVERRIDES: Partial<VoiceFxParams> = {
 export type ScoutbotAgentConfig = {
   editable: boolean;
   model: string;
+  /** Routing preference the server resolved for this config; mirrors
+   * ScoutbotAssistantProviderPreference in server/scoutbot-assistant.ts. */
+  provider?: "auto" | "openai" | "codex";
   systemPrompt: string;
 };
 

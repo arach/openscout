@@ -15,6 +15,7 @@ import { snapshotRecentEvents, type TailEvent } from "@openscout/runtime/tail";
 
 import { queryAgents } from "../db/agents.ts";
 import type { WebAgent } from "../db/types/web.ts";
+import { createScoutSession } from "../core/mobile/service.ts";
 import {
   SCOUT_SURFACE_LIMITS,
   SCOUT_SURFACE_METHOD_POLICY,

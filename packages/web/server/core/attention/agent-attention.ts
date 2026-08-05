@@ -76,6 +76,21 @@ export function buildAgentAttentionIndex(input: {
     if (!agentId) {
       return;
     }
+    // An entry with no ask must never enter the index. Every source here can
+    // produce one — a collaboration record whose title and summary are both
+    // blank, a question item that arrived before its text was written — and
+    // `applyAgentAttention` would flip the agent to needs_attention anyway,
+    // shipping the operator an alert with nothing in it: a card that names no
+    // question, and a conversation with no message behind it.
+    //
+    // Two failures, not one. The obvious one is the contentless alert. The
+    // worse one is that `consider` keeps whichever entry is NEWEST, so a blank
+    // row arriving after a real question would evict the real question and
+    // blank out an ask the operator still owes an answer to. Refusing the
+    // entry at the door fixes both.
+    if (!entry.ask?.trim()) {
+      return;
+    }
     const existing = index.get(agentId);
     if (!existing || entry.updatedAt > existing.updatedAt) {
       index.set(agentId, entry);

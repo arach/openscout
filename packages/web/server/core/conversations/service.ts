@@ -1014,10 +1014,8 @@ export async function getScoutConversations(
 }
 
 /// Read a conversation transcript from the same broker snapshot that powers
-/// the conversation list. `null` means the broker is unavailable and lets the
-/// HTTP compatibility route fall back to its legacy SQLite projection; an
-/// empty array is an authoritative broker result for a conversation with no
-/// visible messages.
+/// the conversation list. `null` means the broker cannot answer and lets the
+/// HTTP compatibility route fall back to its durable SQLite projection.
 export async function getScoutConversationMessages(
   conversationId: string,
   limit = 80,
@@ -1054,6 +1052,17 @@ export async function getScoutConversationMessages(
   const pageEnd = pageEndIndex < 0 ? ordered.length : pageEndIndex;
   const pageStart = Math.max(0, pageEnd - resolvedLimit);
   const visibleMessages = ordered.slice(pageStart, pageEnd).map((entry) => entry.message);
+
+  // The snapshot is a rolling window, so an empty page is silence, not an
+  // answer: everything older than the window is simply not in it. Reporting it
+  // as an authoritative empty transcript is what makes a conversation past the
+  // window open blank — the row still exists, the record still asks for the
+  // operator, and the destination shows "No messages yet" over a transcript
+  // SQLite still holds. Hand the read to the durable projection instead; it
+  // applies the same transient-status filter and the same cursor grammar, so a
+  // genuinely empty conversation still answers empty and a page below the
+  // window continues the same scrollback rather than reading as its end.
+  if (visibleMessages.length === 0) return null;
 
   return visibleMessages.map((message) => {
     const threadSummary = threadSummaryForMessage(snapshot, messagesByConversation, message);
