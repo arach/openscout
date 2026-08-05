@@ -1,0 +1,806 @@
+/* Operator Console themes — decomposed presets over six axes.
+   Every visual property reads from an --oc-* var so a preset swap is a token
+   swap and nothing else. If a rule here hardcodes a color, a font, or a radius,
+   it is a bug: it means that property escaped the contract. */
+
+.frame {
+  border: 1px solid var(--oc-line-strong);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--oc-frame);
+  color: var(--oc-ink);
+  font-family: var(--oc-label);
+  box-shadow: 0 24px 60px -34px rgba(0, 0, 0, 0.6);
+}
+
+/* ── title bar ─────────────────────────────────────────────────────────── */
+.titlebar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 30px;
+  padding: 0 12px;
+  background: var(--oc-sunken);
+  border-bottom: 1px solid var(--oc-line);
+}
+.mark {
+  width: 8px;
+  height: 8px;
+  background: var(--oc-accent);
+  transform: rotate(45deg);
+  flex: none;
+}
+.titleLabel {
+  font-family: var(--oc-label);
+  font-weight: var(--oc-label-w);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--oc-ink-mut);
+}
+.titleSpacer { flex: 1; }
+
+/* keycap — 1px border with a 2px bottom edge reads as a physical key */
+.keycap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border: 1px solid var(--oc-line-strong);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  background: var(--oc-raised);
+  color: var(--oc-ink-mut);
+  font-size: var(--text-3xs);
+  flex: none;
+}
+
+/* ── layout ────────────────────────────────────────────────────────────── */
+.body {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr) 210px;
+  height: 640px;
+}
+.frameCompact .body { grid-template-columns: 116px minmax(0, 1fr); height: 290px; }
+.frameCompact .context { display: none; }
+
+/* ── rail ──────────────────────────────────────────────────────────────── */
+.rail {
+  background: var(--oc-panel);
+  border-right: 1px solid var(--oc-line);
+  padding: 12px 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Section header carries a rule and a count. Needs-you gets the strong rule
+   and the accent label, so PRECEDENCE IS LEGIBLE BEFORE YOU READ A WORD. */
+.section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 12px 6px;
+}
+.sectionLabel {
+  font-family: var(--oc-label);
+  font-weight: var(--oc-label-w);
+  font-size: var(--text-3xs);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--oc-ink-mut);
+  white-space: nowrap;
+}
+.section[data-lead] .sectionLabel { color: var(--oc-accent-text); }
+.sectionRule { flex: 1; height: 1px; background: var(--oc-line); }
+.section[data-lead] .sectionRule { background: var(--oc-line-strong); }
+.sectionCount { font-size: var(--text-3xs); color: var(--oc-ink-faint); }
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 12px;
+  border-left: 2px solid transparent;
+  min-width: 0;
+}
+.row[data-on] { background: var(--oc-accent-wash); border-left-color: var(--oc-accent); }
+.row[data-live] { background: var(--oc-live-wash); border-left-color: var(--oc-live); }
+.rowName {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--oc-ink-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row[data-on] .rowName { color: var(--oc-ink); }
+.rowBadge {
+  font-size: var(--text-3xs);
+  padding: 1px 5px;
+  border-radius: var(--oc-r-sm);
+  background: var(--oc-accent);
+  color: var(--oc-accent-ink);
+  flex: none;
+}
+.rowBadgeSoft {
+  font-size: var(--text-3xs);
+  padding: 1px 5px;
+  border-radius: var(--oc-r-sm);
+  background: var(--oc-accent-wash);
+  color: var(--oc-accent-text);
+  flex: none;
+}
+.rowTime {
+  font-size: var(--text-3xs);
+  color: var(--oc-ink-faint);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+.railFoot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 0;
+  border-top: 1px solid var(--oc-line);
+}
+
+/* ── conversation pane ─────────────────────────────────────────────────── */
+.pane {
+  position: relative;
+  background: var(--oc-canvas);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+/* the whole texture axis: ONE non-interactive overlay */
+.paneTexture {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: var(--oc-texture), var(--oc-bloom);
+  background-size: var(--oc-texture-size), 100% 100%;
+}
+
+.paneHead {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 38px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--oc-line);
+  min-width: 0;
+}
+.paneAccentBar { width: 2px; height: 15px; background: var(--oc-accent); flex: none; }
+.paneTitle {
+  font-family: var(--oc-display);
+  font-size: var(--text-xl);
+  color: var(--oc-ink);
+  line-height: 1;
+  flex: none;
+}
+.paneSub {
+  font-family: var(--oc-prose);
+  font-size: var(--text-sm);
+  font-style: italic;
+  color: var(--oc-ink-mut);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.frameCompact .paneSub { display: none; }
+
+.turns {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--oc-line-strong) transparent;
+}
+.turn { display: flex; gap: 11px; min-width: 0; }
+
+/* ── the thread ────────────────────────────────────────────────────────
+   Multi-agent back-and-forth in the comms turn grammar. Identity is name +
+   avatar letter ONLY — no per-agent hue, which would be categorical coding
+   and would compete with the accent that marks the ask. */
+.divider { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.dividerRule { flex: 1; height: 1px; background: var(--oc-line); }
+.dividerLabel {
+  font-family: var(--oc-label);
+  font-weight: var(--oc-label-w);
+  font-size: var(--text-3xs);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--oc-ink-mut);
+}
+
+.threadTurn { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; margin-bottom: 13px; }
+.avatar {
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  flex: none;
+  border-radius: var(--oc-r-md);
+  background: var(--oc-raised);
+  border: 1px solid var(--oc-line-strong);
+  color: var(--oc-ink-mut);
+  font-family: var(--oc-label);
+  font-size: var(--text-3xs);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.threadBody { min-width: 0; }
+.threadHead { display: flex; align-items: baseline; gap: 8px; margin-bottom: 3px; min-width: 0; }
+.turnWho { font-size: var(--text-sm); font-weight: 600; color: var(--oc-ink); white-space: nowrap; }
+.harness {
+  font-family: var(--oc-label);
+  font-size: var(--text-3xs);
+  letter-spacing: 0.08em;
+  color: var(--oc-ink-faint);
+  border: 1px solid var(--oc-line);
+  border-radius: var(--oc-r-sm);
+  padding: 0 4px;
+}
+/* inline after the name, matching comms-one-rail — not a right-hand time
+   column, which reads as a log rather than a conversation */
+.turnWhen {
+  font-family: var(--oc-label);
+  font-size: var(--text-3xs);
+  color: var(--oc-ink-faint);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+/* prose rides the TYPE axis — this is where a preset swap is most legible */
+.turnText {
+  margin: 0;
+  font-family: var(--oc-prose);
+  font-size: var(--oc-prose-size);
+  line-height: var(--oc-prose-lh);
+  color: var(--oc-ink-dim);
+  text-wrap: pretty;
+}
+.mention { color: var(--oc-accent-text); font-weight: 600; }
+
+/* the ask — the only carded, only accented unit in the flow */
+.askCard {
+  border: 1px solid var(--oc-accent);
+  border-radius: var(--oc-r-md);
+  background: var(--oc-accent-wash);
+  padding: 9px 11px;
+}
+.askCard .turnText { color: var(--oc-ink); }
+.askTag {
+  font-family: var(--oc-label);
+  font-weight: var(--oc-label-w);
+  font-size: var(--text-3xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--oc-accent-text);
+  white-space: nowrap;
+}
+
+/* work is a path, not a paste */
+.artifact {
+  display: inline-flex;
+  margin-top: 7px;
+  font-family: var(--oc-label);
+  font-size: var(--text-3xs);
+  color: var(--oc-ink-mut);
+  border: 1px solid var(--oc-line-strong);
+  border-radius: var(--oc-r-sm);
+  padding: 2px 7px;
+  background: var(--oc-sunken);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* status signals compress to one mono line — not a full turn */
+.status {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin: 0 0 13px 30px;
+  font-family: var(--oc-label);
+  font-size: var(--text-3xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--oc-ink-faint);
+  min-width: 0;
+}
+.statusWho { color: var(--oc-ink-mut); font-weight: 600; flex: none; }
+.statusBody { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* coalesced notices — ONE read unit inside the conversation */
+.noticeFold {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 13px 30px;
+  padding: 6px 10px;
+  border: 1px solid var(--oc-line);
+  border-radius: var(--oc-r-md);
+  color: var(--oc-ink-mut);
+  font-size: var(--text-sm);
+  min-width: 0;
+}
+.noticeCount {
+  font-family: var(--oc-label);
+  font-size: var(--text-3xs);
+  color: var(--oc-ink-mut);
+  border: 1px solid var(--oc-line-strong);
+  border-radius: 999px;
+  padding: 0 7px;
+  flex: none;
+}
+.noticeLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.noticeChevron { margin-left: auto; font-size: var(--text-3xs); color: var(--oc-ink-faint); flex: none; }
+
+/* the 6-up grid only has room for the tail of the thread */
+.frameCompact [data-secondary] { display: none; }
+
+/* ── ask silhouettes ───────────────────────────────────────────────────
+   Shape as a fourth marking channel. Two-layer construction: the outer
+   carries the accent and the clip, the inner carries the fill and the same
+   clip inset by 1px — that keeps a true 1px stroke along a diagonal, which a
+   single clipped element loses. --oc-chamfer is the one knob. */
+.shapeOuter {
+  min-width: 0;
+  padding: 1px;
+  background: var(--oc-accent);
+  --oc-chamfer: 12px;
+}
+.shapeInner {
+  position: relative;
+  min-width: 0;
+  padding: 9px 11px;
+  /* wash over canvas, composited opaque so the accent can't bleed through */
+  background-color: var(--oc-canvas);
+  background-image: linear-gradient(var(--oc-accent-wash), var(--oc-accent-wash));
+}
+.shapeInner .turnText { color: var(--oc-ink); }
+
+/* baseline — radius comes from the preset */
+.shape_rounded, .shape_rounded .shapeInner { border-radius: var(--oc-r-md); }
+
+/* one clipped corner — the quietest treatment; reads as "tagged" */
+.shape_chamfer,
+.shape_chamfer .shapeInner {
+  clip-path: polygon(
+    0 0,
+    calc(100% - var(--oc-chamfer)) 0,
+    100% var(--oc-chamfer),
+    100% 100%,
+    0 100%
+  );
+}
+
+/* opposed chamfers — a tag pulled from a rack */
+.shape_ticket,
+.shape_ticket .shapeInner {
+  clip-path: polygon(
+    0 0,
+    calc(100% - var(--oc-chamfer)) 0,
+    100% var(--oc-chamfer),
+    100% 100%,
+    var(--oc-chamfer) 100%,
+    0 calc(100% - var(--oc-chamfer))
+  );
+}
+
+/* tear-off foot — semicircular punches along the bottom edge */
+.shape_perforated,
+.shape_perforated .shapeInner {
+  --oc-perf: 9px;
+  mask-image: radial-gradient(
+    circle calc(var(--oc-perf) / 2) at 50% 100%,
+    transparent 97%,
+    #000 100%
+  );
+  mask-size: var(--oc-perf) 100%;
+  mask-repeat: repeat-x;
+  -webkit-mask-image: radial-gradient(
+    circle calc(var(--oc-perf) / 2) at 50% 100%,
+    transparent 97%,
+    #000 100%
+  );
+  -webkit-mask-size: var(--oc-perf) 100%;
+  -webkit-mask-repeat: repeat-x;
+}
+.shape_perforated .shapeInner { padding-bottom: 13px; }
+
+/* square — and squareness is what makes the left accent bar legal */
+.shape_square { padding: 0; background: transparent; }
+.shape_square .shapeInner {
+  border: 1px solid var(--oc-line-strong);
+  border-left: 2px solid var(--oc-accent);
+}
+
+/* no stroke at all — four registration marks, borrowed from the terminal */
+.shape_ticks { padding: 0; background: transparent; }
+.shape_ticks .shapeInner {
+  background-color: transparent;
+  padding: 10px 12px;
+}
+.shape_ticks .tick { position: absolute; width: 4px; height: 4px; background: var(--oc-accent); }
+.shape_ticks .tick[data-c="tl"] { top: 0; left: 0; }
+.shape_ticks .tick[data-c="tr"] { top: 0; right: 0; }
+.shape_ticks .tick[data-c="bl"] { bottom: 0; left: 0; }
+.shape_ticks .tick[data-c="br"] { bottom: 0; right: 0; }
+
+/* ── shape specimen chrome ─────────────────────────────────────────── */
+.sectionLede {
+  max-width: 68ch;
+  font-size: var(--text-lg);
+  line-height: 1.6;
+  color: var(--studio-ink-muted, rgba(255, 255, 255, 0.6));
+}
+.shapeGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 16px; }
+.shapeCell { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.shapeLabel { display: flex; align-items: baseline; gap: 8px; }
+.shapeName {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--studio-ink, #e8e8e8);
+}
+.shapeWarn {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-3xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--studio-accent, #4ade80);
+}
+.shapeNote {
+  font-size: var(--text-sm);
+  color: var(--studio-ink-faint, rgba(255, 255, 255, 0.45));
+  margin-bottom: 5px;
+}
+/* the specimen sits on the real canvas + texture, not on the studio page —
+   a silhouette only means something against the surface it will ship on */
+.shapeStage {
+  position: relative;
+  padding: 16px 14px;
+  background: var(--oc-canvas);
+  border: 1px solid var(--oc-line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.shapeStageTexture {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: var(--oc-texture), var(--oc-bloom);
+  background-size: var(--oc-texture-size), 100% 100%;
+}
+.shapeStage .threadTurn { position: relative; margin-bottom: 0; }
+.avatarLive {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: var(--oc-r-md);
+  background: var(--oc-live-wash);
+  border: 1px solid var(--oc-live);
+  color: var(--oc-live-text);
+  font-size: var(--text-2xs);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* frost is the MATERIAL under every turn — not a card. Only the ask is carded,
+   and that rule lives in the turn grammar, not here. */
+.turnBody {
+  flex: 1;
+  min-width: 0;
+  margin: -6px -10px;
+  padding: 6px 10px 8px;
+  background: var(--oc-frost);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: var(--oc-r-md);
+}
+.turnHead { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.turnTitle {
+  font-family: var(--oc-display);
+  font-size: var(--text-lg);
+  color: var(--oc-ink);
+  white-space: nowrap;
+}
+.turnChip {
+  font-size: var(--text-3xs);
+  color: var(--oc-ink-mut);
+  border: 1px solid var(--oc-line);
+  border-radius: var(--oc-r-sm);
+  padding: 1px 5px;
+  flex: none;
+}
+.frameCompact .turnChip { display: none; }
+
+/* sparkline — the shape of the last 11 tool calls, ~40px wide */
+.spark { display: flex; align-items: flex-end; gap: 2px; height: 14px; flex: none; }
+.sparkBar { width: 3px; border-radius: 1px; background: var(--oc-ink-faint); display: block; }
+.sparkBar[data-hot="on"] { background: var(--oc-ink-mut); }
+.sparkBar[data-hot="err"] { background: var(--oc-danger); }
+
+.working {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--oc-label);
+  font-weight: var(--oc-label-w);
+  font-size: var(--text-3xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--oc-live-text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex: none;
+}
+.frameCompact .working { display: none; }
+.liveDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--oc-live);
+  display: block;
+  animation: liveDot 1.8s ease-in-out infinite;
+}
+@keyframes liveDot { 0%, 100% { opacity: 1 } 50% { opacity: 0.32 } }
+@keyframes caret { 0%, 49% { opacity: 1 } 50%, 100% { opacity: 0 } }
+@media (prefers-reduced-motion: reduce) {
+  .liveDot, .caret { animation: none; }
+}
+
+/* running now — the actual live command, not a spinner */
+.running {
+  margin-top: 12px;
+  padding: 2px 0 2px 11px;
+  border-left: 2px solid var(--oc-live);
+}
+.runningLabel {
+  font-family: var(--oc-label);
+  font-weight: var(--oc-label-w);
+  font-size: var(--text-3xs);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--oc-ink-mut);
+  margin-bottom: 5px;
+}
+.runningCmd {
+  font-family: var(--oc-label);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--oc-ink);
+  word-break: break-all;
+}
+.cmdVerb { color: var(--oc-live-text); }
+.cmdFlag { color: var(--oc-ink-mut); }
+.caret { animation: caret 1.1s steps(1) infinite; }
+
+/* steps ledger — four columns, tabular, failure carries a left rule */
+.ledger { margin-top: 14px; border-top: 1px solid var(--oc-line); }
+.ledgerHead,
+.ledgerRow {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 66px 44px;
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 0 6px 8px;
+  border-left: 2px solid transparent;
+}
+.ledgerHead {
+  font-family: var(--oc-label);
+  font-weight: var(--oc-label-w);
+  font-size: var(--text-3xs);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--oc-ink-faint);
+  padding-bottom: 4px;
+}
+.ledgerRow { border-top: 1px solid var(--oc-line); font-size: var(--text-sm); }
+.ledgerRow[data-err] { border-left-color: var(--oc-danger); }
+.ledgerN { color: var(--oc-ink-faint); font-variant-numeric: tabular-nums; }
+.ledgerCall {
+  color: var(--oc-ink-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.ok { color: var(--oc-live-text); font-size: var(--text-3xs); }
+.err { color: var(--oc-danger); font-size: var(--text-3xs); }
+.right { text-align: right; }
+.took { color: var(--oc-ink-mut); font-size: var(--text-3xs); font-variant-numeric: tabular-nums; }
+.ledgerMore {
+  padding: 8px 0 0 8px;
+  border-top: 1px solid var(--oc-line);
+  font-size: var(--text-3xs);
+  color: var(--oc-ink-mut);
+}
+.frameCompact .ledger { display: none; }
+
+/* composer — the placeholder teaches the routing model */
+.composer {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 12px 16px 14px;
+  padding: 10px 12px;
+  background: var(--oc-raised);
+  border: 1px solid var(--oc-line-strong);
+  border-radius: var(--oc-r-md);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  min-width: 0;
+}
+.composerCaret {
+  width: 1px;
+  height: 13px;
+  background: var(--oc-accent);
+  flex: none;
+  animation: caret 1.1s steps(1) infinite;
+}
+.composerHint {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--oc-ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── context column ────────────────────────────────────────────────────── */
+.context {
+  background: var(--oc-panel);
+  border-left: 1px solid var(--oc-line);
+  padding: 8px 0 12px;
+  overflow: hidden;
+}
+.context .section { padding: 8px 14px 6px; }
+
+/* elapsed as a hero numeral — FLAT. No box, no fill (Instrument rule). */
+.met { display: flex; align-items: baseline; gap: 8px; padding: 6px 14px 0; }
+.metNum {
+  font-family: var(--oc-display);
+  font-size: 40px;
+  line-height: 0.86;
+  color: var(--oc-live-text);
+  font-variant-numeric: tabular-nums;
+}
+.metLabel {
+  font-family: var(--oc-label);
+  font-weight: var(--oc-label-w);
+  font-size: var(--text-3xs);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--oc-ink-faint);
+}
+.metSince {
+  padding: 5px 14px 10px;
+  font-size: var(--text-3xs);
+  color: var(--oc-ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 14px;
+  font-size: var(--text-sm);
+  color: var(--oc-ink-mut);
+  min-width: 0;
+}
+.kvVal { color: var(--oc-ink-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* terminal — a physical instrument embedded in the surface. Note the screen
+   stays dark in the LIGHT presets too; that is deliberate in every preset. */
+.screenWrap { position: relative; margin: 4px 14px 0; }
+.tick { position: absolute; width: 4px; height: 4px; background: var(--oc-accent); }
+.tick[data-c="tl"] { top: -1px; left: -1px; }
+.tick[data-c="tr"] { top: -1px; right: -1px; }
+.tick[data-c="bl"] { bottom: -1px; left: -1px; }
+.tick[data-c="br"] { bottom: -1px; right: -1px; }
+.screen {
+  height: 106px;
+  padding: 9px 11px;
+  border: 1px solid var(--oc-line-strong);
+  border-radius: var(--oc-r-sm);
+  background: var(--oc-screen);
+  box-shadow: inset 0 3px 12px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  font-family: var(--oc-label);
+  font-size: var(--text-3xs);
+  line-height: 1.7;
+  color: var(--oc-screen-ink, rgba(232, 234, 236, 0.78));
+}
+.screenLive { color: var(--oc-live); }
+.screenAccent { color: var(--oc-accent); }
+
+/* ── study chrome (studio surface, not themed) ─────────────────────────── */
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.tab {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 5px 10px;
+  border: 1px solid var(--studio-hairline, rgba(255, 255, 255, 0.1));
+  border-radius: 4px;
+  background: transparent;
+  color: var(--studio-ink-faint, rgba(255, 255, 255, 0.45));
+  cursor: pointer;
+}
+.tab:hover { color: var(--studio-ink, #e8e8e8); }
+.tab[data-on] {
+  background: var(--studio-ink, #e8e8e8);
+  color: var(--studio-bg, #101010);
+  border-color: transparent;
+}
+.themeNote {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-xs);
+  color: var(--studio-ink-faint, rgba(255, 255, 255, 0.45));
+}
+
+.axes { display: flex; flex-direction: column; }
+.axisRow {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1.1fr) minmax(0, 1.4fr) 84px;
+  gap: 14px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-top: 1px solid var(--studio-hairline, rgba(255, 255, 255, 0.08));
+  font-size: var(--text-sm);
+  color: var(--studio-ink-muted, rgba(255, 255, 255, 0.6));
+}
+.axisName {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--studio-ink, #e8e8e8);
+}
+.axisTokens { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--text-xs); min-width: 0; }
+.axisNote { min-width: 0; }
+.axisFlag {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-3xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-align: right;
+  color: var(--studio-ink-faint, rgba(255, 255, 255, 0.4));
+}
+.axisRow[data-novel] .axisFlag { color: var(--studio-accent, #4ade80); }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 18px; }
+.gridCell { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.gridLabel { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.gridName {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--studio-ink, #e8e8e8);
+}
+.gridNote {
+  font-size: var(--text-xs);
+  color: var(--studio-ink-faint, rgba(255, 255, 255, 0.42));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
