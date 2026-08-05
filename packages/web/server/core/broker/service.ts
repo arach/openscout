@@ -173,6 +173,11 @@ export type ScoutBrokerHomeActivityRecord = {
   conversationId: string | null;
   channel: string | null;
   timestamp: number;
+  /** The runtime the actor runs on ("claude", "codex", "kimi", …), resolved
+   *  from the actor's registered endpoint. null when the actor has no endpoint
+   *  (the operator, broker notices) — consumers must render nothing rather than
+   *  guess a runtime. */
+  harness: string | null;
 };
 
 export type ScoutBrokerHomePayload = {

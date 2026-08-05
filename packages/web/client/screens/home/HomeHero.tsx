@@ -54,14 +54,12 @@ export type ServiceGauge =
 
 export type HomeHeroProps = {
   now: Date;
-  operatorName: string;
   syncLabel: string;
   error: string | null;
   loading: boolean;
   refreshing: boolean;
   onRefresh: () => void;
   navigate: (route: Route) => void;
-  opsEnabled: boolean;
   heartrate: HeartrateBucketView[];
   heartrateWindow: string;
   heartrateBucketLabel: string;
@@ -416,20 +414,6 @@ function HeartrateGraph({ buckets }: { buckets: HeartrateBucketView[] }) {
   );
 }
 
-function formatDateChip(d: Date): string {
-  const wk = d.toLocaleDateString([], { weekday: "short" }).toUpperCase();
-  const mo = d.toLocaleDateString([], { month: "short" }).toUpperCase();
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${wk} ${day} ${mo}`;
-}
-
-function formatClock(d: Date): string {
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  const ss = String(d.getSeconds()).padStart(2, "0");
-  return `${hh}:${mm}:${ss}`;
-}
-
 function Gauge({
   gauge,
   now,
@@ -532,14 +516,12 @@ function sortedServiceGauges(gauges: ServiceGauge[]): ServiceGauge[] {
 export default function HomeHero(props: HomeHeroProps) {
   const {
     now,
-    operatorName,
     syncLabel,
     error,
     loading,
     refreshing,
     onRefresh,
     navigate,
-    opsEnabled,
     heartrate,
     heartrateWindow,
     heartrateBucketLabel,
@@ -558,45 +540,17 @@ export default function HomeHero(props: HomeHeroProps) {
     >= heartrateVisibleEventThreshold;
   return (
     <section className="hd">
-      <div className="hd-topbar">
-        <div className="hd-topbar-l">
-          <span className="hd-path">home</span>
-          <span className="hd-path-sep">/</span>
-          <span className="hd-path">fleet</span>
-          <span className="hd-path-sep">/</span>
-          <span className="hd-path hd-path--muted">{formatDateChip(now)}</span>
-        </div>
+      {/* With no gauges the panel has no content of its own — only the freshness
+          line — so it drops its frame rather than drawing an empty box. */}
+      <div className={`hd-topbar${gauges.length > 0 ? "" : " hd-topbar--bare"}`}>
+        {/* Route identity, operator and clock moved to the shell: they are the
+            same on every surface, and the shell states them once. What stays is
+            what this view owns — how fresh its own data is, and the control
+            that refreshes it. */}
         <div className="hd-topbar-r">
-          <span className="hd-meta-label">operator</span>
-          <span className="hd-meta hd-meta--operator">{operatorName.toLowerCase()}</span>
-          <span className="hd-path-sep">/</span>
-          <span className="hd-meta">{formatClock(now)}</span>
           <span className={`hd-dot hd-dot--${syncTone}`} aria-hidden="true" />
           <span className={`hd-meta hd-meta--${syncTone}`}>{syncLabel}</span>
           <span className="hd-topbar-actions">
-            <button
-              type="button"
-              className="hd-btn"
-              onClick={() => navigate({ view: "terminal" })}
-            >
-              [open terminal]
-            </button>
-            <button
-              type="button"
-              className="hd-btn"
-              onClick={() => navigate({ view: "code" })}
-            >
-              [open code]
-            </button>
-            {opsEnabled && (
-              <button
-                type="button"
-                className="hd-btn"
-                onClick={() => navigate({ view: "ops" })}
-              >
-                [open ops]
-              </button>
-            )}
             <button
               type="button"
               className="hd-btn"

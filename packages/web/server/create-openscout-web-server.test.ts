@@ -234,8 +234,23 @@ mock.module("./pairing-lan-beacon.ts", () => ({
   },
 }));
 
+/// A module mock replaces the module wholesale, so a named export the server
+/// graph imports but this file forgot to list fails at link time — a bare
+/// "Export named 'x' not found" with no test name attached. These stand in for
+/// the broker functions no test here drives: present so the graph links, loud
+/// if a test ever starts depending on one.
+function unstubbedBrokerCall(name: string) {
+  return () => {
+    throw new Error(`broker service ${name} is not stubbed in this test`);
+  };
+}
+
 mock.module("./core/broker/service.ts", () => ({
   appendScoutCollaborationEvent: async () => null,
+  readScoutBrokerTailRecent: unstubbedBrokerCall("readScoutBrokerTailRecent"),
+  recordScoutBrokerReadCursor: unstubbedBrokerCall("recordScoutBrokerReadCursor"),
+  watchScoutMessages: unstubbedBrokerCall("watchScoutMessages"),
+  ScoutDirectDeliveryUnavailableError: class ScoutDirectDeliveryUnavailableError extends Error {},
   loadScoutBrokerContext: async () => {
     loadScoutBrokerContextCalls += 1;
     return scoutBrokerContextResult;
@@ -290,6 +305,11 @@ mock.module("./core/broker/service.ts", () => ({
       input,
     };
   },
+  openScoutPeerSession: async (input: Record<string, unknown>) => ({
+    ...openScoutDirectSessionResult,
+    sourceId: input.sourceId,
+    targetId: input.targetId,
+  }),
   upsertScoutConversation: async (input: Record<string, unknown>) => {
     upsertScoutConversationCalls.push(input);
   },

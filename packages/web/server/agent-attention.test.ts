@@ -146,6 +146,54 @@ describe("buildAgentAttentionIndex", () => {
       updatedAt: 3_000,
     });
   });
+
+  test("a collaboration row with no title or summary raises no attention", () => {
+    const index = buildAgentAttentionIndex({
+      sessionItems: [],
+      agentIdBySessionId: new Map(),
+      collaborationRows: [{
+        agentId: "agent-1",
+        title: "   ",
+        summary: null,
+        updatedAt: 2_000,
+      }],
+    });
+
+    // Reported from iOS: a "needs you" card naming no question, whose
+    // conversation had no message behind it. An alert the operator cannot act
+    // on is worse than no alert.
+    expect(index.has("agent-1")).toBe(false);
+  });
+
+  test("a contentless row does not evict a real ask that arrived earlier", () => {
+    const index = buildAgentAttentionIndex({
+      sessionItems: [sessionItem({ updatedAt: 1_000 })],
+      agentIdBySessionId: new Map([["sess-1", "agent-1"]]),
+      // Newer, so it wins the recency check — and would blank the question the
+      // operator still owes an answer to if empty entries were admitted.
+      collaborationRows: [{
+        agentId: "agent-1",
+        title: "",
+        summary: "   ",
+        updatedAt: 9_000,
+      }],
+    });
+
+    expect(index.get("agent-1")).toEqual({
+      ask: "Should I drop the index before migrating?",
+      updatedAt: 1_000,
+    });
+  });
+
+  test("a session item with neither summary nor title raises no attention", () => {
+    const index = buildAgentAttentionIndex({
+      sessionItems: [sessionItem({ title: "", summary: null })],
+      agentIdBySessionId: new Map([["sess-1", "agent-1"]]),
+      collaborationRows: [],
+    });
+
+    expect(index.has("agent-1")).toBe(false);
+  });
 });
 
 describe("applyAgentAttention", () => {

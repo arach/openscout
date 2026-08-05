@@ -68,8 +68,14 @@ import { useSidebarModel } from "./useSidebarModel.ts";
 
 function ScoutMark({ className = "" }: { className?: string }) {
   return (
+    /* The artwork only occupied the middle ~half of a 0 0 20 20 box (outer
+       hexagon spans x 5.2–14.8), so at 22px the visible mark was ~10.6px wide —
+       narrower than the 16px nav icons beside it, which is why the brand read
+       as the smallest thing in the rail. Cropping the box to the artwork (plus
+       a half-stroke of 0.95) makes the rendered size mean what it says, so the
+       mark grows without the row growing. */
     <svg
-      viewBox="0 0 20 20"
+      viewBox="3.35 3.35 13.3 13.3"
       aria-hidden="true"
       className={className}
       fill="none"
@@ -243,7 +249,7 @@ export function ScoutSidebar({
                 title="Home"
                 className="font-mono data-[slot=sidebar-menu-button]:!p-2"
               >
-                <ScoutMark className="size-[22px] shrink-0" />
+                <ScoutMark className="size-[20px] shrink-0" />
                 <span className="truncate text-sm font-bold tracking-[0.08em] uppercase">
                   {brandLabel}
                 </span>
@@ -256,7 +262,8 @@ export function ScoutSidebar({
       <SidebarContent className="gap-0">
         {model.kind === "scope" ? (
           <SidebarGroup>
-            <SidebarGroupLabel className="font-mono text-2xs tracking-[0.12em] uppercase">
+            {/* Column header — see data-sidebar-head note on the Navigate group. */}
+            <SidebarGroupLabel data-sidebar-head="" className="font-mono uppercase">
               Surfaces
             </SidebarGroupLabel>
             <SidebarGroupContent>
@@ -294,7 +301,13 @@ export function ScoutSidebar({
         ) : (
           <>
             <SidebarGroup>
-              <SidebarGroupLabel className="font-mono text-2xs tracking-[0.12em] uppercase">
+              {/* data-sidebar-head: this is the rail's COLUMN header, not an
+                  in-list group label. It sits on the same grid line as the side
+                  rail's ("HOME") and inspector's ("CONTEXT") panel headers, so
+                  app.css gives it the same 44px band, dashed hairline and
+                  eyebrow type. SYSTEM below stays a quiet divider — it groups a
+                  list, it does not head the column. */}
+              <SidebarGroupLabel data-sidebar-head="" className="font-mono uppercase">
                 Navigate
               </SidebarGroupLabel>
               <SidebarGroupContent>

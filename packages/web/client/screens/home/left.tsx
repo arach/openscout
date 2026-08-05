@@ -9,7 +9,7 @@ import {
   machineScopedAgentIds,
 } from "../../lib/machine-scope.ts";
 import { routeMachineId } from "../../lib/router.ts";
-import { routeForOperatorAttention } from "../../lib/operator-attention.ts";
+import { dismissOperatorAttention, routeForOperatorAttention } from "../../lib/operator-attention.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { useScout } from "../../scout/Provider.tsx";
@@ -45,6 +45,7 @@ export function HomeLeft({ prepend }: HomeLeftProps) {
   const [initialFleet] = useState(() => peekApiGet<FleetState>(FLEET_PATH, ROUTE_CACHE_MAX_AGE_MS));
   const [fleet, setFleet] = useState<FleetState | null>(initialFleet);
   const [fleetLoaded, setFleetLoaded] = useState(initialFleet !== null);
+  const [dismissed, setDismissed] = useState<ReadonlySet<string>>(() => new Set());
   const machineId = routeMachineId(route);
   const scopedAgentIds = useMemo(
     () => machineScopedAgentIds(agents, machineId),
@@ -85,9 +86,33 @@ export function HomeLeft({ prepend }: HomeLeftProps) {
     [scopedFleet],
   );
   const needsAttention = useMemo(
-    () => (scopedFleet?.needsAttention ?? []).slice(0, NEEDS_ATTENTION_LIMIT),
-    [scopedFleet],
+    () => (scopedFleet?.needsAttention ?? [])
+      .filter((item) => !dismissed.has(item.recordId))
+      .slice(0, NEEDS_ATTENTION_LIMIT),
+    [scopedFleet, dismissed],
   );
+
+  const dismissAttention = useCallback(async (item: FleetAttentionItem) => {
+    // Drop the row before the round trip. Dismissing is the operator's own
+    // call, so the rail should reflect it immediately rather than after the
+    // POST and the fleet reload it triggers; a failed dismiss puts it back.
+    setDismissed((current) => new Set(current).add(item.recordId));
+    try {
+      await dismissOperatorAttention({
+        recordKind: item.kind,
+        recordId: item.recordId,
+        itemUpdatedAt: item.updatedAt,
+      });
+    } catch {
+      setDismissed((current) => {
+        const next = new Set(current);
+        next.delete(item.recordId);
+        return next;
+      });
+      return;
+    }
+    void load();
+  }, [load]);
 
   return (
     <div className="ctx-panel base-rail">
@@ -112,6 +137,7 @@ export function HomeLeft({ prepend }: HomeLeftProps) {
         items={needsAttention}
         loading={!fleetLoaded}
         onSelect={(item) => navigate(routeForOperatorAttention(item))}
+        onDismiss={(item) => void dismissAttention(item)}
       />
     </div>
   );
@@ -210,10 +236,12 @@ function NeedsAttentionSection({
   items,
   loading,
   onSelect,
+  onDismiss,
 }: {
   items: FleetAttentionItem[];
   loading: boolean;
   onSelect: (item: FleetAttentionItem) => void;
+  onDismiss: (item: FleetAttentionItem) => void;
 }) {
   return (
     <section className="ctx-panel-section base-rail-section">
@@ -237,6 +265,20 @@ function NeedsAttentionSection({
               unread
               title={`${label} · ${item.kind}`}
               onClick={() => onSelect(item)}
+              actions={
+                <button
+                  type="button"
+                  className="rr-row-action"
+                  title="Dismiss — stop asking until this changes"
+                  aria-label="Dismiss"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onDismiss(item);
+                  }}
+                >
+                  Dismiss
+                </button>
+              }
             />
           );
         })

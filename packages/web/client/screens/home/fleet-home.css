@@ -4,6 +4,11 @@
   height: 100%;
   overflow-y: auto;
   background: var(--bg);
+  /* Every breakpoint below is about how much room this surface has, which the
+     rails decide — not the window. On a wide display with both rails open the
+     surface can be under 700px while the viewport still reads as desktop. */
+  container-type: inline-size;
+  container-name: fleet-home;
 }
 
 .s-fleet-home-inner {
@@ -34,7 +39,7 @@
   border-bottom: 1px solid var(--border);
 }
 
-@media (max-width: 960px) {
+@container fleet-home (max-width: 960px) {
   .s-hero {
     grid-template-columns: 1fr;
     gap: var(--space-5xl);
@@ -279,7 +284,7 @@
   padding-inline: var(--space-md);
 }
 
-@media (max-width: 900px) {
+@container fleet-home (max-width: 900px) {
   .s-section-rule {
     align-items: flex-start;
     flex-wrap: wrap;
@@ -299,7 +304,7 @@
   }
 }
 
-@media (max-width: 620px) {
+@container fleet-home (max-width: 620px) {
   .s-moving-controls,
   .s-moving-controlset,
   .s-moving-window {
@@ -500,7 +505,7 @@
   color: var(--green);
 }
 
-@media (max-width: 780px) {
+@container fleet-home (max-width: 780px) {
   .s-operator-card {
     grid-template-columns: 1fr;
   }
@@ -576,7 +581,7 @@
   gap: var(--space-xl);
 }
 
-@media (max-width: 800px) {
+@container fleet-home (max-width: 800px) {
   .s-ask-grid {
     grid-template-columns: 1fr;
   }
@@ -715,7 +720,7 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-@media (max-width: 720px) {
+@container fleet-home (max-width: 720px) {
   .s-now-grid--duo {
     grid-template-columns: 1fr;
   }
@@ -1352,7 +1357,7 @@
   margin-left: auto;
 }
 
-@media (max-width: 720px) {
+@container fleet-home (max-width: 720px) {
   .s-now-card--layout-dense {
     flex-direction: column;
     align-items: stretch;
@@ -1633,7 +1638,7 @@
   background: var(--surface);
 }
 
-@media (max-width: 960px) {
+@container fleet-home (max-width: 960px) {
   .s-mission-row {
     grid-template-columns: 1fr;
     gap: var(--space-lg);
@@ -1747,7 +1752,7 @@
   position: relative;
 }
 
-@media (max-width: 800px) {
+@container fleet-home (max-width: 800px) {
   .s-timeline-row {
     grid-template-columns: 56px 1fr 80px;
   }
@@ -2043,13 +2048,13 @@
   padding: var(--space-md) var(--space-lg) var(--space-lg);
 }
 
-@media (max-width: 920px) {
+@container fleet-home (max-width: 920px) {
   .s-quiet-start {
     grid-template-columns: 1fr;
   }
 }
 
-@media (max-width: 640px) {
+@container fleet-home (max-width: 640px) {
   .s-quiet-tail-frame {
     height: 240px;
   }
@@ -2192,7 +2197,7 @@
   flex: 0 0 64px;
 }
 
-@media (max-width: 720px) {
+@container fleet-home (max-width: 720px) {
   .s-now-card--layout-dense .s-now-card-pulse-cell {
     flex: 0 0 auto;
     justify-content: flex-start;

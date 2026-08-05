@@ -2,6 +2,11 @@
   --hd-pad: 14px;
   --hd-radius: 8px;
   --hd-hair: 1px solid var(--border);
+  /* Rails, not the window, decide how wide this surface is: with both rails
+     open on a 1920px display the hero gets ~720px, which every viewport-width
+     breakpoint below used to read as "desktop". Measure the surface itself. */
+  container-type: inline-size;
+  container-name: home-hero;
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   letter-spacing: var(--tracking-xs);
@@ -14,14 +19,16 @@
   border-bottom: var(--hd-hair);
 }
 
-/* ── Top status strip ─────────────────────────────────────────────── */
+/* ── Subscriptions panel ──────────────────────────────────────────── */
 
+/* One column: the view's own freshness line, then the usage table. Route,
+   operator and clock live in the shell band — see CenterPaneHeader. */
 .hd-topbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-areas:
-    "brand meta"
-    "usage usage";
+    "meta"
+    "usage";
   align-items: start;
   gap: var(--space-lg) var(--space-xl);
   padding: var(--space-xl);
@@ -30,26 +37,24 @@
   background: color-mix(in srgb, var(--surface) 86%, var(--bg));
 }
 
-.hd-topbar-l,
+.hd-topbar--bare {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
 .hd-topbar-r {
+  grid-area: meta;
   min-width: 0;
   min-height: 30px;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: var(--space-sm);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   color: var(--dim);
-}
-
-.hd-topbar-l {
-  grid-area: brand;
-}
-
-.hd-topbar-r {
-  grid-area: meta;
-  justify-content: flex-end;
 }
 
 .hd-topbar-actions {
@@ -71,18 +76,6 @@
   gap: var(--space-md);
 }
 
-.hd-path,
-.hd-path-sep {
-  color: var(--ink);
-  letter-spacing: var(--tracking-md);
-  text-transform: uppercase;
-}
-
-.hd-path--muted,
-.hd-path-sep {
-  color: var(--dim);
-}
-
 .hd-sep {
   color: var(--dim);
   opacity: 0.7;
@@ -91,18 +84,6 @@
 .hd-meta {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
-}
-
-.hd-meta-label {
-  color: var(--dim);
-  letter-spacing: var(--tracking-md);
-  text-transform: uppercase;
-}
-
-.hd-meta--operator {
-  color: var(--ink);
-  font-size: var(--text-sm);
-  line-height: var(--leading-tight);
 }
 
 .hd-meta--err {
@@ -394,20 +375,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-@media (max-width: 1080px) {
-  .hd-topbar {
-    grid-template-columns: 1fr;
-    grid-template-areas:
-      "brand"
-      "meta"
-      "usage";
-    gap: var(--space-lg);
-  }
-
-  .hd-topbar-r {
-    justify-content: flex-start;
-  }
-
+@container home-hero (max-width: 1080px) {
   .hd-topbar-c {
     align-items: flex-start;
     flex-direction: column;
@@ -423,7 +391,7 @@
   }
 }
 
-@media (max-width: 640px) {
+@container home-hero (max-width: 640px) {
   .hd-gauge-set {
     overflow-x: auto;
     padding-bottom: var(--space-2xs);
@@ -458,7 +426,7 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
-@media (max-width: 960px) {
+@container home-hero (max-width: 960px) {
   .hd-grid {
     grid-template-columns: 1fr;
   }

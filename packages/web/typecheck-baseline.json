@@ -1,6 +1,6 @@
 {
   "note": "Known packages/web type errors that predate the typecheck gate. Never add to this file by hand: fix the error instead. The gate rewrites it downward on its own whenever an error is fixed; `node scripts/typecheck.mjs --update` refuses any change that would grow it.",
-  "total": 84,
+  "total": 82,
   "errors": [
     {
       "file": "client/lib/conversation-groups.ts",
@@ -43,12 +43,6 @@
       "code": "TS2769",
       "message": "No overload matches this call.",
       "count": 7
-    },
-    {
-      "file": "client/scout/scoutbot/ScoutbotRealtimeVoiceCall.tsx",
-      "code": "TS2339",
-      "message": "Property 'provider' does not exist on type 'ScoutbotAgentConfig'.",
-      "count": 2
     },
     {
       "file": "client/scout/sidebar/SideRailCollapsedBody.tsx",

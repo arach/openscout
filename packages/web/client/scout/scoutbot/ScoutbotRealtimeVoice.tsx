@@ -118,7 +118,7 @@ export function ScoutbotRealtimeVoice({
           />
           <div
             id="scoutbot-realtime-voice-menu"
-            className="fixed z-[81] flex h-[min(30rem,calc(100vh-3rem))] min-h-80 w-[min(24rem,calc(100vw-1rem))] min-w-72 resize flex-col overflow-hidden rounded-md border border-[var(--scout-chrome-border-soft)] bg-[color-mix(in_srgb,var(--scout-chrome-bg)_96%,black)] shadow-[0_14px_36px_rgba(0,0,0,0.42)] backdrop-blur"
+            className="fixed z-[81] flex h-[min(31rem,calc(100vh-3rem))] min-h-80 w-[min(24rem,calc(100vw-1rem))] min-w-80 resize flex-col overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--hud-ink)_13%,transparent)] bg-[color-mix(in_srgb,var(--scout-chrome-bg)_96%,black)] shadow-[0_18px_44px_rgba(0,0,0,0.46)] backdrop-blur-md"
             style={{ left: popoverPosition.left, bottom: popoverPosition.bottom }}
             role="dialog"
             aria-label="Scoutbot live voice"
