@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { redactSecrets } from "../../secret-redaction.js";
 import { BaseAdapter, type AdapterConfig } from "../../protocol/adapter.js";
 import type {
   Action,
@@ -665,7 +666,7 @@ export class AcpAdapter extends BaseAdapter {
     child.stdout.on("data", (chunk: string) => this.handleStdoutChunk(chunk));
     child.stderr.on("data", (chunk: string) => {
       if (chunk.trim()) {
-        this.updateProviderMeta({ lastStderr: chunk.trim().slice(-4_000) });
+        this.updateProviderMeta({ lastStderr: redactSecrets(chunk.trim().slice(-4_000)) });
       }
     });
     child.once("error", (error) => {

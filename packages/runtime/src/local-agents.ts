@@ -5,6 +5,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { SessionState } from "@openscout/agent-sessions";
+import { redactSecrets } from "@openscout/agent-sessions/secret-redaction";
 import { resolveCodexExecutableInventory } from "@openscout/agent-sessions/codex-executable";
 import type {
   AgentCapability,
@@ -4240,7 +4241,7 @@ async function ensureLocalAgentOnlineOnce(agentName: string, record: LocalAgentR
       : "";
     throw new Error(
       stderrTail
-        ? `Relay agent ${agentName} failed to stay online:\n${stderrTail}`
+        ? `Relay agent ${agentName} failed to stay online:\n${redactSecrets(stderrTail)}`
         : `Relay agent ${agentName} failed to stay online.`,
     );
   }

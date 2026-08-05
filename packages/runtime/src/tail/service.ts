@@ -1,6 +1,8 @@
 import { basename } from "node:path";
 import { open, stat, type FileHandle } from "node:fs/promises";
 
+import { redactSecrets, redactSecretsDeep } from "@openscout/agent-sessions/secret-redaction";
+
 import { ClaudeSource } from "./claude-source.js";
 import { CodexSource } from "./codex-source.js";
 import { CursorSource } from "./cursor-source.js";
@@ -151,7 +153,7 @@ function trimRawString(value: string): string {
 }
 
 function compactRawValue(value: unknown, depth = 0): unknown {
-  if (typeof value === "string") return trimRawString(value);
+  if (typeof value === "string") return redactSecrets(trimRawString(value));
   if (value == null || typeof value !== "object") return value;
   if (depth >= RAW_MAX_DEPTH) return "[truncated depth]";
 
@@ -175,10 +177,24 @@ function compactRawValue(value: unknown, depth = 0): unknown {
 }
 
 function compactEvent(event: TailEvent): TailEvent {
-  if (!event.raw) return event;
+  const summary = redactSecrets(event.summary);
+  if (!event.raw) return summary === event.summary ? event : { ...event, summary };
   return {
     ...event,
+    summary,
     raw: compactRawValue(event.raw),
+  };
+}
+
+/**
+ * Whole-file parsers (parseFile) bypass compactEvent; scrub registered
+ * credentials from their events before they reach buffers and HTTP reads.
+ */
+function redactTailEvent(event: TailEvent): TailEvent {
+  return {
+    ...event,
+    summary: redactSecrets(event.summary),
+    ...(event.raw ? { raw: redactSecretsDeep(event.raw) } : {}),
   };
 }
 
@@ -856,6 +872,7 @@ async function parseTranscriptSessionEvents(
     const text = await readTranscriptText(transcript.transcriptPath, SESSION_TRANSCRIPT_READ_BYTES);
     if (!text) return [];
     return parsedEventsToArray(source.parseFile(text, ctxBase))
+      .map(redactTailEvent)
       .sort((left, right) => left.ts - right.ts)
       .slice(-limit);
   }

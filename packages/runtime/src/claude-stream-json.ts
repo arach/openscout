@@ -15,6 +15,7 @@ import type {
   ReasoningBlock,
   TurnState,
 } from "@openscout/agent-sessions";
+import { redactSecrets } from "@openscout/agent-sessions/secret-redaction";
 import { buildManagedAgentEnvironment } from "./managed-agent-environment.js";
 import { RequesterWaitTimeoutError } from "./requester-timeout.js";
 import { resolveClaudeExecutable } from "./tool-resolution.js";
@@ -1019,7 +1020,7 @@ class ClaudeStreamJsonSession {
     child.stderr.setEncoding("utf8");
 
     child.stdout.on("data", (chunk: string) => {
-      void appendFile(this.stdoutLogPath, chunk).catch(() => undefined);
+      void appendFile(this.stdoutLogPath, redactSecrets(chunk)).catch(() => undefined);
       this.lineBuffer += chunk;
       const lines = this.lineBuffer.split("\n");
       this.lineBuffer = lines.pop() ?? "";
@@ -1032,7 +1033,7 @@ class ClaudeStreamJsonSession {
       }
     });
     child.stderr.on("data", (chunk: string) => {
-      void appendFile(this.stderrLogPath, chunk).catch(() => undefined);
+      void appendFile(this.stderrLogPath, redactSecrets(chunk)).catch(() => undefined);
     });
 
     child.on("close", (code: number | null) => {
