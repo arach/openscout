@@ -13,6 +13,7 @@ export const SCOUT_LAUNCHABLE_HARNESSES = [
   "kimi",
   "flue",
   "cursor",
+  "opencode",
   "pi",
 ] as const satisfies readonly AgentHarness[];
 
@@ -151,6 +152,51 @@ export const SCOUT_RUNTIME_CATALOG: ScoutOwnedRuntimeCatalog = {
   { id: "kimi", label: "Kimi Code", enabled: true, reasoningEfforts: null, models: [] },
   { id: "flue", label: "Flue", enabled: true, reasoningEfforts: null, models: [] },
   { id: "cursor", label: "Cursor CLI", enabled: true, reasoningEfforts: null, models: [] },
+  {
+    // OpenCode fronts many vendors through OpenCode Zen. Scout already has
+    // dedicated Claude and Codex harnesses, so this entry deliberately carries
+    // only the models the other harnesses cannot reach.
+    //
+    // Model ids are provider-qualified. `opencode-go/*` is the subscription
+    // plan and is billed through it; `opencode/*` (Zen) is pay-as-you-go and
+    // needs a payment method on the workspace, so only Zen's free tier is
+    // listed as a no-credential fallback.
+    id: "opencode",
+    label: "OpenCode",
+    enabled: true,
+    reasoningEfforts: null,
+    models: [
+      { id: "opencode-go/glm-5.2", label: "GLM-5.2", enabled: true, default: true, family: "GLM", version: "5.2" },
+      { id: "opencode-go/glm-5.1", label: "GLM-5.1", enabled: true, family: "GLM", version: "5.1" },
+      { id: "opencode-go/kimi-k3", label: "Kimi K3", enabled: true, family: "Kimi", version: "K3" },
+      { id: "opencode-go/qwen3.8-max", label: "Qwen3.8 Max", enabled: true, family: "Qwen", version: "3.8 Max" },
+      { id: "opencode-go/minimax-m3", label: "MiniMax M3", enabled: true, family: "MiniMax", version: "M3" },
+      {
+        id: "opencode-go/deepseek-v4-pro",
+        label: "DeepSeek V4 Pro",
+        enabled: true,
+        family: "DeepSeek",
+        version: "V4 Pro",
+      },
+      { id: "opencode-go/grok-4.5", label: "Grok 4.5", enabled: true, family: "Grok", version: "4.5" },
+      // No credential required, so these keep the harness usable if the key is
+      // missing or the subscription lapses.
+      {
+        id: "opencode/nemotron-3-ultra-free",
+        label: "Nemotron 3 Ultra (free)",
+        enabled: true,
+        family: "Nemotron",
+        version: "3 Ultra Free",
+      },
+      {
+        id: "opencode/laguna-s-2.1-free",
+        label: "Laguna S 2.1 (free)",
+        enabled: true,
+        family: "Laguna",
+        version: "S 2.1 Free",
+      },
+    ],
+  },
   { id: "pi", label: "Pi", enabled: true, reasoningEfforts: null, models: [] },
   ],
 };

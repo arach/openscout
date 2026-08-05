@@ -42,6 +42,7 @@ export type AgentEndpointTransport = Extract<
   | "grok_acp"
   | "kimi_acp"
   | "cursor_acp"
+  | "opencode_acp"
   | "tmux"
   | "cursor_exec"
   | "cursor_cli_text"
@@ -57,6 +58,7 @@ export const AGENT_HARNESSES = [
   "kimi",
   "flue",
   "cursor",
+  "opencode",
   "native",
   "worker",
   "bridge",

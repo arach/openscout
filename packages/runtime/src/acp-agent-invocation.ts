@@ -9,7 +9,7 @@ import type { RuntimeTimer } from "./portable-types.js";
 import { RequesterWaitTimeoutError } from "./requester-timeout.js";
 
 export interface AcpAgentInvocationOptions {
-  adapterType: "grok-acp" | "kimi-acp" | "cursor-acp";
+  adapterType: "grok-acp" | "kimi-acp" | "cursor-acp" | "opencode-acp";
   label: string;
   /** Stable broker/runtime session id. It is not an ACP provider session id. */
   sessionId: string;
@@ -30,6 +30,13 @@ export interface AcpAgentInvocationResult {
   /** Provider-native ACP session id, suitable for a later cold resume. */
   sessionId: string;
   metadata?: Record<string, unknown>;
+  /** Token counts as reported by the provider, when it reports any. */
+  usage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    cachedInputTokens?: number;
+    totalTokens?: number;
+  };
 }
 
 type AcpPoolEntry = {
@@ -44,12 +51,14 @@ const activeAcpSessions = new Map<string, Promise<AcpPoolEntry>>();
 function harnessForAdapter(adapterType: AcpAgentInvocationOptions["adapterType"]): LocalAgentHarness {
   if (adapterType === "grok-acp") return "grok";
   if (adapterType === "kimi-acp") return "kimi";
+  if (adapterType === "opencode-acp") return "opencode";
   return "cursor";
 }
 
 function transportForAdapter(adapterType: AcpAgentInvocationOptions["adapterType"]): LocalAgentTransport {
   if (adapterType === "grok-acp") return "grok_acp";
   if (adapterType === "kimi-acp") return "kimi_acp";
+  if (adapterType === "opencode-acp") return "opencode_acp";
   return "cursor_acp";
 }
 
@@ -143,6 +152,7 @@ export async function invokeAcpAgent(
       output: result.text,
       sessionId: nativeSessionId,
       metadata: result.metadata,
+      usage: result.usage,
     };
   }).catch(async (error) => {
     const current = activeAcpSessions.get(key);

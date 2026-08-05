@@ -8,6 +8,7 @@ import {
   createKimiAcpAdapter as createKimiAcp,
   createOpenAiCompatAdapter as createOpenAI,
   createOpencodeAdapter as createOpenCode,
+  createOpencodeAcpAdapter as createOpenCodeAcp,
   createPiAdapter as createPi,
   type AdapterFactory,
 } from "@openscout/agent-sessions";
@@ -46,6 +47,7 @@ export function createPairingAdapterRegistry(configAdapters?: Record<string, Ada
     "kimi-acp": createKimiAcp,
     pi: createPi,
     opencode: createOpenCode,
+    "opencode-acp": createOpenCodeAcp,
     openai: createOpenAI,
   };
 

@@ -507,7 +507,12 @@ function pairingHarness(adapterType: string): AgentHarness {
   if (normalized.includes("codex")) {
     return "codex";
   }
-  if (normalized.includes("claude") || normalized.includes("opencode")) {
+  // Checked before the claude branch: OpenCode used to be reported as claude
+  // because Scout had no opencode harness to attribute it to.
+  if (normalized.includes("opencode")) {
+    return "opencode";
+  }
+  if (normalized.includes("claude")) {
     return "claude";
   }
   if (normalized.includes("pi")) {

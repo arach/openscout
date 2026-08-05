@@ -828,10 +828,16 @@ export class AcpAdapter extends BaseAdapter {
     this.emit("event", { event: "turn:start", sessionId: this.session.id, turn });
 
     try {
-      const response = await this.request<{ stopReason?: string }>("session/prompt", {
+      const response = await this.request<{ stopReason?: string; usage?: unknown }>("session/prompt", {
         sessionId: this.currentSessionId,
         prompt: promptToContent(prompt, this.agentCapabilities?.promptCapabilities?.image === true),
       }, this.acpOptions.promptTimeoutMs);
+      // Agents may report token usage on the prompt result rather than as a
+      // usage_update notification — OpenCode does. Without this the turn looks
+      // like it consumed nothing at all.
+      if (isRecord(response.usage)) {
+        this.updateProviderMeta({ usage: response.usage });
+      }
       this.finishTurn(mapTurnStatus(response.stopReason));
     } catch (error) {
       this.emit("event", {

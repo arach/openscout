@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { createAdapter as createGrokAcpAdapter } from "../adapters/grok-acp/index.js";
 import { createAdapter as createKimiAcpAdapter } from "../adapters/kimi-acp/index.js";
 import { createAdapter as createCursorAcpAdapter } from "../adapters/cursor-acp/index.js";
+import { createAdapter as createOpencodeAcpAdapter } from "../adapters/opencode-acp/index.js";
 import { createAdapter as createPiAdapter } from "../adapters/pi/index.js";
 import type { SequencedEvent } from "../buffer.js";
 import type { AdapterFactory, AgentSessionStreamEvent, Session } from "../protocol/index.js";
@@ -57,9 +58,15 @@ export type {
   CodexAppServerTurnResult,
 } from "./transports/codex-app-server.js";
 
-export type LocalAgentHarness = "codex" | "pi" | "grok" | "grok-acp" | "kimi" | "cursor";
-export type LocalAgentResolvedHarness = "codex" | "pi" | "grok" | "kimi" | "cursor";
-export type LocalAgentTransport = "codex_app_server" | "pi_rpc" | "grok_acp" | "kimi_acp" | "cursor_acp";
+export type LocalAgentHarness = "codex" | "pi" | "grok" | "grok-acp" | "kimi" | "cursor" | "opencode";
+export type LocalAgentResolvedHarness = "codex" | "pi" | "grok" | "kimi" | "cursor" | "opencode";
+export type LocalAgentTransport =
+  | "codex_app_server"
+  | "pi_rpc"
+  | "grok_acp"
+  | "kimi_acp"
+  | "cursor_acp"
+  | "opencode_acp";
 export type LocalAgentWarmth = "warm" | "lazy";
 
 export type LocalAgentUsage = {
@@ -173,7 +180,9 @@ function resolveLocalTransport(
         ? "grok_acp"
         : harness === "kimi"
           ? "kimi_acp"
-          : "cursor_acp";
+          : harness === "opencode"
+            ? "opencode_acp"
+            : "cursor_acp";
   const transport = requested ?? defaultTransport;
 
   if (harness === "codex" && transport !== "codex_app_server") {
@@ -190,6 +199,9 @@ function resolveLocalTransport(
   }
   if (harness === "cursor" && transport !== "cursor_acp") {
     throw new Error(`Local harness cursor does not support transport ${transport}.`);
+  }
+  if (harness === "opencode" && transport !== "opencode_acp") {
+    throw new Error(`Local harness opencode does not support transport ${transport}.`);
   }
 
   return transport;
@@ -224,6 +236,13 @@ function adapterSpecForTransport(transport: LocalAgentTransport): LocalAdapterSp
     };
   }
 
+  if (transport === "opencode_acp") {
+    return {
+      adapterType: "opencode-acp",
+      createAdapter: createOpencodeAcpAdapter,
+    };
+  }
+
   throw new Error(`Transport ${transport} is handled outside the adapter registry.`);
 }
 
@@ -233,7 +252,8 @@ function localSessionName(harness: LocalAgentResolvedHarness): string {
   }
   if (harness === "pi") return "Local Pi";
   if (harness === "grok") return "Local Grok ACP";
-  return harness === "kimi" ? "Local Kimi Code ACP" : "Local Cursor ACP";
+  if (harness === "kimi") return "Local Kimi Code ACP";
+  return harness === "opencode" ? "Local OpenCode ACP" : "Local Cursor ACP";
 }
 
 function buildAdapterOptions(options: {
@@ -256,6 +276,9 @@ function buildAdapterOptions(options: {
     ...(options.adapterOptions ?? {}),
     ...(options.reuseKey ? { sessionId: options.reuseKey, sessionMode: "auto" } : {}),
     ...(options.transport === "cursor_acp" ? { cursorExtensions: true } : {}),
+    // OpenCode has no model flag on `acp`; its adapter turns this into a
+    // config overlay on the child environment.
+    ...(options.transport === "opencode_acp" && options.model ? { model: options.model } : {}),
   };
 }
 

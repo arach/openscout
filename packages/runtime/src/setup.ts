@@ -39,7 +39,7 @@ import {
 import { assertTestIsolatedUserData, ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
 import { collectUserLevelProjectRootHints, encodeClaudeProjectsSlug } from "./user-project-hints.js";
 
-export type RelayRuntimeTransport = "claude_stream_json" | "codex_app_server" | "pi_rpc" | "grok_acp" | "kimi_acp" | "cursor_acp" | "tmux" | "cursor_exec";
+export type RelayRuntimeTransport = "claude_stream_json" | "codex_app_server" | "pi_rpc" | "grok_acp" | "kimi_acp" | "cursor_acp" | "opencode_acp" | "tmux" | "cursor_exec";
 export type TelegramBridgeMode = "auto" | "webhook" | "polling";
 export const SCOUT_AGENT_ID = "scout";
 export const MANAGED_AGENT_HARNESSES = ["claude", "codex", "cursor", "grok", "pi"] as const;
@@ -945,6 +945,10 @@ function normalizeTransport(
     return "cursor_acp";
   }
 
+  if (harness === "opencode") {
+    return "opencode_acp";
+  }
+
   if (harness === "pi" && value === undefined) {
     return "pi_rpc";
   }
@@ -961,7 +965,7 @@ function normalizeTransport(
     return "pi_rpc";
   }
 
-  if (value === "grok_acp" || value === "kimi_acp" || value === "cursor_acp") {
+  if (value === "grok_acp" || value === "kimi_acp" || value === "cursor_acp" || value === "opencode_acp") {
     return value;
   }
 
