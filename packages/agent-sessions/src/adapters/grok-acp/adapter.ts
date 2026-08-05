@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { AdapterConfig } from "../../protocol/adapter.js";
+import { registerSecretValue } from "../../secret-redaction.js";
 import { AcpAdapter } from "../acp/adapter.js";
 
 const DEFAULT_GROK_ARGS = ["--no-auto-update", "agent", "stdio"];
@@ -60,6 +61,8 @@ function resolveGrokEnvironment(configEnv: Record<string, string> | undefined): 
   if (!xaiApiKey) {
     return { env: configEnv, hasXaiApiKey: false };
   }
+
+  registerSecretValue(xaiApiKey, "grok-acp:env");
 
   return {
     env: {

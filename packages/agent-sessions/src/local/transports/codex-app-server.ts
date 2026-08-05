@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { buildScoutMcpCodexLaunchArgs } from "../../codex-launch-config.js";
 import { resolveCodexExecutable } from "../../codex-executable.js";
+import { redactSecrets } from "../../secret-redaction.js";
 
 export type CodexAppServerApprovalPolicy = "untrusted" | "on-request" | "on-failure" | "never";
 export type CodexAppServerSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
@@ -985,11 +986,11 @@ export class CodexAppServerTransport {
     child.stderr.setEncoding("utf8");
 
     child.stdout.on("data", (chunk: string) => {
-      void appendFile(this.stdoutLogPath, chunk).catch(() => undefined);
+      void appendFile(this.stdoutLogPath, redactSecrets(chunk)).catch(() => undefined);
       this.handleStdoutChunk(chunk);
     });
     child.stderr.on("data", (chunk: string) => {
-      void appendFile(this.stderrLogPath, chunk).catch(() => undefined);
+      void appendFile(this.stderrLogPath, redactSecrets(chunk)).catch(() => undefined);
     });
     child.once("error", (error) => {
       this.failSession(new Error(`Codex app-server failed for ${this.options.agentName}: ${errorMessage(error)}`));
@@ -1114,7 +1115,7 @@ export class CodexAppServerTransport {
 
       const message = parseJsonLine(line);
       if (!message) {
-        void appendFile(this.stderrLogPath, `[openscout] unparsable app-server output: ${line}\n`).catch(() => undefined);
+        void appendFile(this.stderrLogPath, `[openscout] unparsable app-server output: ${redactSecrets(line)}\n`).catch(() => undefined);
         continue;
       }
 

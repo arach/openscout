@@ -1,5 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 
+import { redactSecrets } from "@openscout/agent-sessions/secret-redaction";
+
 import type {
   DeliveryAttempt,
   DeliveryIntent,
@@ -185,6 +187,16 @@ function localEndpointUnavailableReason(endpoint: AgentEndpoint): string | null 
   return null;
 }
 
+function redactFlightRecordSecrets(flight: FlightRecord): FlightRecord {
+  const output = flight.output ? redactSecrets(flight.output) : flight.output;
+  const error = flight.error ? redactSecrets(flight.error) : flight.error;
+  const summary = flight.summary ? redactSecrets(flight.summary) : flight.summary;
+  if (output === flight.output && error === flight.error && summary === flight.summary) {
+    return flight;
+  }
+  return { ...flight, output, error, summary };
+}
+
 function normalizeRecordedFlight(
   flight: FlightRecord,
   invocation: InvocationRequest | undefined,
@@ -221,7 +233,11 @@ export class BrokerFlightLifecycleService {
   readonly recordFlight = async (flight: FlightRecord): Promise<void> => {
     const invocation = this.options.invocationFor(flight.invocationId)
       ?? this.options.runtime.snapshot().invocations[flight.invocationId];
-    const flightToRecord = normalizeRecordedFlight(flight, invocation, this.now());
+    // Single chokepoint before journal/sqlite persistence, work-item promotion,
+    // and mesh forwarding: scrub registered credentials from free-text fields.
+    const flightToRecord = redactFlightRecordSecrets(
+      normalizeRecordedFlight(flight, invocation, this.now()),
+    );
     let didRecordFlight = false;
     let previousFlight: FlightRecord | undefined;
     await this.options.durableStore.runWrite(async () => {

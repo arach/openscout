@@ -8,6 +8,7 @@ import type {
   ScoutCapabilityScope,
 } from "@openscout/protocol";
 
+import { redactSecrets } from "@openscout/agent-sessions/secret-redaction";
 import type { RuntimeCapabilityMatrixInput } from "./capability-matrix.js";
 
 export type RuntimeMcpServerConfig = {
@@ -374,7 +375,7 @@ class StdioJsonRpcTransport implements McpDiscoveryJsonRpcTransport {
 
   private formatStderr(): string {
     const text = this.stderr.trim();
-    return text ? ` stderr: ${text}` : "";
+    return text ? ` stderr: ${redactSecrets(text)}` : "";
   }
 }
 
