@@ -33,6 +33,7 @@ import {
   spawnHarnessProcess,
   type HarnessProcess,
 } from "../../runtime/process.js";
+import { redactSecrets, registerSecretValue } from "../../secret-redaction.js";
 
 const BASE_PROCESS_ENV_KEYS = [
   "PATH",
@@ -243,6 +244,7 @@ export function buildPiProcessEnv(
 
   for (const mapping of credentialMappings) {
     copyFirstValue(env, mapping.outputKey, mapping.sourceKeys ?? [mapping.outputKey], sources);
+    registerSecretValue(env[mapping.outputKey], "pi:provider-env");
   }
 
   return env;
@@ -333,7 +335,7 @@ export class PiAdapter extends BaseAdapter {
         if (this.process !== child || this.session.status === "closed") {
           return;
         }
-        const detail = summarizePiStderr(stderr);
+        const detail = redactSecrets(summarizePiStderr(stderr));
         this.emit("error", new Error(
           `pi exited`
           + (code !== null ? ` with code ${code}` : "")

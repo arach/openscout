@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { resetTailThinkingModeCache } from "../user-config.js";
 import { ClaudeSource } from "./claude-source.js";
 import { CodexSource } from "./codex-source.js";
 import { CursorSource } from "./cursor-source.js";
@@ -1024,5 +1025,63 @@ describe("tail transcript sources", () => {
       ]),
     }));
     expect(isTailNoiseEvent(event!)).toBe(true);
+  });
+});
+
+// --- Textless thinking blocks (the `tail-thinking` setting) -----------------
+//
+// Claude returns thinking blocks with an EMPTY `thinking` field whenever the
+// caller leaves `display` at its default of "omitted", which every current
+// model does. The tail must not render `[thinking]` with nothing behind it by
+// default, and must still render thinking that DOES carry text.
+
+describe("textless thinking blocks", () => {
+  const transcript = {
+    source: "claude" as const,
+    transcriptPath: "/tmp/claude/thinking.jsonl",
+    sessionId: "claude-thinking",
+    cwd: "/Users/arach/dev/openscout",
+    project: "openscout",
+    harness: "unattributed" as const,
+    mtimeMs: Date.now(),
+    size: 100,
+  };
+
+  function parse(content: unknown[]) {
+    return ClaudeSource.parseLine(
+      JSON.stringify({
+        type: "assistant",
+        timestamp: "2026-08-04T12:00:00.000Z",
+        message: { id: "msg-thinking", content },
+      }),
+      makeContext("claude", transcript),
+    );
+  }
+
+  afterEach(() => {
+    delete process.env.OPENSCOUT_TAIL_THINKING;
+    resetTailThinkingModeCache();
+  });
+
+  test("drops the empty beat by default", () => {
+    resetTailThinkingModeCache();
+    const event = parse([
+      { type: "thinking", thinking: "", signature: "CAISuAQK" },
+      { type: "text", text: "Done." },
+    ]);
+    expect(event?.summary).toBe("Done.");
+  });
+
+  test("keeps a marker when tail-thinking is tag", () => {
+    process.env.OPENSCOUT_TAIL_THINKING = "tag";
+    resetTailThinkingModeCache();
+    const event = parse([{ type: "thinking", thinking: "", signature: "CAISuAQK" }]);
+    expect(event?.summary).toBe("[thinking]");
+  });
+
+  test("renders thinking that carries text whatever the setting", () => {
+    resetTailThinkingModeCache();
+    const event = parse([{ type: "thinking", thinking: "Weigh the two fixes.", signature: "x" }]);
+    expect(event?.summary).toBe("[thinking] Weigh the two fixes.");
   });
 });

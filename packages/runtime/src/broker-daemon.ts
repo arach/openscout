@@ -44,6 +44,7 @@ import { BrokerDeliveryAcceptanceService } from "./broker-delivery-acceptance-se
 import { BrokerDeliveryHttpService } from "./broker-delivery-http-service.js";
 import { BrokerDurableActionHttpService } from "./broker-durable-action-http-service.js";
 import { BrokerFlightLifecycleService } from "./broker-flight-lifecycle-service.js";
+import { bootstrapSecretRedaction } from "./secret-redaction-bootstrap.js";
 import { applyRoleLifecycleForTerminalFlight } from "./role-lifecycle.js";
 import { BrokerRepoTailService } from "./broker-repo-tail-service.js";
 import { BrokerRendezvousService } from "./broker-rendezvous-service.js";
@@ -156,7 +157,6 @@ import {
   collectOccupiedDefinitionIdsFromBrokerSnapshot,
   resolveProjectProvisionalAgentName,
 } from "./provisional-agent-names.js";
-import { bootstrapSecretRedaction } from "./secret-redaction-bootstrap.js";
 import { locateHarnessSession } from "./session-locator.js";
 import { findHarnessEntry } from "./harness-catalog.js";
 import { BrokerControlStreamService } from "./broker-control-stream-service.js";
@@ -1822,6 +1822,14 @@ const trpcHandler = applyWSSHandler({
   router: brokerRouter,
   createContext: () => ({}),
 });
+
+// Arm credential redaction (varlock .env.schema + declared credential env
+// vars) and patch console.* before the broker emits any output. Best-effort:
+// never throws, and the broker must boot even if varlock cannot load.
+const secretRedaction = await bootstrapSecretRedaction({ patchConsole: true });
+console.log(`[openscout-runtime] secret redaction armed (${secretRedaction.registered} value(s)${
+  secretRedaction.schemaPath ? `, schema ${secretRedaction.schemaPath}` : ", no .env.schema found"
+})`);
 
 try {
   // Arm credential redaction (varlock .env.schema + declared credential env

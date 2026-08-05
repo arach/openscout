@@ -288,6 +288,7 @@
   "dependencies": {
     "@openscout/agent-sessions": "workspace:*",
     "@openscout/protocol": "workspace:*",
+    "varlock": "^1.16.0",
     "@trpc/server": "^11.16.0",
     "drizzle-orm": "^0.45.2",
     "smol-toml": "^1.6.1",

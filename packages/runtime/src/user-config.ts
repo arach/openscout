@@ -4,6 +4,19 @@ import { dirname, join } from "node:path";
 import { resolveOpenScoutSupportPaths } from "./support-paths.js";
 
 export type InterruptThreshold = "always" | "blocking-only" | "batched" | "never";
+
+/**
+ * How the tail renders a thinking block the model returned with no text.
+ *
+ * Claude's API returns thinking blocks with an empty `thinking` field whenever
+ * the caller leaves `display` at its default of `"omitted"` — which every
+ * current model does, so every Claude transcript on disk has signed-but-empty
+ * thinking. `hide` drops those beats (a row that promises reasoning and shows a
+ * bare tag is worse than silence); `tag` keeps a marker for operators who want
+ * to see that the agent stopped to think. Runtimes that DO return thinking text
+ * (Kimi) are unaffected by this setting — their text always renders.
+ */
+export type TailThinkingMode = "hide" | "tag";
 export type CommsChannel = "here" | "mobile" | "here+mobile";
 export type CommsVerbosity = "terse" | "normal" | "detailed";
 export type CommsTone = "direct" | "warm" | "formal";
@@ -29,6 +42,8 @@ export type OpenScoutUserConfig = {
   provisionalAgentNamesMode?: ProvisionalAgentNamesMode;
   /** Advanced: path to a JSON name pool (`{ "names": [...] }` or a string array). */
   provisionalAgentNamesFile?: string;
+  /** How the tail renders text-less thinking blocks. Default `hide`. */
+  tailThinking?: TailThinkingMode;
 };
 
 function userConfigPath(): string {
@@ -91,4 +106,37 @@ export function resolveOperatorHandle(): string {
     || normalizeHandle(process.env.OPENSCOUT_OPERATOR_NAME)
     || normalizeHandle(process.env.USER)
     || "operator";
+}
+
+const TAIL_THINKING_MODES: readonly TailThinkingMode[] = ["hide", "tag"];
+
+function normalizeTailThinkingMode(value: unknown): TailThinkingMode | null {
+  const raw = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return TAIL_THINKING_MODES.includes(raw as TailThinkingMode) ? (raw as TailThinkingMode) : null;
+}
+
+/**
+ * Resolution order: `~/.openscout/user.json` → `OPENSCOUT_TAIL_THINKING` → `hide`.
+ *
+ * Memoized for one second: this is read per tail EVENT during ingest, and the
+ * config lives on disk. A second is short enough that `scout config set
+ * tail-thinking …` feels immediate and long enough that a burst of events does
+ * not turn into a burst of stat calls.
+ */
+let tailThinkingCache: { value: TailThinkingMode; readAt: number } | null = null;
+
+export function resolveTailThinkingMode(now = Date.now()): TailThinkingMode {
+  if (tailThinkingCache && now - tailThinkingCache.readAt < 1_000) {
+    return tailThinkingCache.value;
+  }
+  const value = normalizeTailThinkingMode(loadUserConfig().tailThinking)
+    ?? normalizeTailThinkingMode(process.env.OPENSCOUT_TAIL_THINKING)
+    ?? "hide";
+  tailThinkingCache = { value, readAt: now };
+  return value;
+}
+
+/** Test seam — drops the memo so a fixture's config/env change is seen at once. */
+export function resetTailThinkingModeCache(): void {
+  tailThinkingCache = null;
 }

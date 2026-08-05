@@ -7,6 +7,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import * as z from "zod/v4";
 
+import type { ScoutOperatorSignal } from "@openscout/protocol";
+
 import {
   SCOUT_MCP_UI_META_KEY,
   createScoutMcpServer,
@@ -169,16 +171,7 @@ describe("createScoutMcpServer", () => {
       body: string;
       targetLabel?: string;
       wake?: boolean;
-      operatorSignal?: {
-        kind: "notify";
-        blocking: false;
-        replyExpectation: "none";
-      } | {
-        kind: "consult";
-        blocking: false;
-        replyExpectation: "optional";
-        defaultAction: string;
-      };
+      operatorSignal?: ScoutOperatorSignal;
     }> = [];
     const { client } = await connectTestServer({
       resolveSenderId: async () => "action.main",
