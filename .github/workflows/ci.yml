@@ -1,52 +1,21 @@
 name: CI
 
 on:
+  # CI runs at checkpoints, not on every commit. Pushing a `ci-*` tag (or
+  # running the workflow manually) validates whatever is on the branch at
+  # that moment, so a batch of small PRs costs one run instead of one each.
+  #
+  # Deliberately NOT on pull_request or on push to main: a stacked series
+  # produced ~3 runs per PR, most cancelling each other before finishing.
+  #
+  # The tradeoff is real, not cosmetic. CI catches things local runs cannot:
+  # the sync-exec fence, and tests that only fail on a machine without the
+  # harness CLIs installed. Nothing now blocks a merge, so a checkpoint tag
+  # has to be pushed before trusting a batch.
   push:
-    branches: [main]
-    paths:
-      - ".github/workflows/*.yml"
-      - "Cargo.lock"
-      - "Cargo.toml"
-      - "apps/cloud/**"
-      - "apps/desktop/**"
-      - "apps/mesh-front-door/**"
-      - "crates/**"
-      - "packages/agent-sessions/**"
-      - "packages/cli/**"
-      - "packages/protocol/**"
-      - "packages/runtime/**"
-      - "packages/session-trace/**"
-      - "packages/session-trace-react/**"
-      - "packages/web/**"
-      - "scripts/cargo.sh"
-      - "scripts/scoutd-verify.sh"
-      - "scripts/**"
-      - "package.json"
-      - "bun.lock"
-      - "tsconfig*.json"
-  pull_request:
-    branches: [main]
-    paths:
-      - ".github/workflows/*.yml"
-      - "Cargo.lock"
-      - "Cargo.toml"
-      - "apps/cloud/**"
-      - "apps/desktop/**"
-      - "apps/mesh-front-door/**"
-      - "crates/**"
-      - "packages/agent-sessions/**"
-      - "packages/cli/**"
-      - "packages/protocol/**"
-      - "packages/runtime/**"
-      - "packages/session-trace/**"
-      - "packages/session-trace-react/**"
-      - "packages/web/**"
-      - "scripts/cargo.sh"
-      - "scripts/scoutd-verify.sh"
-      - "scripts/**"
-      - "package.json"
-      - "bun.lock"
-      - "tsconfig*.json"
+    tags:
+      - "ci-*"
+  workflow_dispatch:
   workflow_call:
 
 permissions:
