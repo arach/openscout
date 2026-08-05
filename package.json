@@ -117,7 +117,8 @@
     "unrs-resolver"
   ],
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "varlock": "^1.16.0"
   },
   "patchedDependencies": {
     "hudsonkit@0.3.5": "patches/hudsonkit@0.3.5.patch"

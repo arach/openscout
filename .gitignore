@@ -132,3 +132,6 @@ ds-bundle/
 .design-sync/.cache/
 .design-sync/learnings/
 .design-sync/node_modules
+
+# Tracked: declares which credentials exist, never their values.
+!.env.schema
