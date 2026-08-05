@@ -226,11 +226,26 @@ export function renderOpenScoutStartPage(config: OpenScoutLocalEdgeConfig): stri
       gap: 24px 36px;
       align-items: center;
     }
+    /* The mark is a second way into the app, not just decoration — it is the
+       largest, most inviting thing on the page, so clicking it should do what
+       clicking it looks like it should do. It stays aria-hidden and outside the
+       tab order on purpose: 2820 glyph cells are noise to a screen reader, and
+       the real #start button sits beside it as the accessible, keyboard-
+       reachable path. This is a redundant mouse affordance, never the only one. */
     .orb {
       position: relative;
       justify-self: end;
       user-select: none;
-      pointer-events: none;
+      cursor: pointer;
+      transition: transform 160ms ease, filter 160ms ease;
+    }
+    .orb:hover { transform: translateY(-1px); filter: brightness(1.18); }
+    .orb:active { transform: translateY(0); filter: brightness(1.05); }
+    .orb[data-busy="true"] { cursor: progress; }
+    .orb[data-busy="true"]:hover { transform: none; filter: none; }
+    @media (prefers-reduced-motion: reduce) {
+      .orb { transition: none; }
+      .orb:hover, .orb:active { transform: none; }
     }
     .orb-l {
       margin: 0;
@@ -426,8 +441,14 @@ export function renderOpenScoutStartPage(config: OpenScoutLocalEdgeConfig): stri
       return false;
     }
 
-    button.addEventListener('click', async () => {
+    const orb = document.querySelector('.orb');
+
+    async function startScout() {
+      // Both entry points share one guard: the mark can be clicked while the
+      // button is mid-flight, and a second POST would race the first.
+      if (button.disabled) return;
       button.disabled = true;
+      if (orb) orb.dataset.busy = 'true';
       setWaiting(true);
       setStatus('Starting Scout web...');
       try {
@@ -449,13 +470,18 @@ export function renderOpenScoutStartPage(config: OpenScoutLocalEdgeConfig): stri
           setWaiting(false);
           setStatus('Scout web did not become ready. Try again in a moment.');
           button.disabled = false;
+          if (orb) orb.dataset.busy = 'false';
         }
       } catch (error) {
         setWaiting(false);
         setStatus(error instanceof Error ? error.message : String(error));
         button.disabled = false;
+        if (orb) orb.dataset.busy = 'false';
       }
-    });
+    }
+
+    button.addEventListener('click', startScout);
+    if (orb) orb.addEventListener('click', startScout);
   </script>
 </body>
 </html>`;
