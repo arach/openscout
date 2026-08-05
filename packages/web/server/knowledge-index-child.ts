@@ -9,14 +9,24 @@ import { indexRecentSessionKnowledge, SQLiteKnowledgeStore } from "@openscout/ru
  * printed as a single JSON line on stdout.
  */
 async function main() {
-  const input = JSON.parse(process.argv[2] ?? "{}") as {
+  const raw = JSON.parse(process.argv[2] ?? "{}") as {
     days?: number;
+    hours?: number;
     limit?: number;
     force?: boolean;
+    harness?: string | string[];
+  };
+  const input = {
+    days: typeof raw.days === "number" ? raw.days : undefined,
+    hours: typeof raw.hours === "number" ? raw.hours : undefined,
+    limit: typeof raw.limit === "number" ? raw.limit : undefined,
+    force: raw.force === true,
+    harness: raw.harness,
   };
   try {
     const result = await indexRecentSessionKnowledge(input);
-    const store = new SQLiteKnowledgeStore();
+    // Status after index is a pure read; avoid a second writable connection.
+    const store = new SQLiteKnowledgeStore(undefined, undefined, { readonly: true });
     try {
       console.log(JSON.stringify({ ok: true, result, status: store.status() }));
     } finally {

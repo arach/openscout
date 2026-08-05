@@ -628,6 +628,90 @@ describe("service budgets", () => {
     rawDb.close();
   });
 
+  test("reports the binding Codex pool when a session interleaves several", async () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-service-budgets-codex-pools-"));
+    tempPaths.add(root);
+    const controlHome = join(root, "control-plane");
+    const home = join(root, "home");
+    process.env.OPENSCOUT_CONTROL_HOME = controlHome;
+    process.env.HOME = home;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
+    process.env.PATH = "";
+    mkdirSync(controlHome, { recursive: true });
+    const rawDb = new Database(join(controlHome, "control-plane.sqlite"));
+    createQuotaTable(rawDb);
+
+    const sessionDir = join(home, ".codex", "sessions", "2026", "08", "02");
+    mkdirSync(sessionDir, { recursive: true });
+    const now = Date.now();
+    const weekly = (at: number) => Math.floor((at + 7 * 24 * 60 * 60_000) / 1000);
+    const rateLimits = (usedPercent: number, limitId: string, resetsAt: number) => ({
+      type: "token_count",
+      rate_limits: {
+        limit_id: limitId,
+        primary: { used_percent: usedPercent, window_minutes: 7 * 24 * 60, resets_at: resetsAt },
+        secondary: null,
+        plan_type: "pro",
+      },
+    });
+
+    // Codex Desktop alternates pools inside one rollout. The promotional pool
+    // sits at 0% and its reset slides forward with every event, so it always
+    // looks like the newest cycle even though it measures nothing.
+    writeFileSync(join(sessionDir, "usage.jsonl"), [
+      JSON.stringify({
+        timestamp: new Date(now - 120_000).toISOString(),
+        payload: rateLimits(86, "codex", weekly(now - 3 * 24 * 60 * 60_000)),
+      }),
+      JSON.stringify({
+        timestamp: new Date(now - 60_000).toISOString(),
+        payload: rateLimits(0, "codex_bengalfox", weekly(now - 60_000)),
+      }),
+    ].join("\n") + "\n", "utf8");
+
+    const response = await loadServiceBudgets(true);
+    const codex = response.gauges.find((gauge) => gauge.id === "codex");
+    expect(codex && codex.kind === "quota" ? codex.windows : []).toEqual([
+      expect.objectContaining({ label: "7d", usedLabel: "86%", source: "Codex local session" }),
+    ]);
+    rawDb.close();
+  });
+
+  test("does not let an older reading with a further-out reset outrank newer usage", async () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-service-budgets-codex-stale-cycle-"));
+    tempPaths.add(root);
+    const controlHome = join(root, "control-plane");
+    const home = join(root, "home");
+    process.env.OPENSCOUT_CONTROL_HOME = controlHome;
+    process.env.HOME = home;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
+    process.env.PATH = "";
+    mkdirSync(controlHome, { recursive: true });
+    const rawDb = new Database(join(controlHome, "control-plane.sqlite"));
+    createQuotaTable(rawDb);
+    const insert = rawDb.query(`
+      INSERT INTO budget_quota_window_snapshots
+        (id, source, provider, harness, transport, label, window_kind, used_percent, percent_remaining,
+         reset_at, window_ms, captured_at, metadata_json, created_at)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+    `);
+    const now = Date.now();
+    const week = 7 * 24 * 60 * 60_000;
+    // Captured two days ago but claiming a reset further out than the live
+    // window: it must not pin the gauge to its reading.
+    insert.run("codex-stale-far-reset", "provider_reported", "openai", "codex", "codex_app_server", "7d", "primary",
+      0, 100, now + 5 * 24 * 60 * 60_000, week, now - 2 * 24 * 60 * 60_000, "{}", now - 2 * 24 * 60 * 60_000);
+    insert.run("codex-live", "provider_reported", "openai", "codex", "codex_app_server", "7d", "primary",
+      87, 13, now + 3 * 24 * 60 * 60_000, week, now - 60_000, "{}", now - 60_000);
+
+    const response = await loadServiceBudgets(true);
+    const codex = response.gauges.find((gauge) => gauge.id === "codex");
+    expect(codex && codex.kind === "quota" ? codex.windows : []).toEqual([
+      expect.objectContaining({ label: "7d", usedLabel: "87%" }),
+    ]);
+    rawDb.close();
+  });
+
   test("harvests Kimi Code subscription windows and membership level", async () => {
     const root = mkdtempSync(join(tmpdir(), "openscout-service-budgets-kimi-"));
     tempPaths.add(root);

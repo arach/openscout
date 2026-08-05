@@ -1,11 +1,13 @@
 ---
 name: scout
 description: >
-  Use the Scout CLI (scout send, scout ask, scout who, scout wait, scout whoami)
-  for agent-to-agent coordination via the local broker. Load this skill whenever
-  the user asks to message or ask another agent, hand off work across agents,
-  continue a Scout flight/ref/session, route by project and harness, check who is
-  around, or fan out a Scout request — including `/scout` and `@agent` mentions.
+  Use the Scout CLI (scout send, scout ask, scout search, scout who, scout wait,
+  scout whoami) for agent-to-agent coordination and past harness-session search
+  via the local broker. Load this skill whenever the user asks to message or ask
+  another agent, find prior Codex/Claude/Kimi session work, hand off work across
+  agents, continue a Scout flight/ref/session, route by project and harness,
+  check who is around, or fan out a Scout request — including `/scout` and
+  `@agent` mentions. Prefer `scout search` over grepping harness home dirs.
   Prefer shelling out to `scout` with structured flags over inventing agent names.
 metadata:
   short-description: Use the scout command from the shell
@@ -29,6 +31,17 @@ scout ask Fable to review this       # reserved broker profile; fresh current-pr
 scout ask agent Composer Review to fix the tests # exact existing @composer-review handle
 ```
 
+**Past harness sessions (high priority):** when the question is what prior
+Codex/Claude/Kimi (or other harness) work said or ran, use `scout search`
+**before** grepping `~/.codex`, `~/.claude`, or `~/.kimi-code`:
+
+```bash
+scout search status
+scout search index --source sessions --harness kimi --hours 12
+scout search query "xcodebuild" --harness kimi --hours 12
+```
+
+Indexing is explicit only. Full guide: `docs/session-search.md`.
 Reserved profile names `Fable`, `Kimi`, `Grok`, and `Opus` are launch
 presets, not agent names. In natural-language asks they always create a fresh
 session in the inferred current project through the broker-owned profile.
@@ -51,14 +64,30 @@ Default routing ladder:
 2. **Continuity request:** a returned `ref`, `flightId`, `conversationId`, `workId`, or `session:<id>` from the broker receipt.
 3. **Named sibling:** promote/name/pin a known-good dispatched worker only after Scout has routed it; prefer broker-suggested mnemonic handles over invented generic names.
 
-Scout can answer four questions when the route is not already obvious:
+Scout can answer five questions when the route is not already obvious:
 
 1. Who am I here?
 2. Who is around?
 3. What is the latest?
-4. Do I need the full live UI?
+4. What did past harness sessions say/do about a topic?
+5. Do I need the full live UI?
 
 Treat that as an orientation loop, not a mandatory preflight.
+
+### Session search (past harness work)
+
+For “which session built X / mentioned Y / ran this command?” across Codex,
+Claude, Kimi, etc., use **explicit** knowledge search — not ad-hoc greps of
+home directories and not broker `latest` (broker activity ≠ harness transcripts):
+
+```bash
+scout search status
+scout search index --source sessions --harness kimi --hours 12   # explicit warm-up
+scout search query "xcodebuild" --harness kimi --hours 12
+```
+
+Indexing is never ambient. If query reports not warmed, run `index` for that
+span first. Full guide: `docs/session-search.md`.
 
 ## Remote onboarding (OpenScout product context)
 
@@ -158,6 +187,7 @@ The semantics do not change by host. Only the verbs change:
 | Read a named channel | `scout channel <name> --latest 20 --json` | `messages_channel` | use for group/channel context |
 | Inspect broker-native messages/status/errors | `scout latest` | `broker_feed` | use when delivery, dispatch, unblock, or flight status matters |
 | Find or confirm a target | `scout who`, `scout latest`, `scout @x...` disambiguation | `agents_search`, `agents_resolve` | use when direct routing is ambiguous |
+| Search past harness sessions | `scout search status\|index\|query` (explicit warm-up) | — | see `docs/session-search.md`; not broker messages |
 | Message / status / reply | `scout send --to x "msg"` | `messages_send` with explicit target fields | one target -> DM |
 | Invocation / requested reply | `scout ask --to x "msg"` | `ask` with `to` | one target -> DM; card target starts fresh |
 | Continue exact prior context | `scout ask --to session:<id> "msg"` | `ask` with `targetSessionId` | only path that reuses/stickies a harness session |
@@ -249,6 +279,7 @@ Map common operator/agent questions to one command:
 | "Who am I?"                     | `scout whoami`                                      |
 | "Who's around?"                 | `scout who`                                         |
 | "What's the latest?"            | `scout latest`                                      |
+| "What did sessions say about X?"| `scout search` (index then query; `docs/session-search.md`) |
 | "Open Scout"                    | `scout server open`                                 |
 | "Open a specific page in Scout" | `scout server open --path /agents/<agent-or-route>` |
 

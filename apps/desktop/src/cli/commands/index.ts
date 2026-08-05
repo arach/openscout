@@ -24,11 +24,13 @@ export type ScoutCommandName =
   | "mcp"
   | "menu"
   | "mesh"
+  | "need"
   | "pair"
   | "ps"
   | "restart"
   | "role"
   | "runtimes"
+  | "search"
   | "send"
   | "session"
   | "server"
@@ -97,6 +99,10 @@ export async function loadScoutCommandHandler(name: ScoutCommandName): Promise<S
       return (await import("./role.ts")).runRoleCommand;
     case "runtimes":
       return (await import("./runtimes.ts")).runRuntimesCommand;
+    case "search":
+      return (await import("./search.ts")).runSearchCommand;
+    case "need":
+      return (await import("./need.ts")).runNeedCommand;
     case "send":
       return (await import("./send.ts")).runSendCommand;
     case "session":

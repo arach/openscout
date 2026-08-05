@@ -397,6 +397,9 @@ describe("local agent prompts", () => {
     expect(prompt).toContain(`${scoutCli} channel <name> --latest 20 --json`);
     expect(prompt).toContain(`${scoutCli} send --to <agent> --as shaper "your message"`);
     expect(prompt).toContain(`${scoutCli} ask --to <agent> --as shaper "your request"`);
+    expect(prompt).toContain("prefer `scout search` over grepping");
+    expect(prompt).toContain(`${scoutCli} search status`);
+    expect(prompt).toContain(`${scoutCli} search index --source sessions`);
     expect(prompt).toContain("Relay protocol:");
     expect(prompt).toContain("Do not use file-backed relay state or side channels directly");
     expect(prompt).toContain("Do not curl broker HTTP endpoints to read messages");
@@ -766,6 +769,9 @@ describe("local agent prompts", () => {
     expect(prompt.startsWith("⌖ @operator → @ranger · ask:1hjg5e › Review how invocation prompt titles should read in Codex conversations.\ndelivery: waking · session: fresh session\n\n")).toBe(true);
     expect(prompt.replace(/\n/g, "")).toContain("@operator → @ranger · ask:1hjg5e › Review how invocation prompt titles should read in Codex conversations.delivery: waking · session: fresh session");
     expect(prompt).toContain("<!-- SCOUT BROKER REPLY MODE -->");
+    expect(prompt).toContain("<!-- SCOUT SESSION SEARCH -->");
+    expect(prompt).toContain("prefer `scout search`");
+    expect(prompt).toContain("scout search index --source sessions");
     expect(prompt).toContain("<!-- SCOUT ARTIFACT GUIDANCE -->");
     expect(prompt).toContain("For long-form deliverables, prefer a durable file when you have write access");
     expect(prompt).toContain("Inline replies are still valid");

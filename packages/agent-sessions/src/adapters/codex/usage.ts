@@ -17,6 +17,13 @@ export type CodexQuotaWindowObservation = {
 };
 
 export type CodexUsageObservation = {
+  /**
+   * Which rate-limit pool this observation describes (`rate_limits.limit_id`).
+   * Codex Desktop interleaves more than one pool in a single session — the
+   * account's `codex` weekly window alongside separate promotional/experimental
+   * pools — so a reading is only comparable against another from the same pool.
+   */
+  limitId?: string;
   inputTokens?: number;
   contextInputTokens?: number;
   cacheReadInputTokens?: number;
@@ -423,6 +430,7 @@ export function readCodexRolloutUsageObservation(
     contextWindowTokens: observedNumber(info?.model_context_window)
       ?? observedNumber(record.model_context_window),
     planType: observedString(rateLimits?.plan_type),
+    limitId: observedString(rateLimits?.limit_id),
     quotaWindows: readCodexQuotaWindowsFromRateLimits(rateLimits, timestamp),
   };
 

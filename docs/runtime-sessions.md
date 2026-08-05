@@ -229,6 +229,7 @@ and skills. Command names may evolve, but the behavior should not be ambiguous.
 | `session intake` | Materialize an existing harness session through a local terminal backend |
 | `session attach` | Attach an agent endpoint to an existing harness session |
 | `session list` | Show known sessions and endpoint attachments |
+| `search index` / `search query` | Explicit FTS over observed harness transcripts (see [session-search.md](./session-search.md)) |
 | `session stop` | Stop or detach a concrete session |
 | `session inspect` | Explain the agent/session/endpoint state and last error |
 
