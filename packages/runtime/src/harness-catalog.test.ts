@@ -258,13 +258,19 @@ describe("readiness derived from the harness auth model", () => {
     if (!found) throw new Error(`missing catalog entry: ${name}`);
     return found;
   };
+  // `configured` is `installed && no missing requirements`, and `installed`
+  // resolves the harness binary on PATH — so on a machine without the CLI
+  // every credential assertion collapses to false and passes vacuously.
+  // Dropping `install` makes `installed` true, isolating the credential logic
+  // these tests are actually about.
+  const entryWithoutBinary = (name: string) => ({ ...entry(name), install: undefined });
 
   test("a setup-token OAuth credential counts as authenticated", () => {
     // The regression this derivation exists for: Claude Code reads
     // CLAUDE_CODE_OAUTH_TOKEN, but the hand-written block listed only
     // ANTHROPIC_API_KEY, so a machine authenticated via `claude setup-token`
     // reported as not authenticated.
-    const report = evaluateHarnessReadiness(entry("claude"), {
+    const report = evaluateHarnessReadiness(entryWithoutBinary("claude"), {
       env: { CLAUDE_CODE_OAUTH_TOKEN: "fake-token-value-for-tests" },
       requirementExists: noFiles,
     });
@@ -273,7 +279,7 @@ describe("readiness derived from the harness auth model", () => {
 
   test("a refresh token alone does not count as authenticated", () => {
     // It proves a prior login happened but cannot authenticate a request.
-    const report = evaluateHarnessReadiness(entry("claude"), {
+    const report = evaluateHarnessReadiness(entryWithoutBinary("claude"), {
       env: { CLAUDE_CODE_OAUTH_REFRESH_TOKEN: "fake-token-value-for-tests" },
       requirementExists: noFiles,
     });
@@ -281,7 +287,7 @@ describe("readiness derived from the harness auth model", () => {
   });
 
   test("no credential at all is still unconfigured", () => {
-    const report = evaluateHarnessReadiness(entry("claude"), {
+    const report = evaluateHarnessReadiness(entryWithoutBinary("claude"), {
       env: {},
       requirementExists: noFiles,
     });
