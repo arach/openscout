@@ -104,7 +104,10 @@ struct NewSessionSurface: View {
     /// Device-local recency — newline-separated roots, most recent first.
     @AppStorage("scout.new.recentProjectRoots") private var recentRootsRaw = ""
     @State private var isSubmitting = false
-    @State private var result: SessionInitiationResult?
+    /// The last create the broker ACCEPTED — nil until one lands, and nil again
+    /// the moment the operator dismisses it. See `LaunchRecord` for why this is
+    /// a captured record rather than the raw result.
+    @State private var launch: LaunchRecord?
     @State private var errorText: String?
     @State private var pendingAttachments: [ScoutComposerAttachment] = []
     /// The composer owns focus; this only says who SHOULD be holding it. False
@@ -171,6 +174,27 @@ struct NewSessionSurface: View {
     private struct ConversationRoute: Hashable, Identifiable {
         let id: String
         let title: String
+    }
+
+    /// What a create actually WAS, captured at the moment the broker accepted it.
+    ///
+    /// The card must not read live form state. The composer resets on success and
+    /// the operator is free to re-point the destination straight after, so a card
+    /// sourced from `harnessId` / `projectLeaf` would quietly re-describe a
+    /// finished create with whatever the form happens to say now — "Codex is
+    /// working in talkie" over a session that was Claude in openscout. A receipt
+    /// that changes after the fact is not a receipt.
+    private struct LaunchRecord {
+        let outcome: SessionInitiationResult
+        let harnessLabel: String
+        let projectLeaf: String
+        let title: String
+
+        /// The prompt actually reached the agent, rather than only a session
+        /// being opened for it.
+        var promptSent: Bool {
+            outcome.messageId?.isEmpty == false || outcome.flightId?.isEmpty == false
+        }
     }
 
     /// The harness/family/effort catalog now lives with the picker — see
@@ -273,11 +297,7 @@ struct NewSessionSurface: View {
                 // need, so the destination hugs the composer at rest and simply
                 // takes the room when the picker is open.
                 Spacer(minLength: 0)
-                if let result {
-                    resultCard(result)
-                        .padding(.bottom, HudSpacing.md)
-                        .cockpitEntrance(index: 2, phase: entrance)
-                }
+                launchSlot
                 destination
                     .cockpitEntrance(index: 0, phase: entrance)
                 composerDock
@@ -486,6 +506,16 @@ struct NewSessionSurface: View {
             // row on a screen whose whole point is calm.
             if isPickerOpen {
                 projectSearchField
+                    // Unfolds down out of the host line it sits under, rather
+                    // than blinking into existence between two rules.
+                    .transition(
+                        reduceMotion
+                            ? .opacity
+                            : .asymmetric(
+                                insertion: .opacity.combined(with: .move(edge: .top)),
+                                removal: .opacity
+                            )
+                    )
             }
             projectList
             if !workspaces.isEmpty {
@@ -948,7 +978,14 @@ struct NewSessionSurface: View {
     private func projectRow(path: String, name: String, harness: String?, kind: String?, isTyped: Bool) -> some View {
         let selected = trimmedProjectPath == path
         return Button {
-            projectPath = path
+            // TRAVEL, not teleport. The marker is a `matchedGeometryEffect`, so
+            // without a transaction around the write it simply reappears on the
+            // new row and the one piece of continuity in the list is thrown
+            // away. Same motion the runtime panel's harness rail uses for the
+            // same act.
+            withAnimation(ScoutMotion.honoring(reduceMotion, ScoutMotion.travel)) {
+                projectPath = path
+            }
             // Picking from the open picker is the end of picking.
             if isPickerOpen {
                 withAnimation(reduceMotion ? nil : ScoutMotion.grow) { isPickerOpen = false }
@@ -1154,33 +1191,111 @@ struct NewSessionSurface: View {
             )
         }
     }
-    // MARK: - Result
+    // MARK: - Launch
+    //
+    // ONE seat, directly above the destination lane, for the whole arc of a
+    // create: the sweep while the broker is working, the receipt when it
+    // answers. Pressing Send used to change nothing on this screen until the
+    // conversation pushed itself — on a slow Mac that is a dead beat where the
+    // only honest reading is "did that even register". Same seat for both
+    // states means the answer arrives where you were already looking.
 
-    private func resultCard(_ result: SessionInitiationResult) -> some View {
-        let promptSent = result.messageId?.isEmpty == false || result.flightId?.isEmpty == false
-        return HudCard {
+    @ViewBuilder
+    private var launchSlot: some View {
+        Group {
+            if isSubmitting {
+                launchingCard
+            } else if let launch {
+                resultCard(launch)
+            }
+        }
+        .padding(.bottom, HudSpacing.md)
+        // Grows up out of the composer you just pressed Send in, and shrinks
+        // back into it when dismissed — this card is that press's answer, so it
+        // arrives from where the press was rather than appearing over the lane.
+        .transition(
+            reduceMotion
+                ? .opacity
+                : .asymmetric(
+                    insertion: .opacity.combined(with: .move(edge: .bottom)),
+                    removal: .opacity.combined(with: .scale(scale: 0.97, anchor: .bottom))
+                )
+        )
+        .animation(ScoutMotion.honoring(reduceMotion, ScoutMotion.grow), value: isSubmitting)
+    }
+
+    /// In flight. Names the two things the operator chose — the runtime and the
+    /// project — so the wait shows what is being acted on, not just that
+    /// something is.
+    private var launchingCard: some View {
+        HudCard {
             VStack(alignment: .leading, spacing: HudSpacing.md) {
                 HStack(spacing: HudSpacing.md) {
+                    HudStatusDot(color: ScoutPalette.accent, size: HudDotSize.medium)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Starting…")
+                            .font(HudFont.ui(HudTextSize.md, weight: .semibold))
+                            .foregroundStyle(ScoutPalette.ink)
+                        Text("\(selectedHarnessLabel) in \(projectLeaf.isEmpty ? "the selected project" : projectLeaf)")
+                            .font(HudFont.ui(HudTextSize.xs))
+                            .foregroundStyle(ScoutInk.muted)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Spacer(minLength: 0)
+                }
+                LaunchTrace()
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Starting \(selectedHarnessLabel) in \(projectLeaf)")
+    }
+
+    // MARK: - Result
+
+    private func resultCard(_ launch: LaunchRecord) -> some View {
+        let promptSent = launch.promptSent
+        return HudCard {
+            VStack(alignment: .leading, spacing: HudSpacing.md) {
+                HStack(alignment: .top, spacing: HudSpacing.md) {
                     HudStatusDot(color: promptSent ? ScoutPalette.statusOk : ScoutPalette.statusWarn, size: HudDotSize.medium)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(promptSent ? "Prompt sent" : "Session ready")
                             .font(HudFont.ui(HudTextSize.md, weight: .semibold))
                             .foregroundStyle(ScoutPalette.ink)
-                        Text(resultSummary(promptSent: promptSent))
+                        Text(resultSummary(launch))
                             .font(HudFont.ui(HudTextSize.xs))
                             .foregroundStyle(ScoutInk.muted)
                             .lineLimit(2)
                     }
+                    Spacer(minLength: HudSpacing.sm)
+                    // The card is a receipt, and a receipt you cannot put down
+                    // is litter. It survives navigating into the conversation
+                    // and back — that is the point of it — so the only thing
+                    // that can retire it is the operator saying so.
+                    Button {
+                        withAnimation(ScoutMotion.honoring(reduceMotion, ScoutMotion.grow)) {
+                            self.launch = nil
+                        }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(ScoutInk.dim)
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Dismiss")
                 }
-                idRow("conversation", result.conversationId)
-                idRow("message", result.messageId)
-                idRow("flight", result.flightId)
-                idRow("agent", result.agentId)
-                if let conversationId = result.conversationId, !conversationId.isEmpty {
+                idRow("conversation", launch.outcome.conversationId)
+                idRow("message", launch.outcome.messageId)
+                idRow("flight", launch.outcome.flightId)
+                idRow("agent", launch.outcome.agentId)
+                if let conversationId = launch.outcome.conversationId, !conversationId.isEmpty {
                     HStack {
                         Spacer()
                         HudButton("Open conversation", icon: "bubble.left.and.bubble.right", style: .secondary) {
-                            route = ConversationRoute(id: conversationId, title: sessionTitle)
+                            route = ConversationRoute(id: conversationId, title: launch.title)
                         }
                     }
                     .padding(.top, HudSpacing.xs)
@@ -1189,10 +1304,10 @@ struct NewSessionSurface: View {
         }
     }
 
-    private func resultSummary(promptSent: Bool) -> String {
-        let project = projectLeaf.isEmpty ? "the selected project" : projectLeaf
-        if promptSent {
-            return "\(selectedHarnessLabel) is working in \(project)."
+    private func resultSummary(_ launch: LaunchRecord) -> String {
+        let project = launch.projectLeaf.isEmpty ? "the selected project" : launch.projectLeaf
+        if launch.promptSent {
+            return "\(launch.harnessLabel) is working in \(project)."
         }
         return "No prompt was sent; open the conversation to start."
     }
@@ -1231,12 +1346,20 @@ struct NewSessionSurface: View {
 
     private func submit() {
         guard !isSubmitting, canSubmit else { return }
-        isSubmitting = true
-        // The seeded pick has had its run; from here the workspace default is
-        // free to lead again.
-        runtimePinned = false
         errorText = nil
-        result = nil
+        // What this create IS, read off the form while the form still describes
+        // it. Everything downstream — the in-flight card, the receipt, the
+        // pushed conversation's title — uses these rather than re-reading state
+        // that is about to be reset.
+        let launchedHarness = selectedHarnessLabel
+        let launchedProject = projectLeaf
+        let launchedTitle = sessionTitle
+        // The previous create's receipt belongs to the previous create; it
+        // leaves before this one's sweep takes the seat.
+        withAnimation(ScoutMotion.honoring(reduceMotion, ScoutMotion.grow)) {
+            launch = nil
+            isSubmitting = true
+        }
         // The one ranking signal this surface owns: you started work here, so
         // this root leads the short list next time.
         rememberRoot(trimmedProjectPath)
@@ -1252,17 +1375,65 @@ struct NewSessionSurface: View {
                 let hosted = try await upload(attachments)
                 let spec = makeSpec(attachments: hosted)
                 let outcome = try await activeClient.startSession(spec)
-                isSubmitting = false
-                result = outcome
+                let record = LaunchRecord(
+                    outcome: outcome,
+                    harnessLabel: launchedHarness,
+                    projectLeaf: launchedProject,
+                    title: launchedTitle
+                )
+                // ACCEPTED — and only now does the draft go. One transaction, so
+                // the sweep hands the seat to the receipt while the composer
+                // collapses back to a single empty line behind it.
+                UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+                withAnimation(ScoutMotion.honoring(reduceMotion, ScoutMotion.grow)) {
+                    isSubmitting = false
+                    resetComposition()
+                    launch = record
+                }
                 // Land in the new conversation when the broker returns one.
                 if let conversationId = outcome.conversationId {
-                    route = ConversationRoute(id: conversationId, title: sessionTitle)
+                    route = ConversationRoute(id: conversationId, title: launchedTitle)
                 }
             } catch {
+                // Nothing landed, so nothing is cleared: the draft and the
+                // staged files are still the operator's, and they are about to
+                // need them for the retry.
                 pendingAttachments = attachments
-                isSubmitting = false
+                withAnimation(ScoutMotion.honoring(reduceMotion, ScoutMotion.grow)) {
+                    isSubmitting = false
+                }
                 errorText = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
+        }
+    }
+
+    /// The composer after a create the broker ACCEPTED: empty draft, nothing
+    /// staged, no stale error, and the runtime back on this project's own
+    /// recommendation.
+    ///
+    /// Called only on the success path. A create that failed still owns your
+    /// draft — clearing it would destroy words nothing ever took, and the retry
+    /// is the very next thing you want to do.
+    ///
+    /// The DESTINATION deliberately survives. Project and host are where you are
+    /// working, not what you just wrote; re-picking the repo before every
+    /// follow-up task is exactly the friction this surface exists to remove.
+    private func resetComposition() {
+        instructions = ""
+        pendingAttachments = []
+        errorText = nil
+        effortId = ComposerEffortOption.defaultId
+        // The seeded pick has had its run; the workspace recommendation is free
+        // to lead again for the next task.
+        runtimePinned = false
+        applyWorkspaceDefault()
+        familyId = pickerHarnesses.first { $0.id == harnessId }?.defaultFamily.id ?? familyId
+        // Nothing is staged to pick FOR any more, so no panel should be left
+        // standing over an empty composer.
+        showModelPicker = false
+        if isPickerOpen {
+            isPickerOpen = false
+            projectQuery = ""
         }
     }
 
@@ -1329,4 +1500,45 @@ struct NewSessionSurface: View {
         ]
     }()
     #endif
+}
+
+/// The in-flight sweep on the launching card.
+///
+/// Indeterminate on purpose: the broker reports no progress for a create, and a
+/// bar that claims a fraction it does not have is a lie told smoothly. A segment
+/// travelling a hairline says "working" and claims nothing more than that.
+///
+/// Sibling of ConnectScreen's `LocalScanTrace` — same act (a wait we cannot
+/// quantify), so deliberately the same shape. Under Reduce Motion it parks
+/// centred: the mark still reads as an active state, it just doesn't travel.
+private struct LaunchTrace: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var travels = false
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Rectangle()
+                    .fill(ScoutHairline.standard)
+                    .frame(height: HudStrokeWidth.standard)
+
+                Capsule()
+                    .fill(ScoutPalette.accent)
+                    .frame(width: 54, height: 2)
+                    .offset(
+                        x: reduceMotion
+                            ? max(0, proxy.size.width / 2 - 27)
+                            : (travels ? max(0, proxy.size.width - 54) : 0)
+                    )
+            }
+        }
+        .frame(height: 2)
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 1.05).repeatForever(autoreverses: true)) {
+                travels = true
+            }
+        }
+        .accessibilityHidden(true)
+    }
 }

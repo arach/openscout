@@ -12,6 +12,8 @@ struct MainView: View {
     @State private var showQR: Bool = false
     @State private var showingActivityLog = false
     @ObservedObject private var activityLog = HudLogStore.shared
+    @ObservedObject private var voiceHost = ScoutVoiceHostRunner.shared
+    @StateObject private var activeAgents = ActiveAgentsStore()
 
     static let baseHeight: CGFloat = 422
     static let errorHeight: CGFloat = 470
@@ -20,6 +22,7 @@ struct MainView: View {
     static let actionLogPanelHeight: CGFloat = 168
     static let runtimeWarningHeight: CGFloat = 36
     static let pairingApprovalCardHeight: CGFloat = 128
+    static let dictationCardHeight: CGFloat = 86
 
     var body: some View {
         ZStack {
@@ -46,6 +49,11 @@ struct MainView: View {
                         .help("Open activity log")
                     }
 
+                    if let dictation = voiceHost.activeDictation {
+                        dictationCard(dictation)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+
                     if let request = controller.pendingPairingRequests.first {
                         pairingApprovalCard(request)
                             .transition(.opacity.combined(with: .move(edge: .top)))
@@ -54,6 +62,14 @@ struct MainView: View {
                     if controller.broker.hasRestartWarning {
                         runtimeWarningRow
                             .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+
+                    // Renders nothing while the fleet is quiet; the store's
+                    // lifecycle therefore lives on the root view below, not
+                    // on the panel.
+                    ActiveAgentsPanel(store: activeAgents) { agent in
+                        let encoded = agent.id.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? agent.id
+                        controller.openWebPath("/agents/\(encoded)")
                     }
 
                     deckStrip
@@ -87,6 +103,10 @@ struct MainView: View {
         // popover to a default screen position. Keep the size change atomic.
         .animation(.easeInOut(duration: 0.18), value: showQR)
         .animation(.easeInOut(duration: 0.18), value: controller.pendingPairingRequests.count)
+        .animation(.easeInOut(duration: 0.18), value: voiceHost.activeDictation != nil)
+        .animation(.easeInOut(duration: 0.18), value: activeAgents.agents)
+        .onAppear { activeAgents.start() }
+        .onDisappear { activeAgents.stop() }
         .hudEdgeSheet(isPresented: $showingActivityLog, edge: .trailing, fraction: 0.92) {
             ScoutLogPanel(title: "Activity Log") {
                 showingActivityLog = false
@@ -113,9 +133,18 @@ struct MainView: View {
         case (false, false): base = Self.baseHeight
         }
         if !controller.actionLog.isEmpty {
-            return base + warningHeight + pairingApprovalHeight + Self.actionLogPanelHeight + 10
+            return base + warningHeight + pairingApprovalHeight + dictationHeight + activeAgentsHeight + Self.actionLogPanelHeight + 10
         }
-        return base + warningHeight + pairingApprovalHeight
+        return base + warningHeight + pairingApprovalHeight + dictationHeight + activeAgentsHeight
+    }
+
+    private var dictationHeight: CGFloat {
+        voiceHost.activeDictation == nil ? 0 : Self.dictationCardHeight + 10
+    }
+
+    /// Already includes the 14pt stack spacing; 0 while the panel self-hides.
+    private var activeAgentsHeight: CGFloat {
+        ActiveAgentsPanel.heightContribution(for: activeAgents)
     }
 
     private var warningHeight: CGFloat {
@@ -728,6 +757,109 @@ struct MainView: View {
             }
             .frame(maxWidth: .infinity, minHeight: 200)
         }
+    }
+
+    // MARK: - Dictation card
+
+    /// Live mic disclosure: shown for exactly as long as the voice host holds
+    /// a dictation session, with the one control that matters — ending it.
+    /// Stop finalizes (the requesting surface still gets its transcript);
+    /// once the session is transcribing, the button becomes Cancel, the
+    /// escape hatch for a stuck finalization.
+    private func dictationCard(_ dictation: ScoutActiveDictation) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                Image(systemName: "mic.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(ShellPalette.accent)
+                Text("DICTATION")
+                    .font(MenuType.mono(9, weight: .semibold))
+                    .tracking(1.0)
+                    .foregroundStyle(ShellPalette.accent)
+
+                Text(dictationStageLabel(dictation.stage))
+                    .font(MenuType.bodyMedium(11))
+                    .foregroundStyle(ShellPalette.ink)
+
+                TimelineView(.periodic(from: dictation.startedAt, by: 1)) { context in
+                    Text(dictationElapsedLabel(from: dictation.startedAt, to: context.date))
+                        .font(MenuType.mono(10))
+                        .foregroundStyle(ShellPalette.dim)
+                }
+
+                Spacer(minLength: 8)
+
+                if dictation.stage == .processing {
+                    Button {
+                        voiceHost.cancelActiveDictation()
+                    } label: {
+                        Text("Cancel")
+                            .font(MenuType.mono(10, weight: .semibold))
+                            .foregroundStyle(ShellPalette.copy)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 5)
+                            .background(
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .stroke(ShellPalette.line, lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Discard this dictation")
+                } else {
+                    Button {
+                        voiceHost.stopActiveDictation()
+                    } label: {
+                        Text("Stop")
+                            .font(MenuType.mono(10, weight: .semibold))
+                            .foregroundStyle(ShellPalette.ink)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 5)
+                            .background(
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .fill(ShellPalette.accent.opacity(0.18))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .stroke(ShellPalette.accent.opacity(0.55), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Stop dictation and deliver the transcript")
+                }
+            }
+
+            Text(dictation.preview.isEmpty ? "Listening for speech…" : dictation.preview)
+                .font(MenuType.body(10))
+                .foregroundStyle(dictation.preview.isEmpty ? ShellPalette.muted : ShellPalette.copy)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(ShellPalette.accentSoft)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(ShellPalette.accent.opacity(0.4), lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Dictation \(dictationStageLabel(dictation.stage))")
+    }
+
+    private func dictationStageLabel(_ stage: ScoutActiveDictation.Stage) -> String {
+        switch stage {
+        case .starting: return "Starting mic…"
+        case .recording: return "Listening"
+        case .processing: return "Transcribing…"
+        }
+    }
+
+    private func dictationElapsedLabel(from start: Date, to now: Date) -> String {
+        let seconds = max(0, Int(now.timeIntervalSince(start)))
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 
     private func pairingApprovalCard(_ request: ScoutPairingRequest) -> some View {

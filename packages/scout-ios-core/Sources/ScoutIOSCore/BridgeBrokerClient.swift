@@ -790,16 +790,23 @@ struct MobileActivityItem: Codable, Sendable {
     let conversationId: String?
     let channel: String?
     let timestamp: Int
+    /// The actor's runtime, resolved broker-side from its endpoint. Absent on
+    /// paired Macs older than this field — decodes to nil, and the surface
+    /// simply shows no runtime rather than guessing one.
+    let harness: String?
 
     func toTailEvent() -> TailEvent {
         TailEvent(
             id: id,
             tsMs: Int64(scoutEpochMilliseconds(timestamp)),
             source: actorName,
-            harness: .unattributed,         // curated activity carries no harness attribution
+            // `.unattributed` is the MANAGEMENT lane (who runs the session);
+            // the runtime brand rides `runtime` below.
+            harness: .unattributed,
             kind: mappedKind,
             summary: detail?.trimmedNonEmpty ?? title,
-            conversationId: conversationId?.trimmedNonEmpty
+            conversationId: conversationId?.trimmedNonEmpty,
+            runtime: harness?.trimmedNonEmpty
         )
     }
 

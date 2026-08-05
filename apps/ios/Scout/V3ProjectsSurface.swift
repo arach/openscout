@@ -180,11 +180,9 @@ struct V3ProjectsSurface: View {
         for place in collected {
             let key = place.name.lowercased()
             var existing = merged[key] ?? place
-            // Match on the reported project name. (A workspace-root fallback
-            // can join agents whose project name is unset once `AgentSummary`
-            // grows a `workspaceRoot` — that field ships with the fleet lanes.)
             let matches = allAgents.filter {
                 $0.projectName?.lowercased() == key
+                    || $0.workspaceRoot?.split(separator: "/").last.map(String.init)?.lowercased() == key
             }
             for agent in matches {
                 if !existing.agentNames.contains(agent.title) {

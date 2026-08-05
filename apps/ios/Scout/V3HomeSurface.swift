@@ -1,24 +1,39 @@
 import SwiftUI
 import HudsonUI
 import ScoutCapabilities
+import ScoutNativeCore
 
 /// v3 Home — the X-like feed (design/studio/views/mobile-timeline.tsx §1).
 /// A "Working now" horizontal row of live agents, then outcome posts shaped
 /// from data the app ALREADY syncs — no new backend.
 ///
-/// FEED SHAPING (v1, deliberately conservative): posts are grouped out of the
-/// per-machine tail window (`recentTail`, the same 50-row / 5s-poll source as
-/// TailSurface) by conversation. `TailEvent` carries no outcome state, so the
-/// context row is inferred ONLY where the data honestly supports it:
-///   · needs you — the conversation's agent reports `needsAttention`, or an
-///     OPEN notifications-ledger entry names the same conversation;
-///   · done      — the group's newest event is a codex "task complete" marker
-///     (the same canonical completion test TailSurface uses);
+/// FEED SHAPING (v1, deliberately conservative): posts are grouped by
+/// conversation out of the per-machine ACTIVITY ledger (`recentActivity` —
+/// the curated cross-agent exchange feed), not out of `recentTail`. The tail
+/// is a global harness firehose: a single chatty session fills its whole
+/// window, so a tail-fed feed collapses to one post while the rest of the
+/// fleet is invisible (measured 2026-08-04: 50 tail rows = 1 conversation,
+/// 60 ledger rows = 31). The ledger is also the only source whose
+/// `conversationId` shares an id space with `listAgents`, so agent matching
+/// can actually resolve.
+///
+/// `TailEvent` carries no outcome state, so the context row is inferred ONLY
+/// where the data honestly supports it:
+///   · needs you — an OPEN notifications-ledger entry names the conversation
+///     (that ledger is built from `agent.needsAttention` and keyed on the
+///     agent's own id, so it is the reliable side of the same fact);
 ///   · failed    — the newest event's summary says so ("failed" / "error");
 ///   · active    — everything else. No outcome is ever invented.
-/// Agent identity comes from `listAgents` (matched on conversationId); posts
-/// with no agent match fall back to the tail's `/project:session` handle.
-/// Known limits: 5s-poll staleness, a 50-event window per Mac (old work ages
+///
+/// IDENTITY comes from the ledger's own `actorName`, never from the roster.
+/// Agents collapse many-to-one onto a conversation (measured 2026-08-04: 260
+/// agents share a single `chn-…`), so a roster "match" is an arbitrary member
+/// of that set — letting it win renamed real posts and once labelled the
+/// operator's own message with an agent's name. The RUNTIME likewise comes off
+/// the wire per row (the broker resolves it from the actor's endpoint, the only
+/// place a cardless flight agent's runtime is recorded); the roster is a last
+/// fallback. Nothing here is ever guessed from a name.
+/// Known limits: poll staleness, a bounded window per Mac (old work ages
 /// out), and keyword failure detection — all acceptable for v1, and called
 /// out here rather than smoothed over.
 struct V3HomeSurface: View {
@@ -27,27 +42,38 @@ struct V3HomeSurface: View {
     /// Host scope from the masthead (a paired-machine id, nil = all hosts):
     /// both the Working-now cards and the feed narrow to that Mac's events.
     var hostScope: String?
-    /// The sub-bar feed filter. Working honestly narrows to posts whose
-    /// matched agent is `.live` right now; Thinking stays cosmetic (the tail
-    /// carries no thinking signal — see V3HomeFilter).
+    /// The sub-bar feed filter. Working honestly narrows to posts whose agent
+    /// the broker reports live right now (see V3HomeFilter).
     var filter: V3HomeFilter = .forYou
-    /// Posts tap through to Chats (the thread's durable home). The peek sheet
-    /// from the study is OUT of scope for this slice.
-    var onOpenChats: () -> Void = {}
-
-    private static let maxEventsPerMachine = 50
+    private static let maxEventsPerMachine = 80
     private static let maxPosts = 30
-    private static let tailPollSeconds: Double = 5
+    private static let feedPollSeconds: Double = 10
     private static let agentPollSeconds: Double = 20
 
-    @State private var events: [MachineTailEvent] = []
+    @State private var events: [MachineFeedEvent] = []
     @State private var agents: [MachineAgent] = []
-    @State private var hasLoadedTail = false
+    @State private var hasLoadedFeed = false
     @State private var onlineMachineCount = 0
     @State private var pairedMachineCount = 0
+    /// The thread a tapped post opened — the post's own conversation, one layer
+    /// deep (the study's peek sheet, in its first honest form).
+    @State private var openThread: OpenThread?
+    @StateObject private var entrance = CockpitEntrancePhase()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private struct MachineTailEvent: Identifiable {
+    /// A post's conversation plus the Mac that holds it — the feed is
+    /// cross-machine, so the thread has to be read through its own host's
+    /// client, not whichever one happens to be selected.
+    private struct OpenThread: Identifiable {
+        let conversation: CommsConversation
+        let client: any ScoutBrokerClient
+        /// Carried from the post so the thread header can wear the same badge
+        /// the feed row did — the thread itself cannot resolve a runtime.
+        let harness: String?
+        var id: String { conversation.id }
+    }
+
+    private struct MachineFeedEvent: Identifiable {
         let id: String
         let machineId: String
         let event: TailEvent
@@ -84,16 +110,16 @@ struct V3HomeSurface: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .refreshable {
-            await fetchTailOnce()
+            await fetchFeedOnce()
             await fetchAgentsOnce()
         }
         .task(id: "\(reloadKey)|\(isActive)") {
             guard isActive else { return }
-            await fetchTailOnce()
+            await fetchFeedOnce()
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(Self.tailPollSeconds))
+                try? await Task.sleep(for: .seconds(Self.feedPollSeconds))
                 if Task.isCancelled { break }
-                await fetchTailOnce()
+                await fetchFeedOnce()
             }
         }
         .task(id: "agents|\(reloadKey)|\(isActive)") {
@@ -103,6 +129,44 @@ struct V3HomeSurface: View {
                 try? await Task.sleep(for: .seconds(Self.agentPollSeconds))
             }
         }
+        // A post opens ITS OWN thread, one layer over the feed — tapping a
+        // result and landing on the chat list was a dead end.
+        .sheet(item: $openThread) { thread in
+            CommsThreadView(
+                client: thread.client,
+                conversation: thread.conversation,
+                counterpartHarness: thread.harness,
+                onClose: { openThread = nil },
+                onRead: {
+                    _ = try? await thread.client.markConversationRead(
+                        conversationId: thread.conversation.id
+                    )
+                }
+            )
+        }
+    }
+
+    /// Build the thread a post points at. The feed row carries everything the
+    /// header needs, so the sheet opens with the agent's name already on it
+    /// instead of a blank bar that fills in after the first fetch.
+    private func openPost(_ post: V3FeedPost) {
+        guard let conversationId = post.conversationId, !conversationId.isEmpty else { return }
+        let client = model.agentMachines().first { $0.id == post.machineId }?.client ?? model.client
+        openThread = OpenThread(
+            conversation: CommsConversation(
+                id: conversationId,
+                kind: .unknown,
+                title: post.agent,
+                participants: [post.agent],
+                lastMessagePreview: post.line,
+                lastMessageAuthor: post.agent,
+                lastMessageAt: nil,
+                messageCount: 0,
+                unreadCount: 0
+            ),
+            client: client,
+            harness: post.harness.isEmpty ? nil : post.harness
+        )
     }
 
     // MARK: - Working now
@@ -175,15 +239,29 @@ struct V3HomeSurface: View {
         if posts.isEmpty {
             emptyState
         } else {
+            let rows = posts
             LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(posts) { post in
-                    V3FeedPostRow(post: post, onOpen: {
-                        guard post.conversationId != nil else { return }
-                        onOpenChats()
-                    })
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, post in
+                    V3FeedPostRow(post: post, onOpen: { openPost(post) })
+                        // First activation only: the same 7pt settle every Scout
+                        // surface uses, staggered down the feed. Later polls
+                        // render in place — the phase latch is per launch.
+                        .cockpitEntrance(index: index, phase: entrance, motionEnabled: !reduceMotion)
+                        // A post that arrives while you are reading slides in
+                        // from the top instead of teleporting the list.
+                        .transition(
+                            .asymmetric(
+                                insertion: .move(edge: .top).combined(with: .opacity),
+                                removal: .opacity
+                            )
+                        )
                 }
             }
             .padding(.horizontal, 14)
+            .animation(
+                reduceMotion ? nil : .spring(response: 0.34, dampingFraction: 0.86),
+                value: rows.map(\.id)
+            )
         }
     }
 
@@ -201,14 +279,31 @@ struct V3HomeSurface: View {
                 subtitle: "The feed fills in once a paired Mac is reachable.",
                 icon: "network.slash"
             )
+        } else if filter != .forYou, !unfilteredPostCountIsZero {
+            // The fleet HAS work; this filter just doesn't match any of it.
+            // Saying "no recent activity" here sent the operator hunting for a
+            // connection bug that wasn't there.
+            ScoutEmptyState(
+                title: "Nothing \(filter.rawValue.lowercased()) right now",
+                subtitle: "For you still has recent work from your fleet.",
+                icon: "line.3.horizontal.decrease"
+            )
         } else {
             ScoutEmptyState(
-                title: hasLoadedTail ? "No recent activity" : "Loading recent activity",
-                subtitle: hasLoadedTail
+                title: hasLoadedFeed ? "No recent activity" : "Loading recent activity",
+                subtitle: hasLoadedFeed
                     ? "Agent work across your Macs lands here as it happens."
-                    : "Reading the latest tail window.",
+                    : "Reading the latest exchanges.",
                 icon: "waveform"
             )
+        }
+    }
+
+    /// Whether the feed is empty even before the sub-bar filter runs — the test
+    /// that separates "nothing happened" from "nothing matches this filter".
+    private var unfilteredPostCountIsZero: Bool {
+        events.allSatisfy { row in
+            effectiveScope != nil && row.machineId != effectiveScope
         }
     }
 
@@ -216,7 +311,7 @@ struct V3HomeSurface: View {
 
     private var posts: [V3FeedPost] {
         let openAlertSessions = Set(model.notifications.entries(.open).map(\.sessionId))
-        var groups: [String: (key: String, rows: [MachineTailEvent])] = [:]
+        var groups: [String: (key: String, rows: [MachineFeedEvent])] = [:]
         var order: [String] = []
         for row in events {  // events arrive oldest → newest
             if let scope = effectiveScope, row.machineId != scope { continue }
@@ -232,29 +327,68 @@ struct V3HomeSurface: View {
         let shaped: [(post: V3FeedPost, isLive: Bool)] = order.compactMap { key in
             guard let group = groups[key], let newest = group.rows.last else { return nil }
             let event = newest.event
-            let matched = agents.first { $0.agent.conversationId == event.conversationId }?.agent
+            let matched = agents.first {
+                $0.agent.conversationId != nil && $0.agent.conversationId == event.conversationId
+            }?.agent
             let state: V3FeedPost.State
-            if matched?.needsAttention == true
-                || (event.conversationId.map { openAlertSessions.contains($0) } ?? false) {
+            // One source for attention, not two: the notifications ledger is
+            // BUILT from `agent.needsAttention` and keyed on the agent's own id,
+            // so it is a strict superset of the roster check AND doesn't ride
+            // the many-to-one conversation match. Asking both only added a way
+            // to raise attention on the wrong post.
+            if event.conversationId.map({ openAlertSessions.contains($0) }) ?? false {
                 state = .needs
-            } else if Self.isTurnCompletion(event) {
-                state = .done
             } else if Self.looksFailed(event.summary) {
                 state = .failed
             } else {
                 state = .active
             }
-            let line = group.rows.last(where: { $0.event.kind == .assistant })?.event.summary
-                ?? event.summary
+            // The agent's own last word is the outcome; an operator line is the
+            // ask, not the result. Fall back to the newest row when the group
+            // has no agent line yet.
+            let agentRow = group.rows.last(where: { $0.event.kind == .assistant })
+            let line = agentRow?.event.summary ?? event.summary
+            // The ledger names its actor on every row — prefer a roster match,
+            // then the agent's name, then whoever posted last (an ask you sent
+            // that nobody has answered yet reads as "You", not as a handle
+            // stitched out of an id), and only then the synthesized handle.
+            // The row the post is NAMED after. nil when the operator is the only
+            // one who has spoken — an ask nobody has answered yet. That case is
+            // "You", and an operator has no project and no runtime, so none of
+            // the agent enrichment below may touch it.
+            let namingRow = agentRow ?? group.rows.last { $0.event.kind != .user }
+            let actorName = (namingRow ?? newest)
+                .event.source
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            // The LEDGER names the actor, and it is authoritative: it recorded
+            // who actually posted. The roster must never override it — agents
+            // collapse many-to-one onto a conversation (measured: 260 agents
+            // share one `chn-…`), so a "match" is an arbitrary member of that
+            // set. Letting it win renamed three of seven resolving groups and
+            // labelled the operator's own message with an agent's name.
+            let handle = Self.splitHandle(
+                actorName.isEmpty ? Self.handle(for: event) : actorName,
+                projects: projectPrefixes
+            )
             return (
                 V3FeedPost(
                     id: key,
-                    agent: matched?.title ?? Self.handle(for: event),
-                    project: event.project ?? matched?.projectName ?? "",
-                    harness: event.source,
+                    machineId: newest.machineId,
+                    agent: handle.name,
+                    project: namingRow == nil
+                        ? ""
+                        : (event.project ?? matched?.projectName ?? handle.project ?? ""),
+                    // The ledger attributes the runtime broker-side (resolved from
+                    // the actor's endpoint — the only place a cardless flight
+                    // agent's runtime is recorded), so it comes off the row we
+                    // named the post after. Roster match is the last fallback, and
+                    // an operator-only post gets nothing: "You" runs on no runtime.
+                    harness: namingRow.flatMap { $0.event.runtime }
+                        ?? (namingRow == nil ? nil : matched?.harness)
+                        ?? "",
                     age: Self.ageLabel(since: Date(timeIntervalSince1970: Double(event.tsMs) / 1_000), now: now),
                     state: state,
-                    line: Self.clamp(line),
+                    line: Self.outcomeLine(line),
                     conversationId: event.conversationId
                 ),
                 matched?.state == .live
@@ -263,7 +397,7 @@ struct V3HomeSurface: View {
         return Array(
             shaped
                 // Working = honestly narrowed to posts whose agent is live
-                // right now; For you / Thinking show the full feed.
+                // right now; For you shows the full feed.
                 .filter { filter != .working || $0.isLive }
                 .map(\.post)
                 .sorted { lhs, rhs in
@@ -277,18 +411,75 @@ struct V3HomeSurface: View {
         )
     }
 
-    /// The canonical codex completion marker (same test TailSurface applies).
-    private static func isTurnCompletion(_ event: TailEvent) -> Bool {
-        guard event.kind == .system, event.source.lowercased() == "codex" else { return false }
-        return event.summary
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .replacingOccurrences(of: "_", with: " ") == "task complete"
-    }
-
     private static func looksFailed(_ summary: String) -> Bool {
         let lowered = summary.lowercased()
         return lowered.contains("failed") || lowered.contains("error")
+    }
+
+    /// Project names the fleet actually has, from the agent roster. Used to
+    /// split handles — never to guess one that isn't there.
+    private var projectPrefixes: Set<String> {
+        Set(
+            agents.compactMap { entry in
+                entry.agent.projectName?.lowercased()
+            }
+            .filter { !$0.isEmpty }
+        )
+    }
+
+    /// Flight agents are handled `<project>-<name>-<n>` ("openscout-faraday-2"),
+    /// which puts the project in the name AND the meta line and leaves every
+    /// avatar in a project sharing one initial. Split the prefix off when it
+    /// names a project this fleet really has; otherwise leave the handle alone.
+    /// Nothing is lost — the prefix reappears as the post's project.
+    static func splitHandle(_ handle: String, projects: Set<String>) -> (name: String, project: String?) {
+        guard let dash = handle.firstIndex(of: "-") else { return (handle, nil) }
+        let prefix = String(handle[handle.startIndex..<dash])
+        let rest = String(handle[handle.index(after: dash)...])
+        guard !rest.isEmpty, projects.contains(prefix.lowercased()) else { return (handle, nil) }
+        return (rest, prefix)
+    }
+
+    /// The ledger carries raw message bodies — routing tags, pasted session ids,
+    /// markdown. The feed wants the sentence a person would say. Take the first
+    /// real line (a heading IS the summary), drop the control prefix and the
+    /// emphasis marks, and clamp. A very short opener borrows the next line so
+    /// the post never reads as a fragment.
+    static func outcomeLine(_ text: String) -> String {
+        var body = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // "[ask:f-mset7puc-37iu] …" — routing metadata, not the message.
+        if body.hasPrefix("["), let close = body.firstIndex(of: "]") {
+            let tag = body[body.index(after: body.startIndex)..<close]
+            if tag.count <= 40, tag.contains(":") {
+                body = String(body[body.index(after: close)...])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+
+        let lines = body
+            .components(separatedBy: .newlines)
+            .map { line in
+                line.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .drop { $0 == "#" || $0 == ">" || $0 == "-" || $0 == "*" || $0 == " " }
+            }
+            .map(String.init)
+            .filter { !$0.isEmpty }
+
+        var lead = lines.first ?? ""
+        // A stub opener ("Checks run:", "Hostname:") is a label, not a sentence.
+        if lead.count < 28, lines.count > 1 {
+            lead = "\(lead) \(lines[1])"
+        }
+
+        let flattened = lead
+            .replacingOccurrences(of: "**", with: "")
+            .replacingOccurrences(of: "`", with: "")
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        guard flattened.count > 180 else { return flattened }
+        return String(flattened.prefix(179)) + "…"
     }
 
     /// `/project:last4` — the same compact handle Tail renders, so a post with
@@ -304,15 +495,6 @@ struct V3HomeSurface: View {
         return last4.isEmpty ? base : "\(base):\(last4)"
     }
 
-    private static func clamp(_ text: String) -> String {
-        let flattened = text
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-        guard flattened.count > 280 else { return flattened }
-        return String(flattened.prefix(277)) + "…"
-    }
-
     static func ageLabel(since date: Date, now: Date = Date()) -> String {
         let seconds = max(0, now.timeIntervalSince(date))
         if seconds < 60 { return "\(Int(seconds))s" }
@@ -323,17 +505,17 @@ struct V3HomeSurface: View {
 
     // MARK: - Fetching
 
-    private func fetchTailOnce() async {
+    private func fetchFeedOnce() async {
         let machines = model.agentMachines()
         pairedMachineCount = machines.count
         onlineMachineCount = machines.filter(\.isOnline).count
-        var snapshot: [MachineTailEvent] = []
+        var snapshot: [MachineFeedEvent] = []
         for machine in machines {
             guard let client = machine.client else { continue }
-            guard let rows = try? await client.recentTail(limit: Self.maxEventsPerMachine),
+            guard let rows = try? await client.recentActivity(limit: Self.maxEventsPerMachine),
                   !Task.isCancelled else { continue }
             snapshot.append(contentsOf: rows.map { event in
-                MachineTailEvent(
+                MachineFeedEvent(
                     id: "\(machine.id)::\(event.id)",
                     machineId: machine.id,
                     event: event
@@ -346,7 +528,8 @@ struct V3HomeSurface: View {
             return $0.event.tsMs < $1.event.tsMs
         }
         events = oldestFirst
-        hasLoadedTail = true
+        hasLoadedFeed = true
+        await entrance.reveal(when: isActive, animated: !reduceMotion)
     }
 
     private func fetchAgentsOnce() async {
@@ -372,13 +555,15 @@ struct V3HomeSurface: View {
 // MARK: - Feed post model + row
 
 struct V3FeedPost: Identifiable {
+    /// No `done`: the activity ledger carries no completion signal, and a state
+    /// nothing can produce is a lie in the type. Add it back the day a real
+    /// outcome marker reaches the phone.
     enum State {
-        case needs, done, failed, active
+        case needs, failed, active
 
         var label: String {
             switch self {
             case .needs: "Needs you"
-            case .done: "Done"
             case .failed: "Failed"
             case .active: "Active"
             }
@@ -387,7 +572,6 @@ struct V3FeedPost: Identifiable {
         var color: Color {
             switch self {
             case .needs: ScoutPalette.statusWarn
-            case .done: ScoutPalette.accent
             case .failed: ScoutPalette.statusError
             case .active: ScoutPalette.statusOk
             }
@@ -395,6 +579,9 @@ struct V3FeedPost: Identifiable {
     }
 
     let id: String
+    /// The Mac this post came from — the feed is cross-machine, so opening the
+    /// thread has to go back through the right host.
+    let machineId: String
     let agent: String
     let project: String
     let harness: String
@@ -404,53 +591,61 @@ struct V3FeedPost: Identifiable {
     let conversationId: String?
 }
 
-/// One post, X anatomy: avatar column · name + meta (quiet state mark at the
-/// row's trailing edge when not done) · outcome line in primary ink · dim
-/// action row.
+/// The row's press feedback: a shallow settle, no travel. Enough that a tap
+/// feels received before the thread sheet takes over.
+private struct V3FeedRowPress: ButtonStyle {
+    let motionEnabled: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(motionEnabled && configuration.isPressed ? 0.985 : 1)
+            .opacity(configuration.isPressed ? 0.72 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+/// One post, X anatomy: identity column · name + meta (quiet state mark at the
+/// row's trailing edge when not standard) · outcome line in primary ink.
 struct V3FeedPostRow: View {
     let post: V3FeedPost
     var onOpen: () -> Void = {}
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// The study's deterministic accent tile: mono initial, name-hash tint
-    /// (same pattern as Comms "Marks").
-    private static let avatarTones: [Color] = [
-        ScoutPalette.accent, ScoutPalette.statusInfo, ScoutPalette.statusOk, ScoutPalette.statusWarn
-    ]
-
-    private var tone: Color {
-        var hash: UInt32 = 0
-        for byte in post.agent.utf8 { hash = hash &* 31 &+ UInt32(byte) }
-        return Self.avatarTones[Int(hash % UInt32(Self.avatarTones.count))]
-    }
-
-    private var initial: String {
-        let alphanumerics = post.agent.filter { $0.isLetter || $0.isNumber }
-        return alphanumerics.first.map { String($0).uppercased() } ?? "•"
-    }
-
+    /// The harness rides the sprite as a corner badge, so it never spends a
+    /// slot in the meta line.
     private var meta: String {
-        [post.project, post.harness, post.age]
+        [post.project, post.age]
             .filter { !$0.isEmpty }
             .joined(separator: " · ")
+    }
+
+    /// A needs-you agent reads alive; everything else sits at the calm range.
+    private var spriteTone: AgentSpriteTone {
+        post.state == .needs ? .live : AgentSpriteTone()
     }
 
     var body: some View {
         Button(action: onOpen) {
             HStack(alignment: .top, spacing: 10) {
-                Text(initial)
-                    .font(HudFont.mono(13, weight: .bold))
-                    .foregroundStyle(tone)
-                    .frame(width: 30, height: 30)
-                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(tone.opacity(0.13)))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .stroke(tone.opacity(0.32), lineWidth: 1)
-                    )
+                // Identity is the creature (name → sprite, the same one this
+                // agent wears on web and macOS); the runtime is the badge on
+                // its shoulder. Neither borrows the status palette.
+                SpriteIdentityMark(
+                    name: post.agent,
+                    harness: post.harness.isEmpty ? nil : post.harness,
+                    size: 32,
+                    tone: spriteTone
+                )
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(alignment: .firstTextBaseline, spacing: 7) {
+                        // Mono, not sans: an agent name is a HANDLE, and Scout
+                        // sets handles in mono everywhere else (Comms authors,
+                        // Tail rows). Sans-bold made the feed read like a social
+                        // app with people in it.
                         Text(post.agent)
-                            .font(HudFont.ui(HudTextSize.lg, weight: .bold))
+                            .font(HudFont.mono(HudTextSize.md, weight: .semibold))
+                            .tracking(0.2)
                             .foregroundStyle(ScoutPalette.ink)
                             .lineLimit(1)
                         Text(meta)
@@ -459,32 +654,35 @@ struct V3FeedPostRow: View {
                             .lineLimit(1)
                             .truncationMode(.tail)
                         Spacer(minLength: 8)
-                        // Done is the standard state: unmarked. The rest get a
-                        // quiet trailing mark; working stays dimmer than
-                        // needs-you/failed.
-                        if post.state != .done {
+                        // Active is the standard state: unmarked. Only the two
+                        // states that ask something of you carry a trailing mark,
+                        // so the feed stays quiet until it isn't.
+                        if post.state != .active {
                             Text(post.state.label)
-                                .font(HudFont.mono(HudTextSize.micro, weight: post.state == .active ? .medium : .bold))
+                                .font(HudFont.mono(HudTextSize.micro, weight: .bold))
                                 .tracking(0.5)
                                 .foregroundStyle(post.state.color)
                                 .lineLimit(1)
                         }
                     }
+                    // Three lines is the glance: enough to know what happened,
+                    // short enough that the next post is on screen. The thread
+                    // holds the rest — this is a feed, not a reader.
+                    // The line stays in the reading face (sans) one step under
+                    // the handle's ink, so the eye lands on WHO first and the
+                    // prose reads as its report. Two faces, two jobs.
                     Text(post.line)
                         .font(HudFont.ui(HudTextSize.md))
                         .lineSpacing(3)
-                        .foregroundStyle(ScoutPalette.ink)
+                        .lineLimit(3)
+                        .foregroundStyle(ScoutInk.body)
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    HStack(spacing: 18) {
-                        Text("Reply")
-                            .foregroundStyle(post.state == .needs ? ScoutPalette.accent : ScoutInk.dim)
-                            .fontWeight(post.state == .needs ? .bold : .regular)
-                        Text("Open thread")
-                    }
-                    .font(HudFont.mono(HudTextSize.micro, weight: .medium))
-                    .foregroundStyle(ScoutInk.dim)
-                    .padding(.top, 5)
+                    // The study's action row carried real CTAs (Review PR,
+                    // Answer, Retry). None of them are wired yet, and the whole
+                    // row already taps through, so two dead words per post are
+                    // not worth the height. It comes back with the first CTA
+                    // that does something.
                 }
             }
             .padding(.vertical, 10)
@@ -495,11 +693,12 @@ struct V3FeedPostRow: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        // The action row is visual in this slice — the whole row's tap is the
-        // one real gesture (through to Chats when a thread exists).
+        .buttonStyle(V3FeedRowPress(motionEnabled: !reduceMotion))
+        .disabled(post.conversationId == nil)
+        // The row's tap is the one real gesture — it opens this post's own
+        // thread. No per-action affordance claims otherwise.
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(post.state.label), \(post.agent), \(meta): \(post.line)")
-        .accessibilityHint(post.conversationId != nil ? "Opens Chats" : "")
+        .accessibilityHint(post.conversationId != nil ? "Opens the thread" : "")
     }
 }

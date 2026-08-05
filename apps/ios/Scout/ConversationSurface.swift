@@ -84,6 +84,52 @@ private enum UserSendPhase: Equatable {
     }
 }
 
+/// What a long press offers on one of your own turns.
+///
+/// Which of these appear depends on where the message actually IS, and that line
+/// matters: a message still sitting on the phone can be pulled back whole, while
+/// one the agent already has can only be redirected or stopped. "Cancel" means a
+/// different act on each side of that line, so this menu never uses the word —
+/// `discard` throws away something that never left, `stop` halts work already
+/// under way.
+private enum TurnAction: Identifiable {
+    /// Still local — pull it back into the composer, attachments and all.
+    case edit
+    /// Still local — drop it and its saved outbound record.
+    case discard
+    /// The agent has it — interrupt the turn and hand it a new instruction.
+    case steer
+    /// The agent has it — interrupt the turn and leave it stopped.
+    case stop
+
+    var id: String { title }
+
+    var title: String {
+        switch self {
+        case .edit:    return "Edit message"
+        case .discard: return "Discard message"
+        case .steer:   return "Steer the agent"
+        case .stop:    return "Stop this turn"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .edit:    return "pencil"
+        case .discard: return "trash"
+        case .steer:   return "arrow.triangle.branch"
+        case .stop:    return "stop.circle"
+        }
+    }
+
+    var isDestructive: Bool {
+        switch self {
+        case .discard, .stop: return true
+        case .edit, .steer:   return false
+        }
+    }
+}
+
 /// Conversation — the keystone surface. It owns no reduction logic of its own:
 /// it loads a snapshot, then folds the live event stream through the shared
 /// `ConversationProjection` (the exact reducer macOS uses) and renders the
@@ -129,6 +175,10 @@ struct ConversationSurface: View {
     @State private var clientMessageIdsByFlightId: [String: String] = [:]
     /// The active send operation, including attachment upload and the bridge RPC.
     @State private var sendTask: Task<Void, Never>?
+    /// The next send is a STEER — an interrupt carrying the instruction, not a
+    /// message appended behind the running turn. Armed from a turn's long-press
+    /// menu; the composer says so and offers a way out.
+    @State private var steerArmed = false
     /// Owns the long-lived snapshot + event-stream loop so manual Retry cannot
     /// create duplicate stream consumers for the same conversation.
     @State private var runTask: Task<Void, Never>?
@@ -214,7 +264,10 @@ struct ConversationSurface: View {
     private var composer: some View {
         ScoutMessageComposer(
             text: $composerText,
-            placeholder: "Steer the agent…",
+            // The resting placeholder used to say "Steer the agent…", which now
+            // collides with an actual armed Steer mode. A plain message is a
+            // plain message; steering is the thing you opt into.
+            placeholder: steerArmed ? "Stop, and do this instead…" : "Message the agent…",
             rows: 1,
             onSend: send,
             canSend: canSend,
@@ -225,7 +278,7 @@ struct ConversationSurface: View {
             ),
             attachments: $pendingAttachments,
             error: composerError,
-            notice: composerNotice.map { ScoutComposerNotice($0) },
+            notice: composerNoticeModel,
             density: .thread,
             appearance: .pill
         ) {
@@ -247,6 +300,19 @@ struct ConversationSurface: View {
         }
         .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             addFiles(result)
+        }
+    }
+
+    /// Armed steering states itself in the notice line and carries its own way
+    /// out — a mode you can enter from a menu and cannot leave is a trap.
+    private var composerNoticeModel: ScoutComposerNotice? {
+        guard steerArmed else { return composerNotice.map { ScoutComposerNotice($0) } }
+        return ScoutComposerNotice(
+            composerNotice ?? "Steering — this stops the current turn and sends your new instruction.",
+            actionLabel: "Cancel"
+        ) {
+            steerArmed = false
+            composerNotice = nil
         }
     }
 
@@ -376,9 +442,11 @@ struct ConversationSurface: View {
                             TurnView(
                                 turn: turn,
                                 sendPhase: sendPhase(for: turn),
+                                actions: turnActions(for: turn),
                                 onRecover: recoverDelivery,
                                 onAnswer: answer,
-                                onDecide: decide
+                                onDecide: decide,
+                                onAction: { perform($0, on: turn) }
                             )
                                 .id(turn.id)
                         }
@@ -517,6 +585,10 @@ struct ConversationSurface: View {
         let text = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
         let attachments = pendingAttachments
         guard !text.isEmpty || !attachments.isEmpty else { return }
+        if steerArmed {
+            steerSend(text)
+            return
+        }
         composerError = nil
         composerNotice = nil
         isSending = true
@@ -580,6 +652,149 @@ struct ConversationSurface: View {
                 outboundDraftId = clientMessageId
                 composerError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 isSending = false
+            }
+        }
+    }
+
+    /// A steer is ONE call that stops the running turn and hands the agent what
+    /// to do instead (`InterruptSpec.steerText`). It deliberately skips the
+    /// outbound-draft and optimistic-turn machinery: that exists to make a
+    /// queued message durable across a lost bridge, and a steer is only
+    /// meaningful against the turn running right now — replaying one later would
+    /// interrupt whatever happened to be running then.
+    private func steerSend(_ text: String) {
+        // `InterruptSpec` carries text and nothing else, so a steer cannot take
+        // files. Say so rather than dropping them silently.
+        guard pendingAttachments.isEmpty else {
+            composerError = "A steer can't carry attachments — send them as a normal message instead."
+            return
+        }
+        composerError = nil
+        composerNotice = nil
+        isSending = true
+        sendTask = Task {
+            do {
+                _ = try await client.interrupt(
+                    InterruptSpec(conversationId: conversationId, steerText: text)
+                )
+                composerText = ""
+                steerArmed = false
+                isSending = false
+                await refreshSnapshot()
+            } catch {
+                isSending = false
+                composerError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+    }
+
+    // MARK: - Turn actions
+    //
+    // The menu is built from where the message actually is, never from a fixed
+    // list with things greyed out. Two regimes, split by whether the payload has
+    // left this phone:
+    //
+    //   STILL LOCAL  (preparing · uploading · sending · saved-for-retry) — the
+    //     bytes are ours. Edit pulls the whole thing back into the composer,
+    //     Discard drops it. Neither needs the broker's permission.
+    //   AGENT HAS IT (queued · dispatching · acknowledged · working) — nothing
+    //     can be un-said. Steer and Stop are both `interrupt`, differing only by
+    //     whether a redirect rides along.
+    //
+    // A finished turn offers nothing: there is no work to stop and no message to
+    // pull back, and an "Edit" that silently reposts would be a lie.
+
+    private func turnActions(for turn: TurnState) -> [TurnAction] {
+        guard turn.isUserTurn == true else {
+            // The agent's own streaming turn is the most natural thing to press
+            // when you want it to stop — it is the block you are watching move.
+            // A settled agent turn has nothing to interrupt.
+            return turn.status == .streaming ? [.steer, .stop] : []
+        }
+        switch sendPhase(for: turn) {
+        case .preparing, .uploading, .sending:
+            return turn.clientMessageId == nil ? [] : [.edit, .discard]
+        case .recoverable:
+            // Already surfaced as an inline Retry button; the menu adds the two
+            // things that button cannot do.
+            return turn.clientMessageId == nil ? [] : [.edit, .discard]
+        case .queued, .dispatching, .acknowledged, .working:
+            return [.steer, .stop]
+        case .posted:
+            // Delivered, nothing running against it yet that we know of — the
+            // agent still owns it, so only the interrupt pair is honest.
+            return [.steer, .stop]
+        case .waiting, .completed, .failed, .cancelled, .none:
+            return []
+        }
+    }
+
+    private func perform(_ action: TurnAction, on turn: TurnState) {
+        switch action {
+        case .edit:
+            guard let clientMessageId = turn.clientMessageId else { return }
+            pullBack(clientMessageId, intoComposer: true)
+        case .discard:
+            guard let clientMessageId = turn.clientMessageId else { return }
+            pullBack(clientMessageId, intoComposer: false)
+        case .steer:
+            // Arm the composer rather than opening a text prompt on top of the
+            // transcript: the steer IS a message, and the operator already has
+            // the one control on this screen that writes messages.
+            steerArmed = true
+            composerError = nil
+            composerNotice = "Steering — this stops the current turn and sends the agent your new instruction."
+        case .stop:
+            stopCurrentTurn()
+        }
+    }
+
+    /// Take an undelivered message back off the wire. `intoComposer` is the only
+    /// difference between Edit and Discard — both cancel the in-flight send, drop
+    /// the optimistic turn, and clear the saved outbound record.
+    private func pullBack(_ clientMessageId: String, intoComposer: Bool) {
+        sendTask?.cancel()
+        sendTask = nil
+        isSending = false
+        composerError = nil
+        Task {
+            let draft = try? await OutboundDraftStore.shared.draft(id: clientMessageId)
+            if intoComposer, let draft {
+                composerText = draft.body
+                pendingAttachments = draft.attachments.map { attachment in
+                    ScoutComposerAttachment(
+                        data: attachment.data,
+                        mediaType: attachment.mediaType,
+                        fileName: attachment.fileName ?? "attachment"
+                    )
+                }
+                // Keep the id so re-sending reuses the same idempotency key
+                // rather than racing a duplicate through behind it.
+                outboundDraftId = clientMessageId
+                composerNotice = "Pulled back for editing. Send when you're ready."
+            } else {
+                try? await OutboundDraftStore.shared.remove(id: clientMessageId)
+                if outboundDraftId == clientMessageId { outboundDraftId = nil }
+                composerNotice = "Message discarded."
+            }
+            removeOptimisticSend(clientMessageId)
+            sendPhases[clientMessageId] = nil
+        }
+    }
+
+    /// Stop whatever the agent is doing, with no redirect. Same call the steer
+    /// path makes, minus the follow-up text.
+    private func stopCurrentTurn() {
+        composerError = nil
+        composerNotice = "Stopping the current turn…"
+        Task {
+            do {
+                _ = try await client.interrupt(InterruptSpec(conversationId: conversationId))
+                composerNotice = "Stopped."
+                await refreshSnapshot()
+            } catch {
+                composerNotice = nil
+                composerError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
         }
     }
@@ -864,9 +1079,13 @@ struct ConversationSurface: View {
 private struct TurnView: View {
     let turn: TurnState
     let sendPhase: UserSendPhase?
+    /// What a long press offers here — empty when there is nothing honest to do,
+    /// in which case no menu is attached at all rather than one that greys out.
+    let actions: [TurnAction]
     let onRecover: (_ clientMessageId: String, _ action: OutboundDeliveryState.RecoveryAction) -> Void
     let onAnswer: (_ turnId: String, _ blockId: String, _ choice: [String]) -> Void
     let onDecide: (_ turnId: String, _ blockId: String, _ version: Int, _ decision: ActionDecisionSpec.Decision) -> Void
+    let onAction: (TurnAction) -> Void
 
     private var isUser: Bool { turn.isUserTurn == true }
 
@@ -910,10 +1129,39 @@ private struct TurnView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Long press, not a row of buttons: steering and stopping are rare acts
+        // on a surface that is mostly for reading, and a control per turn would
+        // charge every message for something you do to one of them.
+        .contentShape(Rectangle())
+        .modifier(TurnActionMenu(actions: actions, onAction: onAction))
     }
 
     // User turns read as neutral; the agent is the one accented voice.
     private var roleColor: Color { isUser ? ScoutInk.muted : ScoutPalette.accent }
+}
+
+/// Attaches the long-press menu only when there is something to offer. A
+/// `.contextMenu` with no items still arms the gesture and still lifts the row
+/// on a long press, which reads as a broken control rather than as no control.
+private struct TurnActionMenu: ViewModifier {
+    let actions: [TurnAction]
+    let onAction: (TurnAction) -> Void
+
+    func body(content: Content) -> some View {
+        if actions.isEmpty {
+            content
+        } else {
+            content.contextMenu {
+                ForEach(actions) { action in
+                    Button(role: action.isDestructive ? .destructive : nil) {
+                        onAction(action)
+                    } label: {
+                        Label(action.title, systemImage: action.icon)
+                    }
+                }
+            }
+        }
+    }
 }
 
 // MARK: - Block

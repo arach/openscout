@@ -7,11 +7,31 @@ import AVFoundation
 import HudsonVoice
 import ScoutSharedUI
 
+/// A dictation session the menu popup can observe and stop. Mirrors the
+/// host's active session; `nil` whenever no capture is in flight.
+struct ScoutActiveDictation: Equatable {
+    enum Stage: Equatable {
+        case starting
+        case recording
+        case processing
+    }
+
+    let sessionId: String
+    let startedAt: Date
+    var stage: Stage
+    /// Latest debounced partial transcript, for a one-line live preview.
+    var preview: String
+}
+
 /// Bridges web chat dictation sessions to HudsonKit's native `HudDictation`
 /// through the Scout-owned `/api/voice/session` contract.
 @MainActor
-final class ScoutVoiceHostRunner {
+final class ScoutVoiceHostRunner: ObservableObject {
     static let shared = ScoutVoiceHostRunner()
+
+    /// Live capture state for the menu UI. The mic is on exactly while this
+    /// is non-nil and its stage is `.starting`/`.recording`.
+    @Published private(set) var activeDictation: ScoutActiveDictation?
 
     private let hostId = "scout-menu"
     private let instanceId = UUID().uuidString
@@ -60,6 +80,21 @@ final class ScoutVoiceHostRunner {
         sessionStartedAt = nil
         deliveredFinalForSession = nil
         lastPostedState = nil
+        activeDictation = nil
+    }
+
+    /// Menu-initiated stop. Finalizes like a surface-issued `session.stop`, so
+    /// the requesting surface still receives its transcript.
+    func stopActiveDictation() {
+        guard let sessionId = activeSessionId else { return }
+        Task { await stopSession(sessionId) }
+    }
+
+    /// Menu-initiated discard. Aborts capture and reports `session.cancelled`
+    /// to the requesting surface — the escape hatch when a session hangs.
+    func cancelActiveDictation() {
+        guard let sessionId = activeSessionId else { return }
+        Task { await cancelSession(sessionId) }
     }
 
     private func runLoop() async {
@@ -216,6 +251,12 @@ final class ScoutVoiceHostRunner {
         sessionStartedAt = Date()
         deliveredFinalForSession = nil
         lastPostedState = nil
+        activeDictation = ScoutActiveDictation(
+            sessionId: sessionId,
+            startedAt: Date(),
+            stage: .starting,
+            preview: ""
+        )
 
         await postStateIfChanged(sessionId: sessionId, state: "starting")
 
@@ -285,6 +326,9 @@ final class ScoutVoiceHostRunner {
             .debounce(for: Self.partialDebounceInterval, scheduler: DispatchQueue.main)
             .sink { [weak self] trimmed in
                 guard let self, self.activeSessionId == sessionId else { return }
+                if self.activeDictation?.sessionId == sessionId {
+                    self.activeDictation?.preview = trimmed
+                }
                 Task { await self.postEvent(sessionId: sessionId, event: "session.partial", data: ["text": trimmed]) }
             }
             .store(in: &sessionCancellables)
@@ -410,6 +454,14 @@ final class ScoutVoiceHostRunner {
 
     private func postStateIfChanged(sessionId: String, state: String) async {
         guard activeSessionId == sessionId else { return }
+        if activeDictation?.sessionId == sessionId {
+            switch state {
+            case "starting": activeDictation?.stage = .starting
+            case "recording": activeDictation?.stage = .recording
+            case "processing": activeDictation?.stage = .processing
+            default: break
+            }
+        }
         guard lastPostedState != state else { return }
         lastPostedState = state
         await postEvent(sessionId: sessionId, event: "session.state", data: ["state": state])
@@ -426,6 +478,7 @@ final class ScoutVoiceHostRunner {
         sessionStartedAt = nil
         deliveredFinalForSession = nil
         lastPostedState = nil
+        activeDictation = nil
     }
 
     private func postEvent(sessionId: String, event: String, data: [String: Any]) async {
