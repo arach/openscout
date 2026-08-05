@@ -256,6 +256,11 @@ export function isCardlessSessionEndpoint(endpoint: AgentEndpoint): boolean {
     || endpoint.metadata?.cardless === true;
 }
 
+/** Flat-dispatch plumbing endpoints — not fleet members. */
+export function isFlatDispatchEndpoint(endpoint: AgentEndpoint): boolean {
+  return endpoint.metadata?.flatDispatch === true;
+}
+
 /**
  * Seam 4: group live cardless-session endpoints by their (resolved) project root.
  * Reuses `resolve()` — the same normalization the endpoint builder stores — and

@@ -61,6 +61,7 @@ function resolveGrokEnvironment(configEnv: Record<string, string> | undefined): 
   if (!xaiApiKey) {
     return { env: configEnv, hasXaiApiKey: false };
   }
+  registerSecretValue(xaiApiKey, "grok-acp:env");
 
   registerSecretValue(xaiApiKey, "grok-acp:env");
 

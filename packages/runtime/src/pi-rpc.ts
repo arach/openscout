@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
+
+import { registerSecretValue } from "@openscout/agent-sessions/secret-redaction";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -156,9 +158,20 @@ function inferPiProvider(launch: Pick<PiRpcLaunchOptions, "provider" | "model">)
   return undefined;
 }
 
-function readSecretValue(name: string): string | undefined {
+/**
+ * Read a credential from the macOS keychain via the `secret` CLI.
+ *
+ * `commandOverride` exists so tests can point at a stub binary by absolute
+ * path. Prepending a temp directory to `process.env.PATH` does **not** work:
+ * `execFileSync` resolves independently of a mutated PATH, so a test that
+ * tries to isolate itself that way silently runs the real CLI and prints a
+ * live credential into its assertion output. That is exactly how
+ * `SCOUT_OPENCODE_API_KEY` leaked on 2026-08-04. Mirrors the `secretCommand`
+ * option on the opencode-acp adapter.
+ */
+function readSecretValue(name: string, commandOverride?: string | null): string | undefined {
   try {
-    const output = execFileSync("secret", ["get", name], {
+    const output = execFileSync(commandOverride || "secret", ["get", name], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
@@ -195,6 +208,8 @@ export function buildPiRpcCredentialEnv(
   sources: {
     env?: CredentialEnvSource;
     readSecret?: (name: string) => string | undefined;
+    /** Absolute path to a stub `secret` binary; see `readSecretValue`. */
+    secretCommand?: string | null;
   } = {},
 ): Record<string, string> | undefined {
   const provider = inferPiProvider(launch);
@@ -205,10 +220,13 @@ export function buildPiRpcCredentialEnv(
 
   const env: Record<string, string> = {};
   const sourceEnv = sources.env ?? process.env;
-  const readSecret = sources.readSecret ?? readSecretValue;
+  const readSecret = sources.readSecret
+    ?? ((name: string) => readSecretValue(name, sources.secretCommand));
   for (const mapping of mappings) {
     const value = readMappedCredentialValue(mapping, sourceEnv, readSecret);
     if (value) {
+      // Sensitive by provenance: env-key or keychain, any variable name.
+      registerSecretValue(value, "pi-rpc:credential");
       env[mapping.outputKey] = value;
     }
   }

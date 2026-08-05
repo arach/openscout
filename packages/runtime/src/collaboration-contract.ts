@@ -87,6 +87,13 @@ export function buildCollaborationContractPrompt(agentId: string): string {
     "  - If you can answer safely, answer directly",
     "  - If more work is required, make the next responsible agent explicit",
     "  - If blocked, say what you are waiting on and who owns the next move",
+    // The operator is the one participant who cannot be woken by a message and
+    // will not notice a status line. Naming the verb is the difference between
+    // an agent describing that it is stuck and an agent actually raising a
+    // human; before this, the contract asked for the former and hoped
+    // something downstream inferred the latter.
+    "  - If the next move is the OPERATOR's and you cannot proceed without them, run `scout need --question \"<what you need>\"` (add repeated --option for a choice, --because for why you are stuck)",
+    "  - Only use scout need when you are genuinely blocked: it interrupts a human. If you can pick a sane default and say what you chose, do that instead",
     "  - If asking for review, say exactly what needs review and who should review it",
     "  - If complete, return the final answer without waking additional agents",
   ].join("\n");

@@ -21,12 +21,29 @@ import type {
 
 export type ScoutDeliverIntent = "tell" | "consult";
 
-export type ScoutOperatorSignalKind = "notify" | "consult";
+export type ScoutOperatorSignalKind = "notify" | "consult" | "need";
 
 /**
- * An agent-authored signal for its human operator. Operator signals are
- * conversational side effects, not task lifecycle transitions: they never
- * create a flight and they never imply that the agent is waiting.
+ * An agent-authored signal for its human operator.
+ *
+ * The three kinds are separated by what the agent does next, which is the only
+ * distinction the operator actually acts on:
+ *
+ *   notify  — FYI. The agent keeps going and expects nothing back.
+ *   consult — input would help, and the agent has already decided what it will
+ *             do without it (`defaultAction`). Silence is a valid answer.
+ *   need    — the agent cannot proceed. Silence is NOT an answer, so this is
+ *             the only kind that is blocking, and the only one that raises the
+ *             operator's needs-you surface.
+ *
+ * `notify` and `consult` stay conversational side effects: they never create a
+ * flight and never imply the agent is waiting. `need` is the exception on
+ * purpose — it is the agent declaring that the next move is yours.
+ *
+ * This is the declared counterpart to harness-level attention inference. An
+ * inferred stall says "something looks stuck"; a `need` says "here is exactly
+ * what I want from you", authored by the agent, and cannot be created without
+ * a question (enforced at the CLI boundary, not filtered downstream).
  */
 export type ScoutOperatorSignal =
   | {
@@ -39,6 +56,17 @@ export type ScoutOperatorSignal =
       blocking: false;
       replyExpectation: "optional";
       defaultAction: string;
+    }
+  | {
+      kind: "need";
+      blocking: true;
+      replyExpectation: "required";
+      /** What the agent is asking for. Never empty — that is the whole point. */
+      question: string;
+      /** Optional discrete choices, when the answer is a selection. */
+      options?: string[];
+      /** Why the agent cannot continue without it. */
+      blockedReason?: string;
     };
 
 export type ScoutDeliverRouteKind = "dm" | "channel" | "broadcast";

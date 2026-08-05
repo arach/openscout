@@ -171,6 +171,17 @@ export const brokerOperatorSignalSchema: z.ZodType<ScoutOperatorSignal> =
       replyExpectation: z.literal("optional"),
       defaultAction: trimmedNonEmptyString,
     }).strict(),
+    // `question` is trimmedNonEmptyString at the boundary, so a need with no
+    // question is rejected by the broker as well as by the CLI. The empty
+    // attention card that started this could not survive either gate.
+    z.object({
+      kind: z.literal("need"),
+      blocking: z.literal(true),
+      replyExpectation: z.literal("required"),
+      question: trimmedNonEmptyString,
+      options: z.array(trimmedNonEmptyString).nonempty().optional(),
+      blockedReason: trimmedNonEmptyString.optional(),
+    }).strict(),
   ]);
 
 export const brokerDeliverRequestSchema: z.ZodType<ScoutDeliverRequest> = z.object({

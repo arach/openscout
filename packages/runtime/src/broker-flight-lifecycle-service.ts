@@ -226,7 +226,6 @@ function normalizeRecordedFlight(
     },
   };
 }
-
 export class BrokerFlightLifecycleService {
   constructor(private readonly options: BrokerFlightLifecycleServiceOptions) {}
 

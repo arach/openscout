@@ -256,8 +256,8 @@ export function locateHarnessSession(input: SessionLocateInput): SessionLocateRe
   }
 
   const home = input.homeDir?.trim() || homedir();
-  const codexRoot = input.codexSessionsRoot?.trim() || defaultCodexSessionsRoot(home);
-  const claudeRoot = input.claudeProjectsRoot?.trim() || defaultClaudeProjectsRoot(home);
+  const codexRoot = input.codexSessionsRoot?.trim() || join(home, ".codex", "sessions");
+  const claudeRoot = input.claudeProjectsRoot?.trim() || join(home, ".claude", "projects");
   const requestedHarness = normalizeHarness(input.harness ?? undefined);
   const projectPath = input.projectPath?.trim() || undefined;
 
@@ -326,10 +326,10 @@ export function locateHarnessSession(input: SessionLocateInput): SessionLocateRe
   return { ok: true, session };
 }
 
-function defaultCodexSessionsRoot(homeDir: string): string {
+export function defaultCodexSessionsRoot(homeDir = homedir()): string {
   return join(homeDir, ".codex", "sessions");
 }
 
-function defaultClaudeProjectsRoot(homeDir: string): string {
+export function defaultClaudeProjectsRoot(homeDir = homedir()): string {
   return join(homeDir, ".claude", "projects");
 }
