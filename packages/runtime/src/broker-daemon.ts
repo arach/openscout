@@ -156,6 +156,7 @@ import {
   collectOccupiedDefinitionIdsFromBrokerSnapshot,
   resolveProjectProvisionalAgentName,
 } from "./provisional-agent-names.js";
+import { bootstrapSecretRedaction } from "./secret-redaction-bootstrap.js";
 import { locateHarnessSession } from "./session-locator.js";
 import { findHarnessEntry } from "./harness-catalog.js";
 import { BrokerControlStreamService } from "./broker-control-stream-service.js";
@@ -1823,6 +1824,14 @@ const trpcHandler = applyWSSHandler({
 });
 
 try {
+  // Arm credential redaction (varlock .env.schema + declared credential env
+  // vars) and patch console.* before the broker emits any output. Best-effort:
+  // never throws, and the broker must boot even if varlock cannot load.
+  const secretRedaction = await bootstrapSecretRedaction({ patchConsole: true });
+  console.log(`[openscout-runtime] secret redaction armed (${secretRedaction.registered} value(s)${
+    secretRedaction.schemaPath ? `, schema ${secretRedaction.schemaPath}` : ", no .env.schema found"
+  })`);
+
   await listenTcp(server, { host, port });
   await listenUnixSocket(socketServer, brokerSocketPath);
   await writeHostInfo().catch((error) => {
