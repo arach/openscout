@@ -114,3 +114,13 @@ export type {
   CodexExecutableInventory,
   CodexExecutableSource,
 } from "./codex-executable.js";
+export {
+  patchConsoleForSecrets,
+  redactSecrets,
+  redactSecretsDeep,
+  registerSecretValue,
+  registerSecretValues,
+  registeredSecretCount,
+  registeredSecretSources,
+  unpatchConsoleForSecrets,
+} from "./secret-redaction.js";

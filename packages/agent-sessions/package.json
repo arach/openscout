@@ -128,6 +128,12 @@
       "import": "./dist/adapters/pi/index.js",
       "default": "./dist/adapters/pi/index.js"
     },
+    "./secret-redaction": {
+      "bun": "./src/secret-redaction.ts",
+      "types": "./dist/secret-redaction.d.ts",
+      "import": "./dist/secret-redaction.js",
+      "default": "./dist/secret-redaction.js"
+    },
     "./codex-executable": {
       "bun": "./src/codex-executable.ts",
       "types": "./dist/codex-executable.d.ts",
