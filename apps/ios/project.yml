@@ -67,6 +67,8 @@ targets:
         product: TerminiSSH        # TerminiConnectionConfig / TerminiSSHWorkspace for the live Terminal tab
       - package: ScoutNativeCore
         product: ScoutCapabilities
+      - package: ScoutNativeCore
+        product: ScoutNativeCore   # AgentSprite — the shared identity engine (bit-exact with web/macOS)
       - package: ScoutIOSCore
         product: ScoutIOSCore
     info:

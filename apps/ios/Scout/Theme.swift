@@ -89,6 +89,11 @@ enum ScoutPalette {
 enum ScoutHairline {
     static let subtle = scoutAdaptive(light: (224, 217, 205), dark: (24, 24, 24))
     static let standard = scoutAdaptive(light: (205, 197, 184), dark: (38, 38, 38))
+    /// The one rung above `standard`, for seams that separate CHROME from
+    /// content rather than one row from the next — the masthead's underline and
+    /// the sub bar's. At `standard` the top of the screen read as a single
+    /// undifferentiated slab; this gives the fixed bars an edge you can see.
+    static let strong = scoutAdaptive(light: (182, 172, 156), dark: (58, 58, 58))
 }
 
 /// Hudson primitives that read the runtime theme inherit Scout's adaptive
@@ -226,6 +231,140 @@ struct ScoutActivityIndicator: View {
             .frame(width: diameter, height: diameter)
             .offset(y: -size * 0.30)
             .rotationEffect(.degrees(angle))
+    }
+}
+
+// MARK: - Loading skeleton
+
+/// Blank-layout tokens. `ScoutSurface.inset` is only a hair off the canvas —
+/// correct for a row tint, invisible for a placeholder bar — so skeletons get
+/// their own fill: a muted wash that reads as *text-shaped hole* in both tones.
+enum ScoutSkeleton {
+    static var fill: Color { ScoutPalette.muted.opacity(0.22) }
+    /// Avatars and plates sit a step back from the bars they contain.
+    static var block: Color { ScoutPalette.muted.opacity(0.13) }
+}
+
+/// One blank line of a not-yet-arrived layout. `fraction` is a share of the
+/// proposed width, so a skeleton keeps its rhythm at any container size.
+struct ScoutSkeletonBar: View {
+    var fraction: CGFloat = 1
+    var height: CGFloat = 9
+    var width: CGFloat?
+
+    var body: some View {
+        GeometryReader { geo in
+            RoundedRectangle(cornerRadius: min(height / 2, HudRadius.tight), style: .continuous)
+                .fill(ScoutSkeleton.fill)
+                .frame(width: width ?? max(0, geo.size.width * fraction), height: height)
+        }
+        .frame(height: height)
+    }
+}
+
+/// The travelling highlight that turns a set of blank bars into a *fetch in
+/// progress*. Applied once around a whole skeleton — one sweep crossing the
+/// group reads as a single load, where per-row pulses read as noise.
+///
+/// Reduce Motion keeps the identical layout and drops only the travel.
+private struct ScoutSkeletonSweep: ViewModifier {
+    var active: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Slow enough to read as breathing, quick enough that a sub-second fetch
+    /// still shows motion rather than a frozen grey page.
+    private static let period: Double = 1.75
+    /// The dim end of the sweep still has to be legible — a placeholder that
+    /// fades to nothing between crests reads as a rendering fault.
+    private static let trough: Double = 0.62
+    private static let halfWidth: Double = 0.22
+
+    func body(content: Content) -> some View {
+        if !active || reduceMotion {
+            content.opacity(0.7)
+        } else {
+            TimelineView(.animation) { context in
+                content.mask(sweep(at: context.date))
+            }
+        }
+    }
+
+    private func sweep(at date: Date) -> some View {
+        let cycle = date.timeIntervalSinceReferenceDate
+            .truncatingRemainder(dividingBy: Self.period) / Self.period
+        // Overshoot both edges so the crest enters and leaves off-screen instead
+        // of being born and dying inside the content.
+        let crest = cycle * (1 + 2 * Self.halfWidth) - Self.halfWidth
+        func clamp(_ v: Double) -> Double { min(1, max(0, v)) }
+        return LinearGradient(
+            stops: [
+                .init(color: .white.opacity(Self.trough), location: 0),
+                .init(color: .white.opacity(Self.trough), location: clamp(crest - Self.halfWidth)),
+                .init(color: .white, location: clamp(crest)),
+                .init(color: .white.opacity(Self.trough), location: clamp(crest + Self.halfWidth)),
+                .init(color: .white.opacity(Self.trough), location: 1),
+            ],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+    }
+}
+
+extension View {
+    /// Wrap a group of `ScoutSkeletonBar`s so one soft highlight travels across
+    /// them while their data is in flight.
+    func scoutSkeletonSweep(active: Bool = true) -> some View {
+        modifier(ScoutSkeletonSweep(active: active))
+    }
+}
+
+/// The honest counterpart to the skeleton: the fetch came back empty-handed
+/// because it *failed*, which is a different fact from "there is nothing here".
+struct ScoutLoadFailure: View {
+    var title: String
+    var detail: String?
+    var retry: () -> Void
+
+    var body: some View {
+        VStack(spacing: HudSpacing.lg) {
+            Image(systemName: "antenna.radiowaves.left.and.right.slash")
+                .font(HudFont.ui(HudTextSize.xxl, weight: .light))
+                .foregroundStyle(ScoutPalette.dim)
+                .accessibilityHidden(true)
+            Text(title)
+                .font(HudFont.mono(11, weight: .semibold))
+                .tracking(0.5)
+                .foregroundStyle(ScoutPalette.muted)
+            if let detail {
+                Text(detail)
+                    .font(HudFont.mono(10))
+                    .foregroundStyle(ScoutPalette.dim)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: HudLayout.panelWidth)
+            }
+            Button(action: retry) {
+                Text("Retry")
+                    .font(HudFont.mono(10, weight: .semibold))
+                    .tracking(0.5)
+                    .foregroundStyle(ScoutPalette.ink)
+                    .padding(.horizontal, HudSpacing.xl)
+                    .padding(.vertical, HudSpacing.sm)
+                    .background(
+                        RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                            .fill(ScoutSurface.raised)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                            .stroke(ScoutHairline.standard, lineWidth: HudStrokeWidth.thin)
+                    )
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(HudSpacing.huge)
+        .frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: HudRadius.card).fill(ScoutSurface.inset))
+        .overlay(RoundedRectangle(cornerRadius: HudRadius.card).stroke(ScoutHairline.subtle, lineWidth: 1))
     }
 }
 
@@ -812,6 +951,11 @@ extension ScoutCanvas {
 // ink → muted → dim hierarchy distinct. App-level only; hudson's palette (and
 // the macOS app) stays untouched. One place to tune the whole iOS app's contrast.
 enum ScoutInk {
+    /// Long-form reading text that sits UNDER a primary label — a feed post's
+    /// outcome line beneath its handle. One rung down from `ink` so the eye
+    /// lands on the label first, but well clear of `muted`: this is prose to be
+    /// read, not a secondary annotation.
+    static let body = scoutAdaptive(light: (58, 55, 50), dark: (208, 208, 208))
     /// Secondary text. ↑ from hudson `muted` #A3A3A3 (163).
     static let muted = ScoutPalette.muted
     /// Tertiary text / faint labels. ↑ from hudson `dim` #737373 (115) — the real

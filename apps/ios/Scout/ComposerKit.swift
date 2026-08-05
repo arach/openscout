@@ -375,6 +375,9 @@ struct ScoutMessageComposer<Tools: View>: View {
     @AppStorage(ScoutHomeLabPreset.storageKey) private var homeLabPresetRaw = ScoutHomeLabPreset.default.rawValue
     @FocusState private var focused: Bool
     @State private var micPulse = false
+    /// A Send pressed while the mic was still hot, waiting on the words.
+    /// See `commit()` — this cannot be collapsed into "stop, then send".
+    @State private var sendWhenTranscribed = false
     @State private var wave = [CGFloat](repeating: 0.04, count: scoutComposerWaveBars)
     private var homeLabPreset: ScoutHomeLabPreset { ScoutHomeLabPreset.resolve(homeLabPresetRaw) }
 
@@ -430,11 +433,19 @@ struct ScoutMessageComposer<Tools: View>: View {
             shell
         }
         .padding(outerPadding)
-        .onChange(of: voice.state) { _, state in updatePulse(for: state) }
+        .onChange(of: voice.state) { _, state in
+            updatePulse(for: state)
+            resolvePendingSend(for: state)
+        }
         .onChange(of: voice.finalCount) { _, _ in
             let final = voice.finalText
             guard showDictation, !final.isEmpty else { return }
             text = text.isEmpty ? final : text + " " + final
+            // The words the operator was waiting on have landed — this is the
+            // beat the one-shot Send was holding for.
+            guard sendWhenTranscribed else { return }
+            sendWhenTranscribed = false
+            onSend()
         }
         // The trail is real energy, not a decorative cycle: `HudDictation`
         // publishes an instantaneous RMS and leaves the history to consumers.
@@ -606,7 +617,13 @@ struct ScoutMessageComposer<Tools: View>: View {
     /// Apple Speech fallback). Listening pulses the accent ring and unfolds the
     /// voice line; each final utterance appends to the draft.
     private var micButton: some View {
-        Button { voice.toggleFromUserIntent() } label: {
+        Button {
+            // Starting a NEW utterance is not the previous one's send. Without
+            // this, a Send pressed over silence would leave the latch set and
+            // fire on whatever you dictated next.
+            sendWhenTranscribed = false
+            voice.toggleFromUserIntent()
+        } label: {
             ZStack {
                 if voice.isListening {
                     Circle().fill(
@@ -648,7 +665,7 @@ struct ScoutMessageComposer<Tools: View>: View {
     /// an empty front door still reads "this is how you send" rather than
     /// hiding the control until you have already typed.
     private var sendButton: some View {
-        Button(action: onSend) {
+        Button(action: commit) {
             Glyphic.arrow(.top, size: controlSide * 0.5)
                 .foregroundStyle(
                     armed
@@ -721,7 +738,51 @@ struct ScoutMessageComposer<Tools: View>: View {
     // MARK: Derived
 
     private var armed: Bool {
-        canSend ?? (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !sending && !disabled)
+        // Mid-dictation Send stays live even over an empty draft: the words
+        // exist, they are just still in the microphone. Without this the
+        // one-shot is unreachable — the control you need to press is disabled
+        // for exactly as long as you are speaking. `commit()` waits for the
+        // transcript before firing, and declines if it turns out to be silence.
+        if voiceIsActive, !sending, !disabled { return true }
+        return canSend ?? (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !sending && !disabled)
+    }
+
+    /// One press, whatever the mic is doing.
+    ///
+    /// Dictate-and-send used to be three beats — stop, watch the words appear,
+    /// press Send. That is one intention, so it is one press.
+    ///
+    /// The wait is not optional and cannot be collapsed into "stop, then send":
+    /// `HudDictation.stop()` resolves the final transcript asynchronously and
+    /// sets `state = .idle` BEFORE it bumps `finalCount`, so committing on the
+    /// mic going quiet would send the draft as it stood one utterance ago.
+    private func commit() {
+        guard voiceIsActive else {
+            onSend()
+            return
+        }
+        sendWhenTranscribed = true
+        if voice.isListening { voice.stop() }
+    }
+
+    /// The utterance ended without producing a transcript — silence, or an
+    /// engine that came back empty. `finalCount` never bumps in that case, so a
+    /// pending send has to be retired here or it would sit latched.
+    ///
+    /// It commits only a draft that ALREADY had words in it. A Send pressed over
+    /// silence must not start an empty session on a surface whose Send is armed
+    /// by having picked a project rather than by having typed something.
+    private func resolvePendingSend(for state: HudDictation.State) {
+        guard sendWhenTranscribed, case .idle = state else { return }
+        Task { @MainActor in
+            // A transcript lands in the same observation pass that carries
+            // `.idle`; give it that beat before concluding there wasn't one.
+            try? await Task.sleep(for: .milliseconds(120))
+            guard sendWhenTranscribed else { return }
+            sendWhenTranscribed = false
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            onSend()
+        }
     }
 
     private var hasTools: Bool { Tools.self != EmptyView.self }

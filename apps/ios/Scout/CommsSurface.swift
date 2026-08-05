@@ -20,6 +20,10 @@ struct CommsSurface: View {
 
     @State private var conversations: [MachineCommsConversation] = []
     @State private var isLoading = true
+    /// Every reachable machine refused the list — distinct from "no conversations".
+    @State private var loadFailed = false
+    /// The one grace beat given to a launching bridge before reporting a failure.
+    @State private var hasWaitedForFleet = false
     @State private var searchText = ""
     @State private var route: CommsConversation?
     @State private var routeClient: (any ScoutBrokerClient)?
@@ -46,10 +50,20 @@ struct CommsSurface: View {
     var body: some View {
         ScrollView {
             if isLoading {
-                ScoutEmptyState(title: "Loading comms", icon: "bubble.left.and.bubble.right")
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, HudSpacing.huge)
-                    .padding(HudSpacing.xxl)
+                // The list draws its own shape while the broker answers: the
+                // page you are waiting for is the page that arrives, and the
+                // sweep says *in flight* where a card would say *nothing here*.
+                CommsListSkeleton()
+            } else if loadFailed {
+                ScoutLoadFailure(
+                    title: "No host reachable",
+                    detail: "Scout couldn't get a conversation list from a paired Mac."
+                ) {
+                    Task { await load() }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, HudSpacing.huge)
+                .padding(HudSpacing.xxl)
             } else if conversations.isEmpty {
                 ScoutEmptyState(
                     title: "No conversations",
@@ -156,9 +170,17 @@ struct CommsSurface: View {
         let machines = model.agentMachines()
         var rows: [MachineCommsConversation] = []
         var liveNames = Set<String>()
+        var asked = 0
+        var refused = 0
         for machine in machines {
             guard let client = machine.client else { continue }
-            let machineRows = (try? await client.listConversations(kind: nil, limit: 100)) ?? []
+            asked += 1
+            var machineRows: [CommsConversation] = []
+            do {
+                machineRows = try await client.listConversations(kind: nil, limit: 100)
+            } catch {
+                refused += 1
+            }
             rows.append(contentsOf: machineRows.map { conversation in
                 MachineCommsConversation(
                     id: "\(machine.id)::\(conversation.id)",
@@ -171,6 +193,38 @@ struct CommsSurface: View {
             let agents = (try? await client.listAgents(query: nil, limit: 60)) ?? []
             liveNames.formUnion(agents.filter { $0.state == .live }.map { $0.title.lowercased() })
         }
+        // A pass that learned nothing — nobody to ask (the fleet hasn't dialled
+        // its hosts yet on a cold launch), or everybody refused — must not
+        // overwrite the screen. It used to blank a busy broker's list to "No
+        // conversations", and a momentary offline blip should not wipe a list
+        // we already have: a failed poll is not proof the conversations are gone.
+        guard asked > 0, refused < asked else {
+            // Only an already-empty page gets a verdict; anything on screen stays.
+            guard conversations.isEmpty else { return }
+
+            // A host that's online but not yet dialled means the handshake is in
+            // flight and `fleetRevision` will re-run this task when it lands.
+            let waiting = asked == 0 && machines.contains(where: \.isOnline)
+            if waiting || !hasWaitedForFleet {
+                // One grace beat before any verdict: a cold launch routinely
+                // reports the Mac offline for a moment while the bridge comes
+                // up, and opening on a failure card that resolves itself a
+                // second later is worse than a skeleton that keeps waiting.
+                isLoading = true
+                loadFailed = false
+                guard !hasWaitedForFleet else { return }
+                hasWaitedForFleet = true
+                try? await Task.sleep(for: .milliseconds(900))
+                guard !Task.isCancelled else { return }
+                await load()
+                return
+            }
+
+            isLoading = false
+            loadFailed = !machines.isEmpty
+            return
+        }
+
         conversations = rows.sorted {
             let lhs = $0.conversation.lastMessageAt ?? .distantPast
             let rhs = $1.conversation.lastMessageAt ?? .distantPast
@@ -180,6 +234,7 @@ struct CommsSurface: View {
         // Live-agent set powers the "working" spinner — match a conversation's
         // counterpart against agents the broker currently reports as live.
         liveAgents = liveNames
+        loadFailed = false
         isLoading = false
         openNotificationRouteIfPossible()
     }
@@ -199,6 +254,120 @@ struct CommsSurface: View {
         routeMessageId = notificationRoute.messageId ?? notificationRoute.itemId
         route = row.conversation
         model.consumeNotificationRoute(notificationRoute)
+    }
+}
+
+// MARK: - Loading skeletons
+
+/// The conversation list, drawn blank. Every measurement here is the real row's
+/// measurement — 140pt name column, 16pt status slot, the same paddings — so the
+/// arriving list settles into the placeholder instead of replacing it.
+private struct CommsListSkeleton: View {
+    /// Uneven name/preview lengths: a column of identical bars reads as a broken
+    /// graphic, while varied ones read as text that hasn't resolved yet.
+    private static let shapes: [(name: CGFloat, preview: CGFloat)] = [
+        (104, 0.78), (72, 0.54), (126, 0.86), (88, 0.62), (112, 0.72), (64, 0.48),
+    ]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                ScoutSkeletonBar(height: 8, width: 74)
+                Spacer(minLength: HudSpacing.md)
+                ScoutSkeletonBar(height: 8, width: 56)
+            }
+            .padding(.horizontal, HudSpacing.xxl)
+            .padding(.top, HudSpacing.lg)
+            .scoutSkeletonSweep()
+
+            // The search field is not waiting on anything — an empty box is
+            // already its finished state — so it's drawn for real and left out
+            // of the sweep. Only the parts that owe you data pulse.
+            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                .fill(ScoutSurface.inset)
+                .frame(height: 44)
+                .overlay(
+                    RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                        .stroke(ScoutHairline.standard, lineWidth: HudStrokeWidth.standard)
+                )
+                .padding(.horizontal, HudSpacing.xxl)
+                .padding(.top, HudSpacing.md)
+                .padding(.bottom, HudSpacing.lg)
+
+            VStack(spacing: 0) {
+                ForEach(Array(Self.shapes.enumerated()), id: \.offset) { index, shape in
+                    VStack(spacing: 0) {
+                        HStack(spacing: HudSpacing.md) {
+                            ScoutSkeletonBar(height: 10, width: shape.name)
+                                .frame(width: 140, alignment: .leading)
+                            Circle()
+                                .fill(ScoutSkeleton.fill)
+                                .frame(width: 4, height: 4)
+                                .frame(width: 16)
+                            ScoutSkeletonBar(fraction: shape.preview, height: 9)
+                            ScoutSkeletonBar(height: 8, width: 22)
+                        }
+                        .padding(.horizontal, HudSpacing.xxl)
+                        .padding(.vertical, HudSpacing.xl)
+
+                        if index < Self.shapes.count - 1 {
+                            Rectangle()
+                                .fill(ScoutHairline.subtle)
+                                .frame(height: 0.5)
+                                .padding(.leading, HudSpacing.huge + HudSpacing.md)
+                        }
+                    }
+                    // Rows fade with distance down the page, so the skeleton reads
+                    // as a list receding rather than a solid block of grey.
+                    .opacity(1 - Double(index) * 0.07)
+                }
+            }
+            .scoutSkeletonSweep()
+        }
+        .accessibilityLabel("Loading conversations")
+    }
+}
+
+/// A thread, drawn blank: avatar-led turns in the shape `CommsBubble` renders.
+private struct CommsThreadSkeleton: View {
+    /// (body line count, plate) — a mix of one-liners and paragraphs, matching
+    /// how the transcript actually looks.
+    private static let turns: [(lines: Int, plate: Bool)] = [
+        (1, true), (3, false), (2, true), (4, false),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.lg) {
+            ForEach(Array(Self.turns.enumerated()), id: \.offset) { index, turn in
+                HStack(alignment: .top, spacing: HudSpacing.md) {
+                    Circle()
+                        .fill(ScoutSkeleton.block)
+                        .frame(width: 26, height: 26)
+                    VStack(alignment: .leading, spacing: HudSpacing.sm) {
+                        HStack(spacing: HudSpacing.md) {
+                            ScoutSkeletonBar(height: 8, width: index.isMultiple(of: 2) ? 78 : 96)
+                            ScoutSkeletonBar(height: 8, width: 30)
+                        }
+                        ForEach(0..<turn.lines, id: \.self) { line in
+                            ScoutSkeletonBar(
+                                fraction: line == turn.lines - 1 ? 0.55 : 0.95,
+                                height: 9
+                            )
+                        }
+                    }
+                    .padding(turn.plate ? HudSpacing.md : 0)
+                    .background(
+                        turn.plate
+                            ? RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                                .fill(ScoutSkeleton.block.opacity(0.6))
+                            : nil
+                    )
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .scoutSkeletonSweep()
+        .accessibilityLabel("Loading messages")
     }
 }
 
@@ -598,6 +767,10 @@ struct CommsThreadView: View {
     let client: any ScoutBrokerClient
     let conversation: CommsConversation
     var initialMessageId: String? = nil
+    /// The counterpart's runtime, when the opener already resolved it (the Home
+    /// feed does). Drives the header identity mark's badge; nil ⇒ no badge, the
+    /// same honesty rule the feed follows.
+    var counterpartHarness: String? = nil
     let onClose: () -> Void
     /// Called once the thread is on screen so the list can clear the unread badge
     /// and the broker can advance the operator's read cursor. Defaults to a no-op.
@@ -605,6 +778,8 @@ struct CommsThreadView: View {
 
     @State private var messages: [CommsMessage] = []
     @State private var isLoading = true
+    /// The fetch threw — say so instead of showing the empty-thread copy.
+    @State private var loadFailed = false
     @State private var composerText = ""
     @State private var isSending = false
     @State private var pendingAttachments: [ScoutComposerAttachment] = []
@@ -652,6 +827,12 @@ struct CommsThreadView: View {
             }
             .buttonStyle(.plain)
 
+            // Same identity the feed shows: this agent's creature wearing its
+            // runtime. Channels get no mark — a channel is a room, not an agent.
+            if let counterpart = threadCounterpart {
+                SpriteIdentityMark(name: counterpart, harness: counterpartHarness, size: 30)
+            }
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(threadTitle)
                     .font(HudFont.ui(HudTextSize.lg, weight: .semibold))
@@ -677,6 +858,19 @@ struct CommsThreadView: View {
         }
     }
 
+    /// The agent on the other side of a direct thread — the name the sprite is
+    /// grown from. Channels and groups have no single counterpart, so they get
+    /// no identity mark rather than an arbitrary participant's.
+    private var threadCounterpart: String? {
+        switch conversation.kind {
+        case .channel, .system, .group: return nil
+        default:
+            let name = conversation.participants.first ?? conversation.title
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+
     private var threadSubtitle: String? {
         switch conversation.kind {
         case .channel, .system:
@@ -696,9 +890,16 @@ struct CommsThreadView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: HudSpacing.lg) {
                         if isLoading {
-                            ScoutEmptyState(title: "Loading", icon: "bubble.left.and.bubble.right")
-                                .frame(maxWidth: .infinity)
-                                .padding(.top, HudSpacing.huge)
+                            CommsThreadSkeleton()
+                        } else if loadFailed {
+                            ScoutLoadFailure(
+                                title: "Couldn't load messages",
+                                detail: "The broker didn't answer for this thread."
+                            ) {
+                                Task { await load() }
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, HudSpacing.huge)
                         } else if messages.isEmpty {
                             ScoutEmptyState(
                                 title: "No messages yet",
@@ -833,7 +1034,14 @@ struct CommsThreadView: View {
 
     private func load() async {
         isLoading = true
-        messages = (try? await client.conversationMessages(conversationId: conversation.id, limit: 200)) ?? []
+        loadFailed = false
+        do {
+            messages = try await client.conversationMessages(conversationId: conversation.id, limit: 200)
+        } catch {
+            // "Nothing here" and "I couldn't ask" are different facts, and the
+            // empty state used to tell the operator the first one for both.
+            loadFailed = true
+        }
         isLoading = false
     }
 
@@ -997,50 +1205,72 @@ struct CommsThreadView: View {
 
 // MARK: - Message bubble
 
+/// One turn, avatar-led rather than bubbled (the settled Comms call).
+///
+/// A chat bubble is sized for a sentence. Scout's turns are briefs — an
+/// operator's ask runs to headings and bullet lists, an agent's answer to a
+/// findings dump — and at that length a tinted balloon stops separating
+/// speakers and becomes a wall of colour with text trapped inside it. So a
+/// turn is: identity on the left, name + time on top, body flat on the canvas
+/// at full width. Speaker is carried by the sprite and the label, which is
+/// what the feed already does one layer up.
+///
+/// Short turns keep a light plate so a one-liner still reads as a message
+/// rather than a stray paragraph; long ones drop it and become a document.
 private struct CommsBubble: View {
     let message: CommsMessage
 
+    /// Past this, a plate is doing nothing but tinting a page.
+    private static let plateCharacterLimit = 220
+
+    private var isBrief: Bool {
+        message.body.trimmingCharacters(in: .whitespacesAndNewlines).count <= Self.plateCharacterLimit
+            && message.attachments.isEmpty
+    }
+
     var body: some View {
-        HStack {
-            if message.isOperator { Spacer(minLength: HudSpacing.huge) }
-            VStack(alignment: message.isOperator ? .trailing : .leading, spacing: HudSpacing.xs) {
-                if !message.isOperator {
-                    HStack(spacing: HudSpacing.sm) {
-                        Text(message.authorLabel)
-                            .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                            .foregroundStyle(authorColor)
-                        Text(timeLabel)
-                            .font(HudFont.mono(HudTextSize.micro))
-                            .foregroundStyle(ScoutInk.dim)
-                    }
+        HStack(alignment: .top, spacing: HudSpacing.md) {
+            SpriteIdentityMark(name: message.authorLabel, size: 26)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: HudSpacing.xs) {
+                HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
+                    Text(message.authorLabel)
+                        .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                        .foregroundStyle(authorColor)
+                        .lineLimit(1)
+                    Text(timeLabel)
+                        .font(HudFont.mono(HudTextSize.micro))
+                        .foregroundStyle(ScoutInk.dim)
+                    Spacer(minLength: 0)
                 }
-                VStack(alignment: message.isOperator ? .trailing : .leading, spacing: HudSpacing.sm) {
+
+                VStack(alignment: .leading, spacing: HudSpacing.sm) {
                     if !message.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         MessageMarkupView(text: message.body)
                     }
                     MessageAttachmentList(attachments: message.attachments)
                 }
-                .padding(.horizontal, HudSpacing.lg)
-                .padding(.vertical, HudSpacing.md)
-                .background(
-                    RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                        .fill(message.isOperator ? ScoutPalette.accent.opacity(0.16) : ScoutSurface.inset)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                        .stroke(message.isOperator ? ScoutPalette.accent.opacity(0.4) : ScoutHairline.subtle,
-                                lineWidth: HudStrokeWidth.standard)
-                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, isBrief ? HudSpacing.md : 0)
+                .padding(.vertical, isBrief ? HudSpacing.sm : 0)
+                .background {
+                    if isBrief {
+                        RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                            .fill(ScoutSurface.inset)
+                    }
+                }
             }
-            if !message.isOperator { Spacer(minLength: HudSpacing.huge) }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// The operator keeps the one accent; agents and system notices stay in ink
+    /// and muted, so a long thread does not turn into a colour chart.
     private var authorColor: Color {
         switch message.authorKind {
-        case .agent: return ScoutPalette.accent
         case .system: return ScoutInk.muted
-        default: return ScoutPalette.ink
+        default: return message.isOperator ? ScoutPalette.accent : ScoutPalette.ink
         }
     }
 

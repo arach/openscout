@@ -35,6 +35,12 @@ public struct TailEvent: Codable, Sendable, Identifiable, Equatable {
     /// The working directory the event came from, when known — surfaces render a
     /// compact `/project-rooted-path:session` handle from it. nil when absent.
     public var cwd: String?
+    /// The RUNTIME the source runs on — "claude", "codex", "kimi", "grok".
+    /// Distinct from `harness` above, which says who *manages* the session, not
+    /// what it runs. Only the producer can attribute this (the broker resolves
+    /// it from the actor's endpoint); nil means unattributed, and surfaces must
+    /// render nothing rather than guess a runtime.
+    public var runtime: String?
 
     public init(
         id: String,
@@ -45,7 +51,8 @@ public struct TailEvent: Codable, Sendable, Identifiable, Equatable {
         summary: String,
         conversationId: String? = nil,
         project: String? = nil,
-        cwd: String? = nil
+        cwd: String? = nil,
+        runtime: String? = nil
     ) {
         self.id = id
         self.tsMs = tsMs
@@ -56,6 +63,7 @@ public struct TailEvent: Codable, Sendable, Identifiable, Equatable {
         self.conversationId = conversationId
         self.project = project
         self.cwd = cwd
+        self.runtime = runtime
     }
 }
 
