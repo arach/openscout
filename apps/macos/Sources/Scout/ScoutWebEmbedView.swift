@@ -372,7 +372,10 @@ private struct ScoutWebEmbedWebView: NSViewRepresentable {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
-        if surface == .thread || surface == .code || surface == .voice {
+        // Dispatch joins these because its inspector links out of the surface —
+        // to a conversation, a live trace, a work item. Those destinations are
+        // native sections, so the action has to leave the WebView.
+        if surface == .thread || surface == .code || surface == .voice || surface == .dispatch {
             configuration.userContentController.add(
                 context.coordinator,
                 name: Self.nativeUIMessageHandler
