@@ -511,8 +511,12 @@ export function BrokerScreen({
   // and routing through it would also rewrite the WebView's URL to the shell
   // path. The embed therefore keeps its own selection.
   const [embeddedSelection, setEmbeddedSelection] = useState<BrokerRouteAttempt | null>(null);
+  /** Set once the deep-link seed has fired, or the operator has taken over. */
+  const seedConsumedRef = useRef(false);
   const selectAttempt = useCallback((attempt: BrokerRouteAttempt) => {
     if (embedded) {
+      // Any deliberate selection retires the deep-link seed (see below).
+      seedConsumedRef.current = true;
       setEmbeddedSelection(attempt);
       return;
     }
@@ -520,6 +524,7 @@ export function BrokerScreen({
   }, [embedded, inspectBrokerAttempt]);
   const clearSelection = useCallback(() => {
     if (embedded) {
+      seedConsumedRef.current = true;
       setEmbeddedSelection(null);
       return;
     }
@@ -558,21 +563,23 @@ export function BrokerScreen({
     setEmbeddedSelection(fresh);
   }, [embedded, embeddedSelectionId, embeddedSelectionSignature, feedRows]);
 
-  // An embed deep link carries only an id; resolve it against the first loaded
-  // ledger. One shot on purpose: "Load older" can surface the seeded row long
-  // after the operator has selected something else, and a seed that fired then
-  // would yank their selection away. Failed queries and deliveries are searched
-  // too — those ids never appear in the message feed.
-  const seededRef = useRef(false);
+  // An embed deep link carries only an id, which the ledger may not hold yet —
+  // an older attempt only appears after "Load older". So the seed stays armed
+  // rather than firing once, but it is disarmed the moment the operator takes
+  // over: a late seed must never yank a selection they made, and must never
+  // resurrect one they dismissed. Failed queries and deliveries are searched
+  // too; those ids never appear in the message feed.
   useEffect(() => {
-    if (!embedded || !initialAttemptId || !broker || seededRef.current) return;
-    seededRef.current = true;
+    if (!embedded || !initialAttemptId || !broker) return;
+    if (seedConsumedRef.current || embeddedSelection) return;
     const match = feedRows.find((row) => row.id === initialAttemptId)
       ?? broker.attempts.find((row) => row.id === initialAttemptId)
       ?? broker.failedQueries.find((row) => row.id === initialAttemptId)
       ?? broker.failedDeliveries.find((row) => row.id === initialAttemptId);
-    if (match) setEmbeddedSelection(match);
-  }, [broker, embedded, feedRows, initialAttemptId]);
+    if (!match) return;
+    seedConsumedRef.current = true;
+    setEmbeddedSelection(match);
+  }, [broker, embedded, embeddedSelection, feedRows, initialAttemptId]);
 
   useEffect(() => {
     const requestedAttemptId = route.view === "broker" ? route.attemptId : undefined;

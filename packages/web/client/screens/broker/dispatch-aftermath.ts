@@ -60,39 +60,49 @@ export function resolveDispatchAftermath(
     .slice()
     .sort((left, right) => readMessageTimestamp(left) - readMessageTimestamp(right));
 
-  const anchorIndex = attempt.messageId
-    ? ordered.findIndex((message) => message.id === attempt.messageId)
-    : -1;
+  const anchor = attempt.messageId
+    ? ordered.find((message) => message.id === attempt.messageId) ?? null
+    : null;
 
   let after: Message[];
-  if (anchorIndex >= 0) {
-    after = ordered.slice(anchorIndex + 1);
+  if (anchor) {
+    // Position is not a safe boundary. `/api/messages` answers from two sources
+    // with opposite orders — the broker projection ascending, the SQLite
+    // fallback `created_at DESC, id DESC` — and sorting on timestamp alone
+    // leaves same-millisecond ties in whatever order the source produced. A
+    // positional slice would therefore drop a reply posted in the same
+    // millisecond as the dispatch on the descending source, and on the
+    // ascending one whenever the tie broke by id the wrong way. Cut on the
+    // anchor's own timestamp and remove the anchor by id instead, which holds
+    // for either source.
+    const anchorTs = readMessageTimestamp(anchor);
+    after = ordered.filter((message) =>
+      message.id !== anchor.id && readMessageTimestamp(message) >= anchorTs);
   } else {
     // No anchor: either the dispatch is older than this page, or its id is not
     // a transcript id. Only the first case is worth reporting as a gap — if
     // the page starts after the dispatch there is nothing more to load here.
     const oldest = ordered[0];
     if (oldest && readMessageTimestamp(oldest) > attempt.ts) return { status: "beyond-page" };
-    // The dispatch's own row can carry a timestamp at or after `attempt.ts`
-    // (the broker records the route before the message lands, and the two
-    // clocks are not the same). Excluding it by id keeps a dispatch from being
-    // listed as its own first reply. Only when the id can rule it out is the
-    // boundary inclusive — otherwise a same-millisecond answer is the thing
-    // that gets dropped.
-    after = attempt.messageId
-      ? ordered.filter((message) =>
-        message.id !== attempt.messageId && readMessageTimestamp(message) >= attempt.ts)
-      : ordered.filter((message) => readMessageTimestamp(message) > attempt.ts);
+    // Being on this path *means* nothing here carries the dispatch's id, so
+    // there is no row to exclude and the boundary stays strict. Residual, and
+    // not fixable from here: a synthesized feed row whose transcript copy has a
+    // different id and a later stamp than the route attempt can still list
+    // itself as its own first reply.
+    after = ordered.filter((message) => readMessageTimestamp(message) > attempt.ts);
   }
 
   if (after.length === 0) return { status: "no-reply" };
 
+  // Measure the gap from the message when we have it. The route attempt and
+  // the message row are stamped by different clocks.
+  const baseline = anchor ? readMessageTimestamp(anchor) : attempt.ts;
   const replies = after.slice(0, REPLY_LIMIT).map((message) => ({
     id: message.id,
     actorName: message.actorName || "Unknown",
     body: message.body ?? "",
     createdAt: readMessageTimestamp(message),
-    afterMs: Math.max(0, readMessageTimestamp(message) - attempt.ts),
+    afterMs: Math.max(0, readMessageTimestamp(message) - baseline),
     answersDispatch: Boolean(
       attempt.messageId && message.replyToMessageId === attempt.messageId,
     ),

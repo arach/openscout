@@ -127,10 +127,9 @@ describe("resolveDispatchAftermath", () => {
     expect(result.replies.map((reply) => reply.id)).toEqual(["msg-2"]);
   });
 
-  test("never lists the dispatch as its own reply on the fallback path", () => {
-    // The broker stamps the route attempt from a different clock than the
-    // message row, so the dispatch can carry a timestamp at or after its own
-    // attempt. Only the id rules it out.
+  test("never lists the anchor itself, whatever its stamp", () => {
+    // The route attempt and the message row are stamped by different clocks,
+    // so the dispatch's own row can sit at or after `attempt.ts`.
     const result = resolveDispatchAftermath(
       attempt({ messageId: "msg-1", ts: 1_000 }),
       [
@@ -145,18 +144,49 @@ describe("resolveDispatchAftermath", () => {
     expect(result.replies.map((reply) => reply.id)).toEqual(["msg-2"]);
   });
 
-  test("keeps a same-millisecond answer on the fallback path", () => {
+  // `/api/messages` answers from two sources with opposite orders: the broker
+  // projection ascending, the SQLite fallback `created_at DESC, id DESC`. A
+  // same-millisecond reply must survive both, so each ordering is asserted.
+  for (const [label, page] of [
+    ["ascending source", [
+      message({ id: "msg-1", createdAt: 1_000, actorName: "Arach", body: "do the thing" }),
+      message({ id: "msg-2", createdAt: 1_000, body: "instant" }),
+    ]],
+    ["descending source", [
+      message({ id: "msg-2", createdAt: 1_000, body: "instant" }),
+      message({ id: "msg-1", createdAt: 1_000, actorName: "Arach", body: "do the thing" }),
+    ]],
+    ["descending source, reply id sorts below the anchor", [
+      message({ id: "msg-a", createdAt: 1_000, body: "instant" }),
+      message({ id: "msg-z", createdAt: 1_000, actorName: "Arach", body: "do the thing" }),
+    ]],
+  ] as const) {
+    test(`keeps a same-millisecond reply from the ${label}`, () => {
+      const anchorId = label.includes("sorts below") ? "msg-z" : "msg-1";
+      const replyId = label.includes("sorts below") ? "msg-a" : "msg-2";
+      const result = resolveDispatchAftermath(
+        attempt({ messageId: anchorId, ts: 1_000 }),
+        [...page],
+      );
+
+      expect(result.status).toBe("replies");
+      if (result.status !== "replies") return;
+      expect(result.replies.map((reply) => reply.id)).toEqual([replyId]);
+    });
+  }
+
+  test("measures the gap from the anchor message, not the route attempt", () => {
     const result = resolveDispatchAftermath(
       attempt({ messageId: "msg-1", ts: 1_000 }),
       [
-        message({ id: "msg-0", createdAt: 900 }),
-        message({ id: "msg-2", createdAt: 1_000, body: "instant" }),
+        message({ id: "msg-1", createdAt: 3_000, actorName: "Arach", body: "do the thing" }),
+        message({ id: "msg-2", createdAt: 63_000, body: "on it" }),
       ],
     );
 
     expect(result.status).toBe("replies");
     if (result.status !== "replies") return;
-    expect(result.replies.map((reply) => reply.id)).toEqual(["msg-2"]);
+    expect(result.replies[0]!.afterMs).toBe(60_000);
   });
 
   test("has nothing to follow without a conversation", () => {
