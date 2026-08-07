@@ -73,7 +73,16 @@ export function resolveDispatchAftermath(
     // the page starts after the dispatch there is nothing more to load here.
     const oldest = ordered[0];
     if (oldest && readMessageTimestamp(oldest) > attempt.ts) return { status: "beyond-page" };
-    after = ordered.filter((message) => readMessageTimestamp(message) > attempt.ts);
+    // The dispatch's own row can carry a timestamp at or after `attempt.ts`
+    // (the broker records the route before the message lands, and the two
+    // clocks are not the same). Excluding it by id keeps a dispatch from being
+    // listed as its own first reply. Only when the id can rule it out is the
+    // boundary inclusive — otherwise a same-millisecond answer is the thing
+    // that gets dropped.
+    after = attempt.messageId
+      ? ordered.filter((message) =>
+        message.id !== attempt.messageId && readMessageTimestamp(message) >= attempt.ts)
+      : ordered.filter((message) => readMessageTimestamp(message) > attempt.ts);
   }
 
   if (after.length === 0) return { status: "no-reply" };

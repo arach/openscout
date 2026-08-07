@@ -25,10 +25,13 @@ import {
 } from "./dispatch-aftermath.ts";
 
 const REPLY_SNIPPET_CHARS = 180;
+const RELOAD_COALESCE_MS = 250;
 
 type AftermathState = {
   loading: boolean;
   target: FollowTarget | null;
+  /** The follow read failed — "no destination" would be an unearned claim. */
+  targetUnknown: boolean;
   flight: Flight | null;
   aftermath: Aftermath;
 };
@@ -36,6 +39,7 @@ type AftermathState = {
 const INITIAL: AftermathState = {
   loading: true,
   target: null,
+  targetUnknown: false,
   flight: null,
   aftermath: { status: "no-conversation" },
 };
@@ -87,6 +91,7 @@ function useDispatchAftermath(
       setState({
         loading: false,
         target,
+        targetUnknown: Boolean(followQuery) && !target,
         flight,
         // "Could not read the thread" and "read it, nothing there" are
         // different answers. Collapsing them would report silence that was
@@ -104,7 +109,21 @@ function useDispatchAftermath(
     };
   }, [attempt, conversationId, followQuery, nonce]);
 
-  const reload = useCallback(() => setNonce((value) => value + 1), []);
+  // A live thread emits several events per agent turn, and each reload is two
+  // or three requests carrying an 80-message page. Coalesce them the way the
+  // ledger coalesces its own refresh, so a busy conversation cannot turn into
+  // a request burst and a flapping spinner.
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reload = useCallback(() => {
+    if (reloadTimerRef.current) return;
+    reloadTimerRef.current = setTimeout(() => {
+      reloadTimerRef.current = null;
+      setNonce((value) => value + 1);
+    }, RELOAD_COALESCE_MS);
+  }, []);
+  useEffect(() => () => {
+    if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+  }, []);
 
   // The panel's whole subject is what arrives after the dispatch, so it
   // reloads on the events that produce that — rather than making the operator
@@ -140,7 +159,8 @@ export function DispatchAftermath({
   navigate: (route: Route) => void;
   returnTo: Route;
 }) {
-  const { loading, target, flight, aftermath } = useDispatchAftermath(attempt, targetAgentId);
+  const { loading, target, targetUnknown, flight, aftermath } =
+    useDispatchAftermath(attempt, targetAgentId);
   const outcome = dispatchFlightOutcome(flight);
   const links = target
     ? dispatchOutcomeLinks(target, { nativeHost: isScoutNativeUiActionHost() })
@@ -239,7 +259,9 @@ export function DispatchAftermath({
       ) : (
         !loading && (
           <p className="sys-broker-aftermath-empty">
-            No session, work item, or recipient could be resolved from this row.
+            {targetUnknown
+              ? "Where this went could not be looked up, so there is nothing to link to yet."
+              : "No session, work item, or recipient could be resolved from this row."}
           </p>
         )
       )}

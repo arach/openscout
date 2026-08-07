@@ -542,15 +542,37 @@ export function BrokerScreen({
     onClearSelection: clearSelection,
   });
 
-  // An embed deep link carries only an id; resolve it once the feed hydrates.
-  const seededAttemptRef = useRef<string | null>(null);
+  // The ledger reloads every few seconds and rebuilds every row object. A
+  // selection captured at click time would keep rendering the status the row
+  // had *then* — so a dispatch that later failed would show Delivered in the
+  // pane while the ledger beside it shows Failed. Re-read the live row.
+  const embeddedSelectionId = embeddedSelection?.id ?? null;
+  const embeddedSelectionSignature = embeddedSelection
+    ? `${embeddedSelection.id} ${embeddedSelection.status} ${embeddedSelection.ts}`
+    : null;
   useEffect(() => {
-    if (!embedded || !initialAttemptId || seededAttemptRef.current === initialAttemptId) return;
-    const match = feedRows.find((row) => row.id === initialAttemptId);
-    if (!match) return;
-    seededAttemptRef.current = initialAttemptId;
-    setEmbeddedSelection(match);
-  }, [embedded, feedRows, initialAttemptId]);
+    if (!embedded || !embeddedSelectionId) return;
+    const fresh = feedRows.find((row) => row.id === embeddedSelectionId);
+    if (!fresh) return;
+    if (`${fresh.id} ${fresh.status} ${fresh.ts}` === embeddedSelectionSignature) return;
+    setEmbeddedSelection(fresh);
+  }, [embedded, embeddedSelectionId, embeddedSelectionSignature, feedRows]);
+
+  // An embed deep link carries only an id; resolve it against the first loaded
+  // ledger. One shot on purpose: "Load older" can surface the seeded row long
+  // after the operator has selected something else, and a seed that fired then
+  // would yank their selection away. Failed queries and deliveries are searched
+  // too — those ids never appear in the message feed.
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (!embedded || !initialAttemptId || !broker || seededRef.current) return;
+    seededRef.current = true;
+    const match = feedRows.find((row) => row.id === initialAttemptId)
+      ?? broker.attempts.find((row) => row.id === initialAttemptId)
+      ?? broker.failedQueries.find((row) => row.id === initialAttemptId)
+      ?? broker.failedDeliveries.find((row) => row.id === initialAttemptId);
+    if (match) setEmbeddedSelection(match);
+  }, [broker, embedded, feedRows, initialAttemptId]);
 
   useEffect(() => {
     const requestedAttemptId = route.view === "broker" ? route.attemptId : undefined;

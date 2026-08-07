@@ -127,6 +127,38 @@ describe("resolveDispatchAftermath", () => {
     expect(result.replies.map((reply) => reply.id)).toEqual(["msg-2"]);
   });
 
+  test("never lists the dispatch as its own reply on the fallback path", () => {
+    // The broker stamps the route attempt from a different clock than the
+    // message row, so the dispatch can carry a timestamp at or after its own
+    // attempt. Only the id rules it out.
+    const result = resolveDispatchAftermath(
+      attempt({ messageId: "msg-1", ts: 1_000 }),
+      [
+        message({ id: "msg-0", createdAt: 900 }),
+        message({ id: "msg-1", createdAt: 1_002, actorName: "Arach", body: "do the thing" }),
+        message({ id: "msg-2", createdAt: 2_000, body: "on it" }),
+      ],
+    );
+
+    expect(result.status).toBe("replies");
+    if (result.status !== "replies") return;
+    expect(result.replies.map((reply) => reply.id)).toEqual(["msg-2"]);
+  });
+
+  test("keeps a same-millisecond answer on the fallback path", () => {
+    const result = resolveDispatchAftermath(
+      attempt({ messageId: "msg-1", ts: 1_000 }),
+      [
+        message({ id: "msg-0", createdAt: 900 }),
+        message({ id: "msg-2", createdAt: 1_000, body: "instant" }),
+      ],
+    );
+
+    expect(result.status).toBe("replies");
+    if (result.status !== "replies") return;
+    expect(result.replies.map((reply) => reply.id)).toEqual(["msg-2"]);
+  });
+
   test("has nothing to follow without a conversation", () => {
     expect(resolveDispatchAftermath(attempt({ conversationId: null }), []).status)
       .toBe("no-conversation");
