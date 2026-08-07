@@ -156,7 +156,11 @@ describe("resolveDispatchAftermath", () => {
       message({ id: "msg-2", createdAt: 1_000, body: "instant" }),
       message({ id: "msg-1", createdAt: 1_000, actorName: "Arach", body: "do the thing" }),
     ]],
-    ["descending source, reply id sorts below the anchor", [
+    // `id ASC` puts the reply first when its id sorts below the anchor's, so
+    // the ascending source can bury a same-ms reply too — not just the
+    // descending one. This is the case a positional cut misses even on the
+    // source whose order looks safe.
+    ["ascending source, reply id sorts below the anchor", [
       message({ id: "msg-a", createdAt: 1_000, body: "instant" }),
       message({ id: "msg-z", createdAt: 1_000, actorName: "Arach", body: "do the thing" }),
     ]],
