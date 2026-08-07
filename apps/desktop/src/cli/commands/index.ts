@@ -3,6 +3,7 @@ import type { ScoutCommandContext } from "../context.ts";
 export type ScoutCommandHandler = (context: ScoutCommandContext, args: string[]) => Promise<void>;
 
 export type ScoutCommandName =
+  | "app"
   | "attention"
   | "ask"
   | "alias"
@@ -47,6 +48,8 @@ export type ScoutCommandName =
 
 export async function loadScoutCommandHandler(name: ScoutCommandName): Promise<ScoutCommandHandler> {
   switch (name) {
+    case "app":
+      return (await import("./app.ts")).runAppCommand;
     case "attention":
       return (await import("./attention.ts")).runAttentionCommand;
     case "ask":
