@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -652,6 +653,19 @@ export class AcpAdapter extends BaseAdapter {
     }
 
     const options = this.acpOptions;
+
+    // Check the working directory before spawning, because the error you get
+    // otherwise blames the wrong thing. `spawn` with a cwd that does not exist
+    // fails with ENOENT naming the *command* — "posix_spawn '/…/bin/grok'" —
+    // so a stale project path reads as a missing harness binary, and sends you
+    // hunting PATH, code signing, and TCC for a directory typo.
+    if (!existsSync(options.cwd)) {
+      throw new Error(
+        `ACP agent working directory does not exist: ${options.cwd}`
+        + ` (harness command: ${options.command})`,
+      );
+    }
+
     const child = spawn(options.command, options.args, {
       cwd: options.cwd,
       env: { ...process.env, ...(this.config.env ?? {}) },
