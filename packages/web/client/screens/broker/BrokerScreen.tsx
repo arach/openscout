@@ -33,6 +33,7 @@ import {
   clippedText,
 } from "./broker-display.ts";
 import { BrokerMetadataPanel } from "./BrokerMetadataPanel.tsx";
+import { DispatchAftermath } from "./DispatchAftermath.tsx";
 import { brokerDiagnosticsUrl } from "./broker-query.ts";
 import { useBrokerLedgerKeyboard } from "./useBrokerLedgerKeyboard.ts";
 import { ShikiPane } from "../code/ShikiPane.tsx";
@@ -350,9 +351,12 @@ function mergeBrokerPage(
 export function BrokerScreen({
   navigate,
   embedded = false,
+  initialAttemptId,
 }: {
   navigate: (r: Route) => void;
   embedded?: boolean;
+  /** Embed deep link (`/embed/dispatch?attempt=…`); the shell uses the route. */
+  initialAttemptId?: string;
 }) {
   const { route, agents, selectedBrokerAttempt, inspectBrokerAttempt, clearBrokerAttempt } = useScout();
   const [broker, setBroker] = useState<BrokerDiagnostics | null>(null);
@@ -501,21 +505,81 @@ export function BrokerScreen({
     }
   }, [cachedAttemptSignature, inspectBrokerAttempt, selectedAttempt, selectedAttemptSignature]);
 
+  // Selection is the shell's to hold only when there is a shell. An embed's
+  // location is `/embed/dispatch`, which never parses to a `broker` route, so
+  // the provider's cached attempt stays null there no matter what is clicked —
+  // and routing through it would also rewrite the WebView's URL to the shell
+  // path. The embed therefore keeps its own selection.
+  const [embeddedSelection, setEmbeddedSelection] = useState<BrokerRouteAttempt | null>(null);
+  /** Set once the deep-link seed has fired, or the operator has taken over. */
+  const seedConsumedRef = useRef(false);
+  const selectAttempt = useCallback((attempt: BrokerRouteAttempt) => {
+    if (embedded) {
+      // Any deliberate selection retires the deep-link seed (see below).
+      seedConsumedRef.current = true;
+      setEmbeddedSelection(attempt);
+      return;
+    }
+    inspectBrokerAttempt(attempt);
+  }, [embedded, inspectBrokerAttempt]);
+  const clearSelection = useCallback(() => {
+    if (embedded) {
+      seedConsumedRef.current = true;
+      setEmbeddedSelection(null);
+      return;
+    }
+    clearBrokerAttempt();
+  }, [clearBrokerAttempt, embedded]);
+
   const activateLedgerRow = useCallback((index: number) => {
     const attempt = activeRows[index];
     if (!attempt) return;
-    inspectBrokerAttempt(attempt);
+    selectAttempt(attempt);
     window.dispatchEvent(new CustomEvent("scout:set-inspector-width", {
       detail: { width: 520 },
     }));
-  }, [activeRows, inspectBrokerAttempt]);
+  }, [activeRows, selectAttempt]);
 
   const { getRowFocusProps, setFocusedIndex } = useBrokerLedgerKeyboard({
     enabled: Boolean(broker) && activeRows.length > 0,
     rowCount: activeRows.length,
     onActivateRow: activateLedgerRow,
-    onClearSelection: clearBrokerAttempt,
+    onClearSelection: clearSelection,
   });
+
+  // The ledger reloads every few seconds and rebuilds every row object. A
+  // selection captured at click time would keep rendering the status the row
+  // had *then* — so a dispatch that later failed would show Delivered in the
+  // pane while the ledger beside it shows Failed. Re-read the live row.
+  const embeddedSelectionId = embeddedSelection?.id ?? null;
+  const embeddedSelectionSignature = embeddedSelection
+    ? `${embeddedSelection.id} ${embeddedSelection.status} ${embeddedSelection.ts}`
+    : null;
+  useEffect(() => {
+    if (!embedded || !embeddedSelectionId) return;
+    const fresh = feedRows.find((row) => row.id === embeddedSelectionId);
+    if (!fresh) return;
+    if (`${fresh.id} ${fresh.status} ${fresh.ts}` === embeddedSelectionSignature) return;
+    setEmbeddedSelection(fresh);
+  }, [embedded, embeddedSelectionId, embeddedSelectionSignature, feedRows]);
+
+  // An embed deep link carries only an id, which the ledger may not hold yet —
+  // an older attempt only appears after "Load older". So the seed stays armed
+  // rather than firing once, but it is disarmed the moment the operator takes
+  // over: a late seed must never yank a selection they made, and must never
+  // resurrect one they dismissed. Failed queries and deliveries are searched
+  // too; those ids never appear in the message feed.
+  useEffect(() => {
+    if (!embedded || !initialAttemptId || !broker) return;
+    if (seedConsumedRef.current || embeddedSelection) return;
+    const match = feedRows.find((row) => row.id === initialAttemptId)
+      ?? broker.attempts.find((row) => row.id === initialAttemptId)
+      ?? broker.failedQueries.find((row) => row.id === initialAttemptId)
+      ?? broker.failedDeliveries.find((row) => row.id === initialAttemptId);
+    if (!match) return;
+    seedConsumedRef.current = true;
+    setEmbeddedSelection(match);
+  }, [broker, embedded, embeddedSelection, feedRows, initialAttemptId]);
 
   useEffect(() => {
     const requestedAttemptId = route.view === "broker" ? route.attemptId : undefined;
@@ -531,9 +595,15 @@ export function BrokerScreen({
     navigate({ view: "broker", ...(filter === "all" ? {} : { filter }) });
   }, [activeTab, navigate]);
 
+  // The web shell mounts the inspector in its right rail. An embed has no rail
+  // — the native host owns that chrome — so selecting a row used to update
+  // context nothing rendered. The embed therefore carries its own detail pane
+  // instead of the host trying to reproduce a web-side inspector natively.
+  const inspectorAttempt = embedded ? embeddedSelection : null;
+
   // SCO-083: Dispatch is its own primary area — do not render OpsSubnav here.
   return (
-    <div className={`s-ops${embedded ? " s-ops--embedded" : ""}`}>
+    <div className={`s-ops${embedded ? " s-ops--embedded" : ""}${inspectorAttempt ? " s-ops--split" : ""}`}>
       <div className="s-ops-body">
         <div className="sys-surface-page sys-surface-page-wide sys-surface-page-fluid sys-broker-page">
           <div className="sys-ledger-toolbar" aria-label="Dispatch controls">
@@ -644,8 +714,14 @@ export function BrokerScreen({
               <BrokerAttemptList
                 attempts={activeRows}
                 agents={agents}
-                selectedAttemptId={route.view === "broker" ? route.attemptId ?? null : null}
-                onInspect={inspectBrokerAttempt}
+                // Clicking a row inspects without navigating, so the deep-link
+                // id alone left every click unhighlighted. The inspected row is
+                // the selection; the route id only seeds it.
+                selectedAttemptId={embedded
+                  ? embeddedSelection?.id ?? null
+                  : selectedBrokerAttempt?.id
+                    ?? (route.view === "broker" ? route.attemptId ?? null : null)}
+                onInspect={selectAttempt}
                 getRowFocusProps={getRowFocusProps}
               />
               {activeRows.length > 0 && activeHasMore && (
@@ -663,6 +739,16 @@ export function BrokerScreen({
             </>
           )}
         </div>
+
+        {inspectorAttempt && (
+          <div className="s-broker-embed-detail">
+            <BrokerAttemptInspector
+              attempt={inspectorAttempt}
+              navigate={navigate}
+              onClose={clearSelection}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1403,6 +1489,15 @@ export function BrokerAttemptInspector({
           )}
         </section>
 
+        {/* The payload is only the ask. Routing succeeded is not an outcome, so
+            the aftermath sits directly under it rather than behind an action. */}
+        <DispatchAftermath
+          attempt={attempt}
+          targetAgentId={originalTargetAgentId || null}
+          navigate={navigate}
+          returnTo={route}
+        />
+
         {isFailure && (
           <section className="sys-broker-report" aria-labelledby="dispatch-report-title">
             <div className="sys-broker-action-head">
@@ -1739,6 +1834,13 @@ export const scoutSurface = defineSurface({
     profile: "macos.dispatch",
     rootClassName: "s-broker-embed",
     chrome: { showSecondaryNav: false, showPageStatusBar: false },
+    // Filter tabs and row selection are `view: "broker"` routes; the host has
+    // nowhere else to put them, so the embed keeps them.
+    ownsInternalRoutes: true,
+    resolveEmbedProps: (params) => {
+      const attempt = params.get("attempt")?.trim();
+      return attempt ? { initialAttemptId: attempt } : {};
+    },
     hosts: { macos: true },
   },
 });

@@ -31,9 +31,16 @@ export function DiscoveredEmbedHost({ surface }: { surface: RegisteredSurface })
   const { route, navigate, agents } = useScout();
   const Screen = surface.Screen;
   const embed = surface.embed!;
+  const ownsInternalRoutes = Boolean(surface.embed?.ownsInternalRoutes);
+  const isInternalRoute = useCallback(
+    (destination: Route) =>
+      ownsInternalRoutes && routeMatchesSurfaceRoute(destination, surface.route),
+    [ownsInternalRoutes, surface.route],
+  );
   const navigateFromEmbed = useCallback(
-    (destination: Route) => routeEmbeddedNavigation(destination, navigate),
-    [navigate],
+    (destination: Route) =>
+      routeEmbeddedNavigation(destination, navigate, undefined, isInternalRoute),
+    [isInternalRoute, navigate],
   );
   const shouldRenderSurface =
     typeof window === "undefined"

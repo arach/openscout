@@ -3940,7 +3940,13 @@ struct ScoutRootView: View {
     }
 
     private var dispatchContent: some View {
-        ScoutWebEmbedContent(surface: .dispatch)
+        // The embedded inspector links a dispatch to what happened after it.
+        // Those links resolve to native sections, so the embed needs the UI
+        // action bridge to hand them over.
+        ScoutWebEmbedContent(
+            surface: .dispatch,
+            onNativeUIAction: handleContentEmbedAction
+        )
     }
 
     private var codeContent: some View {

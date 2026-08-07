@@ -15,7 +15,13 @@ export function routeEmbeddedNavigation(
   route: Route,
   navigate: (route: Route) => void,
   forwardToNative: NativeUiActionForwarder = forwardScoutbotUiActionToNativeHost,
+  /**
+   * Routes that stay on the embedded surface. The host has no better answer
+   * for these than "you are already there", so handing them over would drop
+   * the state change on the floor.
+   */
+  isInternalRoute: (route: Route) => boolean = () => false,
 ): void {
-  if (forwardToNative({ type: "navigate", route })) return;
+  if (!isInternalRoute(route) && forwardToNative({ type: "navigate", route })) return;
   navigate(route);
 }

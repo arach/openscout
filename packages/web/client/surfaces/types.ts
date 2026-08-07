@@ -17,6 +17,13 @@ export type ScoutSurfaceEmbed = {
   profile?: string;
   /** Wrapper class on the embed root (e.g. `s-agent-lanes-embed`). */
   rootClassName?: string;
+  /**
+   * Keep navigation that stays on this surface inside the WebView instead of
+   * forwarding it to the native host. Surfaces whose own route carries state
+   * (Dispatch filters, a selected row) need this; without it the host swallows
+   * the action as a no-op destination change and the control appears dead.
+   */
+  ownsInternalRoutes?: boolean;
   chrome?: Partial<SurfaceChrome>;
   /** Extra props parsed from the embed URL query string. */
   resolveEmbedProps?: (params: URLSearchParams) => Record<string, unknown>;
