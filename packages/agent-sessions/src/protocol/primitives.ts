@@ -196,6 +196,11 @@ export interface ErrorBlock extends BlockBase {
   type: "error";
   message: string;
   code?: string;
+  truncation?: {
+    omittedBytes: number;
+    maxRetainedBytes: number;
+    sourceRef?: string;
+  };
 }
 
 /**
@@ -243,6 +248,16 @@ interface ActionBase {
   status: "pending" | "running" | "completed" | "failed" | "awaiting_approval";
   /** Streaming output text (terminal output, diff chunks, etc.). */
   output: string;
+
+  /**
+   * Present when retained action output was truncated to the StateTracker /
+   * normalizer backlog cap (SCO-042-C009).
+   */
+  truncation?: {
+    omittedBytes: number;
+    maxRetainedBytes: number;
+    sourceRef?: string;
+  };
 
   /** Present when status is "awaiting_approval". */
   approval?: {
@@ -329,6 +344,12 @@ export interface BlockActionOutputDelta {
   turnId: string;
   blockId: string;
   output: string;
+  /** Bytes omitted from this output delta, not a cumulative block total. */
+  truncation?: {
+    omittedBytes: number;
+    maxRetainedBytes: number;
+    sourceRef: string;
+  };
 }
 
 /** Action status changed (pending → running → completed/failed). */

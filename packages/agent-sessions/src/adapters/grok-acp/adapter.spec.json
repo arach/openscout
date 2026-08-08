@@ -1,6 +1,6 @@
 {
-  "$schema": "../spec/adapter-spec.v1.schema.json",
-  "specVersion": "1.0.0",
+  "$schema": "../spec/adapter-spec.v2.schema.json",
+  "specVersion": "2.0.0",
   "adapterId": "grok-acp",
   "displayName": "Grok ACP",
   "implementation": {
@@ -130,6 +130,11 @@
       "turn:error",
       "turn:end"
     ]
+  },
+  "conformance": {
+    "status": "grandfathered",
+    "normalizerId": "acp",
+    "fixtureSets": ["acp"]
   },
   "limitations": [
     "This adapter drives the Grok CLI through its ACP stdio mode; it does not implement xAI Responses API calls directly.",

@@ -237,6 +237,7 @@ bun run --cwd packages/agent-sessions test
 bun run --cwd packages/agent-sessions check
 bun run --cwd packages/agent-sessions build
 bun run --cwd packages/agent-sessions adapter:validate-specs
+bun run --cwd packages/agent-sessions adapter:conformance
 ```
 
 ## Install

@@ -14,7 +14,7 @@ function readSpec(relativePath: string) {
   return JSON.parse(readFileSync(join(SPEC_ROOT, relativePath), "utf8")) as Record<string, unknown>;
 }
 
-describe("adapter spec v1", () => {
+describe("adapter spec", () => {
   test("validates all checked-in adapter specs", async () => {
     const results = await validateRepoAdapterSpecs();
     expect(results.every((result) => result.errors.length === 0)).toBe(true);
@@ -26,6 +26,12 @@ describe("adapter spec v1", () => {
 
     expect(errors).toEqual([]);
     expect(spec.adapterId).toBe("codex");
+    expect(spec.specVersion).toBe("2.0.0");
+    expect(spec.conformance).toEqual({
+      status: "required",
+      normalizerId: "codex",
+      fixtureSets: ["codex"],
+    });
     expect(spec.upstream).toMatchObject({
       kind: "official_protocol",
       transport: "jsonrpc-stdio-jsonl",

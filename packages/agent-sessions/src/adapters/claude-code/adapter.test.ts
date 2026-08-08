@@ -190,6 +190,192 @@ for await (const line of rl) {
     await adapter.shutdown();
   });
 
+  test("answers modern nested AskUserQuestion tool calls", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-claude-question-"));
+    tempPaths.add(tempRoot);
+
+    writeFakeClaudeExecutable(tempRoot, `#!/usr/bin/env bun
+import readline from "node:readline";
+
+const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+const lines = rl[Symbol.asyncIterator]();
+await lines.next();
+console.log(JSON.stringify({
+  type: "assistant",
+  message: {
+    role: "assistant",
+    content: [{
+      type: "tool_use",
+      id: "question-tool-1",
+      name: "AskUserQuestion",
+      input: {
+        questions: [{
+          header: "Proceed",
+          question: "Continue?",
+          options: [{ label: "Yes", description: "Continue the task." }],
+          multiSelect: false,
+        }],
+      },
+    }],
+  },
+}));
+const answerLine = await lines.next();
+const answer = JSON.parse(answerLine.value);
+const answerContent = answer?.message?.content?.[0];
+if (
+  answer.type !== "user"
+  || answer.message?.role !== "user"
+  || answerContent?.type !== "tool_result"
+  || answerContent.tool_use_id !== "question-tool-1"
+) {
+  process.exit(9);
+}
+console.log(JSON.stringify({
+  type: "user",
+  message: {
+    role: "user",
+    content: [{
+      type: "tool_result",
+      tool_use_id: answerContent.tool_use_id,
+      content: answerContent.content,
+      is_error: false,
+    }],
+  },
+}));
+console.log(JSON.stringify({ type: "result", subtype: "success", is_error: false }));
+`);
+
+    process.env.PATH = `${tempRoot}:${originalPath ?? ""}`;
+
+    const adapter = createAdapter({
+      sessionId: `claude-test-${crypto.randomUUID()}`,
+      name: "Claude Question Test",
+      cwd: tempRoot,
+      env: { PATH: process.env.PATH },
+    });
+    const collector = createEventCollector();
+    adapter.on("event", (event) => collector.push(event));
+
+    await adapter.start();
+    adapter.send({ sessionId: adapter.session.id, text: "ask me" });
+    await collector.waitFor((events) => events.some(
+      (event) => event.event === "block:start" && event.block.type === "question",
+    ));
+    const questionStart = collector.events.find(
+      (event) => event.event === "block:start" && event.block.type === "question",
+    );
+    if (!questionStart || questionStart.event !== "block:start") {
+      throw new Error("Expected question block.");
+    }
+
+    adapter.answerQuestion({ blockId: questionStart.block.id, answer: ["Yes"] });
+    await collector.waitFor((events) => events.some((event) => event.event === "turn:end"));
+
+    expect(collector.events).toContainEqual(expect.objectContaining({
+      event: "block:question:answer",
+      blockId: questionStart.block.id,
+      answer: ["Yes"],
+    }));
+    expect(collector.events).toContainEqual(expect.objectContaining({
+      event: "block:end",
+      blockId: questionStart.block.id,
+      status: "completed",
+    }));
+
+    await adapter.shutdown();
+  });
+
+  test("does not invent completion when the transport closes without a result", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-claude-eof-"));
+    tempPaths.add(tempRoot);
+
+    writeFakeClaudeExecutable(tempRoot, `#!/usr/bin/env bun
+import readline from "node:readline";
+const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+for await (const line of rl) {
+  if (!line.trim()) continue;
+  console.log(JSON.stringify({
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "text", text: "partial" }] },
+  }));
+  rl.close();
+  process.exit(0);
+  break;
+}
+`);
+
+    process.env.PATH = `${tempRoot}:${originalPath ?? ""}`;
+    const adapter = createAdapter({
+      sessionId: `claude-test-${crypto.randomUUID()}`,
+      name: "Claude EOF Test",
+      cwd: tempRoot,
+      env: { PATH: process.env.PATH },
+    });
+    const collector = createEventCollector();
+    adapter.on("event", (event) => collector.push(event));
+
+    await adapter.start();
+    adapter.send({ sessionId: adapter.session.id, text: "start" });
+    await collector.waitFor((events) => events.some((event) => event.event === "turn:end"));
+
+    expect(collector.events).toContainEqual(expect.objectContaining({
+      event: "turn:end",
+      status: "stopped",
+    }));
+    expect(collector.events).not.toContainEqual(expect.objectContaining({
+      event: "turn:end",
+      status: "completed",
+    }));
+
+    await adapter.shutdown();
+  });
+
+  test("classifies a nonzero transport exit as failed after stdout closes", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-claude-exit-error-"));
+    tempPaths.add(tempRoot);
+
+    writeFakeClaudeExecutable(tempRoot, `#!/usr/bin/env bun
+import readline from "node:readline";
+const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+for await (const line of rl) {
+  if (!line.trim()) continue;
+  console.log(JSON.stringify({
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "text", text: "partial" }] },
+  }));
+  rl.close();
+  process.exit(7);
+  break;
+}
+`);
+
+    process.env.PATH = `${tempRoot}:${originalPath ?? ""}`;
+    const adapter = createAdapter({
+      sessionId: `claude-test-${crypto.randomUUID()}`,
+      name: "Claude Exit Error Test",
+      cwd: tempRoot,
+      env: { PATH: process.env.PATH },
+    });
+    const collector = createEventCollector();
+    adapter.on("event", (event) => collector.push(event));
+    adapter.on("error", () => undefined);
+
+    await adapter.start();
+    adapter.send({ sessionId: adapter.session.id, text: "start" });
+    await collector.waitFor((events) => events.some((event) => event.event === "turn:end"));
+
+    expect(collector.events).toContainEqual(expect.objectContaining({
+      event: "turn:end",
+      status: "failed",
+    }));
+    expect(collector.events).not.toContainEqual(expect.objectContaining({
+      event: "turn:end",
+      status: "stopped",
+    }));
+
+    await adapter.shutdown();
+  });
+
   test("attaches provider quota observations from rate limit events", async () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "openscout-claude-quota-"));
     tempPaths.add(tempRoot);

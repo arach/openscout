@@ -1,6 +1,6 @@
 {
-  "$schema": "../spec/adapter-spec.v1.schema.json",
-  "specVersion": "1.0.0",
+  "$schema": "../spec/adapter-spec.v2.schema.json",
+  "specVersion": "2.0.0",
   "adapterId": "acp",
   "displayName": "Agent Client Protocol",
   "implementation": {
@@ -127,6 +127,11 @@
       "turn:error",
       "turn:end"
     ]
+  },
+  "conformance": {
+    "status": "grandfathered",
+    "normalizerId": "acp",
+    "fixtureSets": ["acp"]
   },
   "limitations": [
     "The adapter is a client for ACP agents over stdio; it does not expose OpenScout itself as an ACP agent server.",

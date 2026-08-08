@@ -16,6 +16,11 @@ import type {
   TextBlock,
   ReasoningBlock,
 } from "./protocol/index.js";
+import {
+  MAX_RETAINED_ACTION_OUTPUT_UTF8_BYTES,
+  snapshotNormalizedValue,
+  truncateUtf8,
+} from "./protocol/normalizer.js";
 
 // ---------------------------------------------------------------------------
 // State shapes
@@ -93,7 +98,7 @@ export class StateTracker {
   /** Initialize state for a newly created session. */
   createSession(sessionId: string, session: Session): void {
     this.states.set(sessionId, {
-      session: { ...session },
+      session: snapshotNormalizedValue(session),
       turns: [],
     });
   }
@@ -148,7 +153,7 @@ export class StateTracker {
     switch (event.event) {
       // -- Session lifecycle --------------------------------------------------
       case "session:update":
-        state.session = { ...event.session };
+        state.session = snapshotNormalizedValue(event.session);
         break;
 
       case "session:closed":
@@ -281,7 +286,7 @@ export class StateTracker {
     if (!turn) return;
 
     const blockState: BlockState = {
-      block: { ...event.block },
+      block: snapshotNormalizedValue(event.block),
       status: event.block.status === "completed" ? "completed" : "streaming",
     };
 
@@ -314,7 +319,21 @@ export class StateTracker {
 
     const block = blockState.block;
     if (block.type === "action") {
-      (block as ActionBlock).action.output += event.output;
+      const actionBlock = block as ActionBlock;
+      const combined = actionBlock.action.output + event.output;
+      const truncated = truncateUtf8(combined, MAX_RETAINED_ACTION_OUTPUT_UTF8_BYTES);
+      actionBlock.action.output = truncated.text;
+      if (event.truncation || truncated.omittedBytes > 0) {
+        actionBlock.action.truncation = {
+          omittedBytes: (actionBlock.action.truncation?.omittedBytes ?? 0)
+            + (event.truncation?.omittedBytes ?? 0)
+            + truncated.omittedBytes,
+          maxRetainedBytes: MAX_RETAINED_ACTION_OUTPUT_UTF8_BYTES,
+          sourceRef: event.truncation?.sourceRef
+            ?? actionBlock.action.truncation?.sourceRef
+            ?? `block:${event.blockId}`,
+        };
+      }
     }
   }
 
