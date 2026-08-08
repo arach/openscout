@@ -203,7 +203,11 @@ export class RuntimeScenarioHarness {
         OPENSCOUT_BROKER_SOCKET_PATH: brokerSocketPath,
         OPENSCOUT_NODE_ID: derivedNodeId,
         OPENSCOUT_MESH_DISCOVERY_INTERVAL_MS: "0",
-        OPENSCOUT_PARENT_PID: "0",
+        // Same daemon, same leak: "0" disables the parent watcher
+        // (broker-daemon.ts only arms it for parentPid > 0), so a broker spawned
+        // here outlives a SIGKILLed runner exactly as one spawned by
+        // broker-daemon-harness did. `afterEach` never runs on SIGKILL.
+        OPENSCOUT_PARENT_PID: String(process.pid),
         ...input.env,
       },
       stdout: "pipe",

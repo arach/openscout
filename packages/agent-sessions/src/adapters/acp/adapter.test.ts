@@ -358,3 +358,26 @@ for await (const line of rl) {
     await adapter.shutdown();
   });
 });
+
+describe("working directory validation", () => {
+  // A cwd that does not exist makes `spawn` fail with ENOENT naming the
+  // *command*, so a stale project path reads as a missing harness binary and
+  // sends you hunting PATH, code signing, and TCC for a directory typo.
+  test("names the missing directory instead of blaming the harness binary", async () => {
+    const adapter = createAdapter({
+      sessionId: `acp-badcwd-${crypto.randomUUID()}`,
+      name: "Fake ACP",
+      cwd: "/nonexistent-openscout-acp-probe",
+      options: {
+        command: process.execPath,
+        startupTimeoutMs: 2_000,
+        requestTimeoutMs: 2_000,
+        promptTimeoutMs: 2_000,
+      },
+    });
+
+    await expect(adapter.start()).rejects.toThrow(
+      /working directory does not exist: \/nonexistent-openscout-acp-probe/,
+    );
+  });
+});

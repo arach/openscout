@@ -21,6 +21,20 @@
     "owner": "desktop"
   },
   {
+    "path": "apps/desktop/src/cli/app-lifecycle.ts",
+    "symbol": "spawnSync",
+    "category": "process-lifecycle",
+    "reason": "owns the app/service ownership model: one-shot ps process-table reads and launchctl bootout/bootstrap/kickstart, which must be ordered and observed synchronously",
+    "owner": "desktop"
+  },
+  {
+    "path": "apps/desktop/src/cli/commands/app.ts",
+    "symbol": "spawnSync",
+    "category": "cli",
+    "reason": "app lifecycle CLI one-shot bundle discovery and launch commands",
+    "owner": "desktop"
+  },
+  {
     "path": "apps/desktop/src/cli/commands/install.ts",
     "symbol": "spawnSync",
     "category": "cli",
@@ -130,6 +144,13 @@
     "symbol": "execSync",
     "category": "build-script",
     "reason": "macOS packaging/dev helper one-shot commands",
+    "owner": "macos"
+  },
+  {
+    "path": "apps/macos/bin/openscout-menu.ts",
+    "symbol": "spawnSync",
+    "category": "process-lifecycle",
+    "reason": "reads the ps process table to scope menu-helper liveness and shutdown to this checkout's bundle path, replacing a name-matched pkill that reached into every other checkout",
     "owner": "macos"
   },
   {

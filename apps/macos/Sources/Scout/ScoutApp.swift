@@ -432,21 +432,30 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func launchMenuHelperIfNeeded() {
-        let helperBundleIdentifier = "app.openscout.scout.menu"
-        let helperAlreadyRunning = NSWorkspace.shared.runningApplications.contains {
-            $0.bundleIdentifier == helperBundleIdentifier
-        }
-        guard !helperAlreadyRunning else {
+        guard let helperURL = ScoutServicesHelper.helperBundleURL(),
+              FileManager.default.fileExists(atPath: helperURL.path) else {
             return
         }
 
-        let helperURL = Bundle.main.bundleURL
-            .appendingPathComponent("Contents", isDirectory: true)
-            .appendingPathComponent("Library", isDirectory: true)
-            .appendingPathComponent("LoginItems", isDirectory: true)
-            .appendingPathComponent("ScoutMenu.app", isDirectory: true)
-
-        guard FileManager.default.fileExists(atPath: helperURL.path) else {
+        // Match on where the helper was launched from, not on its bundle
+        // identifier. Every build shares the identifier, so an identifier check
+        // reports "a ScoutMenu is running" and we would adopt whichever one that
+        // is — a helper from an older bundle, or from a sibling checkout — and
+        // never start our own. That is how a menu survives a rebuild and then
+        // outranks the build that replaced it.
+        let running = ScoutServicesHelper.classifyRunningHelpers(expectedURL: helperURL)
+        // `stale` is only helpers whose bundle no longer exists. A sibling
+        // checkout's live helper lands in `foreign` and is left running: killing
+        // it would take down that checkout's menu bar item — and with it the
+        // pairing runtime the menu owns — which is precisely the cross-checkout
+        // reach the CLI half of this work removes.
+        for stale in running.stale {
+            stale.terminate()
+        }
+        for foreign in running.foreign {
+            NSLog("OpenScout: another checkout's menu helper is running, leaving it: \(foreign.bundleURL?.path ?? "unknown bundle")")
+        }
+        guard running.ours == nil else {
             return
         }
 

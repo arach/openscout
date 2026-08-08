@@ -38,6 +38,10 @@ What it restarts:
   packages, relay broker, broker-managed web app, macOS Scout app,
   its embedded macOS menu helper, and iOS app.
 
+Lifecycle:
+  Stop, start, and verification belong to "scout app" — this script adds the
+  build steps around them. For the app alone, use: scout app restart
+
 Ownership:
   launchd -> scoutd -> base/probes -> broker/edge -> web
   LaunchServices -> Scout + embedded ScoutMenu -> pairing runtime`);
@@ -339,53 +343,49 @@ function readBrokerStatus(_bunBin) {
   }
 }
 
-export function parseProcessTable(output) {
-  return String(output).split("\n").flatMap((line) => {
-    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/);
-    if (!match) return [];
-    return [{
-      pid: Number(match[1]),
-      ppid: Number(match[2]),
-      command: match[3],
-      args: match[4],
-    }];
+/**
+ * Runs a `scout app` lifecycle verb and returns its JSON result.
+ *
+ * The ownership tree, the stop order, and the verification rules used to live in
+ * this script. They are `scout app`'s now — the same model the CLI, the build
+ * script, and the menu command all consult — so this file is left with what is
+ * genuinely dev-only: build flags, package builds, and the iOS push.
+ */
+function scoutApp(verb, { required = true } = {}) {
+  const cli = resolve(repoRoot, "apps", "desktop", "src", "cli", "main.ts");
+  const result = spawnSync(resolveBunBin(), [cli, "app", verb, "--json"], {
+    cwd: repoRoot,
+    encoding: "utf8",
   });
-}
 
-function readProcessTable() {
-  const result = spawnSync("ps", ["-axo", "pid=,ppid=,comm=,args="], { encoding: "utf8" });
-  if ((result.status ?? 1) !== 0) throw new Error("Unable to inspect process ownership with ps.");
-  return parseProcessTable(result.stdout);
-}
-
-function processByPid(processes, pid) {
-  return processes.find((process) => process.pid === pid) ?? null;
-}
-
-function processesNamed(processes, name) {
-  return processes.filter((process) => {
-    const executable = process.args.trim().split(/\s+/)[0] ?? "";
-    return process.command === name
-      || process.command.endsWith(`/${name}`)
-      || executable.endsWith(`/${name}`);
-  });
-}
-
-function nativeProcessesNamed(processes, name) {
-  return processesNamed(processes, name).filter(
-    (process) => !process.args.includes("/Library/Developer/CoreSimulator/Devices/"),
-  );
-}
-
-function assertSingleChild(processes, name, parentPid) {
-  const matches = processesNamed(processes, name);
-  if (matches.length !== 1) {
-    throw new Error(`Expected exactly one ${name} process; found ${matches.length}.`);
+  let parsed = null;
+  try {
+    parsed = JSON.parse(result.stdout);
+  } catch {
+    parsed = null;
   }
-  if (matches[0].ppid !== parentPid) {
-    throw new Error(`${name} pid ${matches[0].pid} is owned by pid ${matches[0].ppid}, expected ${parentPid}.`);
+
+  // A non-zero exit is a failure whether or not the JSON parsed. `scout app`
+  // writes its result and *then* throws when it found problems, so the stdout of
+  // a failed stop parses perfectly — and treating "parsed" as success let the
+  // build carry on and install over a suite that never stopped.
+  if ((result.status ?? 1) !== 0 && required) {
+    const detail = parsed?.problems?.length
+      ? `${parsed.message} (${parsed.problems.join("; ")})`
+      : (result.stderr || result.stdout || "").trim();
+    throw new Error(`scout app ${verb} failed: ${detail || "unknown error"}`);
   }
-  return matches[0];
+  return parsed;
+}
+
+function reportLifecycle(label, report) {
+  console.log(`\n==> ${label}`);
+  if (!report) {
+    console.log("  (no structured result)");
+    return;
+  }
+  for (const step of report.steps ?? []) console.log(`  ${step}`);
+  for (const problem of report.problems ?? []) console.log(`  problem: ${problem}`);
 }
 
 function legacyServiceLoaded(label) {
@@ -399,83 +399,36 @@ export function legacyScoutServiceLabels(mode) {
     : ["dev.openscout", "com.openscout"];
 }
 
-async function waitForMacApps() {
-  const deadline = Date.now() + 30_000;
-  while (Date.now() < deadline) {
-    const processes = readProcessTable();
-    if (nativeProcessesNamed(processes, "Scout").length === 1 && processesNamed(processes, "ScoutMenu").length === 1) return;
-    await sleep(250);
-  }
-  throw new Error("Scout and its embedded menu helper did not both launch within 30 seconds.");
-}
-
-export function verifyProcessOwnership(status, processes, expectedAppBundlePath, expectedMenuBundlePath) {
-  const scoutdPid = status?.scoutdState?.scoutdPid ?? status?.pid;
-  const basePid = status?.scoutdState?.basePid;
-  const probePid = status?.scoutdState?.probePid;
-  if (!Number.isInteger(scoutdPid) || !Number.isInteger(basePid) || !Number.isInteger(probePid)) {
-    throw new Error("scoutd status is missing supervisor process IDs.");
-  }
-  const scoutd = processByPid(processes, scoutdPid);
-  if (!scoutd || scoutd.ppid !== 1 || !scoutd.args.includes("scoutd supervise")) {
-    throw new Error(`scoutd pid ${scoutdPid} is not owned by launchd.`);
-  }
-  const base = processByPid(processes, basePid);
-  if (!base || base.ppid !== scoutdPid || base.command !== "scout-base") {
-    throw new Error(`scout-base pid ${basePid} is not owned by scoutd pid ${scoutdPid}.`);
-  }
-  const probe = processByPid(processes, probePid);
-  if (!probe || probe.ppid !== scoutdPid || !probe.args.includes("scoutd probes serve")) {
-    throw new Error(`scoutd probes pid ${probePid} is not owned by scoutd pid ${scoutdPid}.`);
-  }
-  const broker = assertSingleChild(processes, "scout-broker", basePid);
-  const edge = assertSingleChild(processes, "scout-edge", basePid);
-  const web = assertSingleChild(processes, "scout-web", broker.pid);
-
-  const apps = nativeProcessesNamed(processes, "Scout");
-  if (apps.length !== 1) throw new Error(`Expected exactly one Scout app; found ${apps.length}.`);
-  const expectedAppExecutable = join(expectedAppBundlePath, "Contents", "MacOS", "Scout");
-  if (!apps[0].args.includes(expectedAppExecutable)) {
-    throw new Error(`Scout is not running from the canonical app bundle: ${apps[0].args}`);
-  }
-  const menus = processesNamed(processes, "ScoutMenu");
-  if (menus.length !== 1) throw new Error(`Expected exactly one ScoutMenu helper; found ${menus.length}.`);
-  const expectedMenuExecutable = join(expectedMenuBundlePath, "Contents", "MacOS", "ScoutMenu");
-  if (!menus[0].args.includes(expectedMenuExecutable)) {
-    throw new Error(`ScoutMenu is not running from the embedded helper: ${menus[0].args}`);
-  }
-
-  const pairingControllers = processes.filter((process) => process.args.includes("pairing-runtime-controller"));
-  for (const controller of pairingControllers) {
-    if (controller.ppid !== menus[0].pid) {
-      throw new Error(`pairing controller pid ${controller.pid} is not owned by ScoutMenu pid ${menus[0].pid}.`);
-    }
-  }
-
-  return { scoutd, base, probe, broker, edge, web, app: apps[0], menu: menus[0], pairingControllers };
-}
-
 async function verifySuite(bunBin, options) {
   const status = await waitForBrokerReady(bunBin);
   const webUrl = managedWebUrlFromStatus(status, options);
   await waitForWeb(webUrl, supervisedWebLogPath(status));
-  await waitForMacApps();
+
   const loadedLegacyLabels = legacyScoutServiceLabels(status?.mode).filter(legacyServiceLoaded);
   if (loadedLegacyLabels.length > 0) {
     throw new Error(`Legacy launchd services are still loaded: ${loadedLegacyLabels.join(", ")}.`);
   }
-  const tree = verifyProcessOwnership(
-    status,
-    readProcessTable(),
-    resolve(repoRoot, "apps", "macos", "dist", "Scout.app"),
-    resolve(repoRoot, "apps", "macos", "dist", "Scout.app", "Contents", "Library", "LoginItems", "ScoutMenu.app"),
-  );
+
+  const tree = scoutApp("status");
+  if (!tree) throw new Error("scout app status did not return a result.");
+  if (tree.problems.length > 0) {
+    throw new Error(`Process ownership is wrong:\n  ${tree.problems.join("\n  ")}`);
+  }
+
   const agents = await fetch(new URL("/api/agents?detail=summary&limit=1", webUrl), {
     headers: { accept: "application/json" },
     signal: AbortSignal.timeout(30_000),
   });
   if (!agents.ok) throw new Error(`Web agents summary failed verification with HTTP ${agents.status}.`);
   return { status, tree, webUrl };
+}
+
+function describeTree(tree) {
+  const pid = (layer) => tree.layers.find((entry) => entry.layer === layer)?.pids.join(",") || "none";
+  return {
+    ownership: `launchd -> scoutd ${pid("scoutd")} -> base ${pid("base")} -> broker ${pid("broker")} -> web ${pid("web")}`,
+    apps: `Scout ${pid("app")}; embedded ScoutMenu ${pid("menu")}`,
+  };
 }
 
 async function main() {
@@ -490,14 +443,14 @@ async function main() {
 
   if (options.verifyOnly) {
     const verified = await verifySuite(bunBin, options);
-    console.log(`suite verified: scoutd ${verified.tree.scoutd.pid} -> base ${verified.tree.base.pid} -> broker ${verified.tree.broker.pid} -> web ${verified.tree.web.pid}`);
-    console.log(`apps verified: Scout ${verified.tree.app.pid}; embedded ScoutMenu ${verified.tree.menu.pid}`);
+    const described = describeTree(verified.tree);
+    console.log(`suite verified: ${described.ownership}`);
+    console.log(`apps verified: ${described.apps}`);
     console.log(`web ready: ${verified.webUrl}`);
     return;
   }
 
-  runStep("Quit macOS Scout app", bunBin, ["apps/macos/bin/scout-app.ts", "quit"], { required: false });
-  runStep("Quit macOS menu helper", bunBin, ["apps/macos/bin/openscout-menu.ts", "quit"], { required: false });
+  reportLifecycle("Stop OpenScout", scoutApp("stop"));
 
   if (options.fresh) {
     removeGeneratedOutputs();
@@ -505,11 +458,8 @@ async function main() {
 
   runStep("Build packages", bunBin, ["run", "build"]);
   runStep("Build Scout and embedded menu helper", bunBin, ["apps/macos/bin/scout-app.ts", "dev-build"]);
-  // A registered login item can be relaunched by macOS while the new bundle is
-  // still building. Stop it again after the bundle swap so verification cannot
-  // accept an old process merely because it has the canonical executable path.
-  runStep("Quit pre-build macOS menu helper", bunBin, ["apps/macos/bin/openscout-menu.ts", "quit"], { required: false });
-  runStep("Restart launchd-owned Scout services", resolve(repoRoot, "packages", "cli", "bin", "scoutd"), ["restart", "--json"]);
+
+  reportLifecycle("Start OpenScout", scoutApp("start"));
 
   console.log("\n==> Start broker-managed web app");
   const brokerReadyStatus = await waitForBrokerReady(bunBin);
@@ -517,8 +467,6 @@ async function main() {
   console.log(`web pid ${web.pid ?? "unknown"}; log ${web.logPath}`);
   await waitForWeb(web.url, web.logPath);
   console.log(`web ready at ${web.url}`);
-
-  runStep("Launch macOS Scout app", bunBin, ["apps/macos/bin/scout-app.ts", "launch"]);
 
   let iosStatus = "skipped";
   if (options.ios) {
@@ -536,11 +484,12 @@ async function main() {
     }, pid ${brokerStatus.pid ?? "unknown"}`
     : "status unavailable";
 
+  const described = describeTree(verified.tree);
   console.log("\nscout:up complete");
   console.log(`broker: ${brokerHealth}`);
   console.log(`web: ${web.url} (log ${web.logPath})`);
-  console.log(`ownership: launchd -> scoutd ${verified.tree.scoutd.pid} -> base ${verified.tree.base.pid} -> broker ${verified.tree.broker.pid} -> web ${verified.tree.web.pid}`);
-  console.log(`macOS: Scout ${verified.tree.app.pid}; embedded ScoutMenu ${verified.tree.menu.pid}`);
+  console.log(`ownership: ${described.ownership}`);
+  console.log(`macOS: ${described.apps}`);
   console.log(`iOS: ${iosStatus}`);
 }
 

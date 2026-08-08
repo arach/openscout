@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { execSync, spawn } from "node:child_process";
+import { execSync } from "node:child_process";
 import {
   chmodSync,
   cpSync,
@@ -238,39 +238,52 @@ function bundleApp(mode: BuildMode): void {
   console.log(`Built ${bundlePath} (${modeLabel(mode)})`);
 }
 
-function isRunning(): boolean {
+/**
+ * Lifecycle is `scout app`'s job, not this script's. This script builds.
+ *
+ * The old local implementation was `pkill -x Scout`, which matches on process
+ * name: it reached into other checkouts' apps, it could not tell a stale helper
+ * from a live one, and it never waited to see whether the process actually
+ * exited. `scout app` matches on executable path and confirms each layer.
+ */
+function scoutApp(verb: string, extraArgs: string[] = [], options: { required?: boolean } = {}): boolean {
+  const cli = resolve(repoRoot, "apps", "desktop", "src", "cli", "main.ts");
   try {
-    execSync("pgrep -x Scout", { stdio: "ignore" });
+    execSync(`bun ${JSON.stringify(cli)} app ${verb} ${extraArgs.join(" ")}`.trim(), {
+      cwd: repoRoot,
+      stdio: "inherit",
+    });
     return true;
-  } catch {
+  } catch (error) {
+    if (options.required) throw error;
     return false;
   }
 }
 
 function quit(): void {
-  if (!isRunning()) return;
-  execSync("pkill -x Scout", { stdio: "ignore" });
-}
-
-function quitMenuHelper(): void {
-  try {
-    execSync("pkill -x ScoutMenu", { stdio: "ignore" });
-  } catch {
-    // The helper may not be installed or running yet.
-  }
+  scoutApp("stop", ["--apps-only"]);
 }
 
 function launch(): void {
   if (!existsSync(bundlePath)) bundleApp("dev");
-  spawn("open", [bundlePath], {
-    detached: true,
-    stdio: "ignore",
-  }).unref();
+  scoutApp("start", [], { required: true });
+}
+
+/**
+ * Stop before writing the bundle, always.
+ *
+ * A build replaces the binary underneath whatever is running it. The process
+ * keeps executing the code it already loaded, so the app you are looking at is
+ * a build that no longer exists on disk — which is how a menu helper survives a
+ * rebuild and then gets adopted by the next launch. Scoped to `--apps-only`:
+ * the bundle we are replacing is the app's, not the services'.
+ */
+function stopForBundleSwap(): void {
+  scoutApp("stop", ["--apps-only"]);
 }
 
 function restart(mode: BuildMode): void {
-  quit();
-  quitMenuHelper();
+  stopForBundleSwap();
   bundleApp(mode);
   launch();
 }
@@ -279,6 +292,7 @@ const command = (process.argv[2] ?? "help") as Command;
 
 switch (command) {
   case "dev-build":
+    stopForBundleSwap();
     bundleApp("dev");
     break;
   case "dev":
@@ -286,6 +300,7 @@ switch (command) {
     restart("dev");
     break;
   case "build":
+    stopForBundleSwap();
     bundleApp("build");
     break;
   case "build-restart":
@@ -300,7 +315,7 @@ switch (command) {
     quit();
     break;
   case "status":
-    console.log(isRunning() ? "Scout is running." : "Scout is not running.");
+    scoutApp("status", [], { required: true });
     break;
   case "help":
     printHelp();

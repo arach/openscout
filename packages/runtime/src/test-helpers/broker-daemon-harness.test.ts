@@ -116,7 +116,10 @@ export function createBrokerDaemonTestHarness() {
         OPENSCOUT_MESH_DISCOVERY_INTERVAL_MS: "0",
         OPENSCOUT_RELAY_HUB: join(controlHome, "relay"),
         OPENSCOUT_SUPPORT_DIRECTORY: join(controlHome, "support"),
-        OPENSCOUT_PARENT_PID: "0",
+        // Arm the daemon's parent watcher (broker-daemon.ts) with the test runner's pid so a
+        // leaked broker exits on its own within ~2s. `afterEach` cleanup never runs when the
+        // runner is SIGKILLed, which once stranded 26 live test brokers for four days.
+        OPENSCOUT_PARENT_PID: String(process.pid),
         ...input.env,
       },
       stdout: "pipe",

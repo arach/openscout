@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ensureProviderTelemetryBootstrap } from "@openscout/runtime";
+import { readProcessTable, terminateProcesses } from "../app-lifecycle.ts";
 import type { ScoutCommandContext } from "../context.ts";
 import { defaultScoutContextDirectory } from "../context.ts";
 import { ScoutCliError } from "../errors.ts";
@@ -162,16 +163,58 @@ function findRepoMenuHelper(startDirectory: string): string | null {
   return existsSync(sourceRelativeCandidate) ? sourceRelativeCandidate : null;
 }
 
+/**
+ * The helper a checkout actually runs is the one embedded in `Scout.app`, not
+ * the standalone `dist/ScoutMenu.app`. They share a bundle identifier and
+ * diverge freely — the standalone was nine days stale when this was written —
+ * so pointing liveness checks at the standalone reported "not running" while the
+ * embedded helper sat in the menu bar, and `launch` then started a second one.
+ *
+ * The standalone bundle is no longer a lifecycle target. `macos:build` may still
+ * produce it, but nothing here starts, stops, or counts it.
+ */
 function resolveRepoBundlePath(helperPath: string): string {
-  return resolve(dirname(helperPath), "..", "dist", MENU_BUNDLE_NAME);
+  return resolve(dirname(helperPath), "..", "dist", "Scout.app", EMBEDDED_MENU_RELATIVE_PATH);
 }
 
-function isMenuRunning(env: NodeJS.ProcessEnv): boolean {
-  return runProcess("pgrep", ["-x", MENU_PROCESS_NAME], { env, allowFailure: true }).ok;
+/**
+ * Menu processes launched from `helperBundlePath`, and everything else wearing
+ * the same name.
+ *
+ * `pgrep -x ScoutMenu` cannot tell these apart, and `pkill -x ScoutMenu` used to
+ * kill both — including a helper belonging to another checkout. The repo builds
+ * two ScoutMenu bundles (a standalone `dist/ScoutMenu.app` and the copy embedded
+ * in Scout.app) that share a bundle identifier, so "is the menu running" is only
+ * a meaningful question once you say *which* menu.
+ */
+function menuProcesses(helperBundlePath: string | null): { ours: number[]; others: number[] } {
+  const expected = helperBundlePath
+    ? join(helperBundlePath, "Contents", "MacOS", MENU_PROCESS_NAME)
+    : null;
+  const ours: number[] = [];
+  const others: number[] = [];
+
+  for (const record of readProcessTable()) {
+    if (record.command !== MENU_PROCESS_NAME && !record.executable.endsWith(`/${MENU_PROCESS_NAME}`)) continue;
+    if (expected && record.executable === expected) ours.push(record.pid);
+    else others.push(record.pid);
+  }
+
+  return { ours, others };
 }
 
-function stopRunningMenu(env: NodeJS.ProcessEnv): boolean {
-  return runProcess("pkill", ["-x", MENU_PROCESS_NAME], { env, allowFailure: true }).ok;
+function isMenuRunning(helperBundlePath: string | null): boolean {
+  const { ours, others } = menuProcesses(helperBundlePath);
+  return helperBundlePath ? ours.length > 0 : others.length > 0;
+}
+
+/** Stops only the helper we own, and waits to confirm it actually exited. */
+async function stopRunningMenu(helperBundlePath: string | null): Promise<boolean> {
+  const { ours, others } = menuProcesses(helperBundlePath);
+  const targets = helperBundlePath ? ours : others;
+  if (targets.length === 0) return true;
+  const { survivors } = await terminateProcesses(targets);
+  return survivors.length === 0;
 }
 
 function resolveInstalledAppBundlePath(env: NodeJS.ProcessEnv): string | null {
@@ -278,18 +321,30 @@ async function ensureMenuProviderTelemetry(context: ScoutCommandContext, action:
   }
 }
 
-function runWithRepoHelper(
+async function runWithRepoHelper(
   context: ScoutCommandContext,
   helperPath: string,
   command: ScoutMenuCommand,
-): ScoutMenuResult {
-  runProcess(process.execPath, [helperPath, command.action, ...command.passthroughArgs], {
-    cwd: defaultScoutContextDirectory(context),
-    env: context.env,
-  });
-
+): Promise<ScoutMenuResult> {
   const bundlePath = resolveRepoBundlePath(helperPath);
-  const running = command.action === "quit" ? false : isMenuRunning(context.env);
+
+  // `quit` and `restart` are handled here rather than delegated, because
+  // `openscout-menu.ts` stops the helper with `pkill -x ScoutMenu` — a
+  // name-matched kill that reaches into every other checkout on the machine.
+  // That is the exact behaviour this command exists to replace, and leaving the
+  // repo branch delegating meant it survived in the one case (a dev checkout)
+  // where two helpers are most likely to be running.
+  if (command.action === "quit" || command.action === "restart") {
+    await stopRunningMenu(bundlePath);
+  }
+  if (command.action !== "quit") {
+    runProcess(process.execPath, [helperPath, command.action, ...command.passthroughArgs], {
+      cwd: defaultScoutContextDirectory(context),
+      env: context.env,
+    });
+  }
+
+  const running = command.action === "quit" ? false : isMenuRunning(bundlePath);
   const installed = existsSync(bundlePath) || running;
 
   return {
@@ -304,10 +359,10 @@ function runWithRepoHelper(
   };
 }
 
-function runWithInstalledApp(
+async function runWithInstalledApp(
   context: ScoutCommandContext,
   command: ScoutMenuCommand,
-): ScoutMenuResult {
+): Promise<ScoutMenuResult> {
   if (command.action === "build" || command.action === "dmg") {
     throw new ScoutCliError(
       `scout menu ${command.action} requires an OpenScout repo checkout. Run from the repo root or use bun run macos:${command.action}.`,
@@ -325,16 +380,16 @@ function runWithInstalledApp(
 
   switch (command.action) {
     case "launch":
-      if (!isMenuRunning(context.env)) {
+      if (!isMenuRunning(helperPath)) {
         openInstalledMenuApp(helperPath, context.env);
       }
       break;
     case "restart":
-      stopRunningMenu(context.env);
+      await stopRunningMenu(helperPath);
       openInstalledMenuApp(helperPath, context.env);
       break;
     case "quit":
-      stopRunningMenu(context.env);
+      await stopRunningMenu(helperPath);
       break;
     case "status":
       break;
@@ -342,7 +397,7 @@ function runWithInstalledApp(
       break;
   }
 
-  const running = command.action === "quit" ? false : isMenuRunning(context.env);
+  const running = command.action === "quit" ? false : isMenuRunning(helperPath);
   const installed = Boolean(appBundlePath) || running;
 
   return {
@@ -373,8 +428,8 @@ export async function runMenuCommand(context: ScoutCommandContext, args: string[
   await ensureMenuProviderTelemetry(context, command.action);
   const helperPath = findRepoMenuHelper(defaultScoutContextDirectory(context));
   const result = helperPath
-    ? runWithRepoHelper(context, helperPath, command)
-    : runWithInstalledApp(context, command);
+    ? await runWithRepoHelper(context, helperPath, command)
+    : await runWithInstalledApp(context, command);
 
   context.output.writeValue(result, renderMenuResult);
 }
