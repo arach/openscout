@@ -169,6 +169,8 @@
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "check": "tsc --noEmit -p tsconfig.json",
     "test": "bun test src",
+    "model-worldview:generate": "bun scripts/generate-model-worldview.ts",
+    "model-worldview:check": "bun scripts/check-model-worldview.ts",
     "test:node-opencode-launch-error": "npm run build && node scripts/opencode-node-launch-error-smoke.mjs",
     "adapter:validate-specs": "node ./src/adapters/spec/tools/validate-adapter-specs.mjs",
     "event-types": "bun ./src/adapters/tools/extract-event-types.ts",
