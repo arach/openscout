@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import {
   type AppBundlePaths,
@@ -138,24 +138,34 @@ function findRepoDistDirectory(startDirectory: string): string | null {
   }
 }
 
+export function selectInstalledAppBundle(
+  indexedPaths: string[],
+  home: string,
+  pathExists: (path: string) => boolean = existsSync,
+): string | null {
+  // Prefer the two conventional install locations. Repo builds share the same
+  // bundle identifier, so an unfiltered Spotlight result can otherwise select
+  // an arbitrary worktree's `Scout.app` when the caller meant the installed
+  // `OpenScout.app`.
+  for (const candidate of [
+    join("/Applications", INSTALLED_APP_BUNDLE_NAME),
+    join(home, "Applications", INSTALLED_APP_BUNDLE_NAME),
+  ]) {
+    if (pathExists(candidate)) return candidate;
+  }
+
+  return indexedPaths
+    .map((line) => line.trim())
+    .filter((candidate) => basename(candidate) === INSTALLED_APP_BUNDLE_NAME)
+    .find(pathExists) ?? null;
+}
+
 function findInstalledAppBundle(env: NodeJS.ProcessEnv): string | null {
   const spotlight = spawnSync("mdfind", [`kMDItemCFBundleIdentifier == '${INSTALLED_APP_BUNDLE_ID}'`], {
     encoding: "utf8",
     env,
   });
-  const indexed = (spotlight.stdout ?? "")
-    .split("\n")
-    .map((line) => line.trim())
-    .find(Boolean);
-  if (indexed && existsSync(indexed)) return indexed;
-
-  for (const candidate of [
-    join("/Applications", INSTALLED_APP_BUNDLE_NAME),
-    join(homedir(), "Applications", INSTALLED_APP_BUNDLE_NAME),
-  ]) {
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
+  return selectInstalledAppBundle((spotlight.stdout ?? "").split("\n"), homedir());
 }
 
 /**
