@@ -33,11 +33,13 @@ public enum ScoutServicesHelper {
             return
         }
 
-        // Anything left is a helper from some other bundle. Activating it would
-        // put a stale build in front of the user, and leaving it up means two
-        // menu bar icons once ours starts, so it goes first.
+        // Only helpers whose bundle is gone. A helper from a sibling checkout's
+        // live bundle is reported, never terminated — it is not ours to stop.
         for stale in running.stale {
             stale.terminate()
+        }
+        for foreign in running.foreign {
+            NSLog("Scout: leaving another checkout's menu helper alone: \(foreign.bundleURL?.path ?? "unknown bundle")")
         }
 
         let configuration = NSWorkspace.OpenConfiguration()
@@ -70,30 +72,44 @@ public enum ScoutServicesHelper {
             == expected.standardizedFileURL.resolvingSymlinksInPath().path
     }
 
-    /// Splits the running helpers into "launched from `expectedURL`" and everything else.
+    /// Splits the running helpers three ways: ours, stale, and foreign.
     ///
     /// Identity is the bundle *location*, not the bundle identifier. Every build
     /// of the helper shares `app.openscout.scout.menu`, so an identifier match
-    /// only answers "is some ScoutMenu running" — which is not the question. A
-    /// helper from another bundle is stale by construction: the bundle it was
-    /// launched from may since have been rebuilt, replaced, or deleted, and on a
-    /// machine with two checkouts it belongs to the other one.
+    /// only answers "is some ScoutMenu running" — which is not the question.
+    ///
+    /// The split between stale and foreign is what keeps this honest. A helper
+    /// whose bundle is no longer on disk belongs to nobody: the build it came
+    /// from was replaced or deleted, so terminating it reclaims the menu bar
+    /// from a process that can never be rebuilt into. A helper whose bundle
+    /// still exists belongs to whoever owns that bundle — on this machine, the
+    /// sibling checkout — and is theirs to stop, not ours. Terminating it is the
+    /// same cross-checkout kill the CLI half of this lifecycle work refuses to
+    /// do; two menu bar icons is the correct, visible cost of not doing it.
     public static func classifyRunningHelpers(
         expectedURL: URL,
-    ) -> (ours: NSRunningApplication?, stale: [NSRunningApplication]) {
+    ) -> (ours: NSRunningApplication?, stale: [NSRunningApplication], foreign: [NSRunningApplication]) {
         var ours: NSRunningApplication?
         var stale: [NSRunningApplication] = []
+        var foreign: [NSRunningApplication] = []
 
         for application in NSWorkspace.shared.runningApplications
         where application.bundleIdentifier == helperBundleIdentifier {
-            if ours == nil, isSameBundle(application.bundleURL, expectedURL) {
-                ours = application
+            if isSameBundle(application.bundleURL, expectedURL) {
+                // A second helper from our own bundle is a duplicate, not a
+                // rival: it is ours to clean up.
+                if ours == nil { ours = application } else { stale.append(application) }
+                continue
+            }
+            if let url = application.bundleURL,
+               FileManager.default.fileExists(atPath: url.path) {
+                foreign.append(application)
             } else {
                 stale.append(application)
             }
         }
 
-        return (ours, stale)
+        return (ours, stale, foreign)
     }
     #endif
 }

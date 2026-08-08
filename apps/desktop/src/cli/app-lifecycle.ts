@@ -24,14 +24,18 @@
 
 import { spawnSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 export type ProcessRecord = {
   pid: number;
   ppid: number;
   command: string;
   args: string;
-  /** argv[0] — the executable path, which is what we key identity on. */
+  /**
+   * argv[0] up to the first space. Exact for the supervised services, which
+   * rewrite argv[0] to a bare title (`scout-broker`), and best-effort for
+   * everything else. Use `argvZeroIs` for identity — never this.
+   */
   executable: string;
   /** Seconds since the process started, from `ps -o etimes=`. */
   elapsedSeconds: number;
@@ -54,12 +58,41 @@ export const LAUNCH_SERVICES_LAYERS: LifecycleLayerName[] = ["pairing", "menu", 
 
 export const SCOUT_LAUNCHD_LABEL = "app.openscout";
 
+/**
+ * Mirrors `resolveBrokerServiceLabel` in packages/runtime/src/broker-process-manager.ts.
+ *
+ * Hardcoding the label is not a cosmetic bug: `bootout` on a label that is not
+ * loaded fails with "No such process", which this module treats as "already
+ * unloaded" — so the real job stays up, the straggler sweep kills its children,
+ * and the still-loaded launchd job immediately respawns them. That is exactly
+ * the kill-versus-supervisor fight the single-bootout design exists to avoid.
+ */
+export function resolveLaunchdLabel(env: NodeJS.ProcessEnv = process.env): string {
+  const explicit = (env.OPENSCOUT_SERVICE_LABEL ?? "").trim()
+    || (env.OPENSCOUT_BROKER_SERVICE_LABEL ?? "").trim();
+  if (explicit) return explicit;
+
+  const mode = (env.OPENSCOUT_BROKER_SERVICE_MODE ?? "").trim().toLowerCase();
+  return mode === "custom" ? "app.openscout.custom" : SCOUT_LAUNCHD_LABEL;
+}
+
 export type AppBundlePaths = {
   appBundlePath: string;
   menuBundlePath: string;
   /** Absolute path to the app binary. Resolved, never assumed from the bundle name. */
   appExecutable: string;
   menuExecutable: string;
+  /**
+   * The checkout whose `packages/cli/bin/scoutd` this suite supervises, or null
+   * for an installed bundle that owns no checkout.
+   *
+   * The supervised services cannot be identified the way the bundled apps are:
+   * they rewrite argv[0] to a process title, and `scout-edge` carries no repo
+   * path in its arguments at all. Their scoutd does carry one, so the root makes
+   * that root process decidable — and every service under it inherits the
+   * answer by descent.
+   */
+  serviceRoot: string | null;
 };
 
 export type LifecycleProcess = ProcessRecord & {
@@ -108,6 +141,21 @@ export function readBundleExecutableName(bundlePath: string, fallback: string): 
   return (result.status ?? 1) === 0 && name.length > 0 ? name : fallback;
 }
 
+/** The scoutd a checkout supervises its services with. */
+export function scoutdPathForRoot(root: string): string {
+  return join(root, "packages", "cli", "bin", "scoutd");
+}
+
+/**
+ * A repo bundle sits at `<root>/apps/macos/dist/Scout.app`, so the checkout is
+ * four levels up — but only if it actually carries a scoutd. An installed
+ * bundle has no checkout behind it and returns null.
+ */
+export function serviceRootForBundle(appBundlePath: string): string | null {
+  const root = resolve(appBundlePath, "..", "..", "..", "..");
+  return existsSync(scoutdPathForRoot(root)) ? root : null;
+}
+
 export function resolveAppBundlePaths(appBundlePath: string): AppBundlePaths {
   const menuBundlePath = join(appBundlePath, "Contents", "Library", "LoginItems", "ScoutMenu.app");
   return {
@@ -115,6 +163,7 @@ export function resolveAppBundlePaths(appBundlePath: string): AppBundlePaths {
     menuBundlePath,
     appExecutable: join(appBundlePath, "Contents", "MacOS", readBundleExecutableName(appBundlePath, "Scout")),
     menuExecutable: join(menuBundlePath, "Contents", "MacOS", readBundleExecutableName(menuBundlePath, "ScoutMenu")),
+    serviceRoot: serviceRootForBundle(appBundlePath),
   };
 }
 
@@ -136,24 +185,48 @@ export function parseElapsedSeconds(value: string): number {
   return ((days * 24 + hours) * 60 + minutes) * 60 + seconds;
 }
 
+/**
+ * `comm` is deliberately absent from the column list. Darwin truncates it to 16
+ * characters, so it reports `/Users/art/dev/o` for a bundle path and is useless
+ * for identity; worse, a truncated path can end mid-space and there is then no
+ * way to tell where the column stops and `args` begins. `args` alone is
+ * unambiguous because it is the last column.
+ */
 export function parseProcessTable(output: string): ProcessRecord[] {
   return String(output).split("\n").flatMap((line) => {
-    const match = line.match(/^\s*(\d+)\s+(\d+)\s+([\d:-]+)\s+(\S+)\s+(.*)$/);
+    const match = line.match(/^\s*(\d+)\s+(\d+)\s+([\d:-]+)\s+(.*)$/);
     if (!match) return [];
-    const args = match[5] ?? "";
+    const args = (match[4] ?? "").trim();
+    if (args.length === 0) return [];
+    const head = args.split(/\s+/)[0] ?? "";
     return [{
       pid: Number(match[1]),
       ppid: Number(match[2]),
       elapsedSeconds: parseElapsedSeconds(match[3] ?? ""),
-      command: match[4] ?? "",
+      command: head,
       args,
-      executable: args.trim().split(/\s+/)[0] ?? "",
+      executable: head,
     }];
   });
 }
 
+/**
+ * True when argv[0] is exactly `expected`.
+ *
+ * argv[0] cannot be recovered by splitting `args` on whitespace — a bundle under
+ * a path containing a space (`/Users/First Last/…`) truncates to `/Users/First`
+ * and then matches nothing, so the app is misfiled as foreign and `stop`
+ * silently skips the user's own process. Testing the prefix instead of
+ * splitting is exact: argv[0] is `expected` iff the args string is `expected`
+ * or begins with `expected` followed by a space.
+ */
+export function argvZeroIs(record: ProcessRecord, expected: string): boolean {
+  if (!expected) return false;
+  return record.args === expected || record.args.startsWith(`${expected} `);
+}
+
 export function readProcessTable(): ProcessRecord[] {
-  const result = spawnSync("ps", ["-axo", "pid=,ppid=,etime=,comm=,args="], { encoding: "utf8" });
+  const result = spawnSync("ps", ["-axo", "pid=,ppid=,etime=,args="], { encoding: "utf8" });
   if ((result.status ?? 1) !== 0) {
     throw new Error("Unable to inspect process ownership with ps.");
   }
@@ -169,11 +242,38 @@ export function readProcessTable(): ProcessRecord[] {
  * the same trap as a daemon that pins its modules at boot: the fix ships, the
  * process never picks it up, and nothing says so.
  */
-export function isSuperseded(record: ProcessRecord, now: number = Date.now()): boolean {
-  if (!record.executable || !Number.isFinite(record.elapsedSeconds)) return false;
+/**
+ * The file on disk whose mtime decides staleness, or null when we cannot say.
+ *
+ * The bundled apps execute their binary directly, so the expected executable is
+ * the answer. The supervised services do not: argv[0] is a rewritten title
+ * (`scout-broker`), so statting it resolves against the CLI's own cwd, throws,
+ * and silently reports "not superseded" for exactly the layers the check was
+ * written for. Their real entrypoint is the argument under the service root.
+ *
+ * `scout-edge` names no file it owns — only a Caddyfile in `~/.scout` — so it
+ * returns null rather than treating a config edit as a stale binary. Claiming
+ * nothing beats claiming wrong.
+ */
+export function supersessionTarget(
+  record: ProcessRecord,
+  expectedExecutable: string | null,
+  serviceRoot: string | null,
+): string | null {
+  if (expectedExecutable) return expectedExecutable;
+  if (!serviceRoot) return null;
+  return record.args.split(/\s+/).find((part) => part.startsWith(`${serviceRoot}/`)) ?? null;
+}
+
+export function isSuperseded(
+  record: ProcessRecord,
+  binaryPath: string | null,
+  now: number = Date.now(),
+): boolean {
+  if (!binaryPath || !Number.isFinite(record.elapsedSeconds)) return false;
   let modifiedAt: number;
   try {
-    modifiedAt = statSync(record.executable).mtimeMs;
+    modifiedAt = statSync(binaryPath).mtimeMs;
   } catch {
     // The binary was replaced out from under us or never existed at that path.
     return false;
@@ -198,6 +298,51 @@ function isSimulatorProcess(record: ProcessRecord): boolean {
   return record.args.includes("/Library/Developer/CoreSimulator/Devices/");
 }
 
+/**
+ * Which supervised roots belong to this checkout.
+ *
+ * A supervised service cannot be identified on its own: argv[0] is a rewritten
+ * title and `scout-edge` names no path we own. What *is* identifiable is the
+ * scoutd at the top of each tree, because its argv[0] is a real path. So the
+ * root is decided by path, and every descendant inherits the answer — which is
+ * the ownership tree this module already claims to model, applied rather than
+ * assumed.
+ *
+ * With no service root (an installed bundle owning no checkout) the launchd-
+ * parented scoutd is ours: launchd only runs the job we bootstrapped.
+ */
+export function canonicalServiceRoots(records: ProcessRecord[], serviceRoot: string | null): Set<number> {
+  const expectedScoutd = serviceRoot ? scoutdPathForRoot(serviceRoot) : null;
+  const roots = new Set<number>();
+  for (const record of records) {
+    if (!record.args.includes("scoutd supervise")) continue;
+    const ours = expectedScoutd ? argvZeroIs(record, expectedScoutd) : record.ppid === 1;
+    if (ours) roots.add(record.pid);
+  }
+  return roots;
+}
+
+/** Every pid reachable from `roots` by parentage, roots included. */
+export function descendantPids(records: ProcessRecord[], roots: Set<number>): Set<number> {
+  const childrenOf = new Map<number, number[]>();
+  for (const record of records) {
+    const siblings = childrenOf.get(record.ppid);
+    if (siblings) siblings.push(record.pid);
+    else childrenOf.set(record.ppid, [record.pid]);
+  }
+  const owned = new Set<number>(roots);
+  const queue = [...roots];
+  while (queue.length > 0) {
+    const pid = queue.pop() as number;
+    for (const child of childrenOf.get(pid) ?? []) {
+      if (owned.has(child)) continue;
+      owned.add(child);
+      queue.push(child);
+    }
+  }
+  return owned;
+}
+
 export function classifyProcesses(
   records: ProcessRecord[],
   expected: AppBundlePaths,
@@ -206,12 +351,18 @@ export function classifyProcesses(
   const layers = EMPTY_LAYERS();
   const foreign: LifecycleProcess[] = [];
 
-  const push = (record: ProcessRecord, layer: LifecycleLayerName, canonical: boolean) => {
+  const push = (
+    record: ProcessRecord,
+    layer: LifecycleLayerName,
+    canonical: boolean,
+    expectedExecutable: string | null = null,
+  ) => {
     const entry: LifecycleProcess = {
       ...record,
       layer,
       canonical,
-      superseded: canonical && isSuperseded(record, now),
+      superseded: canonical
+        && isSuperseded(record, supersessionTarget(record, expectedExecutable, expected.serviceRoot), now),
     };
     if (canonical) layers[layer].push(entry);
     else foreign.push(entry);
@@ -220,45 +371,74 @@ export function classifyProcesses(
   const expectedApp = expected.appExecutable;
   const expectedMenu = expected.menuExecutable;
 
+  // Ownership of the supervised tree is decided once, from its roots, before any
+  // process is filed. Deciding it per-process is what let a sibling checkout's
+  // broker be swept: nothing about a lone `scout-broker` says whose it is.
+  const ourServices = descendantPids(records, canonicalServiceRoots(records, expected.serviceRoot));
+  const supervisedIsOurs = (record: ProcessRecord) => ourServices.has(record.pid);
+
+  // The LaunchServices tree is rooted on the two bundles we can name by path.
+  // The pairing runtime is a child of the menu helper rather than of scoutd, so
+  // it inherits from here instead.
+  const appRoots = new Set<number>();
+  for (const record of records) {
+    if (isSimulatorProcess(record)) continue;
+    if (argvZeroIs(record, expectedApp) || argvZeroIs(record, expectedMenu)) appRoots.add(record.pid);
+  }
+  const ourApps = descendantPids(records, appRoots);
+
   for (const record of records) {
     if (isSimulatorProcess(record)) continue;
 
+    // The bundles we own are matched on the full path before any name-based
+    // dispatch, because name matching reads argv[0] up to the first space and a
+    // checkout under `/Users/First Last/…` therefore matches no name at all —
+    // the app would not even reach its own branch.
+    if (argvZeroIs(record, expectedMenu)) {
+      push(record, "menu", true, expectedMenu);
+      continue;
+    }
+    if (argvZeroIs(record, expectedApp)) {
+      push(record, "app", true, expectedApp);
+      continue;
+    }
+
     if (record.args.includes("scoutd supervise")) {
-      push(record, "scoutd", true);
+      push(record, "scoutd", supervisedIsOurs(record));
       continue;
     }
     if (record.args.includes("scoutd probes serve")) {
-      push(record, "probes", true);
+      push(record, "probes", supervisedIsOurs(record));
       continue;
     }
     if (record.args.includes("pairing-runtime-controller")) {
-      push(record, "pairing", true);
+      push(record, "pairing", supervisedIsOurs(record) || ourApps.has(record.pid));
       continue;
     }
     if (matchesName(record, "scout-base")) {
-      push(record, "base", true);
+      push(record, "base", supervisedIsOurs(record));
       continue;
     }
     if (matchesName(record, "scout-broker")) {
-      push(record, "broker", true);
+      push(record, "broker", supervisedIsOurs(record));
       continue;
     }
     if (matchesName(record, "scout-edge")) {
-      push(record, "edge", true);
+      push(record, "edge", supervisedIsOurs(record));
       continue;
     }
     if (matchesName(record, "scout-web")) {
-      push(record, "web", true);
+      push(record, "web", supervisedIsOurs(record));
       continue;
     }
-    // Bundled apps are the layers where two checkouts collide, so they are the
-    // layers where the path has to agree, not just the name.
+    // The bundled apps are named by a path we control, so they are decided
+    // directly rather than by descent.
     if (matchesName(record, "ScoutMenu")) {
-      push(record, "menu", record.executable === expectedMenu);
+      push(record, "menu", argvZeroIs(record, expectedMenu), expectedMenu);
       continue;
     }
     if (matchesName(record, "Scout")) {
-      push(record, "app", record.executable === expectedApp);
+      push(record, "app", argvZeroIs(record, expectedApp), expectedApp);
       continue;
     }
   }
@@ -312,7 +492,7 @@ export function planStop(tree: LifecycleTree, scope: StopScope = "all"): StopSte
 
   const supervised = layerProcesses(tree, SUPERVISED_LAYERS);
   if (supervised.length > 0) {
-    steps.push({ kind: "bootout", label: SCOUT_LAUNCHD_LABEL });
+    steps.push({ kind: "bootout", label: resolveLaunchdLabel() });
     steps.push({
       kind: "sweep",
       layers: SUPERVISED_LAYERS,
@@ -412,8 +592,20 @@ export function bootoutLaunchdJob(label: string, uid: number): { ok: boolean; de
   return { ok, detail };
 }
 
-export function kickstartLaunchdJob(label: string, uid: number): { ok: boolean; detail: string } {
-  const result = spawnSync("launchctl", ["kickstart", "-k", `gui/${uid}/${label}`], { encoding: "utf8" });
+/**
+ * `-k` kills the running job before restarting it, so it belongs to `restart`
+ * and never to `start`. Sending it unconditionally made `scout app start` bounce
+ * a healthy supervised tree — which is what `--apps-only` exists to prevent, and
+ * it disconnects every agent for a rebuild that did not touch the services.
+ * Without `-k`, kickstart starts a stopped job and is a no-op on a running one.
+ */
+export function kickstartLaunchdJob(
+  label: string,
+  uid: number,
+  options: { restart?: boolean } = {},
+): { ok: boolean; detail: string } {
+  const flags = options.restart ? ["-k"] : [];
+  const result = spawnSync("launchctl", ["kickstart", ...flags, `gui/${uid}/${label}`], { encoding: "utf8" });
   const detail = `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
   return { ok: (result.status ?? 1) === 0, detail };
 }
@@ -444,10 +636,23 @@ export function bootstrapLaunchdJob(plistPath: string, uid: number): { ok: boole
  * still loaded. Stop uses bootout, so start has to bootstrap from the plist —
  * checking first, because kickstart is the cheaper path when the job is loaded.
  */
-export type LaunchdStartMethod = "kickstart" | "bootstrap" | "unavailable";
+export type LaunchdStartMethod = "kickstart" | "scoutd" | "bootstrap" | "unavailable";
 
-export function chooseLaunchdStartMethod(input: { loaded: boolean; plistExists: boolean }): LaunchdStartMethod {
+/**
+ * `scoutd start` outranks a bare bootstrap when a checkout is present, because
+ * bootstrapping only loads whatever plist is already on disk. scoutd's
+ * `start_service` renders the LaunchAgent from current config first (checkout
+ * paths, runtime entrypoint) and boots out the legacy job. Replacing
+ * `scoutd restart` with raw launchctl silently dropped both, so a checkout that
+ * moved kept booting the old paths forever.
+ */
+export function chooseLaunchdStartMethod(input: {
+  loaded: boolean;
+  plistExists: boolean;
+  scoutdPath?: string | null;
+}): LaunchdStartMethod {
   if (input.loaded) return "kickstart";
+  if (input.scoutdPath) return "scoutd";
   return input.plistExists ? "bootstrap" : "unavailable";
 }
 
@@ -455,16 +660,24 @@ export function startLaunchdJob(
   label: string,
   uid: number,
   home: string,
+  options: { restart?: boolean; serviceRoot?: string | null } = {},
 ): { ok: boolean; detail: string; method: LaunchdStartMethod } {
   const plistPath = launchAgentPlistPath(label, home);
+  const scoutdPath = options.serviceRoot ? scoutdPathForRoot(options.serviceRoot) : null;
   const method = chooseLaunchdStartMethod({
     loaded: launchdJobLoaded(label, uid),
     plistExists: existsSync(plistPath),
+    scoutdPath: scoutdPath && existsSync(scoutdPath) ? scoutdPath : null,
   });
 
   switch (method) {
     case "kickstart":
-      return { ...kickstartLaunchdJob(label, uid), method };
+      return { ...kickstartLaunchdJob(label, uid, { restart: options.restart }), method };
+    case "scoutd": {
+      const result = spawnSync(scoutdPath as string, ["start"], { encoding: "utf8" });
+      const detail = `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
+      return { ok: (result.status ?? 1) === 0, detail, method };
+    }
     case "bootstrap":
       return { ...bootstrapLaunchdJob(plistPath, uid), method };
     case "unavailable":

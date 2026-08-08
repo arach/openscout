@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
   appBundlePathsForRoot,
+  argvZeroIs,
   chooseLaunchdStartMethod,
   classifyProcesses,
   isRunning,
@@ -14,13 +15,36 @@ import {
   parseElapsedSeconds,
   parseProcessTable,
   planStop,
+  resolveLaunchdLabel,
   SCOUT_LAUNCHD_LABEL,
+  supersessionTarget,
   SUPERVISED_LAYERS,
   verifyTree,
 } from "./app-lifecycle.ts";
 
-const DIST = "/Users/dev/openscout/apps/macos/dist";
-const OTHER_DIST = "/Users/dev/openscout-check/apps/macos/dist";
+/**
+ * Real checkouts on disk, because ownership of the supervised tree is decided by
+ * finding a real `packages/cli/bin/scoutd` under the bundle's root. A fabricated
+ * path would silently fall back to the no-service-root rule and the
+ * cross-checkout tests would pass for the wrong reason.
+ */
+function makeCheckout(prefix: string): { root: string; dist: string; scoutd: string } {
+  const root = mkdtempSync(join(tmpdir(), prefix));
+  mkdirSync(join(root, "packages", "cli", "bin"), { recursive: true });
+  const scoutd = join(root, "packages", "cli", "bin", "scoutd");
+  writeFileSync(scoutd, "#!/bin/sh\n");
+  // Backdate the binary an hour: a healthy suite is one whose processes started
+  // *after* the build they run. Without this the fixture reads as superseded —
+  // which it now can, because supersession actually works for these layers.
+  const hourAgo = new Date(Date.now() - 3_600_000);
+  utimesSync(scoutd, hourAgo, hourAgo);
+  return { root, dist: join(root, "apps", "macos", "dist"), scoutd };
+}
+
+const OURS = makeCheckout("scout-lifecycle-ours-");
+const THEIRS = makeCheckout("scout-lifecycle-theirs-");
+const DIST = OURS.dist;
+const OTHER_DIST = THEIRS.dist;
 const paths = appBundlePathsForRoot(DIST);
 
 /** Renders seconds the way `ps -o etime=` does: `[[dd-]hh:]mm:ss`. */
@@ -35,33 +59,60 @@ function etime(totalSeconds: number): string {
   return base;
 }
 
-function line(pid: number, ppid: number, command: string, args: string, elapsed = 60): string {
-  return `${String(pid).padStart(6)} ${String(ppid).padStart(6)} ${etime(elapsed).padStart(12)} ${command} ${args}`;
+/**
+ * `pid ppid etime args` — no `comm` column, matching the real invocation. `args`
+ * begins with argv[0], which for the supervised services is a rewritten process
+ * title (`scout-broker`) rather than a path, exactly as `ps` reports it.
+ */
+function line(pid: number, ppid: number, args: string, elapsed = 60): string {
+  return `${String(pid).padStart(6)} ${String(ppid).padStart(6)} ${etime(elapsed).padStart(12)} ${args}`;
 }
 
-function healthyTable(): string {
+function healthyTable(root = OURS): string {
+  const runtime = `${root.root}/packages/runtime/bin/openscout-runtime.mjs`;
   return [
-    line(100, 1, "scoutd", "/usr/local/bin/scoutd supervise"),
-    line(200, 100, "scout-base", "/repo/packages/runtime/bin/openscout-runtime.mjs base"),
-    line(201, 100, "scoutd", "/usr/local/bin/scoutd probes serve"),
-    line(300, 200, "scout-broker", "/repo/packages/runtime/bin/openscout-runtime.mjs broker"),
-    line(301, 200, "scout-edge", "/repo/packages/runtime/bin/openscout-runtime.mjs edge"),
-    line(400, 300, "scout-web", "/repo/packages/runtime/bin/openscout-runtime.mjs web"),
-    line(500, 1, "Scout", `${DIST}/Scout.app/Contents/MacOS/Scout`),
-    line(600, 500, "ScoutMenu", `${DIST}/Scout.app/Contents/Library/LoginItems/ScoutMenu.app/Contents/MacOS/ScoutMenu`),
+    line(100, 1, `${root.scoutd} supervise`),
+    line(200, 100, `scout-base ${runtime} base`),
+    line(201, 100, `${root.scoutd} probes serve`),
+    line(300, 200, `scout-broker run ${runtime} broker`),
+    // Edge names no file it owns — only a Caddyfile outside the checkout.
+    line(301, 200, "scout-edge run --config /Users/dev/.scout/local-edge/Caddyfile --adapter caddyfile"),
+    line(400, 300, `scout-web run ${runtime} web`),
+    line(500, 1, `${root.dist}/Scout.app/Contents/MacOS/Scout`),
+    line(600, 500, `${root.dist}/Scout.app/Contents/Library/LoginItems/ScoutMenu.app/Contents/MacOS/ScoutMenu`),
   ].join("\n");
 }
 
 describe("parseProcessTable", () => {
   test("keys identity on argv[0], not the process name", () => {
-    const [record] = parseProcessTable(line(42, 1, "Scout", "/somewhere/Scout.app/Contents/MacOS/Scout --hud", 900));
+    const [record] = parseProcessTable(line(42, 1, "/somewhere/Scout.app/Contents/MacOS/Scout --hud", 900));
     expect(record).toMatchObject({
       pid: 42,
       ppid: 1,
-      command: "Scout",
+      command: "/somewhere/Scout.app/Contents/MacOS/Scout",
       executable: "/somewhere/Scout.app/Contents/MacOS/Scout",
       elapsedSeconds: 900,
     });
+  });
+
+  test("identifies argv[0] under a path containing spaces", () => {
+    const executable = "/Users/First Last/dev/openscout/apps/macos/dist/Scout.app/Contents/MacOS/Scout";
+    const [record] = parseProcessTable(line(42, 1, `${executable} --hud`, 900));
+    // Splitting on whitespace truncates to "/Users/First", which is how a user
+    // whose home has a space silently lost the ability to stop their own app.
+    expect(record!.executable).toBe("/Users/First");
+    expect(argvZeroIs(record!, executable)).toBe(true);
+    // A different bundle at a similar path is still not a match.
+    expect(argvZeroIs(record!, "/Users/First Last/dev/other/Scout.app/Contents/MacOS/Scout")).toBe(false);
+  });
+
+  test("classifies an app under a spacey path as ours, not foreign", () => {
+    const spacey = makeCheckout("scout lifecycle spaced ");
+    const spaceyPaths = appBundlePathsForRoot(spacey.dist);
+    const table = line(500, 1, `${spacey.dist}/Scout.app/Contents/MacOS/Scout`);
+    const tree = classifyProcesses(parseProcessTable(table), spaceyPaths);
+    expect(tree.layers.app.map((entry) => entry.pid)).toEqual([500]);
+    expect(tree.foreign).toEqual([]);
   });
 
   test("skips lines that are not process rows", () => {
@@ -83,20 +134,40 @@ describe("isSuperseded", () => {
     writeFileSync(binary, "#!/bin/sh\n");
     const now = Date.now();
     // Started ten minutes ago; the binary was written just now.
-    const record = { ...parseProcessTable(line(1, 1, "Scout", binary, 600))[0]! };
-    expect(isSuperseded(record, now)).toBe(true);
+    const record = { ...parseProcessTable(line(1, 1, binary, 600))[0]! };
+    expect(isSuperseded(record, binary, now)).toBe(true);
   });
 
   test("does not flag a process started after its binary was written", () => {
     writeFileSync(binary, "#!/bin/sh\n");
     const now = Date.now() + 600_000;
-    const record = { ...parseProcessTable(line(1, 1, "Scout", binary, 60))[0]! };
-    expect(isSuperseded(record, now)).toBe(false);
+    const record = { ...parseProcessTable(line(1, 1, binary, 60))[0]! };
+    expect(isSuperseded(record, binary, now)).toBe(false);
   });
 
   test("does not flag a binary it cannot stat", () => {
-    const record = { ...parseProcessTable(line(1, 1, "Scout", "/nope/Scout", 600))[0]! };
-    expect(isSuperseded(record, Date.now())).toBe(false);
+    const record = { ...parseProcessTable(line(1, 1, "/nope/Scout", 600))[0]! };
+    expect(isSuperseded(record, "/nope/Scout", Date.now())).toBe(false);
+  });
+
+  // argv[0] for a supervised service is a rewritten title, so statting it
+  // resolved against the CLI's cwd and always threw — supersession silently
+  // never fired for the layers the check exists for. The entrypoint under the
+  // service root is the file that actually changes on a rebuild.
+  test("targets the runtime entrypoint for a process-title service", () => {
+    const runtime = `${OURS.root}/packages/runtime/bin/openscout-runtime.mjs`;
+    const record = parseProcessTable(line(300, 200, `scout-broker run ${runtime} broker`))[0]!;
+    expect(record.executable).toBe("scout-broker");
+    expect(supersessionTarget(record, null, OURS.root)).toBe(runtime);
+  });
+
+  test("claims nothing for a service that names no file it owns", () => {
+    const record = parseProcessTable(
+      line(301, 200, "scout-edge run --config /Users/dev/.scout/local-edge/Caddyfile"),
+    )[0]!;
+    // The Caddyfile is not the edge binary; treating a config edit as a stale
+    // build would be worse than reporting nothing.
+    expect(supersessionTarget(record, null, OURS.root)).toBeNull();
   });
 });
 
@@ -116,7 +187,7 @@ describe("classifyProcesses", () => {
   });
 
   test("a Scout from another worktree is foreign, not ours", () => {
-    const table = `${healthyTable()}\n${line(900, 1, "Scout", `${OTHER_DIST}/Scout.app/Contents/MacOS/Scout`)}`;
+    const table = `${healthyTable()}\n${line(900, 1, `${OTHER_DIST}/Scout.app/Contents/MacOS/Scout`)}`;
     const tree = classifyProcesses(parseProcessTable(table), paths);
 
     expect(tree.layers.app.map((entry) => entry.pid)).toEqual([500]);
@@ -127,11 +198,7 @@ describe("classifyProcesses", () => {
   });
 
   test("a stale menu from a replaced bundle does not satisfy the menu layer", () => {
-    const stale = line(
-      700,
-      1,
-      "ScoutMenu",
-      `${OTHER_DIST}/Scout.app/Contents/Library/LoginItems/ScoutMenu.app/Contents/MacOS/ScoutMenu`,
+    const stale = line(700, 1, `${OTHER_DIST}/Scout.app/Contents/Library/LoginItems/ScoutMenu.app/Contents/MacOS/ScoutMenu`,
     );
     const tree = classifyProcesses(parseProcessTable(stale), paths);
 
@@ -141,11 +208,7 @@ describe("classifyProcesses", () => {
   });
 
   test("ignores the iOS simulator's copy of Scout", () => {
-    const sim = line(
-      800,
-      1,
-      "Scout",
-      "/Users/dev/Library/Developer/CoreSimulator/Devices/ABC/data/Containers/Bundle/Application/X/Scout.app/Scout",
+    const sim = line(800, 1, "/Users/dev/Library/Developer/CoreSimulator/Devices/ABC/data/Containers/Bundle/Application/X/Scout.app/Scout",
     );
     const tree = classifyProcesses(parseProcessTable(sim), paths);
     expect(tree.layers.app).toEqual([]);
@@ -156,11 +219,64 @@ describe("classifyProcesses", () => {
     expect(isRunning(classifyProcesses([], paths))).toBe(false);
     expect(isRunning(classifyProcesses(parseProcessTable(healthyTable()), paths))).toBe(true);
   });
+
+  // The guarantee the module header makes — "matched by name but not by path is
+  // reported, never killed" — used to hold only for the two bundled apps. Every
+  // supervised layer was hardcoded canonical, so a sibling checkout's broker and
+  // web landed in the sweep and were SIGKILLed by a stop in this checkout.
+  test("a sibling checkout's supervised tree is foreign, and never swept", () => {
+    const theirRuntime = `${THEIRS.root}/packages/runtime/bin/openscout-runtime.mjs`;
+    const table = [
+      healthyTable(OURS),
+      // A whole second supervised tree, correctly parented within itself.
+      line(900, 1, `${THEIRS.scoutd} supervise`),
+      line(901, 900, `scout-base ${theirRuntime} base`),
+      line(902, 900, `${THEIRS.scoutd} probes serve`),
+      line(903, 901, `scout-broker run ${theirRuntime} broker`),
+      line(904, 901, "scout-edge run --config /Users/dev/.scout/local-edge/Caddyfile --adapter caddyfile"),
+      line(905, 903, `scout-web run ${theirRuntime} web`),
+    ].join("\n");
+    const tree = classifyProcesses(parseProcessTable(table), paths);
+
+    // Ours, and only ours.
+    expect(tree.layers.broker.map((entry) => entry.pid)).toEqual([300]);
+    expect(tree.layers.web.map((entry) => entry.pid)).toEqual([400]);
+    expect(tree.layers.scoutd.map((entry) => entry.pid)).toEqual([100]);
+
+    const theirs = tree.foreign.map((entry) => entry.pid);
+    expect(theirs.length).toBeGreaterThan(0);
+
+    const targeted = planStop(tree).flatMap((step) => (step.kind === "bootout" ? [] : step.pids));
+    for (const pid of theirs) expect(targeted).not.toContain(pid);
+  });
+
+  test("edge is ours by descent even though it names no path we own", () => {
+    const tree = classifyProcesses(parseProcessTable(healthyTable()), paths);
+    // `scout-edge run --config …/Caddyfile` carries nothing identifying; only
+    // its parentage puts it in this checkout's tree.
+    expect(tree.layers.edge.map((entry) => entry.pid)).toEqual([301]);
+  });
+});
+
+describe("resolveLaunchdLabel", () => {
+  test("defaults to the standard label", () => {
+    expect(resolveLaunchdLabel({})).toBe(SCOUT_LAUNCHD_LABEL);
+  });
+
+  // Booting out a label that is not loaded reports "No such process", which is
+  // treated as already-unloaded — so the real job stayed up and the sweep then
+  // fought its supervisor.
+  test("honours an explicit label so bootout targets the job that is loaded", () => {
+    expect(resolveLaunchdLabel({ OPENSCOUT_SERVICE_LABEL: "app.openscout.custom" }))
+      .toBe("app.openscout.custom");
+    expect(resolveLaunchdLabel({ OPENSCOUT_BROKER_SERVICE_MODE: "custom" }))
+      .toBe("app.openscout.custom");
+  });
 });
 
 describe("planStop", () => {
   test("takes the LaunchServices tree down leaf-first, then bootouts the supervised tree", () => {
-    const table = `${healthyTable()}\n${line(650, 600, "bun", "/repo/pairing-runtime-controller.ts")}`;
+    const table = `${healthyTable()}\n${line(650, 600, "/repo/pairing-runtime-controller.ts")}`;
     const tree = classifyProcesses(parseProcessTable(table), paths);
     const steps = planStop(tree);
 
@@ -235,6 +351,16 @@ describe("chooseLaunchdStartMethod", () => {
     expect(chooseLaunchdStartMethod({ loaded: false, plistExists: false })).toBe("unavailable");
   });
 
+  // Raw launchctl only loads whatever plist is already on disk. scoutd's own
+  // start renders the LaunchAgent from current config first and boots out the
+  // legacy job, both of which were lost when this replaced `scoutd restart`.
+  test("prefers scoutd over a bare bootstrap so the plist is regenerated", () => {
+    expect(chooseLaunchdStartMethod({ loaded: false, plistExists: true, scoutdPath: "/repo/bin/scoutd" }))
+      .toBe("scoutd");
+    expect(chooseLaunchdStartMethod({ loaded: false, plistExists: false, scoutdPath: "/repo/bin/scoutd" }))
+      .toBe("scoutd");
+  });
+
   test("resolves the LaunchAgents plist path", () => {
     expect(launchAgentPlistPath("app.openscout", "/Users/dev")).toBe(
       "/Users/dev/Library/LaunchAgents/app.openscout.plist",
@@ -243,43 +369,47 @@ describe("chooseLaunchdStartMethod", () => {
 });
 
 describe("verifyTree", () => {
+  const RUNTIME = `${OURS.root}/packages/runtime/bin/openscout-runtime.mjs`;
+
   test("flags a duplicate broker", () => {
-    const table = `${healthyTable()}\n${line(302, 200, "scout-broker", "/repo/packages/runtime/bin/openscout-runtime.mjs broker")}`;
+    const table = `${healthyTable()}\n${line(302, 200, `scout-broker run ${RUNTIME} broker`)}`;
     const tree = classifyProcesses(parseProcessTable(table), paths);
     expect(verifyTree(tree).some((problem) => problem.layer === "broker" && /found 2/.test(problem.message))).toBe(true);
   });
 
   test("flags a broker that is not owned by base", () => {
+    // Reparented under scoutd, so it is still ours by descent — the point is
+    // that ownership and *correct* ownership are different questions.
     const table = healthyTable().replace(
-      line(300, 200, "scout-broker", "/repo/packages/runtime/bin/openscout-runtime.mjs broker"),
-      line(300, 1, "scout-broker", "/repo/packages/runtime/bin/openscout-runtime.mjs broker"),
+      line(300, 200, `scout-broker run ${RUNTIME} broker`),
+      line(300, 100, `scout-broker run ${RUNTIME} broker`),
     );
     const tree = classifyProcesses(parseProcessTable(table), paths);
-    expect(verifyTree(tree).some((problem) => /owned by pid 1, expected 200/.test(problem.message))).toBe(true);
+    expect(verifyTree(tree).some((problem) => /owned by pid 100, expected 200/.test(problem.message))).toBe(true);
   });
 
   test("fails closed when web is orphaned from the broker", () => {
     const table = healthyTable().replace(
-      line(400, 300, "scout-web", "/repo/packages/runtime/bin/openscout-runtime.mjs web"),
-      line(400, 1, "scout-web", "/repo/packages/runtime/bin/openscout-runtime.mjs web"),
+      line(400, 300, `scout-web run ${RUNTIME} web`),
+      line(400, 200, `scout-web run ${RUNTIME} web`),
     );
     const tree = classifyProcesses(parseProcessTable(table), paths);
     expect(verifyTree(tree).some((problem) =>
-      problem.layer === "web" && /owned by pid 1, expected 300/.test(problem.message)
+      problem.layer === "web" && /owned by pid 200, expected 300/.test(problem.message)
     )).toBe(true);
   });
 
   test("flags scoutd that launchd does not own", () => {
     const table = healthyTable().replace(
-      line(100, 1, "scoutd", "/usr/local/bin/scoutd supervise"),
-      line(100, 55, "scoutd", "/usr/local/bin/scoutd supervise"),
+      line(100, 1, `${OURS.scoutd} supervise`),
+      line(100, 55, `${OURS.scoutd} supervise`),
     );
     const tree = classifyProcesses(parseProcessTable(table), paths);
     expect(verifyTree(tree).some((problem) => /not owned by launchd/.test(problem.message))).toBe(true);
   });
 
   test("flags a pairing controller adopted away from the menu", () => {
-    const table = `${healthyTable()}\n${line(650, 1, "bun", "/repo/pairing-runtime-controller.ts")}`;
+    const table = `${healthyTable()}\n${line(650, 1, `${OURS.root}/pairing-runtime-controller.ts`)}`;
     const tree = classifyProcesses(parseProcessTable(table), paths);
     expect(verifyTree(tree).some((problem) => problem.layer === "pairing")).toBe(true);
   });

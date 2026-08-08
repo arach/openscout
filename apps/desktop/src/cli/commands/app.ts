@@ -17,7 +17,7 @@ import {
   planStop,
   readProcessTable,
   resolveAppBundlePaths,
-  SCOUT_LAUNCHD_LABEL,
+  resolveLaunchdLabel,
   startLaunchdJob,
   SUPERVISED_LAYERS,
   terminateProcesses,
@@ -69,10 +69,11 @@ export function renderAppCommandHelp(): string {
     "  scout app restart",
     "",
     "Options:",
-    "  --apps-only   Stop only the macOS app and its menu helper, leaving the",
-    "                launchd services up. This is what a rebuild needs: the new",
-    "                bundle invalidates the processes running from it, but not",
-    "                the services, and bouncing those disconnects every agent.",
+    "  --apps-only   Act only on the macOS app and its menu helper, leaving the",
+    "                launchd services alone — on start and restart as well as on",
+    "                stop. This is what a rebuild needs: the new bundle",
+    "                invalidates the processes running from it, but not the",
+    "                services, and bouncing those disconnects every agent.",
     "  --json        Structured output.",
     "",
     "Aliases:",
@@ -231,23 +232,40 @@ async function stopSuite(paths: AppBundlePaths, steps: string[], scope: StopScop
   return await waitFor(paths, settled, 10_000);
 }
 
-async function startSuite(paths: AppBundlePaths, steps: string[]): Promise<LifecycleTree> {
+async function startSuite(
+  paths: AppBundlePaths,
+  steps: string[],
+  scope: StopScope,
+  options: { restart?: boolean } = {},
+): Promise<LifecycleTree> {
   const uid = process.getuid?.() ?? 0;
 
-  const launched = startLaunchdJob(SCOUT_LAUNCHD_LABEL, uid, homedir());
-  steps.push(launched.ok
-    ? `${launched.method} ${SCOUT_LAUNCHD_LABEL}`
-    : `${launched.method} ${SCOUT_LAUNCHD_LABEL} — failed: ${launched.detail || "unknown error"}`);
+  // `--apps-only` has to scope the start as well as the stop. Scoping only half
+  // of a restart is worse than not scoping it: the stop leaves the services up,
+  // then the start bounces them anyway, so the flag reads as honoured while
+  // every agent's connection drops.
+  if (scope === "apps") {
+    steps.push("skip launchd (--apps-only)");
+  } else {
+    const label = resolveLaunchdLabel();
+    const launched = startLaunchdJob(label, uid, homedir(), {
+      restart: options.restart,
+      serviceRoot: paths.serviceRoot,
+    });
+    steps.push(launched.ok
+      ? `${launched.method} ${label}`
+      : `${launched.method} ${label} — failed: ${launched.detail || "unknown error"}`);
 
-  const supervised = await waitFor(
-    paths,
-    (tree) => SUPERVISED_LAYERS.every((layer) => tree.layers[layer].length > 0),
-    READY_TIMEOUT_MS,
-  );
-  const missing = SUPERVISED_LAYERS.filter((layer) => supervised.layers[layer].length === 0);
-  steps.push(missing.length === 0
-    ? "supervised tree ready"
-    : `supervised tree incomplete — missing ${missing.join(", ")}`);
+    const supervised = await waitFor(
+      paths,
+      (tree) => SUPERVISED_LAYERS.every((layer) => tree.layers[layer].length > 0),
+      READY_TIMEOUT_MS,
+    );
+    const missing = SUPERVISED_LAYERS.filter((layer) => supervised.layers[layer].length === 0);
+    steps.push(missing.length === 0
+      ? "supervised tree ready"
+      : `supervised tree incomplete — missing ${missing.join(", ")}`);
+  }
 
   const open = spawnSync("open", [paths.appBundlePath], { encoding: "utf8" });
   steps.push((open.status ?? 1) === 0
@@ -338,7 +356,33 @@ export async function runAppCommand(context: ScoutCommandContext, args: string[]
   }
 
   const command = parseAppCommand(args);
-  const paths = resolveBundlePaths(context);
+
+  // Nothing to stop is a stopped suite, not an error. `scout:up` opens with a
+  // stop, so throwing here killed the very first step on a fresh clone — the
+  // checkout that most needs the script to run is the one with no bundle yet.
+  let paths: AppBundlePaths;
+  try {
+    paths = resolveBundlePaths(context);
+  } catch (error) {
+    if (command.action === "stop") {
+      context.output.writeValue(
+        {
+          action: command.action,
+          bundlePath: null,
+          menuBundlePath: null,
+          running: false,
+          layers: [],
+          foreign: [],
+          problems: [],
+          steps: ["no app bundle found — nothing to stop"],
+          message: "No OpenScout app bundle found; nothing to stop.",
+        },
+        (value) => `${value.message}`,
+      );
+      return;
+    }
+    throw error;
+  }
   const steps: string[] = [];
 
   let tree: LifecycleTree;
@@ -347,11 +391,11 @@ export async function runAppCommand(context: ScoutCommandContext, args: string[]
       tree = await stopSuite(paths, steps, command.scope);
       break;
     case "start":
-      tree = await startSuite(paths, steps);
+      tree = await startSuite(paths, steps, command.scope);
       break;
     case "restart":
       await stopSuite(paths, steps, command.scope);
-      tree = await startSuite(paths, steps);
+      tree = await startSuite(paths, steps, command.scope, { restart: true });
       break;
     case "status":
     default:
@@ -359,9 +403,18 @@ export async function runAppCommand(context: ScoutCommandContext, args: string[]
       break;
   }
 
-  // A stopped suite has no ownership tree to be wrong about.
-  const problems = command.action === "stop" || !isRunning(tree)
-    ? tree.foreign.map((stray) => `${stray.layer} pid ${stray.pid} is running from an unexpected bundle: ${stray.executable}`)
+  // A stopped suite has no ownership tree to be wrong about — but that is only
+  // true of `stop`, and of `status` on a machine where nothing is up. Extending
+  // it to "nothing is running" for every action made a start that brought
+  // nothing up report success: verifyTree was skipped precisely when every layer
+  // was missing, so `problems` came back empty and the command exited 0 with no
+  // broker, no web, and no app.
+  //
+  // verifyTree already reports strays, so the two are alternatives, not a union.
+  const problems = command.action === "stop" || (command.action === "status" && !isRunning(tree))
+    ? tree.foreign.map(
+      (stray) => `${stray.layer} pid ${stray.pid} is running from an unexpected bundle: ${stray.executable}`,
+    )
     : verifyTree(tree).map((problem) => problem.message);
 
   const result: ScoutAppResult = {

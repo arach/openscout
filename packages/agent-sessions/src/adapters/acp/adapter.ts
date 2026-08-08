@@ -659,11 +659,20 @@ export class AcpAdapter extends BaseAdapter {
     // fails with ENOENT naming the *command* — "posix_spawn '/…/bin/grok'" —
     // so a stale project path reads as a missing harness binary, and sends you
     // hunting PATH, code signing, and TCC for a directory typo.
+    //
+    // Routed through failSession rather than thrown raw: the ENOENT this
+    // replaces surfaced on the child's "error" event, which emits `error` and
+    // moves the session to status "error" so the registry broadcasts a failed
+    // session. Throwing straight out of startProcess happens before any child
+    // exists, so nothing would ever mark the session failed and the UI would
+    // keep showing it as starting.
     if (!existsSync(options.cwd)) {
-      throw new Error(
+      const failure = new Error(
         `ACP agent working directory does not exist: ${options.cwd}`
         + ` (harness command: ${options.command})`,
       );
+      this.failSession(failure);
+      throw failure;
     }
 
     const child = spawn(options.command, options.args, {

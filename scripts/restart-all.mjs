@@ -365,8 +365,14 @@ function scoutApp(verb, { required = true } = {}) {
     parsed = null;
   }
 
-  if ((result.status ?? 1) !== 0 && required && !parsed) {
-    const detail = (result.stderr || result.stdout || "").trim();
+  // A non-zero exit is a failure whether or not the JSON parsed. `scout app`
+  // writes its result and *then* throws when it found problems, so the stdout of
+  // a failed stop parses perfectly — and treating "parsed" as success let the
+  // build carry on and install over a suite that never stopped.
+  if ((result.status ?? 1) !== 0 && required) {
+    const detail = parsed?.problems?.length
+      ? `${parsed.message} (${parsed.problems.join("; ")})`
+      : (result.stderr || result.stdout || "").trim();
     throw new Error(`scout app ${verb} failed: ${detail || "unknown error"}`);
   }
   return parsed;

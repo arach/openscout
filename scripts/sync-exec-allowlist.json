@@ -147,6 +147,13 @@
     "owner": "macos"
   },
   {
+    "path": "apps/macos/bin/openscout-menu.ts",
+    "symbol": "spawnSync",
+    "category": "process-lifecycle",
+    "reason": "reads the ps process table to scope menu-helper liveness and shutdown to this checkout's bundle path, replacing a name-matched pkill that reached into every other checkout",
+    "owner": "macos"
+  },
+  {
     "path": "apps/macos/bin/scout-app.ts",
     "symbol": "execSync",
     "category": "build-script",

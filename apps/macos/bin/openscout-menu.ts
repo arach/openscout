@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { execFileSync, execSync, spawn } from "node:child_process";
+import { execFileSync, execSync, spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
   cpSync,
@@ -154,22 +154,45 @@ function appVersion(explicit?: string): string {
   return "0.1.0";
 }
 
+/**
+ * Path-scoped, never name-scoped.
+ *
+ * `pgrep -x ScoutMenu` counts every checkout's helper as this one's, and
+ * `pkill -x ScoutMenu` kills them all — the cross-checkout reach that the
+ * lifecycle work exists to remove. Two checkouts produce two helpers sharing a
+ * name and a bundle identifier, so the executable path is the only thing that
+ * distinguishes them.
+ */
+function menuPids(): number[] {
+  const executable = resolve(bundlePath, "Contents", "MacOS", "ScoutMenu");
+  const result = spawnSync("ps", ["-axo", "pid=,args="], { encoding: "utf8" });
+  if ((result.status ?? 1) !== 0) return [];
+  return (result.stdout ?? "").split("\n").flatMap((line) => {
+    const match = line.match(/^\s*(\d+)\s+(.*)$/);
+    if (!match) return [];
+    const args = (match[2] ?? "").trim();
+    // Prefix test rather than a whitespace split: a checkout under a path with
+    // a space would otherwise never match its own helper.
+    if (args !== executable && !args.startsWith(`${executable} `)) return [];
+    return [Number(match[1])];
+  });
+}
+
 function isRunning(): boolean {
-  try {
-    execSync("pgrep -x ScoutMenu", { stdio: "pipe" });
-    return true;
-  } catch {
-    return false;
-  }
+  return menuPids().length > 0;
 }
 
 function quit(): boolean {
-  try {
-    execSync("pkill -x ScoutMenu", { stdio: "pipe" });
-    return true;
-  } catch {
-    return false;
+  const pids = menuPids();
+  if (pids.length === 0) return false;
+  for (const pid of pids) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      // Already gone.
+    }
   }
+  return true;
 }
 
 function launch(): void {
