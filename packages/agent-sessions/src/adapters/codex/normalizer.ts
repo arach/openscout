@@ -24,11 +24,59 @@ import type {
   HarnessEventNormalizerContext,
 } from "../../protocol/normalizer.js";
 import {
+  boundOpaqueValue,
   MAX_ACTION_OUTPUT_EVENT_UTF8_BYTES,
   MAX_DIAGNOSTIC_UTF8_BYTES,
+  MAX_SESSION_EVENT_UTF8_BYTES,
   snapshotNormalizedValue,
+  splitTextForSessionEvents,
   truncateUtf8,
+  utf8ByteLength,
 } from "../../protocol/normalizer.js";
+
+const MAX_OPAQUE_BLOCK_VALUE_UTF8_BYTES = 48 * 1024;
+const MAX_INLINE_ACTION_TEXT_UTF8_BYTES = 4 * 1024;
+const ACTION_OUTPUT_EVENT_METADATA_RESERVE_UTF8_BYTES = 512;
+
+function boundActionInlineText(action: Action, sourceRef: string): Action {
+  if (utf8ByteLength(JSON.stringify(action)) <= MAX_OPAQUE_BLOCK_VALUE_UTF8_BYTES) {
+    return action;
+  }
+  let omittedBytes = 0;
+  const bound = (value: string | undefined): string | undefined => {
+    if (value === undefined) return undefined;
+    const result = truncateUtf8(value, MAX_INLINE_ACTION_TEXT_UTF8_BYTES);
+    omittedBytes += result.omittedBytes;
+    return result.text;
+  };
+
+  switch (action.kind) {
+    case "command":
+      action.command = bound(action.command) ?? "";
+      break;
+    case "file_change":
+      action.path = bound(action.path) ?? "";
+      action.diff = bound(action.diff);
+      break;
+    case "subagent":
+      action.agentName = bound(action.agentName);
+      action.prompt = bound(action.prompt);
+      break;
+    case "tool_call":
+      break;
+  }
+  if (action.approval?.description) {
+    action.approval.description = bound(action.approval.description);
+  }
+  if (omittedBytes > 0) {
+    action.truncation = {
+      omittedBytes: (action.truncation?.omittedBytes ?? 0) + omittedBytes,
+      maxRetainedBytes: MAX_INLINE_ACTION_TEXT_UTF8_BYTES,
+      sourceRef,
+    };
+  }
+  return action;
+}
 
 type TurnCompletedParams = {
   threadId?: string;
@@ -353,13 +401,19 @@ export class CodexEventNormalizer implements HarnessEventNormalizer {
         const initialText = typeof item.text === "string"
           ? this.projectAgentMessageStreamText(itemId, item.text, events)
           : "";
-        this.ensureTextBlock(turnState, itemId, initialText, events);
+        const inline = utf8ByteLength(JSON.stringify(initialText))
+          <= MAX_OPAQUE_BLOCK_VALUE_UTF8_BYTES;
+        const block = this.ensureTextBlock(turnState, itemId, inline ? initialText : "", events);
+        if (!inline) this.emitTextDelta(turnState.turn, block, initialText, events);
         return events;
       }
       case "reasoning": {
         const text = extractReasoningText(item);
         if (text) {
-          this.ensureReasoningBlock(turnState, itemId, text, events);
+          const inline = utf8ByteLength(JSON.stringify(text))
+            <= MAX_OPAQUE_BLOCK_VALUE_UTF8_BYTES;
+          const block = this.ensureReasoningBlock(turnState, itemId, inline ? text : "", events);
+          if (!inline) this.emitTextDelta(turnState.turn, block, text, events);
         }
         return events;
       }
@@ -609,7 +663,7 @@ export class CodexEventNormalizer implements HarnessEventNormalizer {
     const block = this.startBlock<ActionBlock>(turnState, {
       id: itemId,
       type: "action",
-      action,
+      action: boundActionInlineText(action, `block:${itemId}`),
       status: "streaming",
     }, events);
     turnState.blocksByItemId.set(itemId, block);
@@ -646,13 +700,13 @@ export class CodexEventNormalizer implements HarnessEventNormalizer {
     if (!text) return;
     block.text += text;
     block.status = "streaming";
-    events.push({
-      event: "block:delta",
+    events.push(...splitTextForSessionEvents(text, (chunk) => ({
+      event: "block:delta" as const,
       sessionId: this.session.id,
       turnId: turn.id,
       blockId: block.id,
-      text,
-    });
+      text: chunk,
+    })));
   }
 
   private emitMissingText(
@@ -778,22 +832,36 @@ export class CodexEventNormalizer implements HarnessEventNormalizer {
 
     if (!delta && truncated.omittedBytes === 0) return;
 
-    events.push({
-      event: "block:action:output",
+    const outputEvents = splitTextForSessionEvents<
+      Extract<AgentSessionStreamEvent, { event: "block:action:output" }>
+    >(delta, (chunk) => ({
+      event: "block:action:output" as const,
       sessionId: this.session.id,
       turnId: turn.id,
       blockId: block.id,
-      output: delta,
-      ...(truncated.omittedBytes > 0
-        ? {
-            truncation: {
-              omittedBytes: truncated.omittedBytes,
-              maxRetainedBytes: MAX_ACTION_OUTPUT_EVENT_UTF8_BYTES,
-              sourceRef: `block:${block.id}`,
-            },
-          }
-        : {}),
-    });
+      output: chunk,
+    }), MAX_SESSION_EVENT_UTF8_BYTES - ACTION_OUTPUT_EVENT_METADATA_RESERVE_UTF8_BYTES);
+    if (truncated.omittedBytes > 0) {
+      const truncation = {
+        omittedBytes: truncated.omittedBytes,
+        maxRetainedBytes: MAX_ACTION_OUTPUT_EVENT_UTF8_BYTES,
+        sourceRef: `block:${block.id}`,
+      };
+      const last = outputEvents.at(-1);
+      if (last) {
+        last.truncation = truncation;
+      } else {
+        outputEvents.push({
+          event: "block:action:output",
+          sessionId: this.session.id,
+          turnId: turn.id,
+          blockId: block.id,
+          output: "",
+          truncation,
+        });
+      }
+    }
+    events.push(...outputEvents);
   }
 
   private emitMissingActionOutput(
@@ -944,7 +1012,11 @@ export class CodexEventNormalizer implements HarnessEventNormalizer {
           kind: "tool_call",
           toolName: itemType,
           toolCallId: itemId,
-          input: item,
+          input: boundOpaqueValue(
+            item,
+            MAX_OPAQUE_BLOCK_VALUE_UTF8_BYTES,
+            `tool:${itemId}:input`,
+          ),
           output: "",
           status: "running",
         };
@@ -984,7 +1056,11 @@ export class CodexEventNormalizer implements HarnessEventNormalizer {
           ? params.name
           : method.replace(/^item\//, "").replace(/\/outputDelta$/, ""),
       toolCallId: typeof params.toolCallId === "string" ? params.toolCallId : itemId,
-      input: params.input,
+      input: boundOpaqueValue(
+        params.input,
+        MAX_OPAQUE_BLOCK_VALUE_UTF8_BYTES,
+        `tool:${itemId}:input`,
+      ),
       output: "",
       status: "running",
     };

@@ -13,7 +13,16 @@ import type {
   HarnessEventNormalizer,
   HarnessEventNormalizerContext,
 } from "../../protocol/normalizer.js";
-import { snapshotNormalizedValue } from "../../protocol/normalizer.js";
+import {
+  MAX_ACTION_OUTPUT_EVENT_UTF8_BYTES,
+  MAX_DIAGNOSTIC_UTF8_BYTES,
+  MAX_SESSION_EVENT_UTF8_BYTES,
+  snapshotNormalizedValue,
+  splitTextForSessionEvents,
+  truncateUtf8,
+} from "../../protocol/normalizer.js";
+
+const ACTION_OUTPUT_EVENT_METADATA_RESERVE_UTF8_BYTES = 512;
 
 export type EchoNormalizerOptions = {
   sessionName?: string;
@@ -149,13 +158,13 @@ export class EchoEventNormalizer implements HarnessEventNormalizer {
       status: "streaming",
       index: blockIndex++,
     }));
-    events.push({
-      event: "block:delta",
+    events.push(...splitTextForSessionEvents(reasoningText, (chunk) => ({
+      event: "block:delta" as const,
       sessionId,
       turnId,
       blockId: reasoningId,
-      text: reasoningText,
-    });
+      text: chunk,
+    })));
     events.push(this.blockEnd(sessionId, turnId, reasoningId, "completed"));
 
     // Text
@@ -169,30 +178,43 @@ export class EchoEventNormalizer implements HarnessEventNormalizer {
       status: "streaming",
       index: blockIndex++,
     }));
-    events.push({
-      event: "block:delta",
+    events.push(...splitTextForSessionEvents(echoText, (chunk) => ({
+      event: "block:delta" as const,
       sessionId,
       turnId,
       blockId: textId,
-      text: echoText,
-    });
+      text: chunk,
+    })));
     events.push(this.blockEnd(sessionId, turnId, textId, "completed"));
 
     // Action
     const actionId = this.context.nextId("block");
     const toolCallId = this.context.nextId("event");
     const initialStatus = this.requireApproval ? "awaiting_approval" as const : "running" as const;
+    const approvalDescription = truncateUtf8(
+      `Run echo tool with: ${text}`,
+      MAX_DIAGNOSTIC_UTF8_BYTES,
+    );
     const action: Action = {
       kind: "tool_call",
       toolName: "echo",
       toolCallId,
       status: initialStatus,
       output: "",
+      ...(approvalDescription.omittedBytes > 0
+        ? {
+            truncation: {
+              omittedBytes: approvalDescription.omittedBytes,
+              maxRetainedBytes: MAX_DIAGNOSTIC_UTF8_BYTES,
+              sourceRef: `prompt:${turnId}`,
+            },
+          }
+        : {}),
       ...(this.requireApproval
         ? {
             approval: {
               version: 1,
-              description: `Run echo tool with: ${text}`,
+              description: approvalDescription.text,
               risk: "low" as const,
             },
           }
@@ -216,7 +238,7 @@ export class EchoEventNormalizer implements HarnessEventNormalizer {
         blockId: actionId,
         approval: {
           version: 1,
-          description: `Run echo tool with: ${text}`,
+          description: approvalDescription.text,
           risk: "low",
         },
       });
@@ -225,13 +247,27 @@ export class EchoEventNormalizer implements HarnessEventNormalizer {
       return events;
     }
 
-    events.push({
+    const boundedOutput = truncateUtf8(text, MAX_ACTION_OUTPUT_EVENT_UTF8_BYTES);
+    const outputEvents = splitTextForSessionEvents<
+      Extract<AgentSessionStreamEvent, { event: "block:action:output" }>
+    >(boundedOutput.text, (chunk) => ({
       event: "block:action:output",
       sessionId,
       turnId,
       blockId: actionId,
-      output: text,
-    });
+      output: chunk,
+    }), MAX_SESSION_EVENT_UTF8_BYTES - ACTION_OUTPUT_EVENT_METADATA_RESERVE_UTF8_BYTES);
+    if (boundedOutput.omittedBytes > 0) {
+      const last = outputEvents.at(-1);
+      if (last) {
+        last.truncation = {
+          omittedBytes: boundedOutput.omittedBytes,
+          maxRetainedBytes: MAX_ACTION_OUTPUT_EVENT_UTF8_BYTES,
+          sourceRef: `block:${actionId}`,
+        };
+      }
+    }
+    events.push(...outputEvents);
     events.push({
       event: "block:action:status",
       sessionId,

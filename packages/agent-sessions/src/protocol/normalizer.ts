@@ -85,6 +85,83 @@ export function truncateUtf8(
   };
 }
 
+/**
+ * Split one textual payload into the largest serialized events that satisfy
+ * C009. Measuring the completed JSON envelope also handles quotes, control
+ * characters, and other text whose JSON representation is larger than its
+ * source UTF-8 representation.
+ */
+export function splitTextForSessionEvents<T>(
+  value: string,
+  buildEvent: (text: string) => T,
+  maxSerializedBytes = MAX_SESSION_EVENT_UTF8_BYTES,
+): T[] {
+  if (!value) return [];
+  if (utf8ByteLength(JSON.stringify(buildEvent(value))) <= maxSerializedBytes) {
+    return [buildEvent(value)];
+  }
+
+  const events: T[] = [];
+  let remaining = value;
+  while (remaining) {
+    let low = 1;
+    let high = utf8ByteLength(remaining);
+    let best = "";
+
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const candidate = truncateUtf8(remaining, mid).text;
+      if (!candidate) {
+        low = mid + 1;
+        continue;
+      }
+      const encoded = utf8ByteLength(JSON.stringify(buildEvent(candidate)));
+      if (encoded <= maxSerializedBytes) {
+        best = candidate;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+
+    if (!best) {
+      throw new Error("Session event envelope leaves no room for a text scalar.");
+    }
+    events.push(buildEvent(best));
+    remaining = remaining.slice(best.length);
+  }
+  return events;
+}
+
+export type BoundedOpaqueValue = {
+  truncated: true;
+  omittedBytes: number;
+  maxRetainedBytes: 0;
+  sourceRef: string;
+};
+
+/** Replace an oversized opaque value with explicit, source-linked metadata. */
+export function boundOpaqueValue(
+  value: unknown,
+  maxBytes: number,
+  sourceRef: string,
+): unknown | BoundedOpaqueValue {
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(value) ?? "null";
+  } catch {
+    serialized = String(value);
+  }
+  const bytes = utf8ByteLength(serialized);
+  if (bytes <= maxBytes) return snapshotNormalizedValue(value);
+  return {
+    truncated: true,
+    omittedBytes: bytes,
+    maxRetainedBytes: 0,
+    sourceRef,
+  };
+}
+
 /** Emitted protocol values are immutable snapshots, never live normalizer state. */
 export function snapshotNormalizedValue<T>(value: T): T {
   return structuredClone(value);

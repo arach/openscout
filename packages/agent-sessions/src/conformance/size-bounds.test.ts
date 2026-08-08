@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createCodexEventNormalizer } from "../adapters/codex/normalizer.js";
+import { createClaudeCodeEventNormalizer } from "../adapters/claude-code/normalizer.js";
 import {
   MAX_ACTION_OUTPUT_EVENT_UTF8_BYTES,
   MAX_DIAGNOSTIC_UTF8_BYTES,
@@ -159,5 +160,229 @@ describe("SCO-042 event size bounds (C009)", () => {
       maxRetainedBytes: MAX_DIAGNOSTIC_UTF8_BYTES,
       sourceRef: "turn:turn-error",
     });
+  });
+
+  test("chunks oversized assistant text below the event limit", () => {
+    const text = "x".repeat(80 * 1024);
+    const codex = createNormalizer();
+    const codexEvents = [
+      ...codex.ingest({
+        source: "harness",
+        sequence: 0,
+        payload: {
+          method: "turn/started",
+          params: { turn: { id: "turn-text", status: "inProgress" } },
+        },
+      }),
+      ...codex.ingest({
+        source: "harness",
+        sequence: 1,
+        payload: {
+          method: "item/completed",
+          params: {
+            turnId: "turn-text",
+            item: { id: "message-large", type: "agentMessage", text },
+          },
+        },
+      }),
+    ];
+
+    let nextId = 0;
+    const claude = createClaudeCodeEventNormalizer({
+      sessionId: "size-bound-session",
+      now: () => "2026-08-07T20:00:00.000Z",
+      nextId: (kind) => `${kind}-${++nextId}`,
+    });
+    const claudeEvents = [
+      ...claude.ingest({
+        source: "adapter_control",
+        sequence: 0,
+        event: "prompt_accepted",
+        turnId: "turn-text",
+      }),
+      ...claude.ingest({
+        source: "harness",
+        sequence: 1,
+        payload: { type: "assistant", message: { content: [{ type: "text", text }] } },
+      }),
+    ];
+
+    for (const event of [...codexEvents, ...claudeEvents]) {
+      expect(utf8ByteLength(JSON.stringify(event))).toBeLessThanOrEqual(
+        MAX_SESSION_EVENT_UTF8_BYTES,
+      );
+    }
+    const codexText = codexEvents
+      .filter((event) => event.event === "block:delta")
+      .map((event) => event.text)
+      .join("");
+    const claudeText = claudeEvents
+      .filter((event) => event.event === "block:delta")
+      .map((event) => event.text)
+      .join("");
+    expect(codexText).toBe(text);
+    expect(claudeText).toBe(text);
+  });
+
+  test("replaces oversized opaque tool input with source-linked truncation metadata", () => {
+    let nextId = 0;
+    const normalizer = createClaudeCodeEventNormalizer({
+      sessionId: "size-bound-session",
+      now: () => "2026-08-07T20:00:00.000Z",
+      nextId: (kind) => `${kind}-${++nextId}`,
+    });
+    const events = [
+      ...normalizer.ingest({
+        source: "adapter_control",
+        sequence: 0,
+        event: "prompt_accepted",
+        turnId: "turn-tool",
+      }),
+      ...normalizer.ingest({
+        source: "harness",
+        sequence: 1,
+        payload: {
+          type: "tool_use",
+          id: "tool-large",
+          name: "CustomTool",
+          input: { value: "x".repeat(80 * 1024) },
+        },
+      }),
+    ];
+
+    for (const event of events) {
+      expect(utf8ByteLength(JSON.stringify(event))).toBeLessThanOrEqual(
+        MAX_SESSION_EVENT_UTF8_BYTES,
+      );
+    }
+    const actionStart = events.find(
+      (event) => event.event === "block:start" && event.block.type === "action",
+    );
+    expect(actionStart?.event).toBe("block:start");
+    if (actionStart?.event !== "block:start" || actionStart.block.type !== "action") {
+      throw new Error("Expected an action block");
+    }
+    expect(actionStart.block.action.kind).toBe("tool_call");
+    if (actionStart.block.action.kind !== "tool_call") {
+      throw new Error("Expected a tool-call action");
+    }
+    expect(actionStart.block.action.input).toEqual({
+      truncated: true,
+      omittedBytes: 80 * 1024 + 12,
+      maxRetainedBytes: 0,
+      sourceRef: "tool:tool-large:input",
+    });
+  });
+
+  test("bounds large structured action fields with truncation metadata", () => {
+    const codex = createNormalizer();
+    const codexEvents = [
+      ...codex.ingest({
+        source: "harness",
+        sequence: 0,
+        payload: {
+          method: "turn/started",
+          params: { turn: { id: "turn-action", status: "inProgress" } },
+        },
+      }),
+      ...codex.ingest({
+        source: "harness",
+        sequence: 1,
+        payload: {
+          method: "item/started",
+          params: {
+            turnId: "turn-action",
+            item: {
+              id: "file-large",
+              type: "fileChange",
+              filePath: "large.txt",
+              diff: "x".repeat(80 * 1024),
+            },
+          },
+        },
+      }),
+    ];
+
+    let nextId = 0;
+    const claude = createClaudeCodeEventNormalizer({
+      sessionId: "size-bound-session",
+      now: () => "2026-08-07T20:00:00.000Z",
+      nextId: (kind) => `${kind}-${++nextId}`,
+    });
+    const claudeEvents = [
+      ...claude.ingest({
+        source: "adapter_control",
+        sequence: 0,
+        event: "prompt_accepted",
+        turnId: "turn-action",
+      }),
+      ...claude.ingest({
+        source: "harness",
+        sequence: 1,
+        payload: {
+          type: "tool_use",
+          id: "bash-large",
+          name: "Bash",
+          input: { command: "x".repeat(80 * 1024) },
+        },
+      }),
+    ];
+
+    for (const event of [...codexEvents, ...claudeEvents]) {
+      expect(utf8ByteLength(JSON.stringify(event))).toBeLessThanOrEqual(
+        MAX_SESSION_EVENT_UTF8_BYTES,
+      );
+    }
+    const starts = [...codexEvents, ...claudeEvents].filter(
+      (event) => event.event === "block:start" && event.block.type === "action",
+    );
+    expect(starts).toHaveLength(2);
+    for (const start of starts) {
+      if (start.event !== "block:start" || start.block.type !== "action") continue;
+      expect(start.block.action.truncation?.omittedBytes).toBeGreaterThan(0);
+      expect(start.block.action.truncation?.sourceRef).toBeTruthy();
+    }
+  });
+
+  test("accounts for JSON escaping when bounding action output events", () => {
+    const output = `"\\\u0000`.repeat(30 * 1024);
+    const events = replay([
+      {
+        source: "harness",
+        sequence: 0,
+        payload: {
+          method: "turn/started",
+          params: { turn: { id: "turn-escaped", status: "inProgress" } },
+        },
+      },
+      {
+        source: "harness",
+        sequence: 1,
+        payload: {
+          method: "item/started",
+          params: {
+            turnId: "turn-escaped",
+            item: { id: "command-escaped", type: "commandExecution", command: ["fixture"] },
+          },
+        },
+      },
+      {
+        source: "harness",
+        sequence: 2,
+        payload: {
+          method: "item/commandExecution/outputDelta",
+          params: { turnId: "turn-escaped", itemId: "command-escaped", delta: output },
+        },
+      },
+    ]);
+
+    for (const event of events) {
+      expect(utf8ByteLength(JSON.stringify(event))).toBeLessThanOrEqual(
+        MAX_SESSION_EVENT_UTF8_BYTES,
+      );
+    }
+    const emitted = events.filter((event) => event.event === "block:action:output");
+    expect(emitted.length).toBeGreaterThan(1);
+    expect(emitted.at(-1)?.truncation?.sourceRef).toBe("block:command-escaped");
   });
 });

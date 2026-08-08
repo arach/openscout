@@ -250,8 +250,8 @@ interface ActionBase {
   output: string;
 
   /**
-   * Present when retained action output was truncated to the StateTracker /
-   * normalizer backlog cap (SCO-042-C009).
+   * Present when retained action payload or output was truncated to the
+   * StateTracker / normalizer backlog cap (SCO-042-C009).
    */
   truncation?: {
     omittedBytes: number;

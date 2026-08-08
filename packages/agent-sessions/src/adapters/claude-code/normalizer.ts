@@ -22,11 +22,59 @@ import type {
   HarnessEventNormalizerContext,
 } from "../../protocol/normalizer.js";
 import {
+  boundOpaqueValue,
   MAX_ACTION_OUTPUT_EVENT_UTF8_BYTES,
   MAX_DIAGNOSTIC_UTF8_BYTES,
+  MAX_SESSION_EVENT_UTF8_BYTES,
   snapshotNormalizedValue,
+  splitTextForSessionEvents,
   truncateUtf8,
+  utf8ByteLength,
 } from "../../protocol/normalizer.js";
+
+const MAX_OPAQUE_BLOCK_VALUE_UTF8_BYTES = 48 * 1024;
+const MAX_INLINE_ACTION_TEXT_UTF8_BYTES = 4 * 1024;
+const ACTION_OUTPUT_EVENT_METADATA_RESERVE_UTF8_BYTES = 512;
+
+function boundActionInlineText(action: Action, sourceRef: string): Action {
+  if (utf8ByteLength(JSON.stringify(action)) <= MAX_OPAQUE_BLOCK_VALUE_UTF8_BYTES) {
+    return action;
+  }
+  let omittedBytes = 0;
+  const bound = (value: string | undefined): string | undefined => {
+    if (value === undefined) return undefined;
+    const result = truncateUtf8(value, MAX_INLINE_ACTION_TEXT_UTF8_BYTES);
+    omittedBytes += result.omittedBytes;
+    return result.text;
+  };
+
+  switch (action.kind) {
+    case "command":
+      action.command = bound(action.command) ?? "";
+      break;
+    case "file_change":
+      action.path = bound(action.path) ?? "";
+      action.diff = bound(action.diff);
+      break;
+    case "subagent":
+      action.agentName = bound(action.agentName);
+      action.prompt = bound(action.prompt);
+      break;
+    case "tool_call":
+      break;
+  }
+  if (action.approval?.description) {
+    action.approval.description = bound(action.approval.description);
+  }
+  if (omittedBytes > 0) {
+    action.truncation = {
+      omittedBytes: (action.truncation?.omittedBytes ?? 0) + omittedBytes,
+      maxRetainedBytes: MAX_INLINE_ACTION_TEXT_UTF8_BYTES,
+      sourceRef,
+    };
+  }
+  return action;
+}
 
 type TextualBlock = Extract<Block, { type: "text" | "reasoning" }>;
 
@@ -256,23 +304,31 @@ export class ClaudeCodeEventNormalizer implements HarnessEventNormalizer {
       if (!record) continue;
       if (record.type === "thinking" || record.type === "reasoning") {
         if (this.sawStreamTextThisTurn) continue;
+        const text = typeof record.thinking === "string"
+          ? record.thinking
+          : typeof record.text === "string"
+            ? record.text
+            : "";
+        const inline = utf8ByteLength(JSON.stringify(text))
+          <= MAX_OPAQUE_BLOCK_VALUE_UTF8_BYTES;
         const block = this.startBlock(this.currentTurn, {
           type: "reasoning",
-          text: typeof record.thinking === "string"
-            ? record.thinking
-            : typeof record.text === "string"
-              ? record.text
-              : "",
-          status: "completed",
+          text: inline ? text : "",
+          status: inline ? "completed" : "streaming",
         }, events);
+        if (!inline) this.appendTextDelta(block as TextualBlock, text, events);
         this.emitBlockEnd(this.currentTurn, block, "completed", events);
       } else if (record.type === "text") {
         if (this.sawStreamTextThisTurn) continue;
+        const text = typeof record.text === "string" ? record.text : "";
+        const inline = utf8ByteLength(JSON.stringify(text))
+          <= MAX_OPAQUE_BLOCK_VALUE_UTF8_BYTES;
         const block = this.startBlock(this.currentTurn, {
           type: "text",
-          text: typeof record.text === "string" ? record.text : "",
-          status: "completed",
+          text: inline ? text : "",
+          status: inline ? "completed" : "streaming",
         }, events);
+        if (!inline) this.appendTextDelta(block as TextualBlock, text, events);
         this.emitBlockEnd(this.currentTurn, block, "completed", events);
       } else if (record.type === "tool_use") {
         events.push(...this.handleToolUse(record));
@@ -468,7 +524,11 @@ export class ClaudeCodeEventNormalizer implements HarnessEventNormalizer {
         kind: "tool_call",
         toolName,
         toolCallId,
-        input: event.input,
+        input: boundOpaqueValue(
+          event.input,
+          MAX_OPAQUE_BLOCK_VALUE_UTF8_BYTES,
+          `tool:${toolCallId}:input`,
+        ),
         status: "running",
         output: "",
       };
@@ -476,7 +536,7 @@ export class ClaudeCodeEventNormalizer implements HarnessEventNormalizer {
 
     const block = this.startBlock(this.currentTurn, {
       type: "action",
-      action,
+      action: boundActionInlineText(action, `tool:${toolCallId}`),
       status: "streaming",
     }, events);
     this.toolBlockMap.set(toolCallId, block.id);
@@ -514,23 +574,27 @@ export class ClaudeCodeEventNormalizer implements HarnessEventNormalizer {
 
     const status = event.is_error ? "failed" : "completed";
     this.toolBlockMap.delete(toolCallId);
+    const outputEvents = splitTextForSessionEvents<
+      Extract<AgentSessionStreamEvent, { event: "block:action:output" }>
+    >(output, (chunk) => ({
+      event: "block:action:output" as const,
+      sessionId: this.session.id,
+      turnId: this.currentTurn!.id,
+      blockId,
+      output: chunk,
+    }), MAX_SESSION_EVENT_UTF8_BYTES - ACTION_OUTPUT_EVENT_METADATA_RESERVE_UTF8_BYTES);
+    if (truncated.omittedBytes > 0) {
+      const last = outputEvents.at(-1);
+      if (last) {
+        last.truncation = {
+          omittedBytes: truncated.omittedBytes,
+          maxRetainedBytes: MAX_ACTION_OUTPUT_EVENT_UTF8_BYTES,
+          sourceRef: `tool:${toolCallId}`,
+        };
+      }
+    }
     return [
-      {
-        event: "block:action:output",
-        sessionId: this.session.id,
-        turnId: this.currentTurn.id,
-        blockId,
-        output,
-        ...(truncated.omittedBytes > 0
-          ? {
-              truncation: {
-                omittedBytes: truncated.omittedBytes,
-                maxRetainedBytes: MAX_ACTION_OUTPUT_EVENT_UTF8_BYTES,
-                sourceRef: `tool:${toolCallId}`,
-              },
-            }
-          : {}),
-      },
+      ...outputEvents,
       {
         event: "block:action:status",
         sessionId: this.session.id,
@@ -672,13 +736,13 @@ export class ClaudeCodeEventNormalizer implements HarnessEventNormalizer {
   ): void {
     if (!text || !this.currentTurn) return;
     block.text += text;
-    events.push({
-      event: "block:delta",
+    events.push(...splitTextForSessionEvents(text, (chunk) => ({
+      event: "block:delta" as const,
       sessionId: this.session.id,
-      turnId: this.currentTurn.id,
+      turnId: this.currentTurn!.id,
       blockId: block.id,
-      text,
-    });
+      text: chunk,
+    })));
   }
 
   private completeOpenStreamBlocks(): AgentSessionStreamEvent[] {
