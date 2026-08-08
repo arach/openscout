@@ -432,7 +432,9 @@ struct ScoutRootView: View {
     @ObservedObject private var voice = ScoutRemoteVoiceService.shared
     @ObservedObject private var activityLog = HudLogStore.shared
     @State private var showingActivityLog = false
-    @AppStorage(ScoutRealtimeVoiceSettings.enabledKey) private var realtimeVoiceEnabled = false
+    /// Live voice is temporarily hidden while its reliability issues are fixed.
+    /// Keep the implementation in place so it can return behind one switch.
+    private let realtimeVoiceEnabled = false
     @State private var showingRealtimeVoice = false
     @State private var realtimeVoiceSurfaceMounted = false
     @State private var realtimeVoiceStatus = ScoutRealtimeVoiceStatus.ready
@@ -739,18 +741,6 @@ struct ScoutRootView: View {
 
         let voiceAndWindowChrome = themedChrome
             .scoutStatusLogBridge(store: store, tail: tail, repos: repos)
-            .overlay(alignment: .bottomTrailing) {
-                realtimeVoiceOverlay
-            }
-            .onChange(of: realtimeVoiceEnabled) { _, enabled in
-                if !enabled {
-                    stopRealtimeVoice()
-                }
-            }
-            .onChange(of: showingRealtimeVoice) { _, showing in
-                guard showing else { return }
-                realtimeVoiceSurfaceMounted = true
-            }
             .hudEdgeSheet(isPresented: $showingActivityLog, edge: .trailing) {
                 ScoutLogPanel(title: "Activity Log") {
                     showingActivityLog = false
@@ -4917,9 +4907,8 @@ struct ScoutRootView: View {
             }
             fileViewer.open(path: path, line: nil)
         case "open-scoutbot":
-            // The active live-voice surface is already Scoutbot. Keep it alive
-            // instead of opening a second assistant/PiP surface.
-            showingRealtimeVoice = true
+            // Live voice is temporarily hidden while the surface is repaired.
+            return
         default:
             reportUnsupportedRealtimeVoiceAction(
                 "Live voice cannot perform ‘\(action.type)’ in this macOS build yet."
@@ -4946,7 +4935,8 @@ struct ScoutRootView: View {
             else { return }
             fileViewer.open(path: path, line: nil)
         case "open-scoutbot":
-            showingRealtimeVoice = true
+            // Live voice is temporarily hidden while the surface is repaired.
+            return
         case "focus-composer":
             focusComposer()
         default:
@@ -6286,7 +6276,7 @@ private struct ScoutPendingOperatorTurnRow: View {
                     Text("Operator")
                         .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
                         .foregroundStyle(ScoutPalette.ink)
-                    Text("queued")
+                    Text("Sending…")
                         .font(HudFont.mono(HudTextSize.xxs))
                         .foregroundStyle(ScoutPalette.dim)
                 }
@@ -6397,7 +6387,7 @@ private struct ScoutPendingConversationProgressRow: View {
 
     private func progressLabel(_ state: String) -> String {
         switch state.lowercased() {
-        case "queued": return "Queued..."
+        case "queued": return "Starting..."
         case "waking": return "Starting up..."
         case "running": return "Working..."
         case "waiting": return "Waiting"

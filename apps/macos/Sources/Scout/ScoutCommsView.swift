@@ -306,7 +306,7 @@ struct ScoutInFlightTurnRow: View {
     /// attention states are surfaced elsewhere.
     private var headline: String {
         switch turn.state.lowercased() {
-        case "queued": return "Queued…"
+        case "queued": return "Starting…"
         case "waking": return "Starting up…"
         case "running": return "Working…"
         case "waiting": return "Currently working"
@@ -958,7 +958,7 @@ struct ScoutPendingConversationRow: View {
 
     private static func progressLabel(_ state: String) -> String {
         switch state.lowercased() {
-        case "queued": return "Queued"
+        case "queued": return "Starting"
         case "waking": return "Starting"
         case "running": return "Working"
         case "waiting": return "Waiting"
@@ -1083,7 +1083,10 @@ struct ScoutConversationRow: View {
                                 .foregroundStyle(ScoutPalette.ink)
                                 .lineLimit(1)
 
+                            // Queueing is an internal dispatch detail; keep it out
+                            // of the conversation roster until the turn is active.
                             if let turn = channel.turn,
+                               turn.state != .queued,
                                turn.state != .replied,
                                turn.state != .completed {
                                 turnChip(turn)
@@ -1231,7 +1234,7 @@ struct ScoutConversationRow: View {
 
     private func turnChip(_ turn: ScoutChannelTurn) -> some View {
         let presentation: (label: String, tint: Color) = switch turn.state {
-        case .queued: ("queued", ScoutPalette.statusWarn)
+        case .queued: ("starting", ScoutPalette.statusWarn)
         case .working: ("working", ScoutPalette.statusOk)
         case .waiting: ("waiting", ScoutPalette.statusWarn)
         case .failed: ("failed", ScoutPalette.statusError)
