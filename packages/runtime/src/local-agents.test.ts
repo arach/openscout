@@ -329,8 +329,9 @@ describe("local agent prompts", () => {
     expect(SUPPORTED_LOCAL_AGENT_HARNESSES).not.toContain("flue");
     expect(SUPPORTED_LOCAL_AGENT_HARNESSES).toContain("pi");
     expect(SUPPORTED_LOCAL_AGENT_HARNESSES).toContain("grok");
+    expect(SUPPORTED_LOCAL_AGENT_HARNESSES).toContain("grok-acp");
+    expect(SUPPORTED_LOCAL_AGENT_HARNESSES).toContain("kimi");
     expect(SUPPORTED_SCOUT_HARNESSES).toContain("kimi");
-    expect(SUPPORTED_LOCAL_AGENT_HARNESSES).not.toContain("kimi");
   });
 
   test("hydrates persisted Codex thread ids onto local endpoint metadata", async () => {

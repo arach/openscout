@@ -477,7 +477,7 @@ function titleCaseLocalAgentName(value: string): string {
     .join(" ");
 }
 
-export const SUPPORTED_LOCAL_AGENT_HARNESSES: AgentHarness[] = ["claude", "codex", "grok", "pi", "cursor"];
+export const SUPPORTED_LOCAL_AGENT_HARNESSES: AgentHarness[] = ["claude", "codex", "grok", "grok-acp", "kimi", "pi", "cursor"];
 export const SUPPORTED_SCOUT_HARNESSES: AgentHarness[] = [...SCOUT_LAUNCHABLE_HARNESSES];
 
 type LocalAgentSystemPromptTemplateContext = {
@@ -719,7 +719,11 @@ export function renderLocalAgentSystemPromptTemplate(
   const basePrompt = buildLocalAgentBasePrompt(context);
   const projectContext = buildLocalAgentProjectContextPrompt(context);
   const collaborationPrompt = buildLocalAgentCollaborationPrompt(context);
-  const protocolPrompt = options.transport === "codex_app_server" || options.transport === "claude_stream_json" || options.transport === "pi_rpc"
+  const protocolPrompt = options.transport === "codex_app_server"
+    || options.transport === "claude_stream_json"
+    || options.transport === "pi_rpc"
+    || options.transport === "grok_acp"
+    || options.transport === "kimi_acp"
     ? buildLocalAgentDirectProtocolPrompt(context)
     : buildLocalAgentTmuxProtocolPrompt(context);
   const variables: Record<string, string> = {
@@ -850,7 +854,15 @@ function generatedLocalAgentSystemPromptCandidates(
 ): string[] {
   const baseContext = buildLocalAgentTemplateContext(agentId, projectName, projectPath);
   const relayCommands = [brokerRelayCommand(), legacyNodeBrokerRelayCommand()];
-  const transportModes: Array<RelayRuntimeTransport | undefined> = [undefined, "tmux", "codex_app_server", "claude_stream_json", "pi_rpc"];
+  const transportModes: Array<RelayRuntimeTransport | undefined> = [
+    undefined,
+    "tmux",
+    "codex_app_server",
+    "claude_stream_json",
+    "pi_rpc",
+    "grok_acp",
+    "kimi_acp",
+  ];
   const candidates = new Set<string>();
 
   for (const relayCommand of relayCommands) {
@@ -943,7 +955,7 @@ function normalizeTmuxSessionName(value: string | undefined, agentId: string): s
 }
 
 function normalizeLocalAgentHarness(value: string | undefined): AgentHarness {
-  if (value === "codex" || value === "claude" || value === "grok" || value === "pi" || value === "cursor") {
+  if (value === "codex" || value === "claude" || value === "grok" || value === "grok-acp" || value === "kimi" || value === "pi" || value === "cursor") {
     return value;
   }
   return DEFAULT_LOCAL_AGENT_HARNESS;
@@ -960,6 +972,14 @@ function normalizeLocalAgentTransport(value: string | undefined, harness: AgentH
 
   if (harness === "cursor") {
     return "cursor_acp";
+  }
+
+  if (harness === "grok-acp") {
+    return "grok_acp";
+  }
+
+  if (harness === "kimi") {
+    return "kimi_acp";
   }
 
   if (value === "claude_stream_json") {
@@ -1451,9 +1471,13 @@ function normalizeManagedHarness(value: string | undefined, fallback: ManagedAge
         ? "cursor"
         : value === "grok"
           ? "grok"
-          : value === "pi"
-            ? "pi"
-            : fallback;
+          : value === "grok-acp"
+            ? "grok-acp"
+            : value === "kimi"
+              ? "kimi"
+              : value === "pi"
+                ? "pi"
+                : fallback;
 }
 
 function normalizeLocalHarnessProfiles(agentId: string, record: LocalAgentRecord): RelayHarnessProfiles {
@@ -4062,6 +4086,19 @@ async function ensureLocalAgentOnline(agentName: string, record: LocalAgentRecor
 async function ensureLocalAgentOnlineOnce(agentName: string, record: LocalAgentRecord): Promise<LocalAgentRecord> {
   const normalizedRecord = normalizeLocalAgentRecord(agentName, record);
   if (isLocalAgentRecordOnline(agentName, normalizedRecord)) {
+    if (normalizedRecord.transport === "grok_acp" || normalizedRecord.transport === "kimi_acp") {
+      // ACP workers are broker-owned and lazy: keep the durable local-agent
+      // record and binding, then let the first delivery create/reuse the ACP
+      // process. Do not fall through to the tmux launcher below.
+      const registry = await readLocalAgentRegistry();
+      registry[agentName] = {
+        ...normalizedRecord,
+        startedAt: nowSeconds(),
+        systemPrompt: normalizedRecord.systemPrompt,
+      };
+      await writeLocalAgentRegistry(registry);
+      return registry[agentName];
+    }
     return normalizedRecord;
   }
 
@@ -4285,6 +4322,14 @@ async function ensureLocalAgentOnlineOnce(agentName: string, record: LocalAgentR
   return registry[agentName];
 }
 
+function localAgentAcpPoolKey(agentId: string, record: LocalAgentRecord): string {
+  const definitionId = record.definitionId ?? agentId;
+  const projectRoot = record.projectRoot ?? record.cwd;
+  const instance = buildRelayAgentInstance(definitionId, projectRoot);
+  const nodeId = process.env.OPENSCOUT_NODE_ID ?? "local";
+  return `endpoint.${instance.id}.${nodeId}.${record.transport}`;
+}
+
 export async function restartLocalAgent(
   agentId: string,
   options: { previousSessionId?: string | null } = {},
@@ -4325,6 +4370,14 @@ export async function restartLocalAgent(
       await shutdownPiRpcAgent({
         ...buildPiAgentSessionOptions(agentId, normalizedRecord),
         sessionId: sessionName,
+      });
+    }
+  } else if (normalizedRecord.transport === "grok_acp" || normalizedRecord.transport === "kimi_acp") {
+    for (const sessionName of sessionsToStop) {
+      await shutdownAcpAgentSession({
+        adapterType: normalizedRecord.transport === "grok_acp" ? "grok-acp" : "kimi-acp",
+        sessionId: sessionName,
+        poolKey: localAgentAcpPoolKey(agentId, normalizedRecord),
       });
     }
   } else {
@@ -4869,6 +4922,14 @@ export async function stopLocalAgent(agentId: string): Promise<ScoutLocalAgentSt
       await shutdownPiRpcAgent({
         ...buildPiAgentSessionOptions(agentId, normalizedRecord),
         sessionId: sessionName,
+      });
+    }
+  } else if (normalizedRecord.transport === "grok_acp" || normalizedRecord.transport === "kimi_acp") {
+    for (const sessionName of sessionsToStop) {
+      await shutdownAcpAgentSession({
+        adapterType: normalizedRecord.transport === "grok_acp" ? "grok-acp" : "kimi-acp",
+        sessionId: sessionName,
+        poolKey: localAgentAcpPoolKey(agentId, normalizedRecord),
       });
     }
   } else {

@@ -483,6 +483,62 @@ describe("local agent lifecycle", () => {
     ]);
   });
 
+  test("registers a Grok ACP local agent without falling back to tmux", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "gamma");
+
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+
+    const status = await startLocalAgent({
+      projectPath: projectRoot,
+      agentName: "gamma-grok-acp",
+      harness: "grok-acp",
+      ensureOnline: false,
+    });
+    const overrides = await readRelayAgentOverrides();
+    const override = overrides[status.agentId];
+
+    expect(status).toMatchObject({
+      definitionId: "gamma-grok-acp",
+      harness: "grok-acp",
+      transport: "grok_acp",
+    });
+    expect(override?.runtime).toMatchObject({
+      harness: "grok-acp",
+      transport: "grok_acp",
+    });
+    expect(override?.harnessProfiles?.["grok-acp"]?.transport).toBe("grok_acp");
+  });
+
+  test("registers a Kimi ACP local agent without falling back to tmux", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "gamma");
+
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+
+    const status = await startLocalAgent({
+      projectPath: projectRoot,
+      agentName: "gamma-kimi",
+      harness: "kimi",
+      ensureOnline: false,
+    });
+    const overrides = await readRelayAgentOverrides();
+    const override = overrides[status.agentId];
+
+    expect(status).toMatchObject({
+      definitionId: "gamma-kimi",
+      harness: "kimi",
+      transport: "kimi_acp",
+    });
+    expect(override?.runtime).toMatchObject({
+      harness: "kimi",
+      transport: "kimi_acp",
+    });
+    expect(override?.harnessProfiles?.kimi?.transport).toBe("kimi_acp");
+  });
+
   test("starts a new Pi local agent with RPC as the default transport", async () => {
     const home = useIsolatedOpenScoutHome();
     const workspaceRoot = join(home, "dev");

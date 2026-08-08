@@ -658,10 +658,21 @@ function buildScopedParticipants(
       label: needsScopedLabel && scopedAlias ? `${displayName} · ${scopedAlias}` : displayName,
       scopedAlias,
       agentId: agent?.id ?? null,
-      sessionId: endpoint?.sessionId ?? metadataSessionId(endpoint?.metadata),
-      harness: endpoint?.harness ?? null,
-      transport: endpoint?.transport ?? null,
-      workspaceRoot: endpoint?.projectRoot ?? endpoint?.cwd ?? null,
+      // Session actors carry the same facts in their actor metadata as a
+      // durable fallback. The endpoint is authoritative while it exists, but
+      // channel history must stay readable after an ephemeral endpoint is
+      // rotated or retired.
+      sessionId: endpoint?.sessionId
+        ?? metadataSessionId(endpoint?.metadata)
+        ?? metadataSessionId(actor?.metadata)
+        ?? (kind === "session" ? participantId : null),
+      harness: endpoint?.harness
+        ?? metadataString(actor?.metadata, "harness"),
+      transport: endpoint?.transport
+        ?? metadataString(actor?.metadata, "transport"),
+      workspaceRoot: endpoint?.projectRoot
+        ?? endpoint?.cwd
+        ?? metadataString(actor?.metadata, "projectRoot"),
     };
   });
 }

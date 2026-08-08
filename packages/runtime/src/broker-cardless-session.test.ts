@@ -63,6 +63,11 @@ describe("SCO-070 cardless sessions", () => {
     expect(snapshot.actors["sess-abc12345"]?.kind).toBe("session");
     expect(snapshot.actors["sess-abc12345"]?.handle).toBe("archimedes");
     expect(snapshot.actors["sess-abc12345"]?.metadata?.handle).toBe("archimedes");
+    expect(snapshot.actors["sess-abc12345"]?.metadata).toEqual(expect.objectContaining({
+      harness: "codex",
+      transport: "codex_app_server",
+      sessionId: "sess-abc12345",
+    }));
     expect(snapshot.agents["sess-abc12345"]).toBeUndefined();
 
     // The endpoint occupies the identity slot with agentId === sessionId.

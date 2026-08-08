@@ -411,6 +411,44 @@ describe("BrokerLocalAgentSyncService", () => {
     expect(harness.runtimeSnapshot.endpoints[cardEndpoint.id]?.state).toBe("active");
   });
 
+  test("archives the previous harness endpoint when a local agent switches runtimes", async () => {
+    const active = binding({
+      endpoint: endpoint({
+        id: "endpoint-kimi",
+        harness: "kimi",
+        transport: "kimi_acp",
+        sessionId: "relay-kimi",
+      }),
+    });
+    const previous = endpoint({
+      id: "endpoint-claude",
+      agentId: active.agent.id,
+      harness: "claude",
+      transport: "tmux",
+      sessionId: "legacy-claude",
+      state: "waiting",
+    });
+    const harness = createHarness({
+      snapshot: snapshot({
+        agents: { [active.agent.id]: active.agent },
+        endpoints: { [previous.id]: previous },
+      }),
+      bindings: [active],
+    });
+
+    await harness.service.sync();
+
+    expect(harness.persistedEndpoints).toContainEqual(expect.objectContaining({
+      id: "endpoint-claude",
+      state: "offline",
+      metadata: expect.objectContaining({
+        supersededLocalTransport: true,
+        replacedByEndpointId: "endpoint-kimi",
+        replacedByTransport: "kimi_acp",
+      }),
+    }));
+  });
+
   test("syncIfChanged refreshes once per changed registry signature", async () => {
     const harness = createHarness({
       signatures: ["sig-1", "sig-1", "sig-1", "sig-1"],
