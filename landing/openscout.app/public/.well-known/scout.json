@@ -125,7 +125,8 @@
     "llmsFull": "https://openscout.app/llms-full.txt",
     "nav": "https://openscout.app/nav.json",
     "install": "https://openscout.app/install.md",
-    "integrationContract": "https://openscout.app/docs/agent-integration-contract"
+    "integrationContract": "https://openscout.app/docs/agent-integration-contract",
+    "modelWorldview": "https://openscout.app/.well-known/model-worldview.json"
   },
   "links": {
     "human": "https://openscout.app/scout/manifest",

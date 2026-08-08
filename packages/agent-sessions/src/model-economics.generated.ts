@@ -3,10 +3,10 @@
 // Regenerate: bun scripts/generate-model-economics.ts
 // Generated: 2026-08-08
 //
-// Per-model economics from each model's NATIVE provider only: $ per 1M
+// Per-model economics from each model's native provider only: $ per 1M
 // tokens (input/output), context window, structured-output support, release
 // date. Curated tier picks layer over this in model-economics.ts.
-// 262 models.
+// 240 models.
 export type ModelEconomicsEntry = {
   family: string;
   /** USD per 1M input tokens. */
@@ -23,28 +23,16 @@ export const MODEL_ECONOMICS: Record<string, ModelEconomicsEntry> = {
   "claude-fable-5": { family: "anthropic", input: 10, output: 50, context: 1000000, structuredOutput: true, released: "2026-06-07" },
   "claude-haiku-4-5": { family: "anthropic", input: 1, output: 5, context: 200000, structuredOutput: true, released: "2025-10-15" },
   "claude-haiku-4-5-20251001": { family: "anthropic", input: 1, output: 5, context: 200000, structuredOutput: true, released: "2025-10-15" },
-  "claude-haiku-4-5@20251001": { family: "google", input: 1, output: 5, context: 200000, released: "2025-10-15" },
-  "claude-opus-4-1@20250805": { family: "google", input: 15, output: 75, context: 200000, released: "2025-08-05" },
   "claude-opus-4-5": { family: "anthropic", input: 5, output: 25, context: 200000, structuredOutput: true, released: "2025-11-24" },
   "claude-opus-4-5-20251101": { family: "anthropic", input: 5, output: 25, context: 200000, structuredOutput: true, released: "2025-11-24" },
-  "claude-opus-4-5@20251101": { family: "google", input: 5, output: 25, context: 200000, released: "2025-11-01" },
   "claude-opus-4-6": { family: "anthropic", input: 5, output: 25, context: 1000000, structuredOutput: true, released: "2026-02-04" },
-  "claude-opus-4-6@default": { family: "google", input: 5, output: 25, context: 1000000, released: "2026-02-05" },
   "claude-opus-4-7": { family: "anthropic", input: 5, output: 25, context: 1000000, structuredOutput: true, released: "2026-04-14" },
-  "claude-opus-4-7@default": { family: "google", input: 5, output: 25, context: 1000000, released: "2026-04-16" },
   "claude-opus-4-8": { family: "anthropic", input: 5, output: 25, context: 1000000, structuredOutput: true, released: "2026-05-28" },
-  "claude-opus-4-8@default": { family: "google", input: 5, output: 25, context: 1000000, released: "2026-05-28" },
-  "claude-opus-4@20250514": { family: "google", input: 15, output: 75, context: 200000, released: "2025-05-22" },
   "claude-opus-5": { family: "anthropic", input: 5, output: 25, context: 1000000, structuredOutput: true, released: "2026-07-24" },
-  "claude-opus-5@default": { family: "google", input: 5, output: 25, context: 1000000, released: "2026-07-24" },
   "claude-sonnet-4-5": { family: "anthropic", input: 3, output: 15, context: 1000000, structuredOutput: true, released: "2025-09-29" },
   "claude-sonnet-4-5-20250929": { family: "anthropic", input: 3, output: 15, context: 1000000, structuredOutput: true, released: "2025-09-29" },
-  "claude-sonnet-4-5@20250929": { family: "google", input: 3, output: 15, context: 200000, released: "2025-09-29" },
   "claude-sonnet-4-6": { family: "anthropic", input: 3, output: 15, context: 1000000, structuredOutput: true, released: "2026-02-17" },
-  "claude-sonnet-4-6@default": { family: "google", input: 3, output: 15, context: 1000000, released: "2026-02-17" },
-  "claude-sonnet-4@20250514": { family: "google", input: 3, output: 15, context: 200000, released: "2025-05-22" },
   "claude-sonnet-5": { family: "anthropic", input: 2, output: 10, context: 1000000, structuredOutput: true, released: "2026-06-29" },
-  "claude-sonnet-5@default": { family: "google", input: 2, output: 10, context: 1000000, released: "2026-06-30" },
   "codestral-latest": { family: "mistral", input: 0.3, output: 0.9, context: 256000, released: "2024-05-29" },
   "command-a-03-2025": { family: "cohere", input: 2.5, output: 10, context: 256000, released: "2025-03-13" },
   "command-a-plus-05-2026": { family: "cohere", input: 2.5, output: 10, context: 128000, structuredOutput: true, released: "2026-05-20" },
@@ -57,8 +45,6 @@ export const MODEL_ECONOMICS: Record<string, ModelEconomicsEntry> = {
   "command-r7b-arabic-02-2025": { family: "cohere", input: 0.0375, output: 0.15, context: 128000, released: "2025-02-27" },
   "deep-research-max-preview-04-2026": { family: "google", input: 2, output: 12, context: 131072, released: "2026-04-21" },
   "deep-research-preview-04-2026": { family: "google", input: 2, output: 12, context: 131072, released: "2026-04-21" },
-  "deepseek-ai/deepseek-v3-1-maas": { family: "google", input: 0.6, output: 1.7, context: 163840, structuredOutput: true, released: "2025-08-28" },
-  "deepseek-ai/deepseek-v3-2-maas": { family: "google", input: 0.56, output: 1.68, context: 163840, structuredOutput: true, released: "2025-12-17" },
   "deepseek-chat": { family: "deepseek", input: 0.14, output: 0.28, context: 1000000, released: "2025-12-01" },
   "deepseek-reasoner": { family: "deepseek", input: 0.14, output: 0.28, context: 1000000, released: "2025-12-01" },
   "deepseek-v4-flash": { family: "deepseek", input: 0.14, output: 0.28, context: 1000000, structuredOutput: true, released: "2026-07-31" },
@@ -176,8 +162,6 @@ export const MODEL_ECONOMICS: Record<string, ModelEconomicsEntry> = {
   "magistral-small": { family: "mistral", input: 0.5, output: 1.5, context: 128000, released: "2025-03-17" },
   "meta-llama/llama-prompt-guard-2-22m": { family: "groq", input: 0.03, output: 0.03, context: 512, released: "2025-05-29" },
   "meta-llama/llama-prompt-guard-2-86m": { family: "groq", input: 0.04, output: 0.04, context: 512, released: "2025-05-29" },
-  "meta/llama-3-3-70b-instruct-maas": { family: "google", input: 0.72, output: 0.72, context: 128000, structuredOutput: true, released: "2025-04-29" },
-  "meta/llama-4-maverick-17b-128e-instruct-maas": { family: "google", input: 0.35, output: 1.15, context: 524288, structuredOutput: true, released: "2025-04-29" },
   "minimax-m2": { family: "minimax", input: 0.3, output: 1.2, context: 196608, released: "2025-10-27" },
   "minimax-m2-1": { family: "minimax", input: 0.3, output: 1.2, context: 204800, released: "2025-12-23" },
   "minimax-m2-5": { family: "minimax", input: 0.3, output: 1.2, context: 204800, released: "2026-02-12" },
@@ -199,7 +183,6 @@ export const MODEL_ECONOMICS: Record<string, ModelEconomicsEntry> = {
   "mistral-small-2506": { family: "mistral", input: 0.1, output: 0.3, context: 128000, released: "2025-06-20" },
   "mistral-small-2603": { family: "mistral", input: 0.15, output: 0.6, context: 256000, released: "2026-03-16" },
   "mistral-small-latest": { family: "mistral", input: 0.15, output: 0.6, context: 256000, released: "2026-03-16" },
-  "moonshotai/kimi-k2-thinking-maas": { family: "google", input: 0.6, output: 2.5, context: 262144, structuredOutput: true, released: "2025-11-13" },
   "muse-spark-1-1": { family: "meta", input: 1.25, output: 4.25, context: 1000000, structuredOutput: true, released: "2026-04-08" },
   "muse-spark-1-2": { family: "meta", input: 1.25, output: 4.25, context: 1048576, structuredOutput: true, released: "2026-08-05" },
   "muse-spark-1-2-contributor": { family: "meta", input: 0.1, output: 0.2, context: 1048576, structuredOutput: true, released: "2026-08-05" },
@@ -215,9 +198,7 @@ export const MODEL_ECONOMICS: Record<string, ModelEconomicsEntry> = {
   "open-mixtral-8x22b": { family: "mistral", input: 2, output: 6, context: 64000, released: "2024-04-17" },
   "open-mixtral-8x7b": { family: "mistral", input: 0.7, output: 0.7, context: 32000, released: "2023-12-11" },
   "openai/gpt-oss-120b": { family: "groq", input: 0.15, output: 0.6, context: 131072, structuredOutput: true, released: "2025-08-05" },
-  "openai/gpt-oss-120b-maas": { family: "google", input: 0.09, output: 0.36, context: 131072, released: "2025-08-05" },
   "openai/gpt-oss-20b": { family: "groq", input: 0.075, output: 0.3, context: 131072, structuredOutput: true, released: "2025-08-05" },
-  "openai/gpt-oss-20b-maas": { family: "google", input: 0.07, output: 0.25, context: 131072, released: "2025-08-05" },
   "openai/gpt-oss-safeguard-20b": { family: "groq", input: 0.075, output: 0.3, context: 131072, structuredOutput: true, released: "2025-10-29" },
   "pixtral-12b": { family: "mistral", input: 0.15, output: 0.15, context: 128000, released: "2024-09-01" },
   "pixtral-large-latest": { family: "mistral", input: 2, output: 6, context: 128000, released: "2024-11-01" },
@@ -234,7 +215,6 @@ export const MODEL_ECONOMICS: Record<string, ModelEconomicsEntry> = {
   "qwen-vl-max": { family: "alibaba", input: 0.8, output: 3.2, context: 131072, released: "2024-04-08" },
   "qwen-vl-ocr": { family: "alibaba", input: 0.72, output: 0.72, context: 34096, released: "2024-10-28" },
   "qwen-vl-plus": { family: "alibaba", input: 0.21, output: 0.63, context: 131072, released: "2024-01-25" },
-  "qwen/qwen3-235b-a22b-instruct-2507-maas": { family: "google", input: 0.22, output: 0.88, context: 262144, structuredOutput: true, released: "2025-08-13" },
   "qwen/qwen3-6-27b": { family: "groq", input: 0.6, output: 3, context: 131072, structuredOutput: true, released: "2026-04-22" },
   "qwen2-5-14b-instruct": { family: "alibaba", input: 0.35, output: 1.4, context: 131072, released: "2024-09" },
   "qwen2-5-32b-instruct": { family: "alibaba", input: 0.7, output: 2.8, context: 131072, released: "2024-09" },
@@ -279,6 +259,4 @@ export const MODEL_ECONOMICS: Record<string, ModelEconomicsEntry> = {
   "text-embedding-3-small": { family: "openai", input: 0.02, output: 0, context: 8191, released: "2024-01-25" },
   "text-embedding-ada-002": { family: "openai", input: 0.1, output: 0, context: 8192, released: "2022-12-15" },
   "voxtral-small-latest": { family: "mistral", input: 0.1, output: 0.3, context: 32000, released: "2025-07-15" },
-  "zai-org/glm-4-7-maas": { family: "google", input: 0.6, output: 2.2, context: 200000, structuredOutput: true, released: "2026-01-06" },
-  "zai-org/glm-5-maas": { family: "google", input: 1, output: 3.2, context: 202752, released: "2026-02-11" },
 };

@@ -1,61 +1,59 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import {
-  FAMILY_TIER_PICKS,
-  POPULAR_MODEL_FAMILIES,
-  modelEconomics,
-} from "./model-economics.js";
+  assertValidModelWorldview,
+  buildModelWorldview,
+  type ModelWorldview,
+} from "./model-worldview.js";
 
 /**
- * The published JSON is a projection of the TS picks — these tests are the
- * seam that keeps the two from drifting: regenerate-and-forget fails here
- * the moment a pick changes without a republish.
+ * The published JSON is a complete projection of the TS picks. Comparing the
+ * whole object keeps every consumer-visible field — including economics
+ * context and structured-output support — from drifting independently.
  */
 const PUBLISHED = join(
   import.meta.dir,
   "../../../landing/openscout.app/public/.well-known/model-worldview.json",
 );
 
-const worldview = await Bun.file(PUBLISHED).json();
+const worldview = (await Bun.file(PUBLISHED).json()) as ModelWorldview;
 
 describe("model-worldview.json", () => {
-  test("carries schema 1 and a generation date", () => {
+  test("round-trips the complete pure projection", () => {
+    expect(worldview).toEqual(buildModelWorldview(worldview.generatedAt));
+  });
+
+  test("satisfies the schema-1 consumer invariants", () => {
+    expect(() => assertValidModelWorldview(worldview)).not.toThrow();
     expect(worldview.schema).toBe(1);
-    expect(worldview.generatedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/u);
-    expect(worldview.source).toContain("FAMILY_TIER_PICKS");
+    expect(worldview.families.length).toBeGreaterThan(0);
+    for (const family of worldview.families) {
+      expect(family.id.trim()).not.toBe("");
+      expect(family.inexpensive.trim()).not.toBe("");
+    }
   });
 
-  test("popularOrder mirrors POPULAR_MODEL_FAMILIES exactly", () => {
-    expect(worldview.popularOrder).toEqual(POPULAR_MODEL_FAMILIES);
+  test("rejects blank or whitespace-only ids and picks", () => {
+    const blankId = structuredClone(worldview);
+    blankId.families[0]!.id = "   ";
+    expect(() => assertValidModelWorldview(blankId)).toThrow(/family id must not be blank/u);
+
+    const blankPick = structuredClone(worldview);
+    blankPick.families[0]!.inexpensive = "\t";
+    expect(() => assertValidModelWorldview(blankPick)).toThrow(/inexpensive pick must not be blank/u);
   });
 
-  test("every family in popularOrder appears once, in order", () => {
-    expect(worldview.families.map((f: { id: string }) => f.id)).toEqual(
-      POPULAR_MODEL_FAMILIES,
+  test("rejects duplicate family ids and inexpensive picks", () => {
+    const duplicateId = structuredClone(worldview);
+    duplicateId.families[1]!.id = duplicateId.families[0]!.id;
+    expect(() => assertValidModelWorldview(duplicateId)).toThrow(
+      /duplicate model worldview family id/u,
     );
-  });
 
-  test("every pick round-trips against the TS picks", () => {
-    for (const family of worldview.families) {
-      const pick = FAMILY_TIER_PICKS[family.id as keyof typeof FAMILY_TIER_PICKS];
-      expect(pick).toBeDefined();
-      expect(family.label).toBe(pick.label);
-      expect(family.inexpensive).toBe(pick.inexpensive);
-      expect(family.budgetFloor).toBe(pick.budgetFloor ?? null);
-      expect(family.note).toBe(pick.note ?? null);
-    }
-  });
-
-  test("every pick carries economics except apple (on-device, no catalog row)", () => {
-    for (const family of worldview.families) {
-      if (family.id === "apple") {
-        expect(family.economics).toBeNull();
-        continue;
-      }
-      const expected = modelEconomics(family.inexpensive);
-      expect(expected, `${family.id} pick has no catalog row`).toBeDefined();
-      expect(family.economics.input).toBe(expected?.input);
-      expect(family.economics.output).toBe(expected?.output);
-    }
+    const duplicatePick = structuredClone(worldview);
+    duplicatePick.families[1]!.inexpensive = duplicatePick.families[0]!.inexpensive;
+    expect(() => assertValidModelWorldview(duplicatePick)).toThrow(
+      /duplicate inexpensive model pick/u,
+    );
   });
 });
