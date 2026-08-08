@@ -21,6 +21,20 @@
     "owner": "desktop"
   },
   {
+    "path": "apps/desktop/src/cli/app-lifecycle.ts",
+    "symbol": "spawnSync",
+    "category": "process-lifecycle",
+    "reason": "owns the app/service ownership model: one-shot ps process-table reads and launchctl bootout/bootstrap/kickstart, which must be ordered and observed synchronously",
+    "owner": "desktop"
+  },
+  {
+    "path": "apps/desktop/src/cli/commands/app.ts",
+    "symbol": "spawnSync",
+    "category": "cli",
+    "reason": "app lifecycle CLI one-shot bundle discovery and launch commands",
+    "owner": "desktop"
+  },
+  {
     "path": "apps/desktop/src/cli/commands/install.ts",
     "symbol": "spawnSync",
     "category": "cli",
