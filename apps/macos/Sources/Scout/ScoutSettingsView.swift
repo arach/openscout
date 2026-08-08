@@ -67,9 +67,6 @@ struct ScoutSettingsView: View {
     @AppStorage(ScoutTerminalOpener.terminalDefaultsKey) private var preferredTerminalAppPath = ""
     @AppStorage(ScoutCommsSettings.threadPresentationKey)
     private var threadPresentationRaw = ScoutThreadPresentation.fallback.rawValue
-    /// Settings owns the one-time capability opt-in. Starting and stopping a
-    /// billable call belongs to the persistent status bar in the main window.
-    @AppStorage(ScoutRealtimeVoiceSettings.enabledKey) private var liveVoiceEnabled = false
     @AppStorage(ScoutSpeechSettings.modelKey) private var ttsModel = ScoutSpeechSettings.defaultModel
     @AppStorage(ScoutSpeechSettings.voiceKey) private var ttsVoice = ScoutSpeechSettings.defaultVoice
     @State private var speechModels: [ScoutSpeechModel] = []
@@ -342,32 +339,6 @@ struct ScoutSettingsView: View {
                         enteredAt: voiceStateEnteredAt,
                         onReset: { voice.cancel() }
                     )
-                }
-            }
-
-            settingsBlock(title: "Live voice") {
-                VStack(alignment: .leading, spacing: HudSpacing.md) {
-                    Text("Hold a spoken conversation with Scoutbot. Audio goes to OpenAI Realtime and bills the configured OpenAI API account, so it stays off until you turn it on.")
-                        .font(HudFont.ui(HudTextSize.xs))
-                        .foregroundStyle(ScoutPalette.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    settingRow(title: "Enable") {
-                        Toggle("", isOn: $liveVoiceEnabled)
-                            .toggleStyle(.switch)
-                            .tint(ScoutPalette.accent)
-                            .labelsHidden()
-                    }
-
-                    if liveVoiceEnabled {
-                        HStack(spacing: HudSpacing.sm) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(ScoutPalette.statusOk)
-                            Text("Enabled — use Voice in the bottom status bar to start or stop a call.")
-                                .font(HudFont.ui(HudTextSize.xs, weight: .medium))
-                                .foregroundStyle(ScoutPalette.muted)
-                        }
-                    }
                 }
             }
 
