@@ -15,9 +15,9 @@
 //
 // Output events:
 //   system (init, hooks)  → session metadata
-//   assistant             → text/reasoning blocks
-//   tool_use              → action blocks
-//   tool_result           → action output/completion
+//   assistant             → text/reasoning blocks and nested tool_use records
+//   user                  → nested tool_result records
+//   tool_use/tool_result  → legacy top-level action records
 //   stream_event          → partial deltas
 //   result                → turn complete
 //   error                 → error blocks
@@ -27,32 +27,33 @@ import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import { BaseAdapter } from "../../protocol/adapter.js";
 import type { AdapterConfig } from "../../protocol/adapter.js";
-import { OBSERVED_HARNESS_TOPOLOGY_META_KEY } from "../../protocol/primitives.js";
+import { createLiveNormalizerContext } from "../../protocol/live-normalizer-context.js";
 import type {
-  Action,
-  Block,
-  BlockStatus,
+  AgentSessionStreamEvent,
   Prompt,
   QuestionAnswer,
   Turn,
-  TurnStatus,
 } from "../../protocol/primitives.js";
-import {
-  isClaudeCodeQuotaEvent,
-  readClaudeCodeQuotaObservation,
-} from "./quota.js";
 import { readClaudeAgentTeamTopology } from "./team-topology.js";
+import {
+  ClaudeCodeEventNormalizer,
+  createClaudeCodeEventNormalizer,
+} from "./normalizer.js";
 import {
   spawnHarnessProcess,
   type HarnessProcess,
 } from "../../runtime/process.js";
 
-type TextualBlock = Extract<Block, { type: "text" | "reasoning" }>;
-
 interface ClaudeResumeContext {
   cwd: string;
   resumeId: string;
   sessionPath: string;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -64,20 +65,14 @@ export class ClaudeCodeAdapter extends BaseAdapter {
 
   private process: HarnessProcess | null = null;
   private currentTurn: Turn | null = null;
-  private blockIndex = 0;
   private claudeSessionId: string | null = null;
-
-  // Track active blocks by tool call ID for result correlation.
-  private toolBlockMap = new Map<string, string>();
-
-  // Track pending question blocks: toolCallId → blockId
-  private questionBlockMap = new Map<string, string>();
 
   // Resolvers waiting for the user's answer: blockId → resolve fn
   private pendingAnswers = new Map<string, (answer: string[]) => void>();
 
-  private activeStreamBlocks = new Map<number, TextualBlock>();
-  private sawStreamTextThisTurn = false;
+  /** Pure normalizer shared with fixture replay (SCO-042). */
+  private readonly normalizer: ClaudeCodeEventNormalizer;
+  private sequence = 0;
 
   constructor(config: AdapterConfig) {
     const resumeContext = resolveClaudeResumeContext(config);
@@ -101,6 +96,16 @@ export class ClaudeCodeAdapter extends BaseAdapter {
         resumeProjectCwd: resumeContext.cwd,
       };
     }
+
+    this.normalizer = createClaudeCodeEventNormalizer(
+      createLiveNormalizerContext(this.session.id),
+      {
+        sessionName: this.session.name,
+        cwd: this.session.cwd ?? this.config.cwd,
+        model: this.session.model,
+        providerMeta: this.session.providerMeta,
+      },
+    );
   }
 
   async start(): Promise<void> {
@@ -136,8 +141,7 @@ export class ClaudeCodeAdapter extends BaseAdapter {
 
     child.onError((error) => {
       if (this.process === child && this.session.status !== "closed") {
-        this.emit("error", error);
-        this.setStatus("error");
+        this.failSession(error);
       }
     });
     child.onExit((code, signal) => {
@@ -145,12 +149,18 @@ export class ClaudeCodeAdapter extends BaseAdapter {
         return;
       }
       if (code !== 0) {
-        this.emit("error", new Error(
+        this.failSession(new Error(
           `claude exited`
           + (code !== null ? ` with code ${code}` : "")
           + (signal ? ` (${signal})` : ""),
         ));
-        this.setStatus("error");
+      } else {
+        this.emitNormalized(this.normalizer.ingest({
+          source: "adapter_control",
+          sequence: this.sequence++,
+          event: "transport_closed",
+        }));
+        this.setStatus("closed");
       }
     });
 
@@ -163,22 +173,15 @@ export class ClaudeCodeAdapter extends BaseAdapter {
       return;
     }
 
-    this.blockIndex = 0;
-    this.toolBlockMap.clear();
-    this.activeStreamBlocks.clear();
-    this.sawStreamTextThisTurn = false;
+    // Adapter shell opens the turn; the pure normalizer owns stream events.
+    this.emitNormalized(this.normalizer.ingest({
+      source: "adapter_control",
+      sequence: this.sequence++,
+      event: "prompt_accepted",
+      payload: { text: prompt.text },
+    }));
 
-    const turn: Turn = {
-      id: crypto.randomUUID(),
-      sessionId: this.session.id,
-      status: "started",
-      startedAt: new Date().toISOString(),
-      blocks: [],
-    };
-    this.currentTurn = turn;
-    this.emit("event", { event: "turn:start", sessionId: this.session.id, turn });
-
-    // Build the content — text or array with images/files.
+    // Build the content — text or array with images/files. (stdin side effect)
     let content: string | Array<Record<string, unknown>> = prompt.text;
 
     if (prompt.images?.length || prompt.files?.length) {
@@ -201,10 +204,9 @@ export class ClaudeCodeAdapter extends BaseAdapter {
       content = parts;
     }
 
-    // Write the user message to stdin.
     const msg = JSON.stringify({
       type: "user",
-      session_id: this.claudeSessionId ?? "",
+      session_id: this.claudeSessionId ?? this.normalizer.getClaudeSessionId() ?? "",
       message: { role: "user", content },
       parent_tool_use_id: null,
     }) + "\n";
@@ -213,13 +215,14 @@ export class ClaudeCodeAdapter extends BaseAdapter {
   }
 
   interrupt(): void {
-    // Send interrupt signal to the process — Claude Code handles SIGINT.
     if (this.process && !this.process.killed) {
       this.process.kill("SIGINT");
     }
-    if (this.currentTurn) {
-      this.endTurn(this.currentTurn, "stopped");
-    }
+    this.emitNormalized(this.normalizer.ingest({
+      source: "adapter_control",
+      sequence: this.sequence++,
+      event: "interrupt",
+    }));
   }
 
   async shutdown(): Promise<void> {
@@ -245,11 +248,10 @@ export class ClaudeCodeAdapter extends BaseAdapter {
   private readStdout(): void {
     this.process?.readStdoutLines(
       (line) => this.handleStdoutLine(line),
-      () => {
-        if (this.currentTurn && this.currentTurn.status !== "stopped") {
-          this.endTurn(this.currentTurn, "completed");
-        }
-      },
+      // Wait for onExit before classifying an open turn. Stdout EOF can arrive
+      // before the process exit code; only the exit status distinguishes a
+      // clean transport close from a failed transport.
+      () => undefined,
     );
   }
 
@@ -257,375 +259,95 @@ export class ClaudeCodeAdapter extends BaseAdapter {
     const trimmed = line.trim();
     if (!trimmed) return;
     try {
-      this.handleEvent(JSON.parse(trimmed));
+      this.handleHarnessPayload(JSON.parse(trimmed));
     } catch {
       // Ignore malformed harness output.
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Event router
-  // ---------------------------------------------------------------------------
-
-  private handleEvent(event: any): void {
-    switch (event.type) {
-      case "system": {
-        if (event.subtype === "init") {
-          const sid = event.session_id ?? event.sessionId;
-          if (sid) this.claudeSessionId = sid;
-          if (typeof event.cwd === "string" && event.cwd.trim()) {
-            this.session.cwd = event.cwd;
-          }
-          if (typeof event.model === "string" && event.model.trim()) {
-            this.session.model = event.model;
-          }
-          this.refreshObservedTopologyAndEmit();
-        }
-        // Skip hooks and other system events.
-        break;
-      }
-
-      case "assistant": {
-        this.handleAssistant(event);
-        break;
-      }
-
-      case "tool_use": {
-        this.handleToolUse(event);
-        break;
-      }
-
-      case "tool_result": {
-        this.handleToolResult(event);
-        break;
-      }
-
-      case "stream_event": {
-        this.handleStreamEvent(event);
-        break;
-      }
-
-      case "rate_limit_event":
-      case "rate_limits.updated":
-      case "rate_limit":
-      case "quota_event":
-      case "usage_limit_event": {
-        this.handleQuotaEvent(event);
-        break;
-      }
-
-      case "result": {
-        this.completeOpenStreamBlocks();
-
-        // Surface any permission-denied AskUserQuestion calls as denied blocks.
-        const denials: any[] = Array.isArray(event.permission_denials) ? event.permission_denials : [];
-        for (const denial of denials) {
-          if (denial.tool_name === "AskUserQuestion" && this.currentTurn) {
-            const input = denial.tool_input ?? {};
-            const questions: any[] = Array.isArray(input.questions) ? input.questions : [];
-            const first = questions[0] ?? {};
-            const options = Array.isArray(first.options)
-              ? first.options.map((o: any) => ({ label: o.label ?? String(o), description: o.description }))
-              : [];
-            const block = this.startBlock(this.currentTurn, {
-              type: "question",
-              header: first.header,
-              question: first.question ?? "",
-              options,
-              multiSelect: first.multiSelect ?? false,
-              questionStatus: "denied",
-              status: "completed",
-            });
-            this.emitBlockEnd(this.currentTurn, block, "completed");
-          }
-        }
-
-        // Turn complete — the stream continues for the next turn.
-        if (this.currentTurn && this.currentTurn.status !== "stopped") {
-          this.refreshObservedTopologyAndEmit();
-          this.endTurn(this.currentTurn, event.subtype === "error" ? "failed" : "completed");
-        }
-        break;
-      }
-
-      case "error": {
-        if (this.currentTurn) {
-          this.emitError(this.currentTurn, event.error?.message ?? event.message ?? "Unknown error");
-          this.endTurn(this.currentTurn, "failed");
-        }
-        break;
-      }
-
-      // Other harness-specific events are ignored until Scout has a semantic use
-      // for them.
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Event handlers
-  // ---------------------------------------------------------------------------
-
-  private handleAssistant(event: any): void {
-    if (!this.currentTurn) return;
-    if (this.sawStreamTextThisTurn) return;
-
-    const content = event.message?.content ?? event.content;
-    if (!Array.isArray(content)) return;
-
-    for (const part of content) {
-      if (part.type === "thinking" || part.type === "reasoning") {
-        const block = this.startBlock(this.currentTurn, {
-          type: "reasoning",
-          text: part.thinking ?? part.text ?? "",
-          status: "completed",
-        });
-        this.emitBlockEnd(this.currentTurn, block, "completed");
-      } else if (part.type === "text") {
-        const block = this.startBlock(this.currentTurn, {
-          type: "text",
-          text: part.text ?? "",
-          status: "completed",
-        });
-        this.emitBlockEnd(this.currentTurn, block, "completed");
-      }
-    }
-  }
-
-  private handleStreamEvent(event: any): void {
-    const streamEvent = event.event;
-    if (!streamEvent || typeof streamEvent !== "object") return;
-
-    if (isClaudeCodeQuotaEvent(streamEvent)) {
-      this.handleQuotaEvent(streamEvent);
-      return;
-    }
-
-    if (!this.currentTurn) return;
-
-    const streamType = typeof streamEvent.type === "string" ? streamEvent.type : "";
-    if (streamType === "message_start") {
-      this.activeStreamBlocks.clear();
-      this.sawStreamTextThisTurn = false;
-      return;
-    }
-
-    if (streamType === "content_block_start") {
-      const index = typeof streamEvent.index === "number" ? streamEvent.index : 0;
-      const contentBlock = streamEvent.content_block;
-      if (!contentBlock || typeof contentBlock !== "object") return;
-
-      const contentType = typeof contentBlock.type === "string" ? contentBlock.type : "";
-      if (contentType !== "text" && contentType !== "thinking") {
-        return;
-      }
-
-      const block = this.startBlock(this.currentTurn, {
-        type: contentType === "thinking" ? "reasoning" : "text",
-        text: "",
-        status: "streaming",
-      }) as TextualBlock;
-
-      this.activeStreamBlocks.set(index, block);
-      this.sawStreamTextThisTurn = true;
-
-      const initialText = contentType === "thinking"
-        ? typeof contentBlock.thinking === "string" ? contentBlock.thinking : ""
-        : typeof contentBlock.text === "string" ? contentBlock.text : "";
-      this.appendTextDelta(block, initialText);
-      return;
-    }
-
-    if (streamType === "content_block_delta") {
-      const index = typeof streamEvent.index === "number" ? streamEvent.index : 0;
-      const block = this.activeStreamBlocks.get(index);
-      const delta = streamEvent.delta;
-      if (!block || !delta || typeof delta !== "object") return;
-
-      const deltaType = typeof delta.type === "string" ? delta.type : "";
-      if (deltaType === "text_delta") {
-        this.appendTextDelta(block, typeof delta.text === "string" ? delta.text : "");
-        return;
-      }
-
-      if (deltaType === "thinking_delta") {
-        this.appendTextDelta(block, typeof delta.thinking === "string" ? delta.thinking : "");
-      }
-      return;
-    }
-
-    if (streamType === "content_block_stop") {
-      const index = typeof streamEvent.index === "number" ? streamEvent.index : 0;
-      const block = this.activeStreamBlocks.get(index);
-      if (!block || !this.currentTurn) return;
-
-      this.emitBlockEnd(this.currentTurn, block, "completed");
-      this.activeStreamBlocks.delete(index);
-    }
-  }
-
-  private handleQuotaEvent(event: any): void {
-    const observation = readClaudeCodeQuotaObservation(event);
-    if (!observation) return;
-
-    const providerMeta = { ...(this.session.providerMeta ?? {}) };
-    providerMeta.provider = "anthropic";
-
-    const observeQuota: Record<string, unknown> = {
-      provider: observation.provider,
-      capturedAt: observation.capturedAt,
-      windows: observation.windows.map((window) => ({ ...window })),
-    };
-    if (observation.planType) observeQuota.planType = observation.planType;
-    if (observation.userId) observeQuota.userId = observation.userId;
-    if (observation.accountId) observeQuota.accountId = observation.accountId;
-
-    providerMeta.observeQuota = observeQuota;
-    this.session.providerMeta = providerMeta;
-    this.emitSessionUpdate();
-  }
-
-  private handleToolUse(event: any): void {
-    if (!this.currentTurn) return;
-
-    const toolName: string = event.tool_name ?? event.name ?? "unknown";
-    const toolCallId: string = event.tool_use_id ?? event.id ?? crypto.randomUUID();
-
-    let action: Action;
-
-    if (toolName === "AskUserQuestion") {
-      const input = event.input ?? {};
-      const questions: any[] = Array.isArray(input.questions) ? input.questions : [];
-      const first = questions[0] ?? {};
-      const options = Array.isArray(first.options)
-        ? first.options.map((o: any) => ({ label: o.label ?? String(o), description: o.description }))
-        : [];
-
-      const block = this.startBlock(this.currentTurn, {
-        type: "question",
-        header: first.header,
-        question: first.question ?? "",
-        options,
-        multiSelect: first.multiSelect ?? false,
-        questionStatus: "awaiting_answer",
-        answer: undefined,
-        status: "streaming",
-      });
-
-      this.toolBlockMap.set(toolCallId, block.id);
-      this.questionBlockMap.set(toolCallId, block.id);
-
-      // Wait asynchronously for the user's answer, then write it back to stdin.
-      void this.awaitAndSendAnswer(block.id, toolCallId);
-      return;
-    }
-
-    if (toolName === "Edit" || toolName === "Write" || toolName === "MultiEdit") {
-      action = {
-        kind: "file_change",
-        path: event.input?.file_path ?? event.input?.path ?? "",
-        diff: "",
-        status: "running",
-        output: "",
-      };
-    } else if (toolName === "Bash") {
-      action = {
-        kind: "command",
-        command: event.input?.command ?? "",
-        status: "running",
-        output: "",
-      };
-    } else if (toolName === "Agent") {
-      action = {
-        kind: "subagent",
-        agentId: toolCallId,
-        agentName: event.input?.description ?? undefined,
-        prompt: event.input?.prompt ?? undefined,
-        status: "running",
-        output: "",
-      };
-    } else {
-      action = {
-        kind: "tool_call",
-        toolName,
-        toolCallId,
-        input: event.input,
-        status: "running",
-        output: "",
-      };
-    }
-
-    const block = this.startBlock(this.currentTurn, {
-      type: "action",
-      action,
-      status: "streaming",
-    });
-
-    this.toolBlockMap.set(toolCallId, block.id);
-  }
-
-  private handleToolResult(event: any): void {
-    if (!this.currentTurn) return;
-
-    const toolCallId: string = event.tool_use_id ?? event.id ?? "";
-    const blockId = this.toolBlockMap.get(toolCallId);
-    if (!blockId) return;
-
-    const output = typeof event.content === "string"
-      ? event.content
-      : JSON.stringify(event.content ?? "");
-
-    this.emit("event", {
-      event: "block:action:output",
-      sessionId: this.session.id,
-      turnId: this.currentTurn.id,
-      blockId,
-      output,
-    });
-
-    const status = event.is_error ? "failed" : "completed";
-    this.emit("event", {
-      event: "block:action:status",
-      sessionId: this.session.id,
-      turnId: this.currentTurn.id,
-      blockId,
-      status,
-    });
-
-    this.emit("event", {
-      event: "block:end",
-      sessionId: this.session.id,
-      turnId: this.currentTurn.id,
-      blockId,
-      status: status === "failed" ? "failed" : "completed",
-    });
-  }
-
-  // ---------------------------------------------------------------------------
-  // Interactive question handling
-  // ---------------------------------------------------------------------------
-
   /**
-   * Called by the bridge when the user answers a QuestionBlock.
-   * Resolves the pending promise so awaitAndSendAnswer can write stdin.
+   * Decode harness stdout and feed the shared pure normalizer.
+   * Filesystem topology and stdin writeback remain shell side effects.
    */
+  private handleHarnessPayload(payload: unknown): void {
+    const events = this.normalizer.ingest({
+      source: "harness",
+      sequence: this.sequence++,
+      payload,
+    });
+    this.emitNormalized(events);
+
+    const record = asRecord(payload);
+    if (!record) return;
+
+    // Keep shell claudeSessionId for topology file discovery.
+    if (record.type === "system" && record.subtype === "init") {
+      const sid = record.session_id ?? record.sessionId;
+      if (typeof sid === "string" && sid.trim()) {
+        this.claudeSessionId = sid;
+      }
+      this.pushObservedTopology();
+    }
+
+    if (record.type === "result") {
+      this.pushObservedTopology();
+    }
+
+    // Shell owns stdin writeback for AskUserQuestion. Modern Claude Code nests
+    // tool_use records in assistant.message.content; older builds emitted them
+    // as top-level records.
+    const toolUses: Record<string, unknown>[] = [];
+    if (record.type === "tool_use") {
+      toolUses.push(record);
+    } else if (record.type === "assistant") {
+      const content = asRecord(record.message)?.content ?? record.content;
+      if (Array.isArray(content)) {
+        for (const part of content) {
+          const toolUse = asRecord(part);
+          if (toolUse?.type === "tool_use") toolUses.push(toolUse);
+        }
+      }
+    }
+    const questionStarts = events.filter(
+      (event): event is Extract<AgentSessionStreamEvent, { event: "block:start" }> =>
+        event.event === "block:start" && event.block.type === "question",
+    );
+    let questionIndex = 0;
+    for (const toolUse of toolUses) {
+      const toolName = typeof toolUse.tool_name === "string"
+        ? toolUse.tool_name
+        : typeof toolUse.name === "string"
+          ? toolUse.name
+          : "";
+      if (toolName === "AskUserQuestion") {
+        const toolCallId = typeof toolUse.tool_use_id === "string"
+          ? toolUse.tool_use_id
+          : typeof toolUse.id === "string"
+            ? toolUse.id
+            : "";
+        const questionStart = questionStarts[questionIndex++];
+        if (questionStart && toolCallId) {
+          void this.awaitAndSendAnswer(questionStart.block.id, toolCallId);
+        }
+      }
+    }
+  }
+
   answerQuestion(answer: QuestionAnswer): void {
     const resolve = this.pendingAnswers.get(answer.blockId);
     if (!resolve) return;
     this.pendingAnswers.delete(answer.blockId);
     resolve(answer.answer);
 
-    // Emit the answer delta so all surfaces update.
-    const turn = this.currentTurn;
-    if (turn) {
-      this.emit("event", {
-        event: "block:question:answer",
-        sessionId: this.session.id,
-        turnId: turn.id,
+    this.emitNormalized(this.normalizer.ingest({
+      source: "adapter_control",
+      sequence: this.sequence++,
+      event: "question_answered",
+      payload: {
         blockId: answer.blockId,
-        questionStatus: "answered",
         answer: answer.answer,
-      });
-    }
+      },
+    }));
   }
 
   private async awaitAndSendAnswer(blockId: string, toolCallId: string): Promise<void> {
@@ -633,124 +355,72 @@ export class ClaudeCodeAdapter extends BaseAdapter {
       this.pendingAnswers.set(blockId, resolve);
     });
 
-    // Write the answer back to Claude Code's stdin as a tool_result.
     if (!this.process?.stdin.writable) return;
     const response = JSON.stringify({
-      type: "tool_result",
-      tool_use_id: toolCallId,
-      content: answer.join(", "),
+      type: "user",
+      session_id: this.claudeSessionId ?? this.normalizer.getClaudeSessionId() ?? "",
+      message: {
+        role: "user",
+        content: [{
+          type: "tool_result",
+          tool_use_id: toolCallId,
+          content: answer.join(", "),
+          is_error: false,
+        }],
+      },
+      parent_tool_use_id: null,
     });
     this.process.stdin.write(response + "\n");
   }
 
-  // ---------------------------------------------------------------------------
-  // Block helpers
-  // ---------------------------------------------------------------------------
-
-  private startBlock(turn: Turn, partial: Record<string, unknown> & { type: string; status: BlockStatus }): Block {
-    const block: Block = {
-      ...partial,
-      id: crypto.randomUUID(),
-      turnId: turn.id,
-      index: this.blockIndex++,
-    } as Block;
-
-    turn.blocks.push(block);
-
-    this.emit("event", {
-      event: "block:start",
-      sessionId: this.session.id,
-      turnId: turn.id,
-      block,
-    });
-
-    return block;
-  }
-
-  private emitBlockEnd(turn: Turn, block: Block, status: BlockStatus): void {
-    this.emit("event", {
-      event: "block:end",
-      sessionId: this.session.id,
-      turnId: turn.id,
-      blockId: block.id,
-      status,
-    });
-  }
-
-  private emitError(turn: Turn, message: string): void {
-    const block = this.startBlock(turn, {
-      type: "error",
-      message,
-      status: "completed",
-    });
-    this.emitBlockEnd(turn, block, "completed");
-  }
-
-  private endTurn(turn: Turn, status: TurnStatus): void {
-    turn.status = status;
-    turn.endedAt = new Date().toISOString();
-    this.currentTurn = null;
-    this.activeStreamBlocks.clear();
-    this.sawStreamTextThisTurn = false;
-    this.emit("event", {
-      event: "turn:end",
-      sessionId: this.session.id,
-      turnId: turn.id,
-      status,
-    });
-  }
-
-  private appendTextDelta(block: TextualBlock, text: string): void {
-    if (!text || !this.currentTurn) return;
-
-    block.text += text;
-    this.emit("event", {
-      event: "block:delta",
-      sessionId: this.session.id,
-      turnId: this.currentTurn.id,
-      blockId: block.id,
-      text,
-    });
-  }
-
-  private refreshObservedTopology(): void {
+  private pushObservedTopology(): void {
     const homeDir = typeof this.config.env?.HOME === "string" && this.config.env.HOME.trim()
       ? this.config.env.HOME
       : process.env.HOME;
     const topology = readClaudeAgentTeamTopology({
       homeDir,
       cwd: this.session.cwd ?? this.config.cwd,
-      claudeSessionId: this.claudeSessionId,
+      claudeSessionId: this.claudeSessionId ?? this.normalizer.getClaudeSessionId(),
     });
-    const providerMeta = { ...(this.session.providerMeta ?? {}) };
+    this.emitNormalized(this.normalizer.ingest({
+      source: "adapter_control",
+      sequence: this.sequence++,
+      event: "topology_observed",
+      payload: topology ?? null,
+    }));
+  }
 
-    if (topology) {
-      providerMeta[OBSERVED_HARNESS_TOPOLOGY_META_KEY] = topology;
-    } else {
-      delete providerMeta[OBSERVED_HARNESS_TOPOLOGY_META_KEY];
+  private emitNormalized(events: readonly AgentSessionStreamEvent[]): void {
+    for (const event of events) {
+      if (event.event === "session:update") {
+        this.session.name = event.session.name;
+        this.session.status = event.session.status;
+        this.session.cwd = event.session.cwd;
+        this.session.model = event.session.model;
+        this.session.providerMeta = event.session.providerMeta;
+      }
+      if (event.event === "turn:start") {
+        this.currentTurn = event.turn;
+      }
+      if (event.event === "turn:end") {
+        this.currentTurn = null;
+      }
+      this.emit("event", event);
     }
-
-    this.session.providerMeta = Object.keys(providerMeta).length > 0 ? providerMeta : undefined;
   }
 
-  private emitSessionUpdate(): void {
-    this.emit("event", { event: "session:update", session: { ...this.session } });
-  }
-
-  private refreshObservedTopologyAndEmit(): void {
-    this.refreshObservedTopology();
-    this.emitSessionUpdate();
-  }
-
-  private completeOpenStreamBlocks(): void {
-    if (!this.currentTurn) return;
-
-    for (const block of this.activeStreamBlocks.values()) {
-      this.emitBlockEnd(this.currentTurn, block, "completed");
-    }
-    this.activeStreamBlocks.clear();
+  private failSession(error: Error): void {
+    this.emitNormalized(this.normalizer.ingest({
+      source: "adapter_control",
+      sequence: this.sequence++,
+      event: "transport_error",
+      payload: { message: error.message },
+    }));
+    this.emit("error", error);
+    this.setStatus("error");
   }
 }
+
 
 // ---------------------------------------------------------------------------
 // Factory export

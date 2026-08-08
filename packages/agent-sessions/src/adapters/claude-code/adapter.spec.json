@@ -1,6 +1,6 @@
 {
-  "$schema": "../spec/adapter-spec.v1.schema.json",
-  "specVersion": "1.0.0",
+  "$schema": "../spec/adapter-spec.v2.schema.json",
+  "specVersion": "2.0.0",
   "adapterId": "claude-code",
   "displayName": "Claude Code",
   "implementation": {
@@ -84,9 +84,12 @@
     "outboundNotifications": [],
     "inboundNotifications": [
       "system",
+      "stream_event",
       "assistant",
+      "user",
       "tool_use",
       "tool_result",
+      "rate_limit_event",
       "result",
       "error"
     ],
@@ -95,6 +98,8 @@
       "stream_json_message",
       "user_message",
       "assistant_message",
+      "assistant_message.tool_use",
+      "user_message.tool_result",
       "tool_use",
       "tool_result",
       "result"
@@ -115,12 +120,18 @@
       "session:update",
       "turn:start",
       "block:start",
+      "block:delta",
       "block:action:output",
       "block:action:status",
       "block:question:answer",
       "block:end",
       "turn:end"
     ]
+  },
+  "conformance": {
+    "status": "required",
+    "normalizerId": "claude-code",
+    "fixtureSets": ["claude-code"]
   },
   "limitations": [
     "Referenced files are appended to the prompt as plain text notes rather than being sent through a native file attachment channel.",

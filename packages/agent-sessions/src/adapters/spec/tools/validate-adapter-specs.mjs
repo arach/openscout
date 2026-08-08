@@ -5,7 +5,10 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const SCHEMA_PATH = path.join(ROOT_DIR, "adapter-spec.v1.schema.json");
+const SCHEMA_PATHS = [
+  path.join(ROOT_DIR, "adapter-spec.v1.schema.json"),
+  path.join(ROOT_DIR, "adapter-spec.v2.schema.json"),
+];
 
 const ENUMS = {
   sourceKinds: new Set(["url", "file", "comment", "generated"]),
@@ -22,6 +25,7 @@ const ENUMS = {
   actionKinds: new Set(["command", "file_change", "subagent", "tool_call"]),
   interactive: new Set(["none", "native"]),
   serverRequestStrategy: new Set(["not_applicable", "reject_unsupported", "resolve_and_reject", "unknown"]),
+  conformanceStatus: new Set(["required", "grandfathered"]),
 };
 
 function isNonEmptyString(value) {
@@ -56,7 +60,7 @@ export function validateAdapterSpec(spec, filePath = "<memory>") {
     return errors;
   }
 
-  assert(spec.specVersion === "1.0.0", `${filePath}: specVersion must be "1.0.0"`, errors);
+  assert(spec.specVersion === "1.0.0" || spec.specVersion === "2.0.0", `${filePath}: specVersion must be "1.0.0" or "2.0.0"`, errors);
   assert(isNonEmptyString(spec.adapterId), `${filePath}: adapterId must be a non-empty string`, errors);
   assert(/^[a-z0-9-]+$/.test(spec.adapterId ?? ""), `${filePath}: adapterId must match ^[a-z0-9-]+$`, errors);
   assert(isNonEmptyString(spec.displayName), `${filePath}: displayName must be a non-empty string`, errors);
@@ -139,6 +143,14 @@ export function validateAdapterSpec(spec, filePath = "<memory>") {
 
   assertStringArray(spec.limitations, `${filePath}: limitations`, errors);
 
+  if (spec.specVersion === "2.0.0") {
+    const conformance = spec.conformance ?? {};
+    assertEnum(conformance.status, ENUMS.conformanceStatus, `${filePath}: conformance.status`, errors);
+    assert(isNonEmptyString(conformance.normalizerId), `${filePath}: conformance.normalizerId is required`, errors);
+    assert(/^[a-z0-9-]+$/.test(conformance.normalizerId ?? ""), `${filePath}: conformance.normalizerId must match ^[a-z0-9-]+$`, errors);
+    assertStringArray(conformance.fixtureSets, `${filePath}: conformance.fixtureSets`, errors);
+  }
+
   return errors;
 }
 
@@ -162,7 +174,7 @@ async function collectSpecFiles(rootDir) {
 }
 
 export async function validateRepoAdapterSpecs() {
-  await fs.readFile(SCHEMA_PATH, "utf8");
+  await Promise.all(SCHEMA_PATHS.map((schemaPath) => fs.readFile(schemaPath, "utf8")));
   const specFiles = await collectSpecFiles(path.resolve(ROOT_DIR, ".."));
   const results = [];
 

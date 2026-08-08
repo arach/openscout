@@ -1,6 +1,6 @@
 {
-  "$schema": "../spec/adapter-spec.v1.schema.json",
-  "specVersion": "1.0.0",
+  "$schema": "../spec/adapter-spec.v2.schema.json",
+  "specVersion": "2.0.0",
   "adapterId": "codex",
   "displayName": "Codex",
   "implementation": {
@@ -139,6 +139,11 @@
       "block:end",
       "turn:end"
     ]
+  },
+  "conformance": {
+    "status": "required",
+    "normalizerId": "codex",
+    "fixtureSets": ["codex"]
   },
   "limitations": [
     "The adapter currently forwards only text prompts, even though upstream Codex app-server supports richer input shapes.",

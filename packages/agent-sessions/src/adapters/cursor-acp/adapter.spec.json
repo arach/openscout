@@ -1,6 +1,6 @@
 {
-  "$schema": "../spec/adapter-spec.v1.schema.json",
-  "specVersion": "1.0.0",
+  "$schema": "../spec/adapter-spec.v2.schema.json",
+  "specVersion": "2.0.0",
   "adapterId": "cursor-acp",
   "displayName": "Cursor ACP",
   "implementation": {
@@ -48,6 +48,11 @@
     "adapterMethods": ["start", "send", "interrupt", "shutdown"],
     "optionalAdapterMethods": ["decide", "answerQuestion"],
     "emitsPairingEvents": ["session:update", "turn:start", "block:start", "block:delta", "block:question:answer", "block:action:output", "block:action:status", "block:action:approval", "block:end", "turn:error", "turn:end"]
+  },
+  "conformance": {
+    "status": "grandfathered",
+    "normalizerId": "acp",
+    "fixtureSets": ["acp"]
   },
   "limitations": [
     "Cursor authentication is owned by the separately installed Cursor CLI or CURSOR_API_KEY.",

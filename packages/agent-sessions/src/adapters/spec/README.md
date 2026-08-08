@@ -1,4 +1,4 @@
-# Adapter Spec v1
+# Adapter specs
 
 This directory holds the formal OpenScout adapter contract.
 
@@ -8,21 +8,27 @@ the implementation.
 
 ## Files
 
-- Schema:
+- Current schema:
+  [adapter-spec.v2.schema.json](./adapter-spec.v2.schema.json)
+- Retained v1 schema:
   [adapter-spec.v1.schema.json](./adapter-spec.v1.schema.json)
 - Validator:
   [tools/validate-adapter-specs.mjs](./tools/validate-adapter-specs.mjs)
 
-Each adapter can ship an `adapter.spec.json` in its support directory:
+Each current adapter ships an `adapter.spec.json` in its support directory:
 
-- Codex:
-  [../codex/adapter.spec.json](../codex/adapter.spec.json)
-- Claude Code:
-  [../claude-code/adapter.spec.json](../claude-code/adapter.spec.json)
-- Grok ACP:
-  [../grok-acp/adapter.spec.json](../grok-acp/adapter.spec.json)
-- Kimi Code ACP:
-  [../kimi-acp/adapter.spec.json](../kimi-acp/adapter.spec.json)
+| Adapter | Spec | Conformance status | Normalizer |
+| --- | --- | --- | --- |
+| ACP | [../acp/adapter.spec.json](../acp/adapter.spec.json) | `grandfathered` | `acp` |
+| Claude Code | [../claude-code/adapter.spec.json](../claude-code/adapter.spec.json) | `required` | `claude-code` |
+| Codex | [../codex/adapter.spec.json](../codex/adapter.spec.json) | `required` | `codex` |
+| Cursor ACP | [../cursor-acp/adapter.spec.json](../cursor-acp/adapter.spec.json) | `grandfathered` | `acp` |
+| Grok ACP | [../grok-acp/adapter.spec.json](../grok-acp/adapter.spec.json) | `grandfathered` | `acp` |
+| Kimi Code ACP | [../kimi-acp/adapter.spec.json](../kimi-acp/adapter.spec.json) | `grandfathered` | `acp` |
+
+The conformance runner discovers this inventory from the checked-in specs. A
+`required` adapter must have a passing recorded fixture. A `grandfathered`
+adapter reports an explicit warning until recorded evidence lands.
 
 ## How To Use It
 
@@ -30,8 +36,8 @@ The formal spec is the canonical adapter contract for:
 
 - capability comparison across adapters
 - drift checks against implementation
-- generated docs later
-- future conformance tests
+- generated adapter inventory
+- replay conformance
 
 The human references and extractor output are inputs to the spec, not the spec itself.
 
@@ -39,4 +45,5 @@ The human references and extractor output are inputs to the spec, not the spec i
 
 ```bash
 npm --prefix packages/agent-sessions run adapter:validate-specs
+bun run --cwd packages/agent-sessions adapter:conformance
 ```
