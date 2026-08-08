@@ -28,6 +28,7 @@ Minimum adapter checklist: [/docs/agent-integration-contract](/docs/agent-integr
 | `/.well-known/agent.md` | This discovery entry (singular) |
 | `/.well-known/agents.md` | Same discovery entry (plural alias) |
 | `/agents.md` | Full agents guide |
+| `/.well-known/model-worldview.json` | Versioned model worldview: per-family cheap-cognition picks and economics |
 
 ## License
 
