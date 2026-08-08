@@ -42,7 +42,7 @@ import { collectUserLevelProjectRootHints, encodeClaudeProjectsSlug } from "./us
 export type RelayRuntimeTransport = "claude_stream_json" | "codex_app_server" | "pi_rpc" | "grok_acp" | "kimi_acp" | "cursor_acp" | "opencode_acp" | "tmux" | "cursor_exec";
 export type TelegramBridgeMode = "auto" | "webhook" | "polling";
 export const SCOUT_AGENT_ID = "scout";
-export const MANAGED_AGENT_HARNESSES = ["claude", "codex", "cursor", "grok", "pi"] as const;
+export const MANAGED_AGENT_HARNESSES = ["claude", "codex", "cursor", "grok", "grok-acp", "kimi", "pi"] as const;
 export type ManagedAgentHarness = typeof MANAGED_AGENT_HARNESSES[number];
 
 export type RelayHarnessProfile = {
@@ -529,6 +529,15 @@ const PROJECT_HARNESS_MARKERS: Record<ManagedAgentHarness, readonly string[]> = 
     "Grok.md",
     ".grok",
   ],
+  "grok-acp": [
+    // ACP is an explicit runtime profile; do not infer it from the same
+    // project markers as the interactive Grok CLI.
+  ],
+  kimi: [
+    "KIMI.md",
+    ".kimi",
+    ".kimi-code",
+  ],
   pi: [
     "PI.md",
     ".pi",
@@ -638,6 +647,12 @@ function normalizeManagedHarness(
   }
   if (value === "grok") {
     return "grok";
+  }
+  if (value === "grok-acp") {
+    return "grok-acp";
+  }
+  if (value === "kimi") {
+    return "kimi";
   }
   if (value === "pi") {
     return "pi";
@@ -1628,6 +1643,8 @@ async function detectHarnessMarkers(projectRoot: string): Promise<Record<Managed
     codex: [],
     cursor: [],
     grok: [],
+    "grok-acp": [],
+    kimi: [],
     pi: [],
   };
 
@@ -2959,9 +2976,10 @@ async function buildProjectInventoryEntry(
     }
   }
 
-  if (manifestDefaultHarness === "claude" || manifestDefaultHarness === "codex" || manifestDefaultHarness === "cursor") {
-    harnesses.set(manifestDefaultHarness, {
-      harness: manifestDefaultHarness,
+  if (MANAGED_AGENT_HARNESSES.includes(manifestDefaultHarness as ManagedAgentHarness)) {
+    const harness = manifestDefaultHarness as ManagedAgentHarness;
+    harnesses.set(harness, {
+      harness,
       source: "manifest",
       detail: "Project manifest default",
     });

@@ -47,6 +47,8 @@ const managedLocalSessionTransports = new Set<AgentEndpoint["transport"]>([
   "claude_stream_json",
   "codex_app_server",
   "pi_rpc",
+  "grok_acp",
+  "kimi_acp",
   "tmux",
 ]);
 
@@ -305,8 +307,12 @@ export class BrokerLocalAgentSyncService {
 
   async archiveSupersededLocalTransportEndpoints(bindings: LocalAgentBinding[]): Promise<void> {
     const activeByAgentHarness = new Map<string, AgentEndpoint>();
+    const activeByAgent = new Map<string, AgentEndpoint>();
+    const activeAgentIds = new Set<string>();
     for (const binding of bindings) {
       const endpoint = binding.endpoint;
+      activeAgentIds.add(endpoint.agentId);
+      activeByAgent.set(endpoint.agentId, endpoint);
       activeByAgentHarness.set(`${endpoint.agentId}\0${endpoint.nodeId}\0${endpoint.harness ?? ""}`, endpoint);
     }
 
@@ -319,8 +325,20 @@ export class BrokerLocalAgentSyncService {
       if (!managedLocalSessionTransports.has(endpoint.transport)) {
         continue;
       }
+      // An agent absent from the current registry is handled by the stale
+      // registration reconciler; this pass only compares transport profiles
+      // for an agent that still has a current local binding.
+      if (!activeAgentIds.has(endpoint.agentId)) {
+        continue;
+      }
       const active = activeByAgentHarness.get(`${endpoint.agentId}\0${endpoint.nodeId}\0${endpoint.harness ?? ""}`);
-      if (!active || active.id === endpoint.id || active.transport === endpoint.transport) {
+      const replacement = active ?? activeByAgent.get(endpoint.agentId);
+      // The selected local binding is the source of truth for the agent's
+      // current harness. If that harness changed entirely (for example
+      // Claude/tmux -> Kimi ACP), there is no same-harness replacement to
+      // compare against, but the old managed endpoint is still stale and
+      // must not keep the agent looking active through the wrong runtime.
+      if (!replacement || replacement.id === endpoint.id || replacement.transport === endpoint.transport) {
         continue;
       }
       if (endpoint.state === "offline" && endpoint.metadata?.supersededLocalTransport === true) {
@@ -333,14 +351,14 @@ export class BrokerLocalAgentSyncService {
         metadata: {
           ...(endpoint.metadata ?? {}),
           supersededLocalTransport: true,
-          replacedByEndpointId: active.id,
-          replacedByTransport: active.transport,
+          replacedByEndpointId: replacement.id,
+          replacedByTransport: replacement.transport,
           retiredAt,
-          lastError: `superseded by ${active.transport} local agent endpoint`,
+          lastError: `superseded by ${replacement.transport} local agent endpoint`,
           lastFailedAt: retiredAt,
         },
       });
-      this.options.log?.(`[openscout-runtime] archived superseded local transport endpoint ${endpoint.id} -> ${active.id}`);
+      this.options.log?.(`[openscout-runtime] archived superseded local transport endpoint ${endpoint.id} -> ${replacement.id}`);
     }
   }
 

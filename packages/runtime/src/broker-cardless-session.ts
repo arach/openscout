@@ -166,8 +166,13 @@ export function buildCardlessSessionActor(input: CardlessSessionInput): ActorIde
       sessionBacked: true,
       cardless: true,
       handle,
+      harness: input.harness,
+      transport: input.transport,
+      sessionId: input.sessionId,
       project: projectName,
       projectRoot,
+      ...(input.model?.trim() ? { model: input.model.trim() } : {}),
+      ...(input.reasoningEffort?.trim() ? { reasoningEffort: input.reasoningEffort.trim() } : {}),
       ...(input.viaCard ? { viaCard: input.viaCard } : {}),
     },
   };

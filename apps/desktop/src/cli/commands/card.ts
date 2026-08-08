@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline";
 
 import { formatScoutPermissionProfiles } from "@openscout/protocol";
-import { resolveLocalAgentByName, resolveLocalAgentIdentity } from "@openscout/runtime/local-agents";
+import { resolveLocalAgentByName, resolveLocalAgentIdentity, SUPPORTED_LOCAL_AGENT_HARNESSES } from "@openscout/runtime/local-agents";
 
 import type { ScoutCommandContext } from "../context.ts";
 import { defaultScoutContextDirectory } from "../context.ts";
@@ -16,8 +16,8 @@ const HELP_FLAGS = new Set(["help", "--help", "-h"]);
 export function renderCardCommandHelp(): string {
   return [
     "Usage:",
-    "  scout card create [path] [--name <alias>] [--display-name <name>] [--harness <claude|codex|grok|pi>] [--provider <provider>] [--model <model>] [--reasoning-effort <effort>] [--permission-profile <profile>] [--as <requester>] [--one-time] [--no-input] [--path <path>]",
-    `  scout card update <agent> [--harness <claude|codex|grok|pi>] [--model <model>|--clear-model] [--reasoning-effort <effort>|--clear-reasoning-effort] [--permission-profile <${formatScoutPermissionProfiles()}>|--clear-permission-profile] [--restart]`,
+    `  scout card create [path] [--name <alias>] [--display-name <name>] [--harness <${SUPPORTED_LOCAL_AGENT_HARNESSES.join("|")}>] [--provider <provider>] [--model <model>] [--reasoning-effort <effort>] [--permission-profile <profile>] [--as <requester>] [--one-time] [--no-input] [--path <path>]`,
+    `  scout card update <agent> [--harness <${SUPPORTED_LOCAL_AGENT_HARNESSES.join("|")}>] [--model <model>|--clear-model] [--reasoning-effort <effort>|--clear-reasoning-effort] [--permission-profile <${formatScoutPermissionProfiles()}>|--clear-permission-profile] [--restart]`,
     "  scout card cleanup [--all]",
     "  scout card retire <agent>",
     "",

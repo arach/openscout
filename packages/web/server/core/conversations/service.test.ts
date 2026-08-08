@@ -256,6 +256,98 @@ describe("getScoutConversations", () => {
     ]);
   });
 
+  test("keeps cardless channel sessions legible by harness after endpoint rotation", async () => {
+    const snapshot = baseSnapshot();
+    const channelId = stableChannelId(namedChannelNaturalKey("mcp-feedback"));
+    const sessions = [
+      {
+        id: "session-grok-channel",
+        displayName: "openscout-machiavelli-5",
+        handle: "project-machiavelli-5",
+        harness: "grok-acp",
+        transport: "grok_acp",
+      },
+      {
+        id: "session-kimi-channel",
+        displayName: "openscout-fourier-2",
+        handle: "project-fourier-2",
+        harness: "kimi",
+        transport: "kimi_acp",
+      },
+    ] as const;
+
+    for (const session of sessions) {
+      snapshot.actors[session.id] = {
+        id: session.id,
+        kind: "session",
+        displayName: session.displayName,
+        handle: session.handle,
+        labels: ["cardless-session", "session"],
+        metadata: {
+          source: "scout-cardless-session",
+          sessionBacked: true,
+          cardless: true,
+          handle: session.handle,
+          harness: session.harness,
+          transport: session.transport,
+          sessionId: session.id,
+          projectRoot: "/Users/arach/dev/openscout",
+        },
+      };
+    }
+
+    snapshot.conversations[channelId] = {
+      id: channelId,
+      kind: "channel",
+      title: "mcp-feedback",
+      visibility: "workspace",
+      shareMode: "local",
+      authorityNodeId: "node-1",
+      participantIds: ["operator", ...sessions.map((session) => session.id)],
+      metadata: {
+        naturalKey: namedChannelNaturalKey("mcp-feedback"),
+        channel: "mcp-feedback",
+      },
+    };
+    snapshot.messages["msg-mcp-feedback-grok"] = {
+      id: "msg-mcp-feedback-grok",
+      conversationId: channelId,
+      actorId: "session-grok-channel",
+      originNodeId: "node-1",
+      class: "agent",
+      body: "Grok feedback",
+      visibility: "workspace",
+      policy: "durable",
+      createdAt: 1_779_461_900_000,
+    };
+    snapshot.messages["msg-mcp-feedback-kimi"] = {
+      id: "msg-mcp-feedback-kimi",
+      conversationId: channelId,
+      actorId: "session-kimi-channel",
+      originNodeId: "node-1",
+      class: "agent",
+      body: "Kimi feedback",
+      visibility: "workspace",
+      policy: "durable",
+      createdAt: 1_779_461_900_001,
+    };
+    brokerContextResult = brokerContext(snapshot);
+
+    const channel = (await getScoutConversations({ conversationId: channelId }))[0];
+    expect(channel?.participants).toHaveLength(3);
+    for (const session of sessions) {
+      const participant = channel?.participants.find((candidate) => candidate.actorId === session.id);
+      expect(participant).toMatchObject({
+        kind: "session",
+        sessionId: session.id,
+        harness: session.harness,
+        transport: session.transport,
+        workspaceRoot: "/Users/arach/dev/openscout",
+      });
+      expect(participant?.label).toContain(participant?.scopedAlias ?? "");
+    }
+  });
+
   test("omits legacy structural conversation ids from the live list", async () => {
     const snapshot = baseSnapshot();
     snapshot.conversations["dm.operator.hudson.main.mini"] = {
