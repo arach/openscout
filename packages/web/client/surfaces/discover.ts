@@ -5,7 +5,15 @@ import {
 } from "./discover-build.ts";
 import type { RegisteredSurface } from "./types.ts";
 
-const screenModules = import.meta.glob<SurfaceModule>("../screens/**/*.tsx");
+// Tests are excluded explicitly: this glob decides what reaches the browser
+// bundle, so without the negation a `*.test.tsx` beside a screen pulls
+// `bun:test` and `react-dom/server` into the client build and fails it. That is
+// why screen-level component tests did not exist before — the failure looked
+// like the test was wrong rather than the glob being too wide.
+const screenModules = import.meta.glob<SurfaceModule>([
+  "../screens/**/*.tsx",
+  "!../screens/**/*.test.tsx",
+]);
 
 // The definitions remain beside their screens. This small routing index lets an
 // embed select one lazy module without evaluating every screen just to inspect
